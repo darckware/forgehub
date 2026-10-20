@@ -18,10 +18,13 @@ import uuid
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.db.base import AsyncSessionLocal
+from app.db.models.backlog import PlanningItem
 from app.db.models.product import Product, ProductVersion
+from app.db.models.project import Project
+from app.db.models.task import ProjectTask
 from app.main import app
 
 
@@ -44,12 +47,17 @@ async def test_create_get_list_product(client: AsyncClient):
     unique_name = f"Test Product {uuid.uuid4()}"
     create_resp = await client.post(
         "/api/v1/products",
-        json={"name": unique_name, "description": "A product created in tests"},
+        json={
+            "name": unique_name,
+            "description": "A product created in tests",
+            "application_url": "http://localhost:4173/login",
+        },
     )
     try:
         assert create_resp.status_code == 201, create_resp.text
         body = create_resp.json()
         assert body["name"] == unique_name
+        assert body["application_url"] == "http://localhost:4173/login"
         # Business rule 6.1.3: a product is created with at least one version.
         assert len(body["versions"]) == 1
         assert body["versions"][0]["version"] == "0.1.0"
@@ -60,6 +68,13 @@ async def test_create_get_list_product(client: AsyncClient):
         get_resp = await client.get(f"/api/v1/products/{product_id}")
         assert get_resp.status_code == 200
         assert get_resp.json()["name"] == unique_name
+
+        update_resp = await client.put(
+            f"/api/v1/products/{product_id}",
+            json={"application_url": "https://example.test/app"},
+        )
+        assert update_resp.status_code == 200, update_resp.text
+        assert update_resp.json()["application_url"] == "https://example.test/app"
 
         list_resp = await client.get("/api/v1/products")
         assert list_resp.status_code == 200
@@ -148,3 +163,152 @@ async def test_product_module_crud(client: AsyncClient):
         assert len(list_resp.json()) == 1
     finally:
         await _cleanup_product(uuid.UUID(product_id))
+
+
+@pytest.mark.asyncio
+async def test_product_carries_a_dev_and_a_production_url(client: AsyncClient):
+    """A URL da aplicação é uma por ambiente (2026-07-26).
+
+    `application_url` é a de produção -- o nome histórico foi mantido porque
+    WebAppPane.tsx e workspace_browser.py já o leem -- e `application_url_dev`
+    é a de desenvolvimento. Ambas são criáveis e alteráveis, e passar "" não
+    vale: o pattern ^https?:// rejeita string vazia, então limpar uma URL é
+    enviar null.
+    """
+    unique_name = f"Test Product URLs {uuid.uuid4()}"
+    create_resp = await client.post(
+        "/api/v1/products",
+        json={
+            "name": unique_name,
+            "application_url": "https://app.example.test",
+            "application_url_dev": "http://localhost:5173",
+        },
+    )
+    product_id = None
+    try:
+        assert create_resp.status_code == 201, create_resp.text
+        body = create_resp.json()
+        product_id = body["id"]
+        assert body["application_url"] == "https://app.example.test"
+        assert body["application_url_dev"] == "http://localhost:5173"
+
+        # Alterar apenas a de dev não mexe na de produção.
+        update_resp = await client.put(
+            f"/api/v1/products/{product_id}",
+            json={"application_url_dev": "http://localhost:4173"},
+        )
+        assert update_resp.status_code == 200, update_resp.text
+        updated = update_resp.json()
+        assert updated["application_url_dev"] == "http://localhost:4173"
+        assert updated["application_url"] == "https://app.example.test"
+
+        # Limpar a de dev com null é aceito e não afeta a de produção.
+        clear_resp = await client.put(
+            f"/api/v1/products/{product_id}", json={"application_url_dev": None}
+        )
+        assert clear_resp.status_code == 200, clear_resp.text
+        assert clear_resp.json()["application_url_dev"] is None
+        assert clear_resp.json()["application_url"] == "https://app.example.test"
+
+        # Uma URL sem esquema http(s) é rejeitada em qualquer um dos campos.
+        bad_resp = await client.put(
+            f"/api/v1/products/{product_id}", json={"application_url_dev": "localhost:5173"}
+        )
+        assert bad_resp.status_code == 422
+    finally:
+        if product_id:
+            await client.delete(f"/api/v1/products/{product_id}")
+
+
+@pytest.mark.asyncio
+async def test_publish_version_requires_at_least_one_task(client: AsyncClient):
+    create_resp = await client.post(
+        "/api/v1/products",
+        json={"name": f"Empty Publish Gate {uuid.uuid4()}"},
+    )
+    assert create_resp.status_code == 201
+    product_id = uuid.UUID(create_resp.json()["id"])
+    version_id = uuid.UUID(create_resp.json()["versions"][0]["id"])
+    try:
+        response = await client.post(f"/api/v1/products/versions/{version_id}:publish")
+        assert response.status_code == 409, response.text
+        assert "at least one task" in response.json()["detail"]["message"]
+        assert response.json()["detail"]["blocking"] == []
+    finally:
+        await _cleanup_product(product_id)
+
+
+@pytest.mark.asyncio
+async def test_publish_version_blocks_on_unfinished_tasks(client: AsyncClient):
+    """Pacote 4 (2026-08-01): :publish blocks (409 + blocking list) while any
+    Project under the version has a non-terminal task -- publishing never
+    force-completes work, per Marcelo's explicit choice. Idempotent once
+    actually published."""
+    unique_name = f"Publish Gate Product {uuid.uuid4()}"
+    create_resp = await client.post("/api/v1/products", json={"name": unique_name})
+    assert create_resp.status_code == 201
+    body = create_resp.json()
+    product_id = uuid.UUID(body["id"])
+    version_id = uuid.UUID(body["versions"][0]["id"])
+
+    try:
+        async with AsyncSessionLocal() as db:
+            project = Project(name=f"Publish Gate Project {uuid.uuid4()}", product_version_id=version_id, status="planned")
+            sibling = Project(name=f"Publish Gate Sibling {uuid.uuid4()}", product_version_id=version_id, status="active")
+            db.add_all([project, sibling])
+            await db.flush()
+            item = PlanningItem(title="Gate item", item_type="feature", project_id=project.id)
+            sibling_item = PlanningItem(title="Sibling gate item", item_type="feature", project_id=sibling.id)
+            db.add_all([item, sibling_item])
+            await db.flush()
+            completed_task = ProjectTask(
+                planning_item_id=item.id,
+                title="Completed task",
+                task_type="feature",
+                status="done",
+            )
+            task = ProjectTask(planning_item_id=sibling_item.id, title="Sibling gate task", task_type="feature")
+            db.add_all([completed_task, task])
+            await db.commit()
+            project_id, sibling_id = project.id, sibling.id
+            item_id, sibling_item_id = item.id, sibling_item.id
+            completed_task_id, task_id = completed_task.id, task.id
+
+        blocked = await client.post(f"/api/v1/products/versions/{version_id}:publish")
+        assert blocked.status_code == 409, blocked.text
+        detail = blocked.json()["detail"]
+        assert "unfinished tasks" in detail["message"]
+        assert [row["task_id"] for row in detail["blocking"]] == [str(task_id)]
+        assert detail["blocking"][0]["project_id"] == str(sibling_id)
+
+        finish = await client.patch(f"/api/v1/tasks/{task_id}", json={"status": "done"})
+        assert finish.status_code == 200, finish.text
+
+        published = await client.post(f"/api/v1/products/versions/{version_id}:publish")
+        assert published.status_code == 200, published.text
+        assert published.json()["status"] == "published"
+
+        async with AsyncSessionLocal() as db:
+            statuses = {
+                row.id: row.status
+                for row in (
+                    await db.execute(select(Project).where(Project.id.in_([project_id, sibling_id])))
+                ).scalars()
+            }
+        assert statuses == {project_id: "completed", sibling_id: "completed"}
+
+        # Idempotent: publishing again returns the current state, not an error.
+        again = await client.post(f"/api/v1/products/versions/{version_id}:publish")
+        assert again.status_code == 200
+        assert again.json()["status"] == "published"
+
+        # And now the version-lock kicks in for planning item edits.
+        locked = await client.put(f"/api/v1/planning-items/{item_id}", json={"title": "Renamed"})
+        assert locked.status_code == 409
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(ProjectTask).where(ProjectTask.id.in_([completed_task_id, task_id])))
+            await db.execute(delete(PlanningItem).where(PlanningItem.id.in_([item_id, sibling_item_id])))
+            await db.execute(delete(Project).where(Project.id.in_([project_id, sibling_id])))
+            await db.commit()
+        await _cleanup_product(product_id)

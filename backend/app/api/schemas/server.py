@@ -12,7 +12,22 @@ class ServerCreate(BaseModel):
     remote_user: str = Field(min_length=1, max_length=100)
     ssh_port: int = Field(default=22, ge=1, le=65535)
     ssh_key_path: str | None = Field(default=None, max_length=500)
+    # Write-only: encrypted on arrival and never echoed back (ServerOut carries
+    # the key_passphrase_stored boolean instead).
+    key_passphrase: str | None = None
+    access_enabled: bool = True
+    environment: Literal["vps", "semed", "client"] = "semed"
     description: str | None = None
+    kind: Literal["server", "workstation"] = "server"
+    os_family: Literal["linux", "windows", "macos"] | None = None
+    admin_user: str | None = Field(default=None, max_length=100)
+    darckware_client_id: uuid.UUID | None = None
+    darckware_client_name: str | None = Field(default=None, max_length=255)
+    location: str | None = Field(default=None, max_length=255)
+    tailnet_node_id: str | None = Field(default=None, max_length=64)
+    tailnet_name: str | None = Field(default=None, max_length=255)
+    # Replaces the machine's group memberships when sent.
+    group_ids: list[uuid.UUID] | None = None
 
 
 class ServerUpdate(BaseModel):
@@ -21,7 +36,25 @@ class ServerUpdate(BaseModel):
     remote_user: str | None = Field(default=None, min_length=1, max_length=100)
     ssh_port: int | None = Field(default=None, ge=1, le=65535)
     ssh_key_path: str | None = Field(default=None, max_length=500)
+    # Three distinct intents, which is why the field is write-only and
+    # tri-state: omitted -> keep whatever is stored (the form cannot re-send a
+    # passphrase it never received); "" or null -> clear it; a value -> replace
+    # it. update_server reads it through model_dump(exclude_unset=True), so
+    # "omitted" and "explicitly null" stay distinguishable.
+    key_passphrase: str | None = None
+    access_enabled: bool | None = None
+    environment: Literal["vps", "semed", "client"] | None = None
     description: str | None = None
+    kind: Literal["server", "workstation"] | None = None
+    os_family: Literal["linux", "windows", "macos"] | None = None
+    admin_user: str | None = Field(default=None, max_length=100)
+    darckware_client_id: uuid.UUID | None = None
+    darckware_client_name: str | None = Field(default=None, max_length=255)
+    location: str | None = Field(default=None, max_length=255)
+    tailnet_node_id: str | None = Field(default=None, max_length=64)
+    tailnet_name: str | None = Field(default=None, max_length=255)
+    # Replaces the machine's group memberships when sent.
+    group_ids: list[uuid.UUID] | None = None
 
 
 class ServerOut(BaseModel):
@@ -34,9 +67,65 @@ class ServerOut(BaseModel):
     ssh_port: int
     ssh_key_path: str | None
     public_key: str | None
+    # Whether an encrypted copy of the identity file is vaulted on the row.
+    # The material itself is never serialized -- see Server.private_key_stored.
+    private_key_stored: bool = False
+    # Whether a passphrase for that key is on file. Also never serialized.
+    key_passphrase_stored: bool = False
+    # Whether "Enroll station" stored the login's password (never serialized;
+    # see the admin-only reveal route).
+    login_password_stored: bool = False
+    rustdesk_id: str | None = None
+    rustdesk_password_stored: bool = False
+    # The private key is kept in ForgeVault (only its id is on the row).
+    ssh_key_in_vault: bool = False
+    # ForgeHub-side access switch: false parks the server (no probe, no
+    # terminal) without touching any key -- see Server.access_enabled.
+    access_enabled: bool = True
+    environment: str = "semed"
     description: str | None
+    kind: str = "server"
+    os_family: str | None = None
+    admin_user: str | None = None
+    darckware_client_id: uuid.UUID | None = None
+    darckware_client_name: str | None = None
+    location: str | None = None
+    tailnet_node_id: str | None = None
+    tailnet_name: str | None = None
+    group_ids: list[uuid.UUID] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+
+class ServerDetailOut(ServerOut):
+    """Single-server read. Carries the decrypted key passphrase, which the list
+    never does -- same shape as AgentDetailOut's forgerouter_api_key, and for
+    the same reason: the field is edited in a card that shows the current value
+    behind an eye toggle, so the form has to receive it. The route is
+    admin-only.
+    """
+
+    key_passphrase: str | None = None
+
+
+class ServerKeyStoreRequest(BaseModel):
+    """A pasted private key, for a server whose identity file ForgeHub cannot
+    read from the host (a key that lives on another machine, or one being
+    recovered from a backup by hand)."""
+
+    private_key: str = Field(min_length=1)
+    public_key: str | None = None
+
+
+class ServerKeyVaultResult(BaseModel):
+    """Outcome of a vault action (backup / restore). `key_path` is the host
+    path read from or written to; `written` lists the files a restore
+    actually created."""
+
+    server_id: uuid.UUID
+    private_key_stored: bool
+    key_path: str | None = None
+    written: list[str] = Field(default_factory=list)
 
 
 class ServerInstallKeyRequest(BaseModel):
@@ -68,6 +157,9 @@ class ServerInstallKeyResult(BaseModel):
     failed_step: str | None = None
     key_path: str | None = None
     public_key: str | None = None
+    # ForgeVault outcome of the new key: "switched" (vault key verified, the
+    # file path released), or "failed: <reason>" (still on the file).
+    vault: str | None = None
 
 
 class ServerImportRequest(BaseModel):
@@ -93,9 +185,315 @@ class ServerCheckResult(BaseModel):
                    missing key is reported first since it's the actionable
                    fix).
       "online"  -- TCP connect + SSH handshake + key auth all succeeded.
-      "offline" -- unreachable, connection refused, or the key was rejected.
+      "unreachable" -- the host did not answer on the SSH path.
+      "auth_failed" -- the host answered but rejected/unlocked no usable key.
+      "key_missing" -- the configured identity file does not exist.
+      "offline" -- another SSH transport failure that could not be classified.
+      "disabled" -- access_enabled is false, so nothing was probed at all.
+                   Distinct from "offline" on purpose: the server may well be
+                   up, ForgeHub is simply not using it.
     """
 
     server_id: uuid.UUID
-    status: Literal["online", "offline", "no_key"]
+    status: Literal[
+        "online",
+        "offline",
+        "unreachable",
+        "auth_failed",
+        "key_missing",
+        "no_key",
+        "disabled",
+    ]
     detail: str
+
+
+class ServerServiceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    port: int = Field(ge=1, le=65535)
+    scheme: Literal["http", "https"] = "http"
+    # Normalised to a leading slash (or None) by the route -- "admin" and
+    # "/admin" mean the same thing to whoever types it.
+    path: str | None = Field(default=None, max_length=255)
+    description: str | None = None
+
+
+class ServerServiceUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    port: int | None = Field(default=None, ge=1, le=65535)
+    scheme: Literal["http", "https"] | None = None
+    path: str | None = Field(default=None, max_length=255)
+    description: str | None = None
+
+
+class ServerServiceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    server_id: uuid.UUID
+    name: str
+    port: int
+    scheme: str
+    path: str | None
+    description: str | None
+    # Built by the route from the parent server's current address, never
+    # stored: a server that changes IP must not leave a set of URLs pointing
+    # at the old one.
+    url: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ServerPortScanEntry(BaseModel):
+    port: int
+    scheme: Literal["http", "https"]
+    # Whether this port is already registered as a service on the row.
+    registered: bool
+    # False for ports that answer TCP but are not a web endpoint (a database,
+    # a message broker). Reported rather than hidden -- knowing Postgres is
+    # listening is useful -- but the UI must not offer it as a link, since
+    # http://host:5432 opens nothing.
+    likely_web: bool = True
+
+
+class ServerPortScanResult(BaseModel):
+    """Ports that answered a TCP connect, in the order scanned.
+
+    A finding is a suggestion, never a row: nothing is persisted by a scan.
+    An open port says something is listening, not what it is, so naming it is
+    left to whoever registers it.
+    """
+
+    server_id: uuid.UUID
+    scanned: int
+    open_ports: list[ServerPortScanEntry]
+
+
+class HostGroupCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    darckware_client_id: uuid.UUID | None = None
+    darckware_client_name: str | None = Field(default=None, max_length=255)
+    description: str | None = None
+    server_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class HostGroupUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    darckware_client_id: uuid.UUID | None = None
+    darckware_client_name: str | None = Field(default=None, max_length=255)
+    description: str | None = None
+    # Replaces the member list when sent.
+    server_ids: list[uuid.UUID] | None = None
+
+
+class HostGroupOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    darckware_client_id: uuid.UUID | None
+    darckware_client_name: str | None
+    description: str | None
+    server_ids: list[uuid.UUID] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class TailnetSyncRequest(BaseModel):
+    # Peers reported as "available" by a previous call that should become
+    # workstations now. Empty = reconcile only, create nothing.
+    import_node_ids: list[str] = Field(default_factory=list, max_length=500)
+
+
+class TailnetSyncEntry(BaseModel):
+    node_id: str
+    name: str | None
+    tailscale_ipv4: str | None
+    os: str | None
+    online: bool = False
+    tags: list[str] = Field(default_factory=list)
+    # "created" -- imported now as a workstation; "updated" -- name (and a
+    # workstation's IP) refreshed on the linked row; "linked" -- an unlinked
+    # row matched by tailnet IP or name got the node ID; "unchanged";
+    # "available" -- in the tailnet, not in the inventory, not imported.
+    outcome: Literal["created", "updated", "linked", "unchanged", "available"]
+    server_id: uuid.UUID | None = None
+    # Client suggested by a "tag:client-<slug>" tag. Only a suggestion: never
+    # written over a client someone already set.
+    suggested_client_tag: str | None = None
+
+
+class TailnetSyncResult(BaseModel):
+    entries: list[TailnetSyncEntry]
+    # Linked rows whose node is no longer in the tailnet. Reported, never
+    # deleted -- a device that left the tailnet still has history here.
+    missing_server_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+HostReadiness = Literal[
+    "ready",            # reachable and the key logs in -- commands can run
+    "busy",             # an execution is running on it (from phase 4 on)
+    "offline",          # tailnet says offline / port unreachable
+    "not_prepared",     # ForgeHub has no SSH access yet (no login, SSH off, or its key not installed)
+    "disabled",         # parked in ForgeHub (access_enabled = false)
+    "unknown",          # a source could not be read -- never shown as offline
+]
+
+
+# The color on screen (2026-10-19, Marcelo): what can be done with the machine,
+# by channel. "complete" = every channel its kind needs works (workstation: SSH
+# + RustDesk; server: SSH); "partial" = online with one of them missing;
+# "not_prepared" = online but no channel for ForgeHub. `readiness` stays the
+# operational answer (can a command run now).
+HostStatus = Literal["complete", "partial", "not_prepared", "offline", "disabled", "unknown"]
+
+
+# How the VPS reaches the machine's registered address (2026-10-17, see
+# docs/architecture/REMOTE_ACCESS_SERVERS_UNIFICATION_PLAN.md).
+AccessPath = Literal[
+    "tailscale",            # the address is a Tailscale IP -- reached directly
+    "subnet",               # inside a route another node advertises, and the VPS accepts routes
+    "subnet_not_accepted",  # inside such a route, but the VPS has accept-routes off
+    "none",                 # no Tailscale IP and no route this VPS can see
+    "unknown",              # tailnet unreadable -- never shown as "none"
+]
+
+
+class HostReadinessEntry(BaseModel):
+    server_id: uuid.UUID
+    readiness: HostReadiness
+    status: HostStatus = "unknown"
+    # The RustDesk ID ForgeHub recorded (installer or by hand); None = no RustDesk known.
+    rustdesk_id: str | None = None
+    tailnet_online: bool | None = None
+    ssh: str | None = None
+    detail: str | None = None
+    access_path: AccessPath = "unknown"
+    # The subnet router, for "subnet"/"subnet_not_accepted".
+    access_via_node_id: str | None = None
+    access_via_name: str | None = None
+    # The linked tailnet device's own 100.x address -- lets the UI suggest it
+    # when the registered address is a LAN IP the VPS can't reach.
+    tailscale_ipv4: str | None = None
+
+
+class HostReadinessResult(BaseModel):
+    entries: list[HostReadinessEntry]
+    checked_at: datetime
+    tailnet_available: bool
+    ssh_checked_at: datetime | None = None
+
+
+class HostPreparationRequest(BaseModel):
+    """"copy": the script to paste once through RustDesk. "ssh": ForgeHub logs in
+    once with the client's administrator (password typed now, never stored),
+    runs it, verifies the new login with the key and only then -- when asked --
+    disables that administrator."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["copy", "ssh"] = "copy"
+    admin_user: str | None = Field(default=None, min_length=1, max_length=100)
+    admin_password: str | None = Field(default=None, min_length=1, max_length=256)
+    disable_admin: bool = True
+
+
+class HostPreparationOut(BaseModel):
+    """Script to paste on the station once (via RustDesk) so it becomes Ready."""
+
+    server_id: uuid.UUID
+    os_family: str
+    language: Literal["powershell", "sh"]
+    script: str | None = None
+    public_key: str
+    # A new key pair was generated for this machine on this call.
+    key_created: bool
+    key_path: str
+    login: str = "darckware"
+    # mode="ssh": the execution that runs preparation -> check -> lock admin.
+    execution_id: uuid.UUID | None = None
+    # The Messages task an agent's run answered / a request created.
+    message_number: int | None = None
+
+
+class EnrollmentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Becomes the Tailscale device name too, so it must be a DNS label.
+    name: str = Field(min_length=1, max_length=63)
+    os_family: Literal["windows", "linux"]
+    tag: str = Field(min_length=5, max_length=70)
+    darckware_client_id: uuid.UUID | None = None
+    darckware_client_name: str | None = Field(default=None, max_length=255)
+    location: str | None = Field(default=None, max_length=255)
+    group_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class EnrollmentOut(BaseModel):
+    server_id: uuid.UUID
+    name: str
+    tag: str
+    language: Literal["powershell", "sh"]
+    script: str
+    auth_key_expires_hours: int
+
+
+class EnrollmentCheckOut(BaseModel):
+    server_id: uuid.UUID
+    state: Literal["waiting", "joined"]
+    tailscale_ipv4: str | None = None
+    tailnet_name: str | None = None
+
+
+class LoginPasswordOut(BaseModel):
+    server_id: uuid.UUID
+    login: str
+    password: str
+
+
+class RotationRequest(BaseModel):
+    """Rotates, per machine: the `darckware` login password, or the SSH key.
+    Runs as an ordinary execution (one result per machine)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    server_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+    kind: Literal["login_password", "ssh_key"]
+
+
+class RotationOut(BaseModel):
+    execution_id: uuid.UUID
+
+
+class KeysToVaultOut(BaseModel):
+    # Copied into ForgeVault by this run.
+    stored: list[str] = Field(default_factory=list)
+    # Vault key verified on its own; the file path is no longer used.
+    switched: list[str] = Field(default_factory=list)
+    # Already on the vault key only.
+    already: list[str] = Field(default_factory=list)
+    # Not switched, with the reason; these keep using their key file.
+    failed: dict[str, str] = Field(default_factory=dict)
+
+
+class TerminalCommandOut(BaseModel):
+    command: str
+    # True when authentication comes from the machine's ForgeVault key.
+    vault_key: bool
+
+
+class MaintenanceEntry(BaseModel):
+    """One line of a machine's maintenance history: a script/command run, an
+    SSH terminal session, or an access event (preparation, keys, RustDesk)."""
+
+    at: datetime
+    kind: Literal["execution", "terminal", "event"]
+    # Who: the person's username or the agent's name.
+    actor: str
+    agent_name: str | None = None
+    trigger: str | None = None
+    title: str
+    status: str | None = None
+    reason: str | None = None
+    darckware_item_kind: str | None = None
+    darckware_item_id: str | None = None
+    execution_id: uuid.UUID | None = None

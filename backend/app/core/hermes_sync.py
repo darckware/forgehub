@@ -4,7 +4,7 @@ Pure filesystem-reading helpers (no DB access) used by
 POST /api/v1/agents/sync/hermes-foundation (app/api/routes/agent.py) to
 populate the Agent domain from the Hermes ecosystem's canonical docs.
 
-Canonical source (confirmed by /root/.hermes/foundation/agents/README.md
+Canonical source (confirmed by /root/.hermes/foundation/14_agents/README.md
 and the `hermes-foundation-agent-registry` skill -- NOT
 /root/.hermes/knowledge_base/vault/Agents/, which is a derived mirror of only
 the 8 baseline profiles and explicitly points back here):
@@ -14,11 +14,12 @@ the 8 baseline profiles and explicitly points back here):
   - <NAME>.md              -- per-agent contract (Mission section)
 
 Mounted read-only into the backend container at /foundation-agents (see
-docker-compose.yml). Per-profile files (skills/) are read from /profiles,
+docker-compose.yml, which maps it to foundation/14_agents -- the unnumbered
+agents/ copy was a stale duplicate and was archived on 2026-09-27). Per-profile files (skills/) are read from /profiles,
 already mounted for app/api/routes/foundation.py.
 
 `source_path` values stored on synced rows use the *host* canonical path
-(/root/.hermes/foundation/agents/...) for human traceability, even though
+(/root/.hermes/foundation/14_agents/...) for human traceability, even though
 this module reads through the /foundation-agents mount alias.
 """
 import re
@@ -27,9 +28,22 @@ from typing import Any
 
 import yaml
 
-FOUNDATION_AGENTS_DIR = Path("/foundation-agents")
+def _resolve_foundation_agents_dir() -> Path:
+    for candidate in (
+        Path("/foundation-agents"),
+        Path("/foundation-root/14_agents"),
+        Path("/governance/14_agents"),
+        Path("/root/.hermes/foundation/14_agents"),
+        Path("/root/memory/foundation/14_agents"),
+    ):
+        if candidate.is_dir() and (candidate / "ECOSYSTEM_AGENTS.md").is_file():
+            return candidate
+    return Path("/foundation-agents")
+
+
+FOUNDATION_AGENTS_DIR = _resolve_foundation_agents_dir()
 PROFILES_DIR = Path("/profiles")
-CANONICAL_AGENTS_DOC_ROOT = "/root/.hermes/foundation/agents"
+CANONICAL_AGENTS_DOC_ROOT = "/root/.hermes/foundation/14_agents"
 
 ECOSYSTEM_AGENTS_PATH = FOUNDATION_AGENTS_DIR / "ECOSYSTEM_AGENTS.md"
 RUNTIME_MATRIX_PATH = FOUNDATION_AGENTS_DIR / "AGENT_RUNTIME_MATRIX.md"
@@ -39,6 +53,39 @@ _RISK_LEVEL_MAP = {"L": "low", "M": "medium", "H": "high", "C": "critical"}
 
 _SUBAGENT_HEADING_RE = re.compile(r"^###\s+.+\(`([a-z0-9\-]+)`\)\s*$")
 _SUBAGENT_ITEM_RE = re.compile(r"^-\s+`([a-z0-9\-]+)`\s+—\s+(.*)$")
+
+# ForgeHub's organizational projection of the Hermes roster. Hermes remains
+# the canonical identity/mission source; these fields make reporting lines
+# explicit instead of overloading the technical `layer` label.
+HERMES_ORGANIZATION: dict[str, tuple[str, str, str | None]] = {
+    "athos": ("Executive Orchestration", "Portfolio & Delivery Orchestration", None),
+    "atlas": ("Product & Planning", "Demand Engineering", "athos"),
+    "nomos": ("Product & Planning", "Business Rules & State Design", "atlas"),
+    "daedalus": ("Engineering", "Engineering Leadership", "athos"),
+    "archimedes": ("Engineering", "Architecture & Integration Design", "daedalus"),
+    "datalus": ("Engineering", "Data Engineering", "daedalus"),
+    "hermes-ux": ("Engineering", "Product Design & UX", "daedalus"),
+    "koios": ("Engineering", "AI & Retrieval Engineering", "daedalus"),
+    "forge": ("Engineering", "Implementation & Maintenance", "daedalus"),
+    "mnemosyne": ("Knowledge & Context", "Context Governance & Handoffs", "athos"),
+    "mnemon": ("Knowledge & Context", "Runtime Memory", "mnemosyne"),
+    "scriba": ("Documentation", "Technical Documentation", "athos"),
+    "themis": ("Governance & Compliance", "Privacy & Regulatory Governance", "athos"),
+    "prometheus": ("Governance & Compliance", "Integration Governance", "themis"),
+    "hephaestus": ("Platform & Operations", "Platform Operations", "athos"),
+    "hermod": ("Platform & Operations", "FinOps & Model Operations", "hephaestus"),
+    "iris": ("Platform & Operations", "Release & Feature Management", "hephaestus"),
+    "soteria": ("Platform & Operations", "Reliability & Disaster Recovery", "hephaestus"),
+    "talos": ("Platform & Operations", "Workflow Automation", "hephaestus"),
+    "aegis": ("Security & Assurance", "Security Leadership", "athos"),
+    "argus": ("Security & Assurance", "Code Quality", "aegis"),
+    "chronos": ("Security & Assurance", "Regression & Performance", "aegis"),
+    "oracle": ("Security & Assurance", "Acceptance & Evidence", "aegis"),
+}
+
+
+def organization_for_profile(profile_slug: str) -> tuple[str | None, str | None, str | None]:
+    return HERMES_ORGANIZATION.get(profile_slug, (None, None, None))
 
 
 def _read_file_safe(path: Path) -> str | None:
@@ -80,6 +127,44 @@ def list_provisioned_profiles() -> list[str]:
     return sorted(p.name for p in PROFILES_DIR.iterdir() if p.is_dir())
 
 
+def list_active_provisioned_profiles() -> list[str]:
+    """Return provisioned profiles that the active Foundation registry names.
+
+    A directory can survive a restore or be created experimentally without
+    promoting its name back to a persistent agent.  The Foundation lifecycle
+    contract therefore requires both pieces of evidence: a live directory and
+    an active registry row.  This deliberately excludes archived Tier C role
+    names and undocumented directories such as accidental duplicates.
+    """
+    provisioned = set(list_provisioned_profiles())
+    registered = {entry["profile_slug"] for entry in parse_agent_registry()}
+    return sorted(provisioned & registered)
+
+
+def read_profile_forgerouter_api_key(profile_slug: str) -> str | None:
+    """Return an already-provisioned agent key without logging it.
+
+    ForgeHub imports this into its encrypted credential column during the
+    governed Hermes sync. Placeholder/env-reference values are ignored.
+
+    The credential lives at `providers.<model.provider>.api_key`, not
+    `model.api_key` (that block only holds provider/default/api_mode/main
+    -- confirmed against every current profile's config.yaml, all of which
+    use `forgerouter` as the provider name).
+    """
+    config_path = PROFILES_DIR / profile_slug / "config.yaml"
+    try:
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except (FileNotFoundError, yaml.YAMLError):
+        return None
+    provider = str((config.get("model") or {}).get("provider") or "forgerouter")
+    providers = config.get("providers") or {}
+    api_key = str((providers.get(provider) or {}).get("api_key") or "").strip()
+    if not api_key or api_key.startswith("${"):
+        return None
+    return api_key
+
+
 def parse_agent_registry() -> list[dict[str, Any]]:
     """Roster of every Hermes agent *documented* in ECOSYSTEM_AGENTS.md:
     profile_slug, name, layer, role, telegram_required, runtime_tier.
@@ -92,7 +177,15 @@ def parse_agent_registry() -> list[dict[str, Any]]:
     for cells in _parse_md_table(matrix_content):
         if len(cells) < 4:
             continue
-        tier_by_slug[cells[0].strip("`")] = cells[3].strip()
+        # Since the 2026-07-18 Tier B archival, the only 4-cell table left in
+        # this doc is "Persistent Hermes core" (Profile | Agent | Role |
+        # Gateway) -- every row in it is tier A by construction now, there is
+        # no more per-row tier letter to read (cells[3] is the Gateway
+        # yes/no column, not a tier code; the old Tier B row is gone, and the
+        # two other tables in the file -- archived-role mapping, external
+        # runtimes -- have fewer than 4 cells and are already filtered out
+        # above).
+        tier_by_slug[cells[0].strip("`")] = "A"
 
     registry_content = _read_file_safe(ECOSYSTEM_AGENTS_PATH) or ""
     agents: list[dict[str, Any]] = []
@@ -111,6 +204,50 @@ def parse_agent_registry() -> list[dict[str, Any]]:
             }
         )
     return agents
+
+
+def parse_profile_identity(profile_slug: str) -> dict[str, str | None]:
+    """Read the agent's own IDENTITY.md -- the live "who am I" file every
+    profile carries under /root/.hermes/profiles/<slug>/ -- as the primary
+    source for name/layer/mission during sync, since it reflects the
+    agent's actual current configuration rather than the Foundation docs'
+    registry snapshot, which can go stale (2026-07-29, Marcelo: "a
+    sincronização vem da documentação que pode estar desatualizada. E não
+    da configuração dos agentes" -- ECOSYSTEM_AGENTS.md/<NAME>.md are still
+    consulted as a fallback when a field is missing here, per "você pode
+    até consultar algumas coisas da documentação" -- see sync_hermes_foundation
+    in api/routes/agent.py, which does the actual merge).
+
+    Format observed across every current profile (plain "- Key: Value"
+    lines, not YAML frontmatter):
+        # IDENTITY.md — Athos
+        - Name: Athos
+        - Runtime: Hermes profile `athos`
+        - Layer: Governance
+        - Role: Chief of Staff / Ecosystem Governor
+        - Mission: govern priorities, approvals, orchestration, ...
+    """
+    content = _read_file_safe(PROFILES_DIR / profile_slug / "IDENTITY.md")
+    if content is None:
+        return {}
+    fields: dict[str, str] = {}
+    for line in content.splitlines():
+        line = line.strip()
+        if not line.startswith("- ") or ":" not in line:
+            continue
+        # AGENT_PROFILE_STANDARD writes keys in bold ("- **Mission:** ..."):
+        # without stripping the markers the key reads "**mission" and every
+        # bold field was silently ignored (found 2026-10-02).
+        key, _, value = line[2:].partition(":")
+        value = value.strip().lstrip("*").strip()
+        if value:
+            fields[key.strip().strip("*").strip().lower()] = value
+    return {
+        "name": fields.get("name"),
+        "layer": fields.get("layer"),
+        "role": fields.get("role"),
+        "mission": fields.get("mission"),
+    }
 
 
 def parse_agent_mission(profile_slug: str) -> tuple[str | None, str | None]:

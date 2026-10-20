@@ -1,0 +1,61 @@
+{
+  "users": {
+    "list": {
+      "title": "Usuarios",
+      "create": "Nuevo usuario",
+      "you": "(tú)"
+    },
+    "column": {
+      "user": "Usuario",
+      "name": "Nombre",
+      "email": "Correo electrónico",
+      "role": "Función",
+      "profile": "Perfil",
+      "status": "Situación"
+    },
+    "badge": {
+      "admin": "Administrar",
+      "user": "Usuario"
+    },
+    "profile": {
+      "superAdmin": "— (superadministrador)",
+      "loading": "cargando...",
+      "none": "sin perfil"
+    },
+    "status": {
+      "active": "Activo",
+      "inactive": "Inactivo"
+    },
+    "action": {
+      "edit": "Editar",
+      "delete": "Eliminar"
+    },
+    "delete": {
+      "confirm": "¿Borrar usuario \"{{username}}\"?",
+      "description": "Esta acción no se puede deshacer. El usuario perderá el acceso inmediatamente."
+    },
+    "form": {
+      "usernameLabel": "Usuario *",
+      "usernamePlaceholder": "jdoe",
+      "newPassword": "Nueva contraseña (opcional)",
+      "passwordLabel": "Contraseña *",
+      "leaveBlank": "dejar en blanco para mantener",
+      "passwordPlaceholder": "•",
+      "confirmLabel": "Confirmar contraseña",
+      "optional": "(optativo)",
+      "confirmPlaceholder": "•",
+      "passwordsMismatch": "Las contraseñas no coinciden",
+      "fullNameLabel": "Nombre completo",
+      "fullNamePlaceholder": "John Doe",
+      "emailLabel": "Correo electrónico",
+      "emailPlaceholder": "john@ejemplo.com",
+      "superAdminLabel": "Super Admin",
+      "superAdminDesc": "acceso completo, perfiles de bypass",
+      "activeLabel": "Activo",
+      "profileLabel": "Perfil de acceso",
+      "profilePlaceholder": "— sin perfil —",
+      "cancel": "Cancelar",
+      "save": "Guardar"
+    }
+  }
+}

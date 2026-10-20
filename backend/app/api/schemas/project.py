@@ -7,12 +7,14 @@ Project, full CRUD), PlanBaseline (create/list + read), ChangeRequest
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.db.models.project import (
     CHANGE_REQUEST_STATUSES,
     PROJECT_PLAN_STATUSES,
+    PROJECT_SOLUTION_TYPES,
     PROJECT_STATUSES,
     STRUCTURE_NODE_TYPES,
 )
@@ -26,15 +28,25 @@ class ProjectBase(BaseModel):
     description: str | None = None
     product_version_id: uuid.UUID
     owner: str | None = None
+    solution_type: str | None = None
     status: str = "planned"
     start_date: date | None = None
     target_end_date: date | None = None
     working_directory_path: str | None = Field(default=None, max_length=1024)
+    github_repo_url: str | None = Field(default=None, max_length=500)
+    backup_enabled: bool = False
+    backup_location: str | None = Field(default=None, max_length=1024)
+    # Darckware client/origin (Onda 3). Client defaults to the product's.
+    darckware_client_id: uuid.UUID | None = None
+    darckware_origin_type: Literal["ticket", "demand"] | None = None
+    darckware_origin_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def _validate_status(self) -> "ProjectBase":
         if self.status not in PROJECT_STATUSES:
             raise ValueError(f"status must be one of {PROJECT_STATUSES}")
+        if self.solution_type is not None and self.solution_type not in PROJECT_SOLUTION_TYPES:
+            raise ValueError(f"solution_type must be one of {PROJECT_SOLUTION_TYPES}")
         return self
 
 
@@ -46,15 +58,22 @@ class ProjectUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
     owner: str | None = None
+    solution_type: str | None = None
     status: str | None = None
     start_date: date | None = None
     target_end_date: date | None = None
     working_directory_path: str | None = Field(default=None, max_length=1024)
+    github_repo_url: str | None = Field(default=None, max_length=500)
+    backup_enabled: bool | None = None
+    backup_location: str | None = Field(default=None, max_length=1024)
+    darckware_client_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def _validate_status(self) -> "ProjectUpdate":
         if self.status is not None and self.status not in PROJECT_STATUSES:
             raise ValueError(f"status must be one of {PROJECT_STATUSES}")
+        if self.solution_type is not None and self.solution_type not in PROJECT_SOLUTION_TYPES:
+            raise ValueError(f"solution_type must be one of {PROJECT_SOLUTION_TYPES}")
         return self
 
 
@@ -302,7 +321,9 @@ class ProjectForgeRouterConfigOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     project_id: uuid.UUID
-    api_key: str | None
+    claude_api_key: str | None
+    codex_api_key: str | None
+    antigravity_api_key: str | None
     claude_enabled: bool
     codex_enabled: bool
     antigravity_enabled: bool
@@ -312,14 +333,22 @@ class ProjectForgeRouterConfigOut(BaseModel):
 
 
 class ProjectForgeRouterToggle(BaseModel):
-    """Request body to enable/disable ForgeRouter for a project.
+    """Request body to configure ForgeRouter per tool for a project.
 
-    `enabled=False` disables all tools and removes their config files.
-    Per-tool flags only take effect when `enabled=True`.
+    `claude`/`codex`/`antigravity` are the desired end-state for each tool,
+    independent of one another — the route only touches the tools whose
+    desired state actually changes from what's stored. Each tool has its
+    own `<tool>_api_key`, since Claude/Codex/Antigravity are separate
+    products with separate credentials — one is only required the first
+    time that specific tool is turned on for a project with no stored key
+    for it yet. `enabled` is kept for API compatibility (true when any tool
+    should end up on) but does not itself select which tools apply.
     """
 
     enabled: bool
-    api_key: str = ""
+    claude_api_key: str = ""
+    codex_api_key: str = ""
+    antigravity_api_key: str = ""
     claude: bool = True
     codex: bool = True
     antigravity: bool = False

@@ -3,7 +3,6 @@
 interface ImportMetaEnv {
   readonly VITE_API_URL?: string;
   readonly VITE_FORGEROUTER_URL?: string;
-  readonly VITE_KANBOARD_URL?: string;
 }
 
 interface ImportMeta {

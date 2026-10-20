@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight, FilePlus, FileText, Folder, FolderPlus, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,9 +15,60 @@ export interface DocTreeNode {
   children?: DocTreeNode[];
 }
 
-/** Create/rename/delete actions for the tree rows -- optional so read-only
- * consumers (the Knowledge Base page) render the exact same tree with no
- * action icons at all. */
+function collectDirPaths(nodes: DocTreeNode[]): string[] {
+  const out: string[] = [];
+  for (const node of nodes) {
+    if (node.type !== "dir") continue;
+    out.push(node.path);
+    if (node.children) out.push(...collectDirPaths(node.children));
+  }
+  return out;
+}
+
+/** Lifts each folder row's expanded/collapsed state out of `DocTree` so a
+ * page can drive it from a single "expand all / collapse all" toggle
+ * (`DocumentWorkspace`/`DocumentBrowser`'s tree-expand button) while still
+ * letting individual chevrons be clicked one at a time. Seeds only the
+ * top-level folders as expanded the first time `nodes` arrives, matching
+ * the tree's previous per-row default (depth 0 open, deeper closed).
+ * Pass `resetKey` (e.g. Docs' `areaId`) when the same page can point the
+ * tree at an entirely different root -- switching it reseeds back to that
+ * default instead of keeping the old root's expanded paths around. */
+export function useExpandedTree(nodes: DocTreeNode[] | undefined, resetKey?: unknown) {
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const seededRef = useRef(false);
+  const seededKeyRef = useRef<unknown>(undefined);
+
+  useEffect(() => {
+    if (!nodes) return;
+    if (seededRef.current && seededKeyRef.current === resetKey) return;
+    seededRef.current = true;
+    seededKeyRef.current = resetKey;
+    setExpandedPaths(new Set(nodes.filter((n) => n.type === "dir").map((n) => n.path)));
+  }, [nodes, resetKey]);
+
+  function toggle(path: string) {
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }
+
+  const allDirPaths = useMemo(() => (nodes ? collectDirPaths(nodes) : []), [nodes]);
+  const allExpanded = allDirPaths.length > 0 && allDirPaths.every((p) => expandedPaths.has(p));
+
+  function toggleAll() {
+    setExpandedPaths(allExpanded ? new Set() : new Set(allDirPaths));
+  }
+
+  return { expandedPaths, toggle, allExpanded, toggleAll };
+}
+
+/** Create/rename/delete actions for the tree rows -- optional so a
+ * consumer that only wants a plain read-only tree (Foundation) can render
+ * one with no action icons at all. */
 export interface DocTreeActions {
   onCreateFile: (folderPath: string) => void;
   onCreateFolder: (folderPath: string) => void;
@@ -39,6 +91,8 @@ interface DocTreeItemProps {
   actions?: DocTreeActions;
   onMove?: (sourcePath: string, destFolderPath: string) => void;
   getAssistantDragPayload?: (node: DocTreeNode) => AssistantFileDragPayload | undefined;
+  expandedPaths: Set<string>;
+  onToggleExpand: (path: string) => void;
 }
 
 function ActionIcon({
@@ -79,8 +133,11 @@ function DocTreeItem({
   actions,
   onMove,
   getAssistantDragPayload,
+  expandedPaths,
+  onToggleExpand,
 }: DocTreeItemProps) {
-  const [expanded, setExpanded] = useState(depth === 0);
+  const { t } = useTranslation("docs");
+  const expanded = expandedPaths.has(node.path);
   const [dragOver, setDragOver] = useState(false);
   const assistantDragPayload = getAssistantDragPayload?.(node);
   const draggable = Boolean(onMove || assistantDragPayload);
@@ -98,7 +155,7 @@ function DocTreeItem({
         <div
           draggable={draggable}
           onDragStart={handleDragStart}
-          title={assistantDragPayload ? "Drag to the assistant to reference this folder" : undefined}
+          title={assistantDragPayload ? t("tree.dragReferenceFolder") : undefined}
           onDragOver={(e) => {
             if (!onMove) return;
             e.preventDefault();
@@ -130,12 +187,12 @@ function DocTreeItem({
           <button
             type="button"
             onClick={() => {
-              setExpanded((v) => !v);
+              onToggleExpand(node.path);
               onSelectFolder?.(node.path);
             }}
             className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left"
             style={{ paddingLeft: `${depth * 0.9 + 0.5}rem` }}
-            title={onSelectFolder ? "Select as working folder" : undefined}
+            title={onSelectFolder ? t("tree.selectAsWorkingFolder") : undefined}
           >
             {expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
             <Folder className="h-3.5 w-3.5 shrink-0" />
@@ -143,10 +200,10 @@ function DocTreeItem({
           </button>
           {actions && (
             <div className="flex shrink-0 items-center opacity-0 group-hover:opacity-100">
-              <ActionIcon icon={FilePlus} label="New document here" onClick={() => actions.onCreateFile(node.path)} />
-              <ActionIcon icon={FolderPlus} label="New folder here" onClick={() => actions.onCreateFolder(node.path)} />
-              <ActionIcon icon={Pencil} label="Rename folder" onClick={() => actions.onRename(node.path)} />
-              <ActionIcon icon={Trash2} label="Delete folder" destructive onClick={() => actions.onDelete(node.path)} />
+              <ActionIcon icon={FilePlus} label={t("tree.newDocumentHere")} onClick={() => actions.onCreateFile(node.path)} />
+              <ActionIcon icon={FolderPlus} label={t("tree.newFolderHere")} onClick={() => actions.onCreateFolder(node.path)} />
+              <ActionIcon icon={Pencil} label={t("tree.renameFolder")} onClick={() => actions.onRename(node.path)} />
+              <ActionIcon icon={Trash2} label={t("tree.deleteFolder")} destructive onClick={() => actions.onDelete(node.path)} />
             </div>
           )}
         </div>
@@ -163,6 +220,8 @@ function DocTreeItem({
               actions={actions}
               onMove={onMove}
               getAssistantDragPayload={getAssistantDragPayload}
+              expandedPaths={expandedPaths}
+              onToggleExpand={onToggleExpand}
             />
           ))}
       </div>
@@ -175,9 +234,9 @@ function DocTreeItem({
       onDragStart={handleDragStart}
       title={
         assistantDragPayload?.source === "host-folder"
-          ? "Drag to the assistant to reference this folder"
+          ? t("tree.dragReferenceFolder")
           : assistantDragPayload
-            ? "Drag to the assistant to attach this file"
+            ? t("tree.dragAttachFile")
             : undefined
       }
       className={cn(
@@ -199,8 +258,8 @@ function DocTreeItem({
       </button>
       {actions && (
         <div className="flex shrink-0 items-center opacity-0 group-hover:opacity-100">
-          <ActionIcon icon={Pencil} label="Rename file" onClick={() => actions.onRename(node.path)} />
-          <ActionIcon icon={Trash2} label="Delete file" destructive onClick={() => actions.onDelete(node.path)} />
+          <ActionIcon icon={Pencil} label={t("tree.renameFile")} onClick={() => actions.onRename(node.path)} />
+          <ActionIcon icon={Trash2} label={t("tree.deleteFile")} destructive onClick={() => actions.onDelete(node.path)} />
         </div>
       )}
     </div>
@@ -216,6 +275,8 @@ export function DocTree({
   actions,
   onMove,
   getAssistantDragPayload,
+  expandedPaths,
+  onToggleExpand,
 }: {
   nodes: DocTreeNode[];
   selectedPath: string | undefined;
@@ -228,11 +289,16 @@ export function DocTree({
   /** Drag-and-drop move: dragging any row and dropping it onto a folder row
    * (or the root drop zone below the tree) calls this with (sourcePath,
    * destFolderPath). Optional, like `actions` -- undefined disables
-   * dragging entirely (the Knowledge Base page's read-only tree). */
+   * dragging entirely (Foundation's read-only tree). */
   onMove?: (sourcePath: string, destFolderPath: string) => void;
   /** Makes rows attachable or referenceable in the global assistant. */
   getAssistantDragPayload?: (node: DocTreeNode) => AssistantFileDragPayload | undefined;
+  /** Which folder paths are expanded -- lifted out via `useExpandedTree` so
+   * a page-level "expand all / collapse all" button can drive every row. */
+  expandedPaths: Set<string>;
+  onToggleExpand: (path: string) => void;
 }) {
+  const { t } = useTranslation("docs");
   const [rootDragOver, setRootDragOver] = useState(false);
   return (
     <div className="flex min-h-full flex-col">
@@ -248,6 +314,8 @@ export function DocTree({
           actions={actions}
           onMove={onMove}
           getAssistantDragPayload={getAssistantDragPayload}
+          expandedPaths={expandedPaths}
+          onToggleExpand={onToggleExpand}
         />
       ))}
       {onMove && (
@@ -271,7 +339,7 @@ export function DocTree({
             "min-h-8 flex-1 rounded-md",
             rootDragOver && "bg-accent ring-1 ring-inset ring-primary"
           )}
-          title="Drop here to move to the area's root"
+          title={t("tree.dropToMoveToRoot")}
         />
       )}
     </div>

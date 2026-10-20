@@ -1,184 +1,391 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { AlertCircle, Gavel, Loader2, Plus } from "lucide-react";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Trans, useTranslation } from "react-i18next";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  Bot,
+  CheckSquare,
+  Clock,
+  Loader2,
+  PlayCircle,
+  RotateCcw,
+  ShieldCheck,
+  XCircle,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Select } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  useApprovals,
-  useCreateApproval,
-  type ApprovalCreateInput,
-} from "@/hooks/useGovernance";
-import { ApprovalForm } from "./ApprovalForm";
-import { EntityRef } from "@/components/EntityRef";
+  usePlanningItems,
+  useUpdatePlanningItem,
+  type PlanningItem,
+} from "@/hooks/useBacklog";
+import { useProjects } from "@/hooks/useProject";
+import { useTasks } from "@/hooks/useTask";
+import { useAgents } from "@/hooks/useAgent";
 
-const STATUS_VARIANT: Record<
-  string,
-  "default" | "secondary" | "success" | "warning" | "outline" | "destructive"
-> = {
-  pending: "warning",
-  approved: "success",
-  rejected: "destructive",
-};
+// ---------------------------------------------------------------------------
+// Aba: Liberação de Planejamento (Gate Backlog -> Em Análise -> Execução)
+// ---------------------------------------------------------------------------
 
-export default function GovernancePage() {
-  const { data: approvals, isLoading, isError, error } = useApprovals();
-  const createApproval = useCreateApproval();
-  const [showForm, setShowForm] = useState(false);
+type PlanningGateCategory = "all" | "in_analysis" | "backlog" | "released" | "rejected";
 
-  function handleCreate(values: ApprovalCreateInput) {
-    createApproval.mutate(
-      {
-        ...values,
-        comments: values.comments || undefined,
-        policy_id: values.policy_id || undefined,
-      },
-      {
-        onSuccess: () => setShowForm(false),
+function PlanningGateTab() {
+  const { t } = useTranslation("governance");
+  const { data: planningItems, isLoading: isLoadingPlanning } = usePlanningItems();
+  const { data: projects } = useProjects();
+  const { data: tasks } = useTasks();
+  const { data: agents } = useAgents();
+
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [categoryFilter, setCategoryFilter] = useState<PlanningGateCategory>("in_analysis");
+  const [actingItemId, setActingItemId] = useState<string | null>(null);
+  const [assignedAgents, setAssignedAgents] = useState<Record<string, string>>({});
+
+  const updatePlanning = useUpdatePlanningItem(actingItemId ?? "");
+
+  // Map tasks count by planning_item_id
+  const tasksCountMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const t of tasks ?? []) {
+      if (t.planning_item_id) {
+        map.set(t.planning_item_id, (map.get(t.planning_item_id) || 0) + 1);
       }
+    }
+    return map;
+  }, [tasks]);
+
+  // Categorize planning item for governance gate
+  const getGateCategory = (item: PlanningItem): PlanningGateCategory => {
+    if (item.status === "in_progress") return "released";
+    if (item.status === "triaged" || item.status === "scoped") return "in_analysis";
+    if (item.status === "rejected" || item.status === "blocked") return "rejected";
+    return "backlog"; // new, baselined or others unvalidated
+  };
+
+  const projectMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of projects ?? []) {
+      map.set(p.id, p.name);
+    }
+    return map;
+  }, [projects]);
+
+  const filteredItems = useMemo(() => {
+    return (planningItems ?? []).filter((item) => {
+      if (selectedProjectId && item.project_id !== selectedProjectId) return false;
+      if (categoryFilter !== "all" && getGateCategory(item) !== categoryFilter) return false;
+      return true;
+    });
+  }, [planningItems, selectedProjectId, categoryFilter]);
+
+  const counts = useMemo(() => {
+    const items = (planningItems ?? []).filter(
+      (i) => !selectedProjectId || i.project_id === selectedProjectId
     );
-  }
+    const res: Record<PlanningGateCategory, number> = {
+      all: items.length,
+      in_analysis: 0,
+      backlog: 0,
+      released: 0,
+      rejected: 0,
+    };
+    for (const item of items) {
+      const cat = getGateCategory(item);
+      res[cat] = (res[cat] || 0) + 1;
+    }
+    return res;
+  }, [planningItems, selectedProjectId]);
+
+  const handleSetStatus = async (item: PlanningItem, newStatus: "in_progress" | "triaged" | "new" | "rejected") => {
+    setActingItemId(item.id);
+    try {
+      await updatePlanning.mutateAsync({
+        status: newStatus,
+      });
+    } finally {
+      setActingItemId(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Governance</h1>
-          <p className="text-muted-foreground">
-            Approvals for gated transitions -- pipeline stage gates, release readiness, critical
-            skills, and change requests -- backed by audit events and policies.
-          </p>
-        </div>
-        <Button onClick={() => setShowForm((v) => !v)}>
-          <Plus className="mr-2 h-4 w-4" />
-          New approval
+      {/* Top Banner de Contexto de Governança */}
+      <Card className="border-primary/20 bg-muted/20">
+        <CardContent className="p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between text-xs">
+          <div>
+            <h3 className="font-semibold text-sm flex items-center gap-1.5">
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              {t("gate.bannerTitle")}
+            </h3>
+            <p className="text-muted-foreground mt-0.5">
+              <Trans ns="governance" i18nKey="gate.bannerDescription" components={{ strong: <strong /> }} />
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <Label className="text-[11px] font-semibold text-muted-foreground whitespace-nowrap">
+              {t("gate.projectFilter")}
+            </Label>
+            <Select
+              value={selectedProjectId}
+              onChange={(e) => setSelectedProjectId(e.target.value)}
+              className="h-8 text-xs w-48 bg-background"
+            >
+              <option value="">{t("gate.allProjects")}</option>
+              {projects?.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Pílulas de Filtro de Categoria de Governança */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Button
+          size="sm"
+          variant={categoryFilter === "in_analysis" ? "default" : "outline"}
+          className="h-8 text-xs gap-1.5"
+          onClick={() => setCategoryFilter("in_analysis")}
+        >
+          <span className="h-2 w-2 rounded-full bg-amber-500" />
+          {t("gate.categories.in_analysis")} <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.in_analysis}</Badge>
+        </Button>
+        <Button
+          size="sm"
+          variant={categoryFilter === "backlog" ? "default" : "outline"}
+          className="h-8 text-xs gap-1.5"
+          onClick={() => setCategoryFilter("backlog")}
+        >
+          <span className="h-2 w-2 rounded-full bg-zinc-400" />
+          {t("gate.categories.backlog")} <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.backlog}</Badge>
+        </Button>
+        <Button
+          size="sm"
+          variant={categoryFilter === "released" ? "default" : "outline"}
+          className="h-8 text-xs gap-1.5"
+          onClick={() => setCategoryFilter("released")}
+        >
+          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          {t("gate.categories.released")} <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.released}</Badge>
+        </Button>
+        <Button
+          size="sm"
+          variant={categoryFilter === "rejected" ? "default" : "outline"}
+          className="h-8 text-xs gap-1.5"
+          onClick={() => setCategoryFilter("rejected")}
+        >
+          <span className="h-2 w-2 rounded-full bg-rose-500" />
+          {t("gate.categories.rejected")} <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.rejected}</Badge>
+        </Button>
+        <Button
+          size="sm"
+          variant={categoryFilter === "all" ? "default" : "outline"}
+          className="h-8 text-xs gap-1.5"
+          onClick={() => setCategoryFilter("all")}
+        >
+          {t("gate.categories.all")} <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{counts.all}</Badge>
         </Button>
       </div>
 
-      {showForm && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Request approval</CardTitle>
-            <CardDescription>
-              Record an approval request for a gated transition before it is decided.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ApprovalForm
-              onSubmit={handleCreate}
-              onCancel={() => setShowForm(false)}
-              isSubmitting={createApproval.isPending}
-            />
-            {createApproval.isError && (
-              <p className="mt-3 text-sm text-destructive">
-                Failed to create approval: {(createApproval.error as Error)?.message}
-              </p>
-            )}
+      {/* Lista de Itens no Gate de Governança */}
+      {isLoadingPlanning ? (
+        <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground text-xs">
+          <Loader2 className="h-5 w-5 animate-spin text-primary" />
+          {t("gate.loading")}
+        </div>
+      ) : filteredItems.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="py-12 text-center text-xs text-muted-foreground space-y-2">
+            <ShieldCheck className="mx-auto h-8 w-8 text-muted-foreground/30" />
+            <p className="font-semibold text-sm text-foreground">
+              {t("gate.emptyTitle")}
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              {t("gate.emptyDescription")}
+            </p>
           </CardContent>
         </Card>
-      )}
+      ) : (
+        <div className="space-y-3">
+          {filteredItems.map((item) => {
+            const isActing = actingItemId === item.id && updatePlanning.isPending;
+            const gateCat = getGateCategory(item);
+            const taskCount = tasksCountMap.get(item.id) || 0;
+            const projectName = (item.project_id && projectMap.get(item.project_id)) || t("gate.projectFallback");
 
-      {isLoading && (
-        <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin" />
-          Loading approvals…
+            return (
+              <Card key={item.id} className="border-border/80 hover:border-primary/30 transition-colors">
+                <CardContent className="p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between text-xs">
+                  <div className="space-y-1.5 flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded bg-muted px-2 py-0.5 font-semibold text-[10px] text-muted-foreground">
+                        {projectName}
+                      </span>
+                      <Badge variant="outline" className="text-[10px] uppercase">
+                        {item.item_type}
+                      </Badge>
+                      <Badge
+                        variant={
+                          gateCat === "released"
+                            ? "success"
+                            : gateCat === "in_analysis"
+                            ? "default"
+                            : gateCat === "rejected"
+                            ? "destructive"
+                            : "outline"
+                        }
+                        className="text-[10px]"
+                      >
+                        {gateCat === "released"
+                          ? t("gate.badges.released")
+                          : gateCat === "in_analysis"
+                          ? t("gate.badges.in_analysis")
+                          : gateCat === "rejected"
+                          ? t("gate.badges.rejected")
+                          : t("gate.badges.backlog")}
+                      </Badge>
+                      <h4 className="font-semibold text-sm text-foreground truncate max-w-lg">
+                        {item.title}
+                      </h4>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3 text-muted-foreground text-[11px]">
+                      <span>{t("gate.priority")}: <strong className="text-foreground uppercase">{t(`gate.priorities.${item.priority}`, { defaultValue: item.priority })}</strong></span>
+                      <span>·</span>
+                      <span className="flex items-center gap-1">
+                        <CheckSquare className="h-3 w-3 text-primary" /> {t("gate.taskCount", { count: taskCount })}
+                      </span>
+                      {assignedAgents[item.id] && (
+                        <>
+                          <span>·</span>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary/10 text-primary font-semibold">
+                            <Bot className="h-3 w-3" />
+                            {agents?.find((a) => a.id === assignedAgents[item.id])?.name ?? t("gate.assignedAgent")}
+                          </span>
+                        </>
+                      )}
+                      {item.description && (
+                        <>
+                          <span>·</span>
+                          <span className="truncate max-w-sm">{item.description}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Seleção de Agente Executor e Ações de Governança */}
+                  <div className="flex flex-wrap items-center gap-2 shrink-0 pt-2 md:pt-0">
+                    {/* Seleção de Agente Executor (Obrigatório para liberação) */}
+                    <div
+                      className={`flex items-center gap-1.5 bg-background border rounded-md px-2 py-0.5 shadow-2xs transition-colors ${
+                        !assignedAgents[item.id] && gateCat !== "released"
+                          ? "border-amber-500/60 ring-1 ring-amber-500/30"
+                          : "border-input"
+                      }`}
+                    >
+                      <Bot className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <Select
+                        value={assignedAgents[item.id] || ""}
+                        onChange={(e) =>
+                          setAssignedAgents((prev) => ({ ...prev, [item.id]: e.target.value }))
+                        }
+                        className="h-7 text-xs border-0 bg-transparent p-0 w-40 font-medium focus:ring-0"
+                      >
+                        <option value="">{t("gate.selectAgent")}</option>
+                        {agents?.map((agent) => (
+                          <option key={agent.id} value={agent.id}>
+                            {agent.name} ({agent.agent_type})
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+
+                    {gateCat !== "released" && (
+                      <Button
+                        size="sm"
+                        disabled={isActing || !assignedAgents[item.id]}
+                        className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={() => handleSetStatus(item, "in_progress")}
+                        title={
+                          !assignedAgents[item.id]
+                            ? t("gate.selectAgentFirst")
+                            : t("gate.releaseHelp")
+                        }
+                      >
+                        {isActing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PlayCircle className="h-3.5 w-3.5" />}
+                        {t("gate.release")}
+                      </Button>
+                    )}
+
+                    {gateCat !== "in_analysis" && gateCat !== "released" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={isActing}
+                        className="h-8 text-xs gap-1.5 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                        onClick={() => handleSetStatus(item, "triaged")}
+                      >
+                        <Clock className="h-3.5 w-3.5" />
+                        {t("gate.moveToAnalysis")}
+                      </Button>
+                    )}
+
+                    {gateCat !== "backlog" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={isActing}
+                        className="h-8 text-xs gap-1.5"
+                        onClick={() => handleSetStatus(item, "new")}
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        {t("gate.backToBacklog")}
+                      </Button>
+                    )}
+
+                    {gateCat !== "rejected" && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={isActing}
+                        className="h-8 text-xs gap-1 text-destructive hover:bg-destructive/10"
+                        onClick={() => handleSetStatus(item, "rejected")}
+                      >
+                        <XCircle className="h-3.5 w-3.5" />
+                        {t("gate.reject")}
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
+    </div>
+  );
+}
 
-      {isError && (
-        <Card className="border-destructive/50">
-          <CardContent className="flex items-center gap-3 py-6 text-destructive">
-            <AlertCircle className="h-5 w-5" />
-            <span>Failed to load approvals: {(error as Error)?.message}</span>
-          </CardContent>
-        </Card>
-      )}
+export default function GovernancePage() {
+  const { t } = useTranslation("governance");
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
+          <ShieldCheck className="h-6 w-6 text-primary" />
+          {t("gate.title")}
+        </h1>
+        <p className="text-xs text-muted-foreground mt-1">
+          {t("gate.description")} {t("gate.seeAlso")} <Link to="/governance/policies" className="text-primary font-semibold hover:underline">{t("gate.policies")}</Link>.
+        </p>
+      </div>
 
-      {!isLoading && !isError && approvals && approvals.length === 0 && (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-            <Gavel className="h-10 w-10 text-muted-foreground" />
-            <div>
-              <p className="font-medium">No approvals yet</p>
-              <p className="text-sm text-muted-foreground">
-                Request your first approval to start tracking gated decisions.
-              </p>
-            </div>
-            <Button onClick={() => setShowForm(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              New approval
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {!isLoading && !isError && approvals && approvals.length > 0 && (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Entity</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Requested by</TableHead>
-                  <TableHead>Decided by</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {approvals.map((approval) => (
-                  <TableRow key={approval.id}>
-                    <TableCell>
-                      <Link
-                        to={`/governance/${approval.id}`}
-                        className="font-medium hover:underline"
-                      >
-                        {approval.entity_type.replace(/_/g, " ")}
-                      </Link>
-                      <p className="line-clamp-1 text-sm text-muted-foreground">
-                        <EntityRef entityType={approval.entity_type} entityId={approval.entity_id} />
-                      </p>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={STATUS_VARIANT[approval.status] ?? "outline"}>
-                        {approval.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {approval.requested_by ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {approval.decided_by ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Link
-                        to={`/governance/${approval.id}`}
-                        className={buttonVariants({ variant: "outline", size: "sm" })}
-                      >
-                        View
-                      </Link>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
+      <PlanningGateTab />
     </div>
   );
 }

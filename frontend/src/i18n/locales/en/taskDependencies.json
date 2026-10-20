@@ -1,0 +1,4 @@
+{
+  "title": "Dependencies and required skills", "description": "Dependencies block this task from completion until each prerequisite is complete. Required skills determine which project members are eligible to execute it.", "blockedBy": "Blocked by", "noDependencies": "No dependencies. This task can complete freely.", "removeDependency": "Remove dependency", "relation": "Relation", "none": "None", "dependency": "Dependency", "selectTask": "Select a task this one depends on…", "add": "Add", "requiredSkills": "Required skills", "noSkillRequirements": "No skill requirements. Any active project member is eligible.", "minimumShort": "min. {{value}}", "mandatory": "Mandatory", "optional": "Optional", "selectSkill": "Select a required skill…", "minimumPlaceholder": "Minimum proficiency (optional)",
+  "types": {"finish_to_start": "Finish to start", "start_to_start": "Start to start", "finish_to_finish": "Finish to finish", "start_to_finish": "Start to finish"}
+}

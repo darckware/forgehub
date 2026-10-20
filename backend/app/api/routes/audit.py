@@ -4,7 +4,7 @@ The checklist (audit_checks) is fully editable from the Auditor page;
 POST /run executes every enabled check by shipping its command to the
 host through the chat bridge's /v1/exec (exit 0 = ok) and recording an
 audit_check_runs row per check. /run-internal is the same trigger for
-the `hermes cron` job (forgehub-audit-checklist in the athos store) --
+the `hermes cron` job (ecosystem-weekly-audit in the athos store) --
 it bypasses user auth but requires the shared bridge token, the same
 trust boundary the bridge itself uses.
 """
@@ -12,6 +12,7 @@ import asyncio
 import shlex
 import time
 import uuid
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -25,31 +26,49 @@ from app.api.schemas.audit import (
     AuditCheckUpdate,
     AuditRunAllOut,
     AuditRunOut,
+    AuditRemediationOut,
     AuditStatusOut,
 )
+from app.api.schemas.demand import DemandSubmitIn
+from app.api.routes import foundation
+from app.api.routes.demand import create_demand_and_notify
+from app.core.athos_audit_monitor import inspect_athos_audit_job
+from app.core.audit_remediation import (
+    referenced_files,
+    remediation_problems,
+    structural_remediation_problems,
+)
 from app.core.config import settings
+from app.core.deps import get_current_admin
 from app.db.base import get_db
 from app.db.models.audit import AuditCheck, AuditCheckRun
+from app.db.models.agent import Agent
+from app.db.models.demand import AgentDemand
+from app.db.models.notification import Notification
 
 router = APIRouter(prefix="/api/v1/audit", tags=["audit"])
 
 _OUTPUT_LIMIT = 10_000
-# The bridge /v1/exec hard-kills at 60s; leave headroom for transport.
-_MAX_TIMEOUT = 55
+# Most checks retain the 55-second default. Long bounded remediations such as
+# pruning a large Docker build cache may explicitly request up to 10 minutes.
+_MAX_TIMEOUT = 600
+_ATHOS_TIMEOUT = 650.0
 
 
-async def _execute_check(check: AuditCheck, requested_by: str) -> AuditCheckRun:
+async def _execute_command(
+    check: AuditCheck, command: str, requested_by: str
+) -> AuditCheckRun:
     """Run one check on the host via the bridge and build (not persist)
     its AuditCheckRun. `timeout(1)` wraps the command so a hung check
     yields exit 124 -> "timeout" instead of tripping the bridge's cap."""
     seconds = min(check.timeout_seconds or _MAX_TIMEOUT, _MAX_TIMEOUT)
-    wrapped = f"timeout {seconds} bash -c {shlex.quote(check.command)}"
+    wrapped = f"timeout {seconds} bash -c {shlex.quote(command)}"
     started = time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=_MAX_TIMEOUT + 15) as client:
+        async with httpx.AsyncClient(timeout=seconds + 15) as client:
             resp = await client.post(
                 f"{settings.CHAT_BRIDGE_URL}/v1/exec",
-                json={"command": wrapped, "cwd": check.workdir},
+                json={"command": wrapped, "cwd": check.workdir, "timeout_seconds": seconds + 5},
                 headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
             )
         resp.raise_for_status()
@@ -76,6 +95,135 @@ async def _execute_check(check: AuditCheck, requested_by: str) -> AuditCheckRun:
     )
 
 
+async def _execute_check(check: AuditCheck, requested_by: str) -> AuditCheckRun:
+    return await _execute_command(check, check.command, requested_by)
+
+
+async def _host_path_exists(path: str) -> bool:
+    """Existence on the host, via the bridge -- this container sees the
+    profiles under a different mount. An unreachable bridge answers True:
+    the remediation cannot run then anyway, and the delegation reports the
+    real transport error instead of a misleading "file missing"."""
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{settings.CHAT_BRIDGE_URL}/v1/exec",
+                json={"command": f"test -e {shlex.quote(path)}", "timeout_seconds": 10},
+                headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+            )
+        resp.raise_for_status()
+        return resp.json().get("exit_code") == 0
+    except (httpx.HTTPError, ValueError):
+        return True
+
+
+async def _remediation_problems_on_host(command: str | None) -> list[str]:
+    existing = {path for path in referenced_files(command) if await _host_path_exists(path)}
+    return remediation_problems(command, path_exists=existing.__contains__)
+
+
+def _reject_structural_remediation(command: str | None) -> None:
+    problems = structural_remediation_problems(command)
+    if problems:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"message": "Remediation command is not allowed", "problems": problems},
+        )
+
+
+def _athos_remediation_prompt(
+    check: AuditCheck, previous_run: AuditCheckRun | None
+) -> str:
+    previous_evidence = previous_run.output if previous_run and previous_run.output else "No output recorded."
+    suggested_action = check.remediation_command or "No predefined command; diagnose and apply the smallest safe correction."
+    return f"""You are Athos, the ecosystem orchestrator. ForgeHub's administrator has approved an internal correction for this failed audit control.
+
+Control: {check.name}
+Description: {check.description or "Not provided"}
+Category: {check.category or "Not provided"}
+Responsible profile: {check.agent_profile}
+Working directory: {check.workdir or "/root"}
+Verification command (ForgeHub will run it after you finish):
+{check.command}
+
+Configured correction context:
+{check.remediation_description or "Not provided"}
+
+Suggested correction command or procedure:
+{suggested_action}
+
+Latest failure evidence:
+{previous_evidence[:_OUTPUT_LIMIT]}
+
+Diagnose and APPLY the smallest correction needed inside the configured ecosystem. Do not merely explain it. Stay within this control's scope, preserve databases and persistent volumes, do not delete user data, and do not perform unrelated upgrades. There is a single multiplex Hermes gateway: never start another one, never kill its processes, and never touch per-profile hermes-gateway-<profile> units -- the only permitted restart is `systemctl --user restart hermes-gateway`. Finish with a concise account of what you changed and any remaining risk. ForgeHub will independently rerun the verification command."""
+
+
+async def _delegate_remediation_to_athos(
+    check: AuditCheck, previous_run: AuditCheckRun | None
+) -> AuditCheckRun:
+    """Ask Athos to diagnose and apply the approved repair on the host."""
+    started = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=_ATHOS_TIMEOUT) as client:
+            response = await client.post(
+                f"{settings.CHAT_BRIDGE_URL}/v1/audit/remediate",
+                json={
+                    "profile": "athos",
+                    "message": _athos_remediation_prompt(check, previous_run),
+                    "session_id": None,
+                },
+                headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+            )
+        response.raise_for_status()
+        reply = str(response.json().get("reply") or "Athos completed without a written response.")
+        run_status = "ok"
+        exit_code = 0
+    except (httpx.HTTPError, ValueError) as exc:
+        reply = f"Athos remediation failed: {exc}"
+        run_status = "error"
+        exit_code = None
+    return AuditCheckRun(
+        check_id=check.id,
+        status=run_status,
+        exit_code=exit_code,
+        output=reply[:_OUTPUT_LIMIT],
+        duration_ms=round((time.monotonic() - started) * 1000),
+        requested_by="athos-remediation",
+    )
+
+
+def _inbox_escalation_body(
+    check: AuditCheck,
+    previous_run: AuditCheckRun | None,
+    repair: AuditCheckRun,
+    verification: AuditCheckRun,
+) -> str:
+    return f"""Athos attempted the administrator-approved correction, but the control is still unhealthy and requires manual follow-up.
+
+Control: {check.name} ({check.id})
+Description: {check.description or "Not provided"}
+Category: {check.category or "Not provided"}
+Responsible profile: {check.agent_profile}
+Working directory: {check.workdir or "/root"}
+
+Verification command:
+{check.command}
+
+Configured correction:
+{check.remediation_description or "Not provided"}
+{check.remediation_command or "No predefined correction command."}
+
+Evidence before correction:
+{previous_run.output if previous_run and previous_run.output else "No previous output recorded."}
+
+Athos result ({repair.status}):
+{repair.output or "No output recorded."}
+
+Verification after correction ({verification.status}, exit={verification.exit_code}):
+{verification.output or "No output recorded."}
+"""
+
+
 async def _run_enabled_checks(db: AsyncSession, requested_by: str) -> list[AuditCheckRun]:
     result = await db.execute(
         select(AuditCheck).where(AuditCheck.enabled == True).order_by(AuditCheck.name)  # noqa: E712
@@ -89,12 +237,107 @@ async def _run_enabled_checks(db: AsyncSession, requested_by: str) -> list[Audit
             return await _execute_check(check, requested_by)
 
     runs = await asyncio.gather(*(_one(c) for c in checks))
-    for run in runs:
+    dispatch_needed = False
+    for check, run in zip(checks, runs, strict=True):
         db.add(run)
+        dispatch_needed |= await _sync_check_incident(db, check, run)
     await db.commit()
+    if dispatch_needed:
+        from app.core.dispatch_signal import wake_scheduled_dispatch
+
+        wake_scheduled_dispatch()
     for run in runs:
         await db.refresh(run)
     return list(runs)
+
+
+_RECOVERY_MARKER = "[Auditor recovery]"
+
+
+async def _sync_check_incident(db: AsyncSession, check: AuditCheck, run: AuditCheckRun) -> bool:
+    """Keep one owner Task per uninterrupted failure, including concurrent triggers."""
+    await db.execute(select(AuditCheck.id).where(AuditCheck.id == check.id).with_for_update())
+    prefix = f"[Auditor:{check.id}]"
+    demand = (await db.execute(
+        select(AgentDemand)
+        .where(AgentDemand.subject.startswith(prefix))
+        .order_by(AgentDemand.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    active = demand is not None and _RECOVERY_MARKER not in demand.body
+
+    if run.status == "ok":
+        if active:
+            demand.body += f"\n\n{_RECOVERY_MARKER} Check passed.\nRun: {run.id}\nEvidence:\n{run.output or 'Exit 0, no output.'}"
+            demand.status = "archived"
+            # If the worker has not claimed this Task, remove it from the due
+            # queue. A running agent is left alone; its own result is retained.
+            if demand.dispatch_status is None:
+                demand.scheduled_at = None
+        return False
+
+    if active:
+        if demand.status == "archived":
+            demand.status = "new"
+        if demand.dispatch_status in ("completed", "failed"):
+            event_key = f"audit-escalation:{demand.id}"
+            already_escalated = (await db.execute(
+                select(Notification.id).where(Notification.event_key == event_key)
+            )).scalar_one_or_none()
+            if already_escalated is None:
+                db.add(Notification(
+                    source="system", severity="error",
+                    title=f"Audit still failing: {check.name}"[:255],
+                    message=(
+                        f"The owner's Task #{demand.number} ended ({demand.dispatch_status}), "
+                        f"but the check remains {run.status}. Escalate the correction.\n"
+                        f"Verification: {check.command}\nEvidence: {run.output or 'No output recorded.'}"
+                    ),
+                    event_key=event_key,
+                    occurred_at=datetime.now(timezone.utc),
+                ))
+        return False
+
+    owner_exists = (await db.execute(
+        select(Agent.id).where(Agent.profile_slug == check.agent_profile)
+    )).scalar_one_or_none()
+    if owner_exists is None:
+        event_key = f"audit-unowned:{check.id}"
+        warned = (await db.execute(
+            select(Notification.id).where(Notification.event_key == event_key)
+        )).scalar_one_or_none()
+        if warned is None:
+            db.add(Notification(
+                source="system", severity="error",
+                title=f"Audit control has no agent: {check.name}"[:255],
+                message=(
+                    f"Assign a registered agent to {check.name} ({check.id}). "
+                    f"Configured profile: {check.agent_profile}. Latest result: {run.status}."
+                ),
+                event_key=event_key, occurred_at=datetime.now(timezone.utc),
+            ))
+        return False
+
+    await create_demand_and_notify(
+        db,
+        DemandSubmitIn(
+            from_agent="athos",
+            origin_type="task",
+            target_agent_slug=check.agent_profile,
+            subject=f"{prefix} Restore {check.name}"[:255],
+            body=(
+                f"Audit control failed ({run.status}, exit={run.exit_code}).\n"
+                f"Control: {check.name}\nDescription: {check.description or 'Not provided'}\n"
+                f"Verification command: {check.command}\nWorking directory: {check.workdir or '/root'}\n"
+                f"Evidence:\n{run.output or 'No output recorded.'}\n\n"
+                "Diagnose within your charter, apply only authorized changes, and rerun the control. "
+                "Escalate unsafe or out-of-scope corrections."
+            ),
+        ),
+        commit=False,
+        notify=False,
+    )
+    return True
 
 
 async def _get_check_or_404(db: AsyncSession, check_id: uuid.UUID) -> AuditCheck:
@@ -134,6 +377,7 @@ async def list_checks(db: AsyncSession = Depends(get_db)) -> list[AuditCheckOut]
 async def create_check(
     payload: AuditCheckCreate, db: AsyncSession = Depends(get_db)
 ) -> AuditCheckOut:
+    _reject_structural_remediation(payload.remediation_command)
     check = AuditCheck(**payload.model_dump())
     db.add(check)
     try:
@@ -153,7 +397,10 @@ async def update_check(
     check_id: uuid.UUID, payload: AuditCheckUpdate, db: AsyncSession = Depends(get_db)
 ) -> AuditCheckOut:
     check = await _get_check_or_404(db, check_id)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    if "remediation_command" in changes:
+        _reject_structural_remediation(changes["remediation_command"])
+    for field, value in changes.items():
         setattr(check, field, value)
     try:
         await db.commit()
@@ -181,9 +428,70 @@ async def run_check(check_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> 
     check = await _get_check_or_404(db, check_id)
     run = await _execute_check(check, "manual")
     db.add(run)
+    dispatch_needed = await _sync_check_incident(db, check, run)
     await db.commit()
+    if dispatch_needed:
+        from app.core.dispatch_signal import wake_scheduled_dispatch
+
+        wake_scheduled_dispatch()
     await db.refresh(run)
     return AuditRunOut.model_validate(run)
+
+
+@router.post("/checks/{check_id}/remediate", response_model=AuditRemediationOut)
+async def remediate_check(
+    check_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(get_current_admin),
+) -> AuditRemediationOut:
+    """Delegate correction to Athos, verify it, and escalate failure to Inbox.
+
+    Refused (409) before anything runs when the suggested correction targets
+    retired infrastructure, violates the gateway policy, or calls a file the
+    host does not have -- Athos would otherwise act on the stale suggestion."""
+    check = await _get_check_or_404(db, check_id)
+    problems = await _remediation_problems_on_host(check.remediation_command)
+    if problems:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": f"Remediation for {check.name} cannot be delegated", "problems": problems},
+        )
+    previous_run = (
+        await db.execute(
+            select(AuditCheckRun)
+            .where(AuditCheckRun.check_id == check.id)
+            .order_by(AuditCheckRun.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    repair = await _delegate_remediation_to_athos(check, previous_run)
+    db.add(repair)
+    await db.flush()
+    verification = await _execute_check(check, "remediation-verification")
+    db.add(verification)
+    await db.flush()
+
+    inbox_demand_id = None
+    if verification.status != "ok":
+        demand = await create_demand_and_notify(
+            db,
+            DemandSubmitIn(
+                from_agent="athos",
+                subject=f"[Auditor] Manual correction required: {check.name}"[:255],
+                body=_inbox_escalation_body(check, previous_run, repair, verification),
+            ),
+        )
+        inbox_demand_id = demand.id
+    else:
+        await db.commit()
+    await db.refresh(repair)
+    await db.refresh(verification)
+    return AuditRemediationOut(
+        remediation_run=AuditRunOut.model_validate(repair),
+        verification_run=AuditRunOut.model_validate(verification),
+        escalated_to_inbox=inbox_demand_id is not None,
+        inbox_demand_id=inbox_demand_id,
+    )
 
 
 @router.post("/run", response_model=AuditRunAllOut)
@@ -232,6 +540,17 @@ async def audit_status(db: AsyncSession = Depends(get_db)) -> AuditStatusOut:
     last_at = (
         await db.execute(select(func.max(AuditCheckRun.created_at)))
     ).scalar_one_or_none()
+    last_cron_run_at = (
+        await db.execute(
+            select(func.max(AuditCheckRun.created_at)).where(AuditCheckRun.requested_by == "cron")
+        )
+    ).scalar_one_or_none()
+    monitor = inspect_athos_audit_job(
+        foundation._list_cron_jobs(),
+        foundation._cron_store_errors(),
+        last_cron_run_at,
+        datetime.now(timezone.utc),
+    )
     return AuditStatusOut(
         total=len(checks),
         enabled=len(enabled),
@@ -239,4 +558,5 @@ async def audit_status(db: AsyncSession = Depends(get_db)) -> AuditStatusOut:
         fail=fail,
         never_ran=never,
         last_run_at=last_at,
+        athos_monitor=monitor,
     )

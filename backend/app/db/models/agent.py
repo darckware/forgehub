@@ -18,10 +18,12 @@ Conventions (binding, see backend foundation notes):
       populated centrally by the wiring step).
 """
 import uuid
+from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Numeric,
     String,
@@ -32,6 +34,11 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
+# Shared function/role vocabulary (not duplicated) -- see
+# docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md. A plain tuple
+# import across domains, not a model import, so it doesn't create the
+# cross-domain ORM coupling the foundation convention warns against.
+from app.db.models.orchestration import PROJECT_AGENT_ROLES
 
 # ---------------------------------------------------------------------------
 # Allowed value sets (enforced at the application layer via CHECK
@@ -42,6 +49,20 @@ from app.db.base import Base, TimestampMixin
 
 AGENT_STATUSES = ("active", "inactive", "retired")
 AGENT_TYPES = ("coordinator", "executor", "hybrid")
+# Host-bridge /v1/agent-runs' AgentRunRequest.runtime_type -- only agents with
+# their own dispatchable CLI mode can be an Inbox dispatch target (see
+# api/routes/demand.py's /dispatch). "hermes" dispatches a one-shot
+# `hermes chat -q <prompt> -Q --yolo` scoped to the agent's own
+# HERMES_HOME=/root/.hermes/profiles/<profile_slug> -- it runs alongside
+# that profile's already-persistent `gateway run` daemon (both share the
+# same HERMES_HOME/state.db in SQLite WAL mode; verified concurrent-safe
+# 2026-07-25), it does not replace it. Every classic Hermes-profile agent
+# (Athos, Aegis, Atlas, Mnemosyne, Scriba, Themis, Daedalus, Hephaestus)
+# uses this. "claude"/"codex"/"agy" remain the three external runtime
+# programmers (Porthus/Aramis/Dartan) with their own non-Hermes CLI.
+# "openclaw" (Vector) was removed on 2026-10-14: OpenClaw was uninstalled and
+# Vector retired (migration a7c2e9f41b85).
+AGENT_RUNTIME_TYPES = ("claude", "codex", "agy", "hermes")
 
 SKILL_RISK_LEVELS = ("low", "medium", "high", "critical")
 SKILL_ORIGINS = ("internal", "third_party", "foundation")
@@ -76,6 +97,9 @@ class Agent(Base, TimestampMixin):
         String(20), nullable=False, default="active"
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Small profile portrait stored like User.avatar_data_url. The API limits
+    # decoded bytes and validates the actual JPEG/PNG/WebP signature.
+    avatar_data_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Hermes Foundation metadata -- see class docstring.
     profile_slug: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -84,11 +108,62 @@ class Agent(Base, TimestampMixin):
     telegram_required: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    # The agent's own Telegram bot account, as its @username (e.g.
+    # "HermesAthosbot") -- 2026-08-13, Marcelo: "no caso do athos a conta do
+    # telegram é HermesAthosbot".
+    #
+    # Every agent has a *different* bot, each with its own TELEGRAM_BOT_TOKEN
+    # in its profile .env, so "reply on Telegram" is not one destination but
+    # thirteen: an answer to a request that arrived through Athos' bot has to
+    # go back out through Athos' bot, or it reaches the wrong conversation
+    # from the wrong sender. The chat id alone can't express that -- it is the
+    # same value (Marcelo's own) across every profile.
+    #
+    # Stored here rather than read from the profile .env because the .env
+    # holds the token, not the account name: the username is the human-
+    # readable identity of that bot, and the only way to tell in ForgeHub
+    # which account a given agent speaks through. The token itself is never
+    # copied here (see core/agent_telegram.py, which reduces it to a boolean
+    # before it leaves the module).
+    telegram_account: Mapped[str | None] = mapped_column(String(100), nullable=True)
     has_profile: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
     mission: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    department: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sector: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    reports_to_profile_slug: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Encrypted at rest (core/secrets.py). The raw ciphertext column itself
+    # must never appear in a response schema or audit data -- but the
+    # *decrypted* value is deliberately returned once, by GET
+    # /api/v1/agents/{id} only, admin-gated (AgentDetailOut.forgerouter_api_key,
+    # 2026-07-29, reversing this column's original hard "never displayed
+    # again" design per Marcelo's explicit request: ForgeRouter's own
+    # dashboard already shows agents their own key, so re-hiding a value
+    # ForgeHub itself just imported from there added confusion, not
+    # security). List endpoints and every other response keep the boolean
+    # `forgerouter_api_key_configured` property below only.
+    forgerouter_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # See AGENT_RUNTIME_TYPES above -- only Aramis/Porthus/Dartan have one today.
+    runtime_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Host path of the directory holding this agent's profile Markdown files
+    # (SOUL.md, IDENTITY.md, TOOLS.md, ...). Nullable because it is an
+    # *override*: when unset, core/agent_profile_files.py derives it from the
+    # runtime convention (/root/.hermes/profiles/<slug> for Hermes profiles,
+    # /root/.claude, /root/.codex, /root/.gemini/config for the external
+    # runtimes). Stored as the host canonical path,
+    # like source_path -- the container mount translation happens at read time.
+    home_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # The agent's declared specialty at registration (2026-08-05, see
+    # docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md) --
+    # nullable, never invented for existing agents. A channel only ever
+    # *suggests* this when adding the agent as a member (ChatChannelMember.
+    # role); it's never imposed, matching the same "suggestion, never
+    # forced" philosophy already used for ProjectAgentMembership at channel
+    # creation.
+    default_role: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
     sub_agents: Mapped[list["SubAgent"]] = relationship(
         back_populates="agent", cascade="all, delete-orphan"
@@ -112,8 +187,43 @@ class Agent(Base, TimestampMixin):
             "runtime_tier IS NULL OR runtime_tier IN ('A', 'B', 'C')",
             name="ck_agents_runtime_tier",
         ),
+        CheckConstraint(
+            f"runtime_type IS NULL OR runtime_type IN {AGENT_RUNTIME_TYPES}",
+            name="ck_agents_runtime_type",
+        ),
+        CheckConstraint(
+            f"default_role IS NULL OR default_role IN {PROJECT_AGENT_ROLES}",
+            name="ck_agents_default_role",
+        ),
         UniqueConstraint("profile_slug", name="uq_agents_profile_slug"),
     )
+
+    @property
+    def forgerouter_api_key_configured(self) -> bool:
+        return bool(self.forgerouter_api_key_encrypted)
+
+    @property
+    def effective_home_path(self) -> str | None:
+        """Where this agent's profile files are actually read from: the
+        registered `home_path` override, or the runtime convention. Imported
+        lazily so the model module stays free of core-layer imports."""
+        from app.core.agent_profile_files import effective_home_path
+
+        return effective_home_path(self.home_path, self.runtime_type, self.profile_slug)
+
+
+class AgentServiceCredential(Base, TimestampMixin):
+    """Hashed, revocable bearer credential used to authenticate an agent principal."""
+
+    __tablename__ = "agent_service_credentials"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agents.id", ondelete="CASCADE"), nullable=False
+    )
+    label: Mapped[str] = mapped_column(String(150), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class SubAgent(Base, TimestampMixin):

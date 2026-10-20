@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { apiClient } from "@/lib/api";
 
 const FORGEROUTER_URL =
   (import.meta.env.VITE_FORGEROUTER_URL as string | undefined) ?? "http://localhost:2100";
 
 export default function ForgeRouterPage() {
+  const { t } = useTranslation("forgerouter");
   // Trusted SSO: exchange our admin session for a ForgeRouter session so the
   // iframe skips its login screen. The token travels in the URL fragment
   // (never hits server logs); on any failure we fall back to the plain URL
@@ -29,8 +31,9 @@ export default function ForgeRouterPage() {
 
   if (ssoToken === null) {
     return (
-      <div className="flex h-[calc(100vh-7rem)] items-center justify-center rounded-lg border border-border">
+      <div role="status" className="flex h-[calc(100vh-7rem)] items-center justify-center gap-2 rounded-lg border border-border">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">{t("forgerouter.sso.title")}</span>
       </div>
     );
   }

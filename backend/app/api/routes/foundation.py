@@ -11,12 +11,14 @@ Provides endpoints to:
   (SOUL.md, MEMORY.md, TOOLS.md, AGENTS.md, HEARTBEAT.md, USER.md) for
   ANY profile under /profiles, not just the 8 baseline agents -- see
   get_profile_file/update_profile_file below.
-- List/edit/reset/delete `hermes cron` scheduled jobs across every
+- List/edit/reset/delete/run-now `hermes cron` scheduled jobs across every
   per-profile jobs store (cron is per-profile by design, upstream issue
   #4707 -- each profile's gateway ticks its own cron/jobs.json). Reads
   prefer the most recently modified store per job and writes target the
   store the job actually lives in -- see _load_raw_jobs/list_cron_jobs/
-  update_cron_job/reset_cron_job/delete_cron_job.
+  update_cron_job/reset_cron_job/delete_cron_job/run_cron_job_now (the
+  last one shells out to the real `hermes cron run` CLI over the
+  host-bridge, see _run_cron_job_now).
 - List every profile's scripts/ dir -- the only place the hermes scheduler
   executes scripts from -- cross referenced against cron jobs that
   reference them, with basic existence/executable/symlink-health checks --
@@ -28,17 +30,21 @@ import fcntl
 import json
 import os
 import re
+import shlex
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import httpx
 from croniter import croniter
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.cron_script_state import ScriptState, classify_script
 from app.db.base import get_db
 from app.db.models.audit import AuditCheck
 
@@ -150,6 +156,8 @@ class CronJobOut(BaseModel):
     name: str
     description: str | None = None
     script: str | None = None
+    script_state: ScriptState = "none"
+    is_audit_job: bool = False
     schedule_display: str | None = None
     enabled: bool
     state: str
@@ -197,6 +205,16 @@ class CronJobUpdateIn(BaseModel):
     enabled: bool | None = None
 
 
+class CronRunOut(BaseModel):
+    """Result of firing a job immediately, see run_cron_job_now."""
+
+    profile: str
+    id: str
+    executed: bool
+    success: bool | None = None
+    message: str
+
+
 class CronJobRefOut(BaseModel):
     """A cron job that references a given script, used to answer "which
     agent runs this and is it working" for the Scripts registry."""
@@ -224,13 +242,18 @@ class ScriptOut(BaseModel):
     status: str  # "ok" | "broken" | "unused"
     referenced_by: list[CronJobRefOut] = []
     # Non-cron reference sources -- a script counts as "ok" if referenced by
-    # ANY of the three: a cron job (referenced_by above), an enabled Auditor
-    # check's command (referenced_by_audit_checks), or another script that is
+    # ANY of the four: a cron job (referenced_by above), an enabled Auditor
+    # check's command (referenced_by_audit_checks), another script that is
     # itself referenced and calls this one (referenced_by_scripts, e.g. a
-    # cron-wrapper .sh invoking its .py implementation). See
-    # _audit_check_script_refs/_list_scripts for how these are computed.
+    # cron-wrapper .sh invoking its .py implementation), or a row in the
+    # Foundation Scripts registry (in_foundation_registry -- a governance/
+    # integration doc under /root/.hermes/foundation explicitly documents
+    # it, see db/models/foundation_script.py). See
+    # _audit_check_script_refs/_foundation_registry_script_names/
+    # _list_scripts for how these are computed.
     referenced_by_audit_checks: list[str] = []
     referenced_by_scripts: list[str] = []
+    in_foundation_registry: bool = False
 
 
 class ScriptListOut(BaseModel):
@@ -553,6 +576,9 @@ def _raw_job_to_out(raw_job: dict[str, Any]) -> CronJobOut:
     state = raw_job.get("state") or "scheduled"
     script = raw_job.get("script")
     profile = raw_job.get("profile") or "default"
+    script_path = PROFILES_DIR / profile / "scripts" / script if script else None
+    resolved_script = _resolve_script_read_path(profile, script) if script else None
+    script_state = classify_script(resolved_script or script_path)
     last_log = _last_log_at(script, profile)
     return CronJobOut(
         profile=profile,
@@ -560,6 +586,8 @@ def _raw_job_to_out(raw_job: dict[str, Any]) -> CronJobOut:
         name=raw_job.get("name", ""),
         description=_truncate_description(raw_job.get("prompt")),
         script=script,
+        script_state=script_state,
+        is_audit_job=profile == "athos" and raw_job.get("name") == "ecosystem-weekly-audit",
         schedule_display=(raw_job.get("schedule") or {}).get("display") or raw_job.get("schedule_display"),
         enabled=enabled,
         state=state,
@@ -609,6 +637,13 @@ def _find_job_store(job_id: str) -> Path | None:
     for job in _load_raw_jobs():
         if job.get("id") == job_id:
             return Path(job["_store"])
+    return None
+
+
+def _find_raw_job(job_id: str) -> dict[str, Any] | None:
+    for job in _load_raw_jobs():
+        if job.get("id") == job_id:
+            return job
     return None
 
 
@@ -685,16 +720,25 @@ def _update_cron_job(job_id: str, updates: CronJobUpdateIn) -> CronJobOut | None
 
 def _reset_cron_job(job_id: str) -> CronJobOut | None:
     """Re-arm a job in place: clear its last error/status, force a stuck
-    state back to scheduled (or paused, per its enabled flag) and recompute
-    next_run_at from its cron expression when it has one. Deliberately does
-    NOT touch `enabled` -- activating/deactivating stays a PUT concern
-    (see _update_cron_job). Returns None if the job_id wasn't found."""
+    state back to scheduled (or paused, per its enabled flag), release a
+    stuck `fire_claim`, and recompute next_run_at from its cron expression
+    when it has one. Deliberately does NOT touch `enabled` --
+    activating/deactivating stays a PUT concern (see _update_cron_job).
+    Returns None if the job_id wasn't found.
+
+    fire_claim is hermes's own "this job is currently executing" lock
+    (see cronjob_tools._execute_job_now) -- it's supposed to self-clear
+    when the run finishes, but a run killed mid-flight (e.g. host-bridge's
+    /v1/exec 60s hard timeout on a "Run now" that overran) never gets the
+    chance, leaving every future run refused with "already being fired by
+    the scheduler" even though nothing is actually running (2026-07-11)."""
 
     def mutate(target: dict[str, Any]) -> None:
         enabled = bool(target.get("enabled", False))
         target["state"] = "scheduled" if enabled else "paused"
         target["last_status"] = None
         target["last_error"] = None
+        target["fire_claim"] = None
         expr = (target.get("schedule") or {}).get("expr") or target.get("schedule_display")
         if enabled and expr:
             try:
@@ -707,6 +751,84 @@ def _reset_cron_job(job_id: str) -> CronJobOut | None:
                 target["next_run_at"] = next_run.isoformat()
 
     return _mutate_cron_job(job_id, mutate)
+
+
+_RUN_DISPATCH_TIMEOUT = 15.0
+_RUN_POLL_INTERVAL = 2.0
+_RUN_POLL_TIMEOUT = 100.0
+
+
+async def _run_cron_job_now(job_id: str, profile: str) -> CronRunOut:
+    """Fire a job immediately via the real `hermes cron run <id>` CLI path
+    (over the host-bridge's generic /v1/exec, same proxy system_control.py
+    uses for git) rather than reimplementing execution here -- that command
+    calls straight into `_execute_job_now`, which runs the job synchronously
+    even when no gateway/ticker is active for the profile (upstream #41037),
+    so this works for a stopped scheduler too, and for both no_agent script
+    jobs and agent-driven ones. `HERMES_PROFILE` picks the right per-profile
+    store/gateway context, since the CLI otherwise falls back to the sticky
+    ~/.hermes/active_profile.
+
+    Dispatched detached (`nohup ... & disown`) instead of awaited directly:
+    host-bridge's /v1/exec hard-kills its subprocess at 60s, and a run that
+    overran it used to die mid-flight -- the script itself often kept
+    running as an orphan and finished fine (wrote its output, e.g. the News
+    archive), but the CLI process holding the job's `fire_claim` lock was
+    the one that got killed, so it never released it, wedging every future
+    run with "already being fired by the scheduler" until someone noticed
+    and hit Reset (2026-07-12, ai-news-noon: scrape_limit + translation
+    pushed its typical runtime to 45-60s+, right at that edge).
+
+    Firing detached means nothing kills the real work no matter how long it
+    takes; this instead polls the job's own state on disk (PROFILES_DIR is
+    a local mount, no host-bridge round-trip needed) for a more generous
+    window, and degrades to "still running" instead of a false failure if
+    that window elapses -- the job keeps running either way."""
+    pre_last_run_at = (_find_raw_job(job_id) or {}).get("last_run_at")
+
+    log_path = f"/tmp/forgehub_cron_run_{job_id}.log"
+    inner = f"HERMES_PROFILE={profile} hermes cron run {job_id}"
+    command = f"nohup bash -c {shlex.quote(inner)} > {shlex.quote(log_path)} 2>&1 & disown; echo dispatched"
+    async with httpx.AsyncClient(timeout=_RUN_DISPATCH_TIMEOUT) as client:
+        resp = await client.post(
+            f"{settings.CHAT_BRIDGE_URL}/v1/exec",
+            headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+            json={"command": command},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Host-bridge error: {resp.text[:500]}")
+    data = resp.json()
+    if data.get("exit_code") != 0:
+        raise HTTPException(
+            status_code=500,
+            detail=(data.get("stderr") or "").strip() or "Failed to dispatch the run",
+        )
+
+    elapsed = 0.0
+    while elapsed < _RUN_POLL_TIMEOUT:
+        await asyncio.sleep(_RUN_POLL_INTERVAL)
+        elapsed += _RUN_POLL_INTERVAL
+        job = _find_raw_job(job_id)
+        if job is None or job.get("fire_claim") is not None:
+            continue
+        if job.get("last_run_at") == pre_last_run_at:
+            continue
+        success = (job.get("last_status") or "").lower() in ("ok", "success")
+        return CronRunOut(
+            profile=profile,
+            id=job_id,
+            executed=True,
+            success=success,
+            message=f"Ran now: {'succeeded' if success else 'failed'}.",
+        )
+
+    return CronRunOut(
+        profile=profile,
+        id=job_id,
+        executed=True,
+        success=None,
+        message="Still running in the background -- it wasn't killed, check back shortly (Sync on the News page, or this job's Last run).",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -826,6 +948,24 @@ async def _audit_check_script_refs(db: AsyncSession) -> dict[str, list[str]]:
     return refs
 
 
+async def _foundation_registry_script_names(db: AsyncSession) -> set[str]:
+    """Scripts registered in the Foundation page's Scripts card
+    (foundation_scripts table, db/models/foundation_script.py) -- rows
+    there mean a governance/integration doc under /root/.hermes/foundation
+    explicitly documents this script (source="sync", doc_path set) or an
+    operator hand-registered it (source="manual"), either way a deliberate
+    "this is part of the ecosystem" declaration independent of cron/Auditor
+    wiring. Without this cross-reference the Cleanup card's "unused"
+    detection wrongly flagged worker.sh/kanboard-cleanup.sh/health_check.sh/
+    send_demand.sh despite each being documented there (reported
+    2026-07-11, same class of gap as the Auditor cross-reference added
+    2026-07-09 -- see _audit_check_script_refs)."""
+    from app.db.models.foundation_script import FoundationScript  # local import: avoid a module-load-order cycle
+
+    result = await db.execute(select(FoundationScript.name))
+    return set(result.scalars().all())
+
+
 def _script_content_refs(content: str) -> set[str]:
     """Script filenames mentioned in another script's own source -- a
     cron-referenced or Auditor-referenced wrapper (e.g. foundation_audit.sh)
@@ -846,6 +986,7 @@ def _build_script_out(
     jobs_by_script: dict[str, list[CronJobOut]],
     audit_check_names: list[str] | None = None,
     chained_from: list[str] | None = None,
+    in_foundation_registry: bool = False,
 ) -> ScriptOut:
     audit_check_names = audit_check_names or []
     chained_from = chained_from or []
@@ -880,7 +1021,7 @@ def _build_script_out(
 
     if not exists or escapes_scripts_dir:
         status = "broken"
-    elif refs or audit_check_names or chained_from:
+    elif refs or audit_check_names or chained_from or in_foundation_registry:
         status = "ok"
     else:
         status = "unused"
@@ -911,6 +1052,7 @@ def _build_script_out(
         ],
         referenced_by_audit_checks=audit_check_names,
         referenced_by_scripts=chained_from,
+        in_foundation_registry=in_foundation_registry,
     )
 
 
@@ -927,12 +1069,14 @@ def _read_files_sync(paths: dict[tuple[str, str], Path]) -> dict[tuple[str, str]
 async def _list_scripts(db: AsyncSession) -> tuple[list[ScriptOut], dict[tuple[str, str], bytes]]:
     """List every profile's scripts/ dir (the only place the scheduler
     executes scripts from -- the old central catalog was migrated into the
-    athos profile on 2026-07-06), cross-referenced against three reference
+    athos profile on 2026-07-06), cross-referenced against four reference
     sources: cron jobs (by filename), enabled Auditor checks (by filename
-    inside their command), and other scripts from either of those two
-    sources that call this one by path in their own source (one wrapper
-    calling its .py implementation, chased to a fixed point so a wrapper of
-    a wrapper still resolves).
+    inside their command), the Foundation Scripts registry (a governance/
+    integration doc explicitly documents it, see
+    _foundation_registry_script_names), and other scripts from any of the
+    first three sources that call this one by path in their own source (one
+    wrapper calling its .py implementation, chased to a fixed point so a
+    wrapper of a wrapper still resolves).
 
     Also returns the raw (location, name) -> bytes content read while
     building the list, so callers that also need file content (e.g.
@@ -946,6 +1090,7 @@ async def _list_scripts(db: AsyncSession) -> tuple[list[ScriptOut], dict[tuple[s
             jobs_by_script.setdefault(job.script, []).append(job)
 
     audit_refs_by_script = await _audit_check_script_refs(db)
+    foundation_registry_names = await _foundation_registry_script_names(db)
 
     descriptions = _parse_readme_descriptions()
 
@@ -979,7 +1124,7 @@ async def _list_scripts(db: AsyncSession) -> tuple[list[ScriptOut], dict[tuple[s
     # Reference-chain resolution matches by bare filename (cron jobs and
     # Auditor check commands only ever name a script, not its owning
     # profile), same ambiguity that already existed pre-refactor.
-    used = set(jobs_by_script) | set(audit_refs_by_script)
+    used = set(jobs_by_script) | set(audit_refs_by_script) | foundation_registry_names
     chained_from: dict[str, set[str]] = {}
     changed = True
     while changed:
@@ -1008,6 +1153,7 @@ async def _list_scripts(db: AsyncSession) -> tuple[list[ScriptOut], dict[tuple[s
                 jobs_by_script=jobs_by_script,
                 audit_check_names=audit_refs_by_script.get(name),
                 chained_from=sorted(chained_from.get(name, ())) or None,
+                in_foundation_registry=name in foundation_registry_names,
             )
         )
 
@@ -1041,18 +1187,8 @@ def _resolve_script_read_path(location: str, name: str) -> Path | None:
     """Resolve a script's actual readable path for content display, same
     symlink-remap logic as _build_script_out. Returns None if unreadable.
 
-    `location` is normally a profile name. The legacy values "central",
-    "main" and "profile" (pre-2026-07-06 central-dirs layout, still present
-    in old cron_scripts DB rows and frontend fallback candidates) resolve
-    by searching every profile's scripts dir for the name instead."""
-    if location in ("central", "main", "profile"):
-        bases = (
-            [p / "scripts" for p in sorted(PROFILES_DIR.iterdir()) if (p / "scripts").is_dir()]
-            if PROFILES_DIR.is_dir()
-            else []
-        )
-    else:
-        bases = [PROFILES_DIR / location / "scripts"]
+    `location` is an existing profile name."""
+    bases = [PROFILES_DIR / location / "scripts"]
 
     for base in bases:
         candidate = base / name
@@ -1366,6 +1502,17 @@ async def reset_cron_job(job_id: str) -> CronJobOut:
     return reset
 
 
+@router.post("/crons/{job_id}/run", response_model=CronRunOut)
+async def run_cron_job_now(job_id: str) -> CronRunOut:
+    """Fire a job immediately, outside its schedule. Backs the "play"
+    action on the Crons page."""
+    store = _find_job_store(job_id)
+    if store is None:
+        raise HTTPException(status_code=404, detail="Cron job not found")
+    profile = store.parent.parent.name
+    return await _run_cron_job_now(job_id, profile)
+
+
 @router.delete("/crons/{job_id}")
 async def delete_cron_job(job_id: str) -> dict[str, str]:
     """Remove a job from the shared cron store, under the same advisory
@@ -1383,7 +1530,7 @@ async def delete_cron_job(job_id: str) -> dict[str, str]:
 
 @router.get("/scripts", response_model=ScriptListOut)
 async def list_scripts(db: AsyncSession = Depends(get_db)) -> ScriptListOut:
-    """List the central scripts catalog plus every profile's own scripts/
+    """List every profile's own scripts/
     dir, each with its owning agent, description, and a health check
     (exists / symlink escapes its scripts dir / referenced by a cron job,
     an Auditor check, or another referenced script's chained call)."""
@@ -1394,12 +1541,13 @@ async def list_scripts(db: AsyncSession = Depends(get_db)) -> ScriptListOut:
 @router.get("/scripts/{location}/{name}/content", response_model=ScriptContentOut)
 async def get_script_content(location: str, name: str) -> ScriptContentOut:
     """Read a script's raw source -- used by the Crons/Scripts pages' file
-    viewer and "send to chat" actions. `location` is "central" or a profile
+    viewer and "send to chat" actions. `location` is an existing profile
     slug; `name` must be a bare filename (no path separators)."""
     if "/" in name or "\\" in name or name in (".", ".."):
         raise HTTPException(status_code=400, detail="Invalid script name")
-    if location != "central":
-        _get_profile_dir_or_404(location)
+    if location in ("central", "main", "profile"):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    _get_profile_dir_or_404(location)
 
     resolved = _resolve_script_read_path(location, name)
     if resolved is None:

@@ -28,12 +28,11 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from app.core import kanboard_client
 from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select
 
 from app.core.config import settings
 from app.db.models.product import PRODUCT_STATUSES as VALID_PRODUCT_STATUSES
@@ -62,6 +61,9 @@ from app.db.models.project import (
 from app.db.models.backlog import PlanningItem
 from app.db.models.task import ProjectTask, TaskExecution, TaskAssignment
 from app.db.models.pipeline import ProjectPipeline, PipelineStage
+from app.db.models.execution import ExecutionWave, ExecutionWorkPackage
+from app.db.models.orchestration import ProjectLoopPolicy, TaskExecutionReview
+from app.db.models.system_scope import ProjectScope, ProjectScopeItem
 
 
 async def _bridge_request(method: str, path: str, **kwargs) -> dict:
@@ -103,17 +105,25 @@ async def _get_version_or_404(db: AsyncSession, version_id: uuid.UUID) -> Produc
 async def create_product(payload: ProductCreate, db: AsyncSession = Depends(get_db)) -> Product:
     if payload.status not in VALID_PRODUCT_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid product status '{payload.status}'",
         )
-    product = Product(name=payload.name, description=payload.description, status=payload.status)
+    product = Product(
+        name=payload.name,
+        description=payload.description,
+        status=payload.status,
+        application_url=payload.application_url,
+        application_url_dev=payload.application_url_dev,
+        darckware_client_id=payload.darckware_client_id,
+        darckware_client_name=payload.darckware_client_name,
+    )
 
     initial_version_payload = payload.initial_version or ProductVersionCreate(
         version="0.1.0", status="planned"
     )
     if initial_version_payload.status not in VALID_PRODUCT_VERSION_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid version status '{initial_version_payload.status}'",
         )
 
@@ -136,22 +146,6 @@ async def create_product(payload: ProductCreate, db: AsyncSession = Depends(get_
             status_code=status.HTTP_409_CONFLICT, detail="A product with this name already exists"
         ) from None
 
-    # Create a Kanboard project for this product, replicating the reference
-    # column structure. Non-fatal: DB product is already committed.
-    try:
-        kb_project_id, col_map = await kanboard_client.create_project_with_columns(
-            name=product.name,
-            description=product.description or "",
-        )
-        product.kanboard_project_id = kb_project_id
-        product.kanboard_column_ids = col_map
-        await db.commit()
-    except Exception:
-        pass  # Kanboard creation failure never blocks product creation
-
-    # Refresh everything: the second commit (Kanboard) expires all scalar
-    # attributes, so attribute_names=["versions","modules"] is not enough.
-    await db.refresh(product)
     await db.refresh(product, attribute_names=["versions", "modules"])
     return product
 
@@ -439,9 +433,62 @@ async def restore_product(
     return {"status": "ok", "product_id": product_id}
 
 
+async def _clear_restrict_blocked_dependencies(db: AsyncSession, project_ids: list[uuid.UUID]) -> None:
+    """Explicitly deletes rows that would otherwise RESTRICT-block a
+    cascading product delete.
+
+    A handful of FKs deep in the execution/governance domains are
+    deliberately `ON DELETE RESTRICT` rather than CASCADE -- e.g.
+    `execution_work_packages.execution_wave_id`, `project_scope_items
+    .system_element_id`, `task_execution_reviews.reviewer_membership_id`
+    -- so that an unrelated, incidental edit elsewhere in the app (someone
+    removing one project member, or tidying up an old System Map element)
+    can't silently orphan a delivery-commitment or audit record. That
+    protection is correct for normal operation and must not be relaxed at
+    the schema level.
+
+    Deleting an entire product is a different, explicit "wipe everything
+    under this product" action, so this clears exactly those
+    RESTRICT-blocked rows first, in dependency order, before the product
+    row itself is deleted -- everything else in the tree already cascades
+    correctly via ON DELETE CASCADE once these are out of the way.
+    """
+    if not project_ids:
+        return
+
+    task_ids_subq = select(ProjectTask.id).where(or_(
+        ProjectTask.planning_item_id.in_(select(PlanningItem.id).where(PlanningItem.project_id.in_(project_ids))),
+        ProjectTask.change_request_id.in_(select(ChangeRequest.id).where(ChangeRequest.project_id.in_(project_ids))),
+    ))
+
+    # execution_work_packages RESTRICTs execution_waves/plan_baselines/task_assignments.
+    await db.execute(delete(ExecutionWorkPackage).where(ExecutionWorkPackage.execution_wave_id.in_(
+        select(ExecutionWave.id).where(ExecutionWave.project_id.in_(project_ids))
+    )))
+    # task_execution_reviews RESTRICTs project_agent_memberships.
+    await db.execute(delete(TaskExecutionReview).where(TaskExecutionReview.execution_id.in_(
+        select(TaskExecution.id).where(TaskExecution.task_id.in_(task_ids_subq))
+    )))
+    # project_loop_policies RESTRICTs project_agent_memberships.
+    await db.execute(delete(ProjectLoopPolicy).where(ProjectLoopPolicy.project_id.in_(project_ids)))
+    # project_scope_items RESTRICTs system_elements; project_scopes itself
+    # RESTRICTs system_blueprint_revisions, so both must go before the
+    # product's system_blueprints/system_elements are cascade-deleted.
+    await db.execute(delete(ProjectScopeItem).where(ProjectScopeItem.project_scope_id.in_(
+        select(ProjectScope.id).where(ProjectScope.project_id.in_(project_ids))
+    )))
+    await db.execute(delete(ProjectScope).where(ProjectScope.project_id.in_(project_ids)))
+
+
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_product(product_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
     product = await _get_product_or_404(db, product_id)
+    project_ids = list((await db.execute(
+        select(Project.id)
+        .join(ProductVersion, ProductVersion.id == Project.product_version_id)
+        .where(ProductVersion.product_id == product_id)
+    )).scalars())
+    await _clear_restrict_blocked_dependencies(db, project_ids)
     await db.delete(product)
     await db.commit()
 
@@ -532,7 +579,7 @@ async def create_product_version(
 
     if payload.status not in VALID_PRODUCT_VERSION_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid version status '{payload.status}'",
         )
 
@@ -589,14 +636,14 @@ async def update_product_version(
     # Business rule 6.1.4: published versions cannot be mutated directly.
     if version.status == "published":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Published versions cannot be mutated directly. Create a patch/hotfix flow instead.",
         )
 
     update_data = payload.model_dump(exclude_unset=True)
     if "status" in update_data and update_data["status"] not in VALID_PRODUCT_VERSION_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid version status '{update_data['status']}'",
         )
 
@@ -615,13 +662,72 @@ async def update_product_version(
     return version
 
 
+@router.post("/versions/{version_id}:publish", response_model=ProductVersionOut)
+async def publish_product_version(version_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> ProductVersion:
+    """Dedicated publish action (Pacote 4, 2026-08-01) -- clearer than
+    overloading the generic PUT, and it's the one place that gets to check
+    "is everything actually finished" before flipping the switch. Idempotent
+    if already published. Blocks (409 + the blocking list, same UX as
+    dispatch_task's dependency gate) rather than force-completing unfinished
+    work -- Marcelo: publishing should never invent completion that didn't
+    happen.
+    """
+    version = await _get_version_or_404(db, version_id)
+    if version.status == "published":
+        return version
+
+    projects = list((await db.execute(
+        select(Project).where(Project.product_version_id == version_id)
+    )).scalars())
+    blocking: list[dict] = []
+    task_count = 0
+    for project in projects:
+        tasks = list((await db.execute(
+            select(ProjectTask)
+            .join(PlanningItem, PlanningItem.id == ProjectTask.planning_item_id)
+            .where(PlanningItem.project_id == project.id)
+        )).scalars())
+        task_count += len(tasks)
+        for task in tasks:
+            if task.status not in ("done", "deployed", "cancelled"):
+                blocking.append({
+                    "project_id": str(project.id), "project_name": project.name,
+                    "task_id": str(task.id), "task_number": task.number,
+                    "title": task.title, "status": task.status,
+                })
+    if task_count == 0:
+        raise HTTPException(status_code=409, detail={
+            "message": "This version needs at least one task before it can be published",
+            "blocking": [],
+        })
+    if blocking:
+        raise HTTPException(status_code=409, detail={
+            "message": "This version has unfinished tasks and cannot be published yet",
+            "blocking": blocking,
+        })
+
+    version.status = "published"
+    for project in projects:
+        project.status = "completed"
+        # Also ensure all planning items are marked as done
+        proj_planning_items = list((await db.execute(
+            select(PlanningItem).where(PlanningItem.project_id == project.id)
+        )).scalars())
+        for pi in proj_planning_items:
+            pi.status = "done"
+
+    await db.commit()
+    await db.refresh(version)
+    return version
+
+
 @router.delete("/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_product_version(version_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
     version = await _get_version_or_404(db, version_id)
 
     if version.status == "published":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Published versions cannot be mutated directly.",
         )
 
@@ -632,7 +738,7 @@ async def delete_product_version(version_id: uuid.UUID, db: AsyncSession = Depen
     remaining_ids = result.scalars().all()
     if len(remaining_ids) <= 1:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Cannot delete the only remaining version of a product",
         )
 
@@ -651,7 +757,7 @@ async def create_release(payload: ReleaseCreate, db: AsyncSession = Depends(get_
 
     if payload.status not in VALID_RELEASE_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid release status '{payload.status}'",
         )
 
@@ -692,7 +798,7 @@ async def update_release(
     update_data = payload.model_dump(exclude_unset=True)
     if "status" in update_data and update_data["status"] not in VALID_RELEASE_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid release status '{update_data['status']}'",
         )
 

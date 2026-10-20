@@ -1,0 +1,73 @@
+{
+    // 1. Definição de propriedade das tags (apenas administradores podem assinar)
+    "tagOwners": {
+        "tag:darckware-admin": ["autogroup:admin"],
+        "tag:darckware-infra": ["autogroup:admin"],
+        "tag:semed-srv":       ["autogroup:admin"],
+        "tag:semed-users":     ["autogroup:admin"],
+        "tag:gatling-srv":     ["autogroup:admin"],
+        "tag:gatling-users":   ["autogroup:admin"],
+    },
+
+    // 2. Políticas de Acesso (Grants com Zero-Trust)
+    "grants": [
+        // A sua estação técnica (Darckware Admin) gerencia toda a infraestrutura
+        {
+            "src": ["tag:darckware-admin", "autogroup:admin"],
+            "dst": ["*"],
+            "ip":  ["*"],
+        },
+
+        // Isolamento SEMED: utilizadores da secretaria só alcançam servidores SEMED e a sub-rede física anunciada
+        {
+            "src": ["tag:semed-users"],
+            "dst": ["tag:semed-srv", "172.15.0.0/16"],
+            "ip":  ["*"],
+        },
+
+        // Isolamento Gatling (Cliente): estações do cliente alcançam o servidor Gatling EXCLUSIVAMENTE via RDP (porta 3389)
+        {
+            "src": ["tag:gatling-users"],
+            "dst": ["tag:gatling-srv"],
+            "ip":  ["*"],
+        },
+
+        // Comunicação interna estrita da VPS Darckware (RustDesk / Uptime Kuma)
+        {
+            "src": ["tag:darckware-infra"],
+            "dst": ["tag:darckware-infra"],
+            "ip":  ["*"],
+        },
+
+        // Acesso restrito aos serviços do RustDesk hospedados na Darckware VPS
+        {
+            "src": [
+                "tag:gatling-srv",
+                "tag:gatling-users",
+                "tag:semed-srv",
+                "tag:semed-users",
+            ],
+            "dst": ["tag:darckware-infra"],
+            "ip": [
+                "tcp:21115-21119",
+                "udp:21116",
+            ],
+        },
+    ],
+
+    // 3. Acesso SSH Administrativo direto (sem prompt de autenticação no browser)
+    "ssh": [
+        {
+            "action": "accept",
+            "src":    ["tag:darckware-admin", "autogroup:admin"],
+            "dst": [
+                "tag:darckware-infra",
+                "tag:semed-srv",
+                "tag:semed-users",
+                "tag:gatling-srv",
+                "tag:gatling-users",
+            ],
+            "users": ["root", "autogroup:nonroot"],
+        },
+    ],
+}

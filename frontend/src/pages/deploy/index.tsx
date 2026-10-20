@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Activity,
   AlertCircle,
@@ -9,6 +10,7 @@ import {
   Circle,
   ClipboardCopy,
   Container,
+  FileText,
   Folder,
   ExternalLink,
   HardDrive,
@@ -52,6 +54,7 @@ import {
   useRemoveVolume,
   useRemoveNetwork,
   useRemoveImage,
+  useRemoveImages,
   useDeployGroups,
   useCreateDeployGroup,
   useUpdateDeployGroup,
@@ -73,37 +76,39 @@ import { useQueryClient } from "@tanstack/react-query";
 // ---------------------------------------------------------------------------
 
 function ContainerStatusBadge({ state, health }: { state: string; health: string | null }) {
+  const { t } = useTranslation("deploy");
+
   if (state === "running" && health === "healthy") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-600">
-        <CheckCircle2 className="h-3 w-3" /> Healthy
+        <CheckCircle2 className="h-3 w-3" /> {t("statusHelpers.healthy")}
       </span>
     );
   }
   if (state === "running" && health === "unhealthy") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-500">
-        <AlertCircle className="h-3 w-3" /> Unhealthy
+        <AlertCircle className="h-3 w-3" /> {t("statusHelpers.unhealthy")}
       </span>
     );
   }
   if (state === "running" && health === "starting") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600">
-        <Loader2 className="h-3 w-3 animate-spin" /> Starting
+        <Loader2 className="h-3 w-3 animate-spin" /> {t("statusHelpers.starting")}
       </span>
     );
   }
   if (state === "running") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600">
-        <Activity className="h-3 w-3" /> Running
+        <Activity className="h-3 w-3" /> {t("statusHelpers.running")}
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-      <Circle className="h-3 w-3" /> Stopped
+      <Circle className="h-3 w-3" /> {t("statusHelpers.stopped")}
     </span>
   );
 }
@@ -127,6 +132,7 @@ function LogsModal({
   containerName: string;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("deploy");
   const [lines, setLines] = useState(200);
   const { data, isLoading, refetch } = useContainerLogs(containerName, lines);
   const ref = useRef<HTMLPreElement>(null);
@@ -134,6 +140,8 @@ function LogsModal({
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
   }, [data]);
+
+  const lineOptions = [50, 100, 200, 500, 1000];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -144,7 +152,7 @@ function LogsModal({
           <div className="flex items-center gap-2">
             <ScrollText className="h-4 w-4 text-blue-500" />
             <span className="font-semibold text-sm">{containerName}</span>
-            <span className="text-xs text-muted-foreground">— last {lines} lines</span>
+            <span className="text-xs text-muted-foreground">— {t("logsModal.subtitle", { lines })}</span>
           </div>
           <div className="flex items-center gap-2">
             <select
@@ -152,14 +160,14 @@ function LogsModal({
               value={lines}
               onChange={(e) => setLines(Number(e.target.value))}
             >
-              {[50, 100, 200, 500, 1000].map((n) => (
-                <option key={n} value={n}>{n} lines</option>
+              {lineOptions.map((n) => (
+                <option key={n} value={n}>{t(`logsModal.linesOptions.${n}`)}</option>
               ))}
             </select>
-            <Button size="sm" variant="ghost" onClick={() => refetch()}>
+            <Button size="sm" variant="ghost" onClick={() => refetch()} title={t("logsModal.refresh")}>
               <RefreshCw className="h-3.5 w-3.5" />
             </Button>
-            <Button size="sm" variant="ghost" onClick={onClose}>
+            <Button size="sm" variant="ghost" onClick={onClose} title={t("logsModal.close")}>
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -169,7 +177,7 @@ function LogsModal({
           className="flex-1 overflow-auto p-4 text-xs font-mono text-foreground/90 bg-black/20 rounded-b-xl whitespace-pre-wrap break-all"
           style={{ minHeight: "300px" }}
         >
-          {isLoading ? "Loading logs..." : data?.logs ?? "No logs available."}
+          {isLoading ? t("logsModal.loading") : data?.logs ?? t("logsModal.noLogs")}
         </pre>
       </div>
     </div>
@@ -181,6 +189,7 @@ function LogsModal({
 // ---------------------------------------------------------------------------
 
 function GroupsModal({ groups, onClose }: { groups: DeployGroup[]; onClose: () => void }) {
+  const { t } = useTranslation("deploy");
   const createMut = useCreateDeployGroup();
   const updateMut = useUpdateDeployGroup();
   const deleteMut = useDeleteDeployGroup();
@@ -232,7 +241,7 @@ function GroupsModal({ groups, onClose }: { groups: DeployGroup[]; onClose: () =
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <div className="flex items-center gap-2">
             <Settings2 className="h-4 w-4 text-blue-500" />
-            <span className="font-semibold text-sm">Groups</span>
+            <span className="font-semibold text-sm">{t("groupsModal.title")}</span>
           </div>
           <Button size="sm" variant="ghost" onClick={onClose}>
             <X className="h-4 w-4" />
@@ -246,7 +255,7 @@ function GroupsModal({ groups, onClose }: { groups: DeployGroup[]; onClose: () =
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleCreate())}
-              placeholder="New group name"
+              placeholder={t("groupsModal.create.inputPlaceholder")}
               className="h-8 text-sm flex-1"
             />
             <Button size="sm" className="h-8" onClick={handleCreate} disabled={createMut.isPending || !newName.trim()}>
@@ -260,14 +269,14 @@ function GroupsModal({ groups, onClose }: { groups: DeployGroup[]; onClose: () =
 
           {/* Table */}
           {groups.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">No groups created.</p>
+            <p className="text-sm text-muted-foreground text-center py-6">{t("groupsModal.messages.noGroups")}</p>
           ) : (
             <div className="rounded-lg border border-border overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/40">
-                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Name</th>
-                    <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground w-24">Actions</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">{t("groupsModal.tableHeaders.name")}</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground w-24">{t("groupsModal.tableHeaders.actions")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -293,19 +302,19 @@ function GroupsModal({ groups, onClose }: { groups: DeployGroup[]; onClose: () =
                         <div className="flex items-center justify-end gap-1">
                           {editingId === g.id ? (
                             <>
-                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleRename(g)} disabled={updateMut.isPending} title="Save">
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleRename(g)} disabled={updateMut.isPending} title={t("groupsModal.actions.save")}>
                                 {updateMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                               </Button>
-                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingId(null)} title="Cancel">
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingId(null)} title={t("groupsModal.actions.cancel")}>
                                 <X className="h-3.5 w-3.5" />
                               </Button>
                             </>
                           ) : (
                             <>
-                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditingId(g.id); setEditName(g.name); }} title="Rename">
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditingId(g.id); setEditName(g.name); }} title={t("groupsModal.actions.rename")}>
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
-                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => setDeleting(g)} title="Delete">
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => setDeleting(g)} title={t("groupsModal.actions.delete")}>
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
                             </>
@@ -319,16 +328,16 @@ function GroupsModal({ groups, onClose }: { groups: DeployGroup[]; onClose: () =
             </div>
           )}
           <p className="text-xs text-muted-foreground">
-            Renaming a group updates its installations. Deleting a group leaves its installations ungrouped.
+            {t("groupsModal.messages.info")}
           </p>
         </div>
       </div>
 
       <ConfirmDialog
         open={!!deleting}
-        title="Delete group"
-        description={`Delete group "${deleting?.name}"? Installations in this group will become ungrouped.`}
-        confirmLabel="Delete"
+        title={t("groupsModal.confirm.title")}
+        description={t("groupsModal.confirm.description", { name: deleting?.name })}
+        confirmLabel={t("groupsModal.confirm.confirm")}
         loading={deleteMut.isPending}
         onConfirm={handleDelete}
         onCancel={() => setDeleting(null)}
@@ -399,6 +408,7 @@ function InstallationForm({
   groups: DeployGroup[];
   onManageGroups: () => void;
 }) {
+  const { t } = useTranslation("deploy");
   const { data: products = [] } = useProducts();
   const [form, setForm] = useState<DeployInstallationCreate>(() => {
     if (initial) {
@@ -471,27 +481,28 @@ function InstallationForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form noValidate onSubmit={handleSubmit} className="space-y-4">
       {/* Name + group row */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
-          <Label className="text-xs">Name *</Label>
+          <Label className="text-xs">{t("installationForm.name.label")}</Label>
           <Input
             value={form.name}
             onChange={(e) => f("name", e.target.value)}
-            placeholder="ForgeHub Backend"
+            placeholder={t("installationForm.name.placeholder")}
             required
             className="h-8 text-sm"
           />
         </div>
         <div className="space-y-1">
           <div className="flex items-center justify-between">
-            <Label className="text-xs">Group</Label>
+            <Label className="text-xs">{t("installationForm.group.label")}</Label>
             <button
               type="button"
               onClick={onManageGroups}
               className="text-muted-foreground hover:text-foreground"
-              title="Manage groups"
+              title={t("installationForm.group.buttonTitle")}
+              aria-label={t("installationForm.group.buttonTitle")}
             >
               <Settings2 className="h-3.5 w-3.5" />
             </button>
@@ -501,7 +512,7 @@ function InstallationForm({
             value={form.group_name ?? ""}
             onChange={(e) => f("group_name", e.target.value || null)}
           >
-            <option value="">— no group —</option>
+            <option value="">{t("installationForm.group.none")}</option>
             {/* Keep a legacy group_name selectable even if its group row is gone */}
             {form.group_name && !groups.some((g) => g.name === form.group_name) && (
               <option value={form.group_name}>{form.group_name}</option>
@@ -514,11 +525,11 @@ function InstallationForm({
       </div>
 
       <div className="space-y-1">
-        <Label className="text-xs">Description</Label>
+        <Label className="text-xs">{t("installationForm.description.label")}</Label>
         <Input
           value={form.description ?? ""}
           onChange={(e) => f("description", e.target.value)}
-          placeholder="Brief service description"
+          placeholder={t("installationForm.description.placeholder")}
           className="h-8 text-sm"
         />
       </div>
@@ -526,13 +537,13 @@ function InstallationForm({
       {/* Container + order */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
-          <Label className="text-xs">Docker Container</Label>
+          <Label className="text-xs">{t("installationForm.container.label")}</Label>
           <select
             className="h-8 w-full rounded-md border border-border bg-background px-3 text-sm"
             value={form.container_name ?? ""}
             onChange={(e) => handleContainerChange(e.target.value)}
           >
-            <option value="">— none —</option>
+            <option value="">{t("installationForm.container.none")}</option>
             {containers.map((c) => (
               <option key={c.name} value={c.name}>
                 {c.name}
@@ -541,7 +552,7 @@ function InstallationForm({
           </select>
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Order</Label>
+          <Label className="text-xs">{t("installationForm.order.label")}</Label>
           <Input
             type="number"
             value={form.order_index}
@@ -564,33 +575,33 @@ function InstallationForm({
               <>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground shrink-0">
-                    <Container className="h-3 w-3 text-blue-500" /> Container:
+                    <Container className="h-3 w-3 text-blue-500" /> {t("installationForm.containerDetails.container")}
                   </span>
                   <span className="text-[10px] font-mono">{live.name}</span>
-                  {live.id && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono" title="Container ID">{live.id}</span>}
+                  {live.id && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono" title={t("installationForm.containerDetails.containerId")}>{live.id}</span>}
                   <ContainerStatusBadge state={live.state} health={live.health} />
                 </div>
                 <div className="flex items-start gap-2 flex-wrap">
-                  <span className="text-xs font-medium text-foreground shrink-0">Image:</span>
+                  <span className="text-xs font-medium text-foreground shrink-0">{t("installationForm.containerDetails.image")}:</span>
                   <span className="text-[10px] font-mono text-muted-foreground break-all">{live.image}</span>
                 </div>
                 <div className="flex items-start gap-2 flex-wrap">
-                  <span className="text-xs font-medium text-foreground shrink-0">Status:</span>
+                  <span className="text-xs font-medium text-foreground shrink-0">{t("installationForm.containerDetails.status")}:</span>
                   <span className="text-[10px] font-mono text-muted-foreground">{live.status}</span>
                 </div>
                 {live.ports && (
                   <div className="flex items-start gap-2 flex-wrap">
-                    <span className="text-xs font-medium text-foreground shrink-0">Ports:</span>
+                    <span className="text-xs font-medium text-foreground shrink-0">{t("installationForm.containerDetails.ports")}:</span>
                     <span className="text-[10px] font-mono text-muted-foreground break-all">{live.ports}</span>
                   </div>
                 )}
               </>
             ) : (
-              <p className="text-xs text-muted-foreground italic">Container offline or not found on the host.</p>
+              <p className="text-xs text-muted-foreground italic">{t("installationForm.containerDetails.offline")}</p>
             )}
             <div className="flex items-start gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground shrink-0">
-                <HardDrive className="h-3 w-3 text-violet-500" /> Volumes:
+                <HardDrive className="h-3 w-3 text-violet-500" /> {t("installationForm.containerDetails.volumes")}:
               </span>
               {vols.length > 0 ? (
                 vols.map((v) => (
@@ -599,12 +610,12 @@ function InstallationForm({
                   </span>
                 ))
               ) : (
-                <span className="text-xs text-muted-foreground italic">none</span>
+                <span className="text-xs text-muted-foreground italic">{t("installationForm.containerDetails.none")}</span>
               )}
             </div>
             <div className="flex items-start gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground shrink-0">
-                <Folder className="h-3 w-3 text-amber-500" /> Folders:
+                <Folder className="h-3 w-3 text-amber-500" /> {t("installationForm.containerDetails.folders")}:
               </span>
               {sharedFolders.length > 0 ? (
                 sharedFolders.map((v) => (
@@ -613,12 +624,12 @@ function InstallationForm({
                   </span>
                 ))
               ) : (
-                <span className="text-xs text-muted-foreground italic">none</span>
+                <span className="text-xs text-muted-foreground italic">{t("installationForm.containerDetails.none")}</span>
               )}
             </div>
             <div className="flex items-start gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground shrink-0">
-                <Network className="h-3 w-3 text-amber-500" /> Network:
+                <Network className="h-3 w-3 text-amber-500" /> {t("installationForm.containerDetails.networks")}:
               </span>
               {nets.length > 0 ? (
                 nets.map((n) => {
@@ -631,7 +642,7 @@ function InstallationForm({
                   );
                 })
               ) : (
-                <span className="text-xs text-muted-foreground italic">none</span>
+                <span className="text-xs text-muted-foreground italic">{t("installationForm.containerDetails.none")}</span>
               )}
             </div>
           </div>
@@ -640,35 +651,35 @@ function InstallationForm({
 
       {/* Restart command */}
       <div className="space-y-1">
-        <Label className="text-xs">Restart command</Label>
+        <Label className="text-xs">{t("installationForm.restartCommand.label")}</Label>
         <Input
           value={form.restart_command ?? ""}
           onChange={(e) => f("restart_command", e.target.value)}
-          placeholder="docker restart container-name"
+          placeholder={t("installationForm.restartCommand.placeholder")}
           className="h-8 text-sm font-mono"
         />
       </div>
 
       {/* Compose file */}
       <div className="space-y-1">
-        <Label className="text-xs">docker-compose.yml path</Label>
+        <Label className="text-xs">{t("installationForm.composeFile.label")}</Label>
         <Input
           value={form.compose_file ?? ""}
           onChange={(e) => f("compose_file", e.target.value)}
-          placeholder="/root/project/forgehub/docker-compose.yml"
+          placeholder={t("installationForm.composeFile.placeholder")}
           className="h-8 text-sm font-mono"
         />
       </div>
 
       {/* Product association */}
       <div className="space-y-1">
-        <Label className="text-xs">ForgeHub Product (optional)</Label>
+        <Label className="text-xs">{t("installationForm.product.label")}</Label>
         <select
           className="h-8 w-full rounded-md border border-border bg-background px-3 text-sm"
           value={form.product_id ?? ""}
           onChange={(e) => f("product_id", e.target.value || null)}
         >
-          <option value="">— none —</option>
+          <option value="">{t("installationForm.product.none")}</option>
           {products.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
@@ -677,13 +688,13 @@ function InstallationForm({
 
       {/* Ports */}
       <div className="space-y-1">
-        <Label className="text-xs">Exposed ports</Label>
+        <Label className="text-xs">{t("installationForm.ports.label")}</Label>
         <div className="flex gap-2">
           <Input
             value={portInput}
             onChange={(e) => setPortInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addPort())}
-            placeholder="8000:8000"
+            placeholder={t("installationForm.ports.inputPlaceholder")}
             className="h-8 text-sm font-mono flex-1"
           />
           <Button type="button" size="sm" variant="outline" onClick={addPort} className="h-8">
@@ -706,19 +717,19 @@ function InstallationForm({
 
       {/* Links */}
       <div className="space-y-1">
-        <Label className="text-xs">Links</Label>
+        <Label className="text-xs">{t("installationForm.links.label")}</Label>
         <div className="flex gap-2">
           <Input
             value={linkLabel}
             onChange={(e) => setLinkLabel(e.target.value)}
-            placeholder="Label"
+            placeholder={t("installationForm.links.inputs.label")}
             className="h-8 text-sm w-28"
           />
           <Input
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addLink())}
-            placeholder="http://localhost:8000"
+            placeholder={t("installationForm.links.inputs.url")}
             className="h-8 text-sm flex-1"
           />
           <Button type="button" size="sm" variant="outline" onClick={addLink} className="h-8">
@@ -742,11 +753,11 @@ function InstallationForm({
 
       {/* Notes */}
       <div className="space-y-1">
-        <Label className="text-xs">Notes</Label>
+        <Label className="text-xs">{t("installationForm.notes.label")}</Label>
         <Textarea
           value={form.notes ?? ""}
           onChange={(e) => f("notes", e.target.value)}
-          placeholder="Notes, credentials, references..."
+          placeholder={t("installationForm.notes.placeholder")}
           rows={2}
           className="text-sm resize-none"
         />
@@ -754,11 +765,11 @@ function InstallationForm({
 
       <div className="flex justify-end gap-2 pt-1">
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
-          Cancel
+          {t("actions.cancel")}
         </Button>
         <Button type="submit" size="sm" disabled={isSaving}>
           {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Save className="h-3.5 w-3.5 mr-1" />}
-          {initial ? "Save" : "Register"}
+          {initial ? t("actions.save") : t("actions.register")}
         </Button>
       </div>
     </form>
@@ -792,6 +803,7 @@ function InstallCard({
   onLogs: () => void;
   restarting: boolean;
 }) {
+  const { t } = useTranslation("deploy");
   const [expanded, setExpanded] = useState(false);
   const live = liveContainers.find((c) => c.name === inst.container_name);
 
@@ -851,7 +863,7 @@ function InstallCard({
         {live ? (
           <ContainerStatusBadge state={live.state} health={live.health} />
         ) : inst.container_name ? (
-          <span className="text-xs text-muted-foreground italic">offline</span>
+          <span className="text-xs text-muted-foreground italic">{t("installationCard.status.offline")}</span>
         ) : null}
 
         {/* Quick links */}
@@ -871,7 +883,7 @@ function InstallCard({
         {/* Actions */}
         <div className="flex items-center gap-1">
           {inst.container_name && (
-            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onLogs} title="Ver logs">
+            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onLogs} title={t("installationCard.actions.viewLogs")}>
               <ScrollText className="h-3.5 w-3.5" />
             </Button>
           )}
@@ -882,7 +894,7 @@ function InstallCard({
               className="h-7 w-7 p-0"
               onClick={onRestart}
               disabled={restarting}
-              title="Restart container"
+              title={t("installationCard.actions.restart")}
             >
               {restarting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -891,10 +903,10 @@ function InstallCard({
               )}
             </Button>
           )}
-          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onEdit} title="Container registration (Docker data)">
+          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onEdit} title={t("installationCard.actions.edit")}>
             <Container className="h-3.5 w-3.5" />
           </Button>
-          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={onDelete} title="Remove">
+          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={onDelete} title={t("installationCard.actions.remove")}>
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -905,7 +917,7 @@ function InstallCard({
         <div className="border-t border-border px-4 py-3 space-y-2">
           {inst.product_name && (
             <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-foreground">Product:</span>
+              <span className="text-xs font-medium text-foreground">{t("installationCard.details.product")}</span>
               <span className="inline-flex items-center gap-1 rounded bg-blue-500/10 px-2 py-0.5 text-xs text-blue-600 font-medium">
                 <Box className="h-2.5 w-2.5" /> {inst.product_name}
               </span>
@@ -914,7 +926,7 @@ function InstallCard({
           {live && (
             <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
               <Container className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-              <span className="font-medium text-foreground">Container:</span>
+              <span className="font-medium text-foreground">{t("installationCard.details.container")}</span>
               <span className="font-mono">{live.name}</span>
               {live.id && <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">{live.id}</span>}
               <span>{live.status}</span>
@@ -924,7 +936,7 @@ function InstallCard({
           {live?.image && (
             <div className="flex items-center gap-2 flex-wrap">
               <Layers className="h-3.5 w-3.5 shrink-0 text-cyan-500" />
-              <span className="text-xs font-medium text-foreground">Image:</span>
+              <span className="text-xs font-medium text-foreground">{t("installationCard.details.image")}</span>
               {containerImage ? (
                 <>
                   <span className="rounded bg-muted px-2 py-0.5 text-xs font-mono">
@@ -932,7 +944,7 @@ function InstallCard({
                   </span>
                   <span className="text-xs text-muted-foreground">{containerImage.size}</span>
                   <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> In use
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> {t("imagesTab.status.inUse")}
                   </span>
                 </>
               ) : (
@@ -944,7 +956,7 @@ function InstallCard({
           {containerVolumes.length > 0 && (
             <div className="flex items-center gap-2 flex-wrap">
               <HardDrive className="h-3.5 w-3.5 shrink-0 text-violet-500" />
-              <span className="text-xs font-medium text-foreground">Volumes:</span>
+              <span className="text-xs font-medium text-foreground">{t("installationCard.details.volumes")}</span>
               {containerVolumes.map((v) => (
                 <span key={v.name} className="rounded bg-muted px-2 py-0.5 text-xs font-mono" title={v.mountpoint}>
                   {v.name}
@@ -956,7 +968,7 @@ function InstallCard({
           {containerNetworks.length > 0 && (
             <div className="flex items-center gap-2 flex-wrap">
               <Network className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-              <span className="text-xs font-medium text-foreground">Networks:</span>
+              <span className="text-xs font-medium text-foreground">{t("installationCard.details.networks")}</span>
               {containerNetworks.map((n) => {
                 const ip = n.containers.find((nc) => nc.name === inst.container_name)?.ipv4;
                 return (
@@ -971,7 +983,7 @@ function InstallCard({
 
           {ports.length > 0 && (
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-medium text-foreground">Ports:</span>
+              <span className="text-xs font-medium text-foreground">{t("installationCard.details.ports")}</span>
               {ports.map((p) => (
                 <span key={p} className="rounded bg-muted px-2 py-0.5 text-xs font-mono">{p}</span>
               ))}
@@ -982,14 +994,14 @@ function InstallCard({
           )}
           {!ports.length && live?.ports && (
             <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-foreground">Ports (live):</span>
+              <span className="text-xs font-medium text-foreground">{t("installationCard.details.livePorts")}</span>
               <span className="text-xs font-mono text-muted-foreground">{live.ports}</span>
             </div>
           )}
 
           {links.length > 0 && (
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-medium text-foreground">Links:</span>
+              <span className="text-xs font-medium text-foreground">{t("installationCard.details.links")}</span>
               {links.map((l) => (
                 <a
                   key={l.url}
@@ -1007,13 +1019,13 @@ function InstallCard({
 
           {inst.restart_command && (
             <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-foreground">Restart:</span>
+              <span className="text-xs font-medium text-foreground">{t("installationCard.details.restart")}</span>
               <code className="text-xs bg-muted rounded px-2 py-0.5 font-mono flex-1">{inst.restart_command}</code>
               <button
                 type="button"
                 onClick={() => navigator.clipboard.writeText(inst.restart_command!)}
                 className="text-muted-foreground hover:text-foreground"
-                title="Copy command"
+                title={t("installationCard.actions.copyCommand")}
               >
                 <ClipboardCopy className="h-3 w-3" />
               </button>
@@ -1022,7 +1034,7 @@ function InstallCard({
 
           {inst.compose_file && (
             <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-foreground">Compose:</span>
+              <span className="text-xs font-medium text-foreground">{t("installationCard.details.compose")}</span>
               <code className="text-xs text-muted-foreground font-mono">{inst.compose_file}</code>
             </div>
           )}
@@ -1053,6 +1065,7 @@ function LiveContainersTab({
   onRegister: (c: DockerContainer) => void;
   onOpenInstance: (inst: DeployInstallation) => void;
 }) {
+  const { t } = useTranslation("deploy");
   const { isLoading, isError, refetch, isFetching } = useDockerContainers();
   const removeMut = useRemoveContainer();
   const [confirmRemove, setConfirmRemove] = useState<DockerContainer | null>(null);
@@ -1075,12 +1088,12 @@ function LiveContainersTab({
       <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 flex items-start gap-3">
         <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
         <div className="text-sm">
-          <p className="font-medium">Host-bridge did not respond</p>
+          <p className="font-medium">{t("liveContainersTab.error.title")}</p>
           <p className="text-muted-foreground text-xs mt-1">
-            Reinicie o host-bridge para ativar o controle Docker ao vivo. Execute no terminal:
+            {t("liveContainersTab.error.message")}
           </p>
           <code className="mt-2 block bg-muted rounded px-3 py-2 text-xs font-mono">
-            kill $(pgrep -f "host-bridge") ; cd /root/project/forgehub/host-bridge ; source /root/project/forgehub/.env ; nohup /usr/local/lib/hermes-agent/venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 8910 &gt; /tmp/host-bridge.log 2&gt;&amp;1 &amp;
+            {t("liveContainersTab.error.command")}
           </code>
         </div>
       </div>
@@ -1090,9 +1103,9 @@ function LiveContainersTab({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">{containers.length} container(s) no host</p>
+        <p className="text-xs text-muted-foreground">{t("liveContainersTab.header", { count: containers.length })}</p>
         <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isFetching}>
-          <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Refresh
+          <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> {t("liveContainersTab.refresh")}
         </Button>
       </div>
       {removeError && (
@@ -1100,7 +1113,7 @@ function LiveContainersTab({
       )}
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading containers...
+          <Loader2 className="h-4 w-4 animate-spin" /> {t("liveContainersTab.loading")}
         </div>
       ) : (
         <div className="space-y-1">
@@ -1126,7 +1139,7 @@ function LiveContainersTab({
                   variant="outline"
                   className="h-7 w-7 p-0 shrink-0"
                   onClick={() => (inst ? onOpenInstance(inst) : onRegister(c))}
-                  title={inst ? `Open instance "${inst.name}"` : "Register instance"}
+                  title={inst ? t("liveContainersTab.actions.openInstance", { name: inst.name }) : t("liveContainersTab.actions.register")}
                 >
                   <Container className="h-3.5 w-3.5" />
                 </Button>
@@ -1137,7 +1150,7 @@ function LiveContainersTab({
                     className="h-7 w-7 p-0 shrink-0 text-destructive hover:text-destructive"
                     onClick={() => setConfirmRemove(c)}
                     disabled={removing}
-                    title="Delete container"
+                    title={t("liveContainersTab.actions.delete")}
                   >
                     {removing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                   </Button>
@@ -1150,9 +1163,9 @@ function LiveContainersTab({
 
       <ConfirmDialog
         open={!!confirmRemove}
-        title="Delete container"
-        description={`Remove the container "${confirmRemove?.name}" from Docker and from the installation database? This action cannot be undone (volumes are not removed).`}
-        confirmLabel="Delete"
+        title={t("liveContainersTab.confirm.title")}
+        description={t("liveContainersTab.confirm.description", { name: confirmRemove?.name ?? "" })}
+        confirmLabel={t("liveContainersTab.confirm.confirm")}
         loading={removeMut.isPending}
         onConfirm={handleRemove}
         onCancel={() => setConfirmRemove(null)}
@@ -1176,64 +1189,32 @@ function VolumesTab({
   onOpenInstance: (inst: DeployInstallation) => void;
   onRegister: (c: DockerContainer) => void;
 }) {
+  const { t } = useTranslation("deploy");
   const { data: volumes = [], isLoading, isError, refetch, isFetching } = useDockerVolumes();
   const removeVolMut = useRemoveVolume();
   const [confirmRemoveVol, setConfirmRemoveVol] = useState<string | null>(null);
   const [removeVolError, setRemoveVolError] = useState<string | null>(null);
 
-  const handleRemoveVolume = async () => {
-    if (!confirmRemoveVol) return;
-    setRemoveVolError(null);
-    try {
-      await removeVolMut.mutateAsync(confirmRemoveVol);
-      setConfirmRemoveVol(null);
-    } catch (err) {
-      setConfirmRemoveVol(null);
-      setRemoveVolError(err instanceof Error ? err.message : String(err));
-    }
-  };
+  // Bind mounts come in the same bridge list but are host paths, not Docker volumes (2026-09-28:
+  // 33 of the "37 volumes" were binds -- 23 folders and 10 single files like `.env`).
+  const namedVolumes = volumes.filter((v) => v.driver !== "bind");
+  const bindMounts = volumes.filter((v) => v.driver === "bind");
 
-  if (isError) {
-    return (
-      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 flex items-start gap-3">
-        <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-        <p className="text-sm text-muted-foreground">Host-bridge offline — volumes unavailable.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">{volumes.length} volume(s)</p>
-        <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isFetching}>
-          <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Refresh
-        </Button>
-      </div>
-      {removeVolError && (
-        <p className="text-xs text-red-500 rounded bg-red-500/10 px-3 py-2">{removeVolError}</p>
-      )}
-      {isLoading ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading volumes...
-        </div>
-      ) : volumes.length === 0 ? (
-        <div className="py-12 text-center text-sm text-muted-foreground">No volumes found.</div>
-      ) : (
-        <div className="rounded-lg border border-border overflow-hidden">
+  const renderTable = (list: DockerVolume[]) => (
+        <div className="rounded-lg border border-border overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Name</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Driver</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Scope</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Mountpoint</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Containers</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">{t("volumesTab.table.headers.name")}</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">{t("volumesTab.table.headers.driver")}</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">{t("volumesTab.table.headers.scope")}</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">{t("volumesTab.table.headers.mountpoint")}</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">{t("volumesTab.table.headers.containers")}</th>
                 <th className="px-4 py-2.5 w-12" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {volumes.map((v) => {
+              {list.map((v) => {
                 const usedByRunning = v.containers.some((c) =>
                   liveContainers.some((lc) => lc.name === c && lc.state === "running")
                 );
@@ -1246,9 +1227,11 @@ function VolumesTab({
                           "h-2 w-2 rounded-full shrink-0",
                           usedByRunning ? "bg-emerald-500" : "bg-muted-foreground/30"
                         )}
-                        title={usedByRunning ? "Active — in use by a running container" : "Inactive — no running container"}
+                        title={usedByRunning ? t("volumesTab.activeTitle") : t("volumesTab.inactiveTitle")}
                       />
-                      {v.driver === "bind" ? (
+                      {v.driver === "bind" && v.source_type === "file" ? (
+                        <FileText className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                      ) : v.driver === "bind" ? (
                         <Folder className="h-3.5 w-3.5 shrink-0 text-amber-500" />
                       ) : (
                         <HardDrive className="h-3.5 w-3.5 shrink-0 text-blue-500" />
@@ -1282,7 +1265,7 @@ function VolumesTab({
                                 "inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono",
                                 (inst || live) ? "hover:bg-accent hover:text-foreground transition-colors" : "cursor-default"
                               )}
-                              title={inst ? `Open instance "${inst.name}"` : live ? "Register instance" : undefined}
+                              title={inst ? t("volumesTab.actions.openInstance", { name: inst.name }) : live ? t("volumesTab.actions.register") : undefined}
                             >
                               <Container className="h-3 w-3 text-blue-500" />
                               {cname}
@@ -1303,7 +1286,7 @@ function VolumesTab({
                         className="h-7 w-7 p-0 text-destructive hover:text-destructive"
                         onClick={() => setConfirmRemoveVol(v.name)}
                         disabled={removeVolMut.isPending && removeVolMut.variables === v.name}
-                        title="Delete volume"
+                        title={t("volumesTab.actions.delete")}
                       >
                         {removeVolMut.isPending && removeVolMut.variables === v.name ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1319,13 +1302,75 @@ function VolumesTab({
             </tbody>
           </table>
         </div>
+  );
+
+  const handleRemoveVolume = async () => {
+    if (!confirmRemoveVol) return;
+    setRemoveVolError(null);
+    try {
+      await removeVolMut.mutateAsync(confirmRemoveVol);
+      setConfirmRemoveVol(null);
+    } catch (err) {
+      setConfirmRemoveVol(null);
+      setRemoveVolError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  if (isError) {
+    return (
+      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 flex items-start gap-3">
+        <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+        <p className="text-sm text-muted-foreground">{t("volumesTab.error.message")}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">{t("volumesTab.summary", { volumes: namedVolumes.length, binds: bindMounts.length })}</p>
+        <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isFetching}>
+          <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> {t("volumesTab.refresh")}
+        </Button>
+      </div>
+      {removeVolError && (
+        <p className="text-xs text-red-500 rounded bg-red-500/10 px-3 py-2">{removeVolError}</p>
+      )}
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
+          <Loader2 className="h-4 w-4 animate-spin" /> {t("volumesTab.loading")}
+        </div>
+      ) : volumes.length === 0 ? (
+        <div className="py-12 text-center text-sm text-muted-foreground">{t("volumesTab.empty")}</div>
+      ) : (
+        <div className="space-y-4">
+          <section className="space-y-1.5">
+            <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <HardDrive className="h-3.5 w-3.5 text-blue-500" /> {t("volumesTab.dockerVolumes", { count: namedVolumes.length })}
+            </h3>
+            {namedVolumes.length > 0 ? renderTable(namedVolumes) : (
+              <p className="text-xs text-muted-foreground italic">{t("volumesTab.noDockerVolumes")}</p>
+            )}
+          </section>
+          {bindMounts.length > 0 && (
+            <section className="space-y-1.5">
+              <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <Folder className="h-3.5 w-3.5 text-amber-500" /> {t("volumesTab.bindMounts", { count: bindMounts.length })}
+              </h3>
+              <p className="text-[11px] text-muted-foreground">
+                {t("volumesTab.bindDescription")}
+              </p>
+              {renderTable(bindMounts)}
+            </section>
+          )}
+        </div>
       )}
 
       <ConfirmDialog
         open={!!confirmRemoveVol}
-        title="Delete volume"
-        description={`Remove the volume "${confirmRemoveVol}" from Docker? Data stored in it will be lost. This action cannot be undone.`}
-        confirmLabel="Delete"
+        title={t("volumesTab.confirm.title")}
+        description={t("volumesTab.confirm.description", { name: confirmRemoveVol ?? "" })}
+        confirmLabel={t("volumesTab.confirm.confirm")}
         loading={removeVolMut.isPending}
         onConfirm={handleRemoveVolume}
         onCancel={() => setConfirmRemoveVol(null)}
@@ -1351,6 +1396,7 @@ function NetworksTab({
   onOpenInstance: (inst: DeployInstallation) => void;
   onRegister: (c: DockerContainer) => void;
 }) {
+  const { t } = useTranslation("deploy");
   const { data: networks = [], isLoading, isError, refetch, isFetching } = useDockerNetworks();
   const [expanded, setExpanded] = useState<string | null>(null);
   const removeNetMut = useRemoveNetwork();
@@ -1373,7 +1419,7 @@ function NetworksTab({
     return (
       <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 flex items-start gap-3">
         <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-        <p className="text-sm text-muted-foreground">Host-bridge offline — networks unavailable.</p>
+        <p className="text-sm text-muted-foreground">{t("networksTab.error.message")}</p>
       </div>
     );
   }
@@ -1389,9 +1435,9 @@ function NetworksTab({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">{networks.length} network(s)</p>
+        <p className="text-xs text-muted-foreground">{t("networksTab.header", { count: networks.length })}</p>
         <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isFetching}>
-          <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Refresh
+          <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> {t("networksTab.refresh")}
         </Button>
       </div>
       {removeNetError && (
@@ -1399,7 +1445,7 @@ function NetworksTab({
       )}
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading networks...
+          <Loader2 className="h-4 w-4 animate-spin" /> {t("networksTab.loading")}
         </div>
       ) : (
         <div className="space-y-1.5">
@@ -1425,7 +1471,7 @@ function NetworksTab({
                       : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
                     <span
                       className={cn("h-2 w-2 rounded-full shrink-0", active ? "bg-emerald-500" : "bg-muted-foreground/30")}
-                      title={active ? "Ativa — container rodando conectado" : "Inativa — sem container rodando"}
+                      title={active ? t("networksTab.activeTitle") : t("networksTab.inactiveTitle")}
                     />
                     <Network className="h-3.5 w-3.5 shrink-0 text-violet-500" />
                     <span className="font-mono text-sm font-medium flex-1">{n.name}</span>
@@ -1435,9 +1481,9 @@ function NetworksTab({
                       driverColor[n.driver] ?? "text-muted-foreground bg-muted"
                     )}>{n.driver}</span>
                     <Badge variant="outline" className="text-[10px]">{n.scope}</Badge>
-                    {n.internal && <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600">internal</Badge>}
+                    {n.internal && <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600">{t("networksTab.table.headers.internal")}</Badge>}
                     {n.containers.length > 0 && (
-                      <span className="text-xs text-muted-foreground">{n.containers.length} container(s)</span>
+                      <span className="text-xs text-muted-foreground">{t("networksTab.table.headers.containers", { count: n.containers.length })}</span>
                     )}
                   </button>
                   {!hasInstance && !PREDEFINED_NETWORKS.includes(n.name) && (
@@ -1447,7 +1493,7 @@ function NetworksTab({
                       className="h-7 w-7 p-0 shrink-0 text-destructive hover:text-destructive"
                       onClick={() => setConfirmRemoveNet(n.name)}
                       disabled={removing}
-                      title="Delete network"
+                      title={t("networksTab.actions.delete")}
                     >
                       {removing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                     </Button>
@@ -1457,7 +1503,7 @@ function NetworksTab({
                   <div className="border-t border-border px-4 py-3 space-y-3 bg-muted/10">
                     {n.subnets.length > 0 && (
                       <div className="flex items-center gap-3">
-                        <span className="text-xs font-medium text-foreground w-20">Subnets</span>
+                        <span className="text-xs font-medium text-foreground w-20">{t("networksTab.subnets")}</span>
                         <div className="flex gap-2 flex-wrap">
                           {n.subnets.map((s) => (
                             <code key={s} className="rounded bg-muted px-2 py-0.5 text-xs font-mono">{s}</code>
@@ -1467,12 +1513,12 @@ function NetworksTab({
                     )}
                     {n.containers.length > 0 && (
                       <div>
-                        <span className="text-xs font-medium text-foreground">Containers conectados</span>
+                        <span className="text-xs font-medium text-foreground">{t("networksTab.connectedContainers")}</span>
                         <div className="mt-1.5 rounded border border-border overflow-hidden">
                           <table className="w-full text-xs">
                             <thead>
                               <tr className="bg-muted/40 border-b border-border">
-                                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">Container</th>
+                                <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">{t("networksTab.container")}</th>
                                 <th className="px-3 py-1.5 text-left font-medium text-muted-foreground">IPv4</th>
                               </tr>
                             </thead>
@@ -1494,7 +1540,7 @@ function NetworksTab({
                                           "inline-flex items-center gap-1.5 font-mono",
                                           (inst || live) ? "hover:text-blue-500 transition-colors" : "cursor-default"
                                         )}
-                                        title={inst ? `Open instance "${inst.name}"` : live ? "Register instance" : undefined}
+                                        title={inst ? t("networksTab.actions.openInstance", { name: inst.name }) : live ? t("networksTab.actions.register") : undefined}
                                       >
                                         <Container className="h-3 w-3 text-blue-500" />
                                         {c.name}
@@ -1510,7 +1556,7 @@ function NetworksTab({
                       </div>
                     )}
                     {n.containers.length === 0 && n.subnets.length === 0 && (
-                      <p className="text-xs text-muted-foreground italic">No containers or subnets configured.</p>
+                      <p className="text-xs text-muted-foreground italic">{t("networksTab.emptyDetails")}</p>
                     )}
                   </div>
                 )}
@@ -1521,9 +1567,9 @@ function NetworksTab({
       )}
       <ConfirmDialog
         open={!!confirmRemoveNet}
-        title="Delete network"
-        description={`Remove the network "${confirmRemoveNet}" from Docker? This action cannot be undone.`}
-        confirmLabel="Delete"
+        title={t("networksTab.confirm.title")}
+        description={t("networksTab.confirm.description", { name: confirmRemoveNet ?? "" })}
+        confirmLabel={t("networksTab.confirm.confirm")}
         loading={removeNetMut.isPending}
         onConfirm={handleRemoveNetwork}
         onCancel={() => setConfirmRemoveNet(null)}
@@ -1537,12 +1583,49 @@ function NetworksTab({
 // ---------------------------------------------------------------------------
 
 function ImagesTab() {
+  const { t } = useTranslation("deploy");
   const { data: images = [], isLoading, isError, refetch, isFetching } = useDockerImages();
   const removeImgMut = useRemoveImage();
+  const removeManyMut = useRemoveImages();
   const [confirmRemoveImg, setConfirmRemoveImg] = useState<string | null>(null);
   const [removeImgError, setRemoveImgError] = useState<string | null>(null);
+  const [selectedRefs, setSelectedRefs] = useState<Set<string>>(new Set());
+  const [confirmBulk, setConfirmBulk] = useState(false);
 
   const unusedCount = images.filter((i) => !i.in_use).length;
+  // Only images not in use can be deleted, so only those are selectable.
+  const deletableRefs = images.filter((i) => !i.in_use).map(imageRef);
+  // Drop selections whose image vanished (deleted, or pruned elsewhere) so
+  // the count and the bulk action never target a stale ref.
+  const selected = deletableRefs.filter((ref) => selectedRefs.has(ref));
+  const allSelected = deletableRefs.length > 0 && selected.length === deletableRefs.length;
+  const danglingRefs = images.filter((i) => i.dangling && !i.in_use).map(imageRef);
+
+  const toggleRef = (ref: string) =>
+    setSelectedRefs((prev) => {
+      const next = new Set(prev);
+      if (next.has(ref)) next.delete(ref);
+      else next.add(ref);
+      return next;
+    });
+  const toggleAll = () => setSelectedRefs(allSelected ? new Set() : new Set(deletableRefs));
+
+  const handleRemoveSelected = async () => {
+    setRemoveImgError(null);
+    try {
+      const { failed } = await removeManyMut.mutateAsync(selected);
+      setSelectedRefs(new Set(failed.map((f) => f.ref)));
+      if (failed.length > 0) {
+        setRemoveImgError(
+          `${t("imagesTab.deleteFailedCount", { count: failed.length })}\n` + failed.map((f) => `${f.ref}: ${f.error}`).join("\n"),
+        );
+      }
+    } catch (err) {
+      setRemoveImgError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setConfirmBulk(false);
+    }
+  };
 
   const handleRemoveImage = async () => {
     if (!confirmRemoveImg) return;
@@ -1560,56 +1643,100 @@ function ImagesTab() {
     return (
       <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 flex items-start gap-3">
         <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-        <p className="text-sm text-muted-foreground">Host-bridge offline — images unavailable.</p>
+        <p className="text-sm text-muted-foreground">{t("imagesTab.error.message")}</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between max-md:flex-wrap max-md:gap-2">
         <p className="text-xs text-muted-foreground">
-          {images.length} image(s){unusedCount > 0 && ` · ${unusedCount} unused`}
+          {t("imagesTab.header", { count: images.length })}{unusedCount > 0 && ` · ${t("imagesTab.headerUnused", { count: unusedCount })}`}
+          {selected.length > 0 && ` · ${t("imagesTab.headerSelected", { count: selected.length })}`}
         </p>
-        <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isFetching}>
-          <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> Refresh
-        </Button>
+        <div className="flex items-center gap-1 max-md:flex-wrap">
+          {danglingRefs.length > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setSelectedRefs(new Set(danglingRefs))}
+              disabled={removeManyMut.isPending}
+            >
+              {t("imagesTab.selectDangling", { count: danglingRefs.length })}
+            </Button>
+          )}
+          {selected.length > 0 && (
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => setConfirmBulk(true)}
+              disabled={removeManyMut.isPending}
+            >
+              {removeManyMut.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5 mr-1" />
+              )}
+              {t("imagesTab.deleteSelected", { count: selected.length })}
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isFetching}>
+            <RefreshCw className={cn("h-3.5 w-3.5 mr-1", isFetching && "animate-spin")} /> {t("imagesTab.refresh")}
+          </Button>
+        </div>
       </div>
       {removeImgError && (
-        <p className="text-xs text-red-500 rounded bg-red-500/10 px-3 py-2">{removeImgError}</p>
+        <p className="text-xs text-red-500 rounded bg-red-500/10 px-3 py-2 whitespace-pre-line">{removeImgError}</p>
       )}
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading images...
+          <Loader2 className="h-4 w-4 animate-spin" /> {t("imagesTab.loading")}
         </div>
       ) : images.length === 0 ? (
-        <div className="py-12 text-center text-sm text-muted-foreground">No images found.</div>
+        <div className="py-12 text-center text-sm text-muted-foreground">{t("imagesTab.empty")}</div>
       ) : (
         <div className="rounded-lg border border-border overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Repository</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Tag</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">ID</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Tamanho</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Criada</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Status</th>
+                <th className="pl-4 py-2.5 w-8">
+                  <ImageSelectBox
+                    checked={allSelected}
+                    indeterminate={selected.length > 0 && !allSelected}
+                    disabled={deletableRefs.length === 0 || removeManyMut.isPending}
+                    label={t("imagesTab.selectAll")}
+                    onToggle={toggleAll}
+                  />
+                </th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">{t("imagesTab.table.headers.repository")}</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">{t("imagesTab.table.headers.tag")}</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">{t("imagesTab.table.headers.id")}</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">{t("imagesTab.table.headers.size")}</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">{t("imagesTab.table.headers.created")}</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">{t("imagesTab.table.headers.status")}</th>
                 <th className="px-4 py-2.5 w-12" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {images.map((img) => {
-                // Two repo:tag rows can share the same underlying image ID
-                // (e.g. one re-tagged from the other) -- Docker refuses
-                // `docker rmi <id>` in that case ("referenced in multiple
-                // repositories"), so deletion always targets the specific
-                // tag, never the bare ID. Dangling images have no tag, so
-                // the ID is the only valid reference for those.
-                const ref = img.dangling ? img.id : `${img.repository}:${img.tag}`;
-                const removing = removeImgMut.isPending && removeImgMut.variables === ref;
+                const ref = imageRef(img);
+                const removing =
+                  (removeImgMut.isPending && removeImgMut.variables === ref) ||
+                  (removeManyMut.isPending && selectedRefs.has(ref));
+                const isSelected = selectedRefs.has(ref);
                 return (
-                  <tr key={ref} className="hover:bg-muted/20 transition-colors">
+                  <tr key={ref} className={cn("hover:bg-muted/20 transition-colors", isSelected && "bg-primary/5")}>
+                    <td className="pl-4 py-2.5">
+                      {!img.in_use && (
+                        <ImageSelectBox
+                          checked={isSelected}
+                          disabled={removeManyMut.isPending}
+                          label={t("imagesTab.selectNamed", { name: ref })}
+                          onToggle={() => toggleRef(ref)}
+                        />
+                      )}
+                    </td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2">
                         <Layers className="h-3.5 w-3.5 shrink-0 text-cyan-500" />
@@ -1627,15 +1754,15 @@ function ImagesTab() {
                     <td className="px-4 py-2.5">
                       {img.dangling ? (
                         <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 bg-amber-500/10">
-                          Dangling
+                          {t("imagesTab.status.dangling")}
                         </Badge>
                       ) : img.in_use ? (
                         <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-emerald-600">
-                          <span className="h-2 w-2 rounded-full bg-emerald-500" /> Em uso
+                          <span className="h-2 w-2 rounded-full bg-emerald-500" /> {t("imagesTab.status.inUse")}
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
-                          <span className="h-2 w-2 rounded-full bg-muted-foreground/30" /> Unused
+                          <span className="h-2 w-2 rounded-full bg-muted-foreground/30" /> {t("imagesTab.status.unused")}
                         </span>
                       )}
                     </td>
@@ -1647,7 +1774,7 @@ function ImagesTab() {
                           className="h-7 w-7 p-0 text-destructive hover:text-destructive"
                           onClick={() => setConfirmRemoveImg(ref)}
                           disabled={removing}
-                          title="Delete image"
+                          title={t("imagesTab.actions.delete")}
                         >
                           {removing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                         </Button>
@@ -1663,14 +1790,68 @@ function ImagesTab() {
 
       <ConfirmDialog
         open={!!confirmRemoveImg}
-        title="Delete image"
-        description={`Remove the image "${confirmRemoveImg}" from Docker? This action cannot be undone.`}
-        confirmLabel="Delete"
+        title={t("imagesTab.confirm.title")}
+        description={t("imagesTab.confirm.description", { name: confirmRemoveImg ?? "" })}
+        confirmLabel={t("imagesTab.confirm.confirm")}
         loading={removeImgMut.isPending}
         onConfirm={handleRemoveImage}
         onCancel={() => setConfirmRemoveImg(null)}
       />
+      <ConfirmDialog
+        open={confirmBulk}
+        title={t("imagesTab.bulkTitle")}
+        description={t("imagesTab.bulkDescription", { count: selected.length })}
+        confirmLabel={t("imagesTab.bulkConfirm", { count: selected.length })}
+        loading={removeManyMut.isPending}
+        confirmDisabled={selected.length === 0}
+        onConfirm={handleRemoveSelected}
+        onCancel={() => setConfirmBulk(false)}
+      >
+        <ul className="max-h-40 overflow-y-auto rounded border border-border bg-muted/30 px-3 py-2 text-[11px] font-mono text-muted-foreground space-y-0.5">
+          {selected.map((ref) => (
+            <li key={ref} className="break-all">{ref}</li>
+          ))}
+        </ul>
+      </ConfirmDialog>
     </div>
+  );
+}
+
+/** Two repo:tag rows can share the same underlying image ID (e.g. one
+ * re-tagged from the other) -- Docker refuses `docker rmi <id>` in that case
+ * ("referenced in multiple repositories"), so deletion always targets the
+ * specific tag, never the bare ID. Dangling images have no tag, so the ID is
+ * the only valid reference for those. */
+function imageRef(img: DockerImage) {
+  return img.dangling ? img.id : `${img.repository}:${img.tag}`;
+}
+
+function ImageSelectBox({
+  checked,
+  indeterminate = false,
+  disabled = false,
+  label,
+  onToggle,
+}: {
+  checked: boolean;
+  indeterminate?: boolean;
+  disabled?: boolean;
+  label: string;
+  onToggle: () => void;
+}) {
+  return (
+    <input
+      type="checkbox"
+      checked={checked}
+      ref={(el) => {
+        if (el) el.indeterminate = indeterminate;
+      }}
+      disabled={disabled}
+      aria-label={label}
+      aria-checked={indeterminate ? "mixed" : checked}
+      className="h-4 w-4 cursor-pointer accent-primary align-middle disabled:cursor-not-allowed disabled:opacity-40"
+      onChange={onToggle}
+    />
   );
 }
 
@@ -1679,6 +1860,7 @@ function ImagesTab() {
 // ---------------------------------------------------------------------------
 
 export default function DeployPage() {
+  const { t } = useTranslation("deploy");
   const qc = useQueryClient();
   const { data: installations = [], isLoading: loadingInstall } = useInstallations();
   const { data: groups = [] } = useDeployGroups();
@@ -1710,7 +1892,7 @@ export default function DeployPage() {
 
   // Group installations
   const grouped = installations.reduce<Record<string, DeployInstallation[]>>((acc, inst) => {
-    const g = inst.group_name ?? "Sem grupo";
+    const g = inst.group_name ?? t("mainPage.ungrouped");
     (acc[g] ??= []).push(inst);
     return acc;
   }, {});
@@ -1733,7 +1915,7 @@ export default function DeployPage() {
       setDeletingId(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      alert(`Error removing installation: ${msg}`);
+      alert(t("mainPage.removeFailed", { error: msg }));
       setDeletingId(null);
     }
   };
@@ -1773,18 +1955,18 @@ export default function DeployPage() {
   const isSaving = createMut.isPending || updateMut.isPending;
 
   return (
-    <div className="flex h-full flex-col gap-4 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="flex h-full flex-col gap-4 md:p-6">
+      {/* Header -- stacks below sm so the actions stay on screen on a phone. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold flex items-center gap-2">
-            <Server className="h-5 w-5 text-blue-500" /> Deploy Control
+            <Server className="h-5 w-5 text-blue-500" /> {t("mainPage.header.title")}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Monitoring and control of Docker installations
+            {t("mainPage.header.description")}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Sync result toast */}
           {syncResult && (
             <div className={cn(
@@ -1794,9 +1976,25 @@ export default function DeployPage() {
                 : "border-border bg-muted text-muted-foreground"
             )}>
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-              {syncResult.created > 0 && <span>{syncResult.created} criado(s)</span>}
-              {syncResult.updated > 0 && <span>{syncResult.updated} atualizado(s)</span>}
-              {syncResult.created === 0 && syncResult.updated === 0 && <span>Registry already up to date</span>}
+              {syncResult.created > 0 && <span>{syncResult.created} {t("mainPage.messages.syncResult.created")}</span>}
+              {syncResult.updated > 0 && <span>{syncResult.updated} {t("mainPage.messages.syncResult.updated")}</span>}
+              {syncResult.created === 0 && syncResult.updated === 0 && <span>{t("mainPage.messages.syncResult.upToDate")}</span>}
+              {(syncResult.stale?.length ?? 0) > 0 && (
+                <span
+                  className="text-amber-600"
+                  title={syncResult.stale!.map((s) => `${s.name} (${s.container_name})`).join("\n")}
+                >
+                  {syncResult.stale!.length} {t("mainPage.messages.syncResult.stale")}
+                </span>
+              )}
+              {(syncResult.invalid_compose?.length ?? 0) > 0 && (
+                <span
+                  className="text-amber-600"
+                  title={syncResult.invalid_compose!.map((s) => `${s.name}: ${s.compose_file}`).join("\n")}
+                >
+                  {syncResult.invalid_compose!.length} {t("mainPage.messages.syncResult.invalidCompose")}
+                </span>
+              )}
               <button type="button" onClick={() => setSyncResult(null)} className="ml-1 opacity-60 hover:opacity-100">
                 <X className="h-3 w-3" />
               </button>
@@ -1823,7 +2021,7 @@ export default function DeployPage() {
             {syncMut.isPending
               ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
               : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
-            Sync Docker
+            {t("mainPage.actions.sync")}
           </Button>
           <Button
             size="sm"
@@ -1833,22 +2031,24 @@ export default function DeployPage() {
               setShowForm(true);
             }}
           >
-            <Plus className="h-3.5 w-3.5 mr-1" /> New Installation
+            <Plus className="h-3.5 w-3.5 mr-1" /> {t("mainPage.actions.newInstallation")}
           </Button>
         </div>
       </div>
 
       {/* Summary stats — clickable cards navigate to the corresponding tab */}
-      <div className="grid grid-cols-8 gap-3">
+      {/* 8 across only from lg -- on a phone that left each card ~40px wide
+          with its label overlapping the next one. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
         {[
-          { label: "Installations", value: installations.length, icon: Zap, color: "text-sky-500", tab: "installations", offline: false },
-          { label: "Containers", value: bridgeOffline ? null : containers.length, icon: Box, color: "text-blue-500", tab: "live", offline: bridgeOffline },
-          { label: "Running", value: bridgeOffline ? null : containers.filter((c) => c.state === "running").length, icon: Activity, color: "text-emerald-500", tab: "live", offline: bridgeOffline },
-          { label: "Healthy", value: bridgeOffline ? null : containers.filter((c) => c.health === "healthy").length, icon: CheckCircle2, color: "text-emerald-600", tab: "live", offline: bridgeOffline },
-          { label: "Issues", value: bridgeOffline ? null : containers.filter((c) => c.state === "stopped" || c.health === "unhealthy").length, icon: AlertCircle, color: "text-red-500", tab: "live", offline: bridgeOffline },
-          { label: "Volumes", value: volumesOffline ? null : volumes.length, icon: HardDrive, color: "text-violet-500", tab: "volumes", offline: volumesOffline },
-          { label: "Networks", value: networksOffline ? null : networks.length, icon: Network, color: "text-amber-500", tab: "networks", offline: networksOffline },
-          { label: "Images", value: imagesOffline ? null : images.length, icon: Layers, color: "text-cyan-500", tab: "images", offline: imagesOffline },
+          { label: t("mainPage.stats.installations"), value: installations.length, icon: Zap, color: "text-sky-500", tab: "installations", offline: false },
+          { label: t("mainPage.stats.containers"), value: bridgeOffline ? null : containers.length, icon: Box, color: "text-blue-500", tab: "live", offline: bridgeOffline },
+          { label: t("mainPage.stats.running"), value: bridgeOffline ? null : containers.filter((c) => c.state === "running").length, icon: Activity, color: "text-emerald-500", tab: "live", offline: bridgeOffline },
+          { label: t("mainPage.stats.healthy"), value: bridgeOffline ? null : containers.filter((c) => c.health === "healthy").length, icon: CheckCircle2, color: "text-emerald-600", tab: "live", offline: bridgeOffline },
+          { label: t("mainPage.stats.issues"), value: bridgeOffline ? null : containers.filter((c) => c.state === "stopped" || c.health === "unhealthy").length, icon: AlertCircle, color: "text-red-500", tab: "live", offline: bridgeOffline },
+          { label: t("mainPage.stats.volumes"), value: volumesOffline ? null : volumes.filter((v) => v.driver !== "bind").length, icon: HardDrive, color: "text-violet-500", tab: "volumes", offline: volumesOffline },
+          { label: t("mainPage.stats.networks"), value: networksOffline ? null : networks.length, icon: Network, color: "text-amber-500", tab: "networks", offline: networksOffline },
+          { label: t("mainPage.stats.images"), value: imagesOffline ? null : images.length, icon: Layers, color: "text-cyan-500", tab: "images", offline: imagesOffline },
         ].map(({ label, value, icon: Icon, color, tab, offline }) => (
           <button
             key={label}
@@ -1874,10 +2074,10 @@ export default function DeployPage() {
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-2.5 flex items-center gap-3">
           <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
           <p className="text-sm text-muted-foreground flex-1">
-            Host-bridge offline — Docker data unavailable. Restart with:
+            {t("mainPage.bridgeOffline.title")}
           </p>
           <code className="text-[10px] bg-muted rounded px-2 py-1 font-mono text-foreground select-all">
-            kill $(pgrep -f host-bridge); cd /root/project/forgehub/host-bridge && source /root/project/forgehub/.env && nohup /usr/local/lib/hermes-agent/venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 8910 &gt; /tmp/host-bridge.log 2&gt;&1 &amp;
+            {t("mainPage.bridgeOffline.command")}
           </code>
         </div>
       )}
@@ -1891,14 +2091,14 @@ export default function DeployPage() {
             <div className="flex-1 min-w-0 overflow-y-auto space-y-4">
               {loadingInstall ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+                  <Loader2 className="h-4 w-4 animate-spin" /> {t("mainPage.messages.loading")}
                 </div>
               ) : installations.length === 0 ? (
                 <div className="flex flex-col items-center gap-3 py-16 text-center">
                   <Server className="h-10 w-10 text-muted-foreground/30" />
-                  <p className="text-sm text-muted-foreground">No installations registered.</p>
+                  <p className="text-sm text-muted-foreground">{t("mainPage.messages.noInstallations")}</p>
                   <p className="text-xs text-muted-foreground">
-                    Use "New Installation" or register directly from the Live Docker tab.
+                    {t("mainPage.messages.noInstallationsHelp")}
                   </p>
                 </div>
               ) : (
@@ -1934,7 +2134,7 @@ export default function DeployPage() {
               <div className="w-96 shrink-0 rounded-xl border border-border bg-card p-5 overflow-y-auto">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="font-semibold text-sm">
-                    {editingId ? "Container" : "New Installation"}
+                    {editingId ? t("mainPage.containerTitle") : t("mainPage.actions.newInstallation")}
                   </h2>
                   <button
                     type="button"
@@ -2009,9 +2209,9 @@ export default function DeployPage() {
 
       <ConfirmDialog
         open={!!deletingId}
-        title="Remove installation"
-        description={`Remove "${deletingInst?.name}" from the registry? The Docker container will not be affected.`}
-        confirmLabel="Remove"
+        title={t("mainPage.removeTitle")}
+        description={t("mainPage.messages.removeConfirmation", { name: deletingInst?.name ?? "" })}
+        confirmLabel={t("mainPage.actions.remove")}
         loading={deleteMut.isPending}
         onConfirm={handleDelete}
         onCancel={() => setDeletingId(null)}
@@ -2019,10 +2219,10 @@ export default function DeployPage() {
 
       <ConfirmDialog
         open={!!confirmRestart}
-        title="Restart container"
-        description={`Restart container "${confirmRestart}"? The service will be offline for a few seconds.`}
-        confirmLabel="Restart"
-        cancelLabel="Cancel"
+        title={t("mainPage.restartTitle")}
+        description={t("mainPage.messages.restartConfirmation", { name: confirmRestart ?? "" })}
+        confirmLabel={t("mainPage.actions.restart")}
+        cancelLabel={t("mainPage.actions.cancel")}
         variant="default"
         onConfirm={() => confirmRestart && handleRestart(confirmRestart)}
         onCancel={() => setConfirmRestart(null)}

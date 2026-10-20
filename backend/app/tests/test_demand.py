@@ -269,6 +269,10 @@ async def test_convert_to_doc_copies_attachments(client: AsyncClient, monkeypatc
 
     monkeypatch.setattr(demand_routes, "DOCS_ROOT", tmp_path)
     monkeypatch.setattr(conversions, "DOCS_ROOT", tmp_path)
+    # Attachments have their own root since 2026-07-27; without this the
+    # upload below writes to the real one (see test_demand_attachments.py).
+    monkeypatch.setattr(demand_routes, "MESSAGES_ROOT", tmp_path / "messages")
+    (tmp_path / "messages").mkdir()
 
     demand = await _create_demand(client)
     try:
@@ -419,7 +423,7 @@ async def test_demand_group_nesting_and_cycle_prevention(client: AsyncClient):
             await session.commit()
 
 
-async def test_delete_demand_group_cascades_subfolders_and_unsets_demands():
+async def test_delete_demand_group_cascades_subfolders_and_unsets_demands(test_suite_agent):
     """Deleting a folder deletes its subfolders (parent_id ondelete=CASCADE)
     but only unsets group_id on demands filed under it (ondelete=SET NULL)
     -- the demand itself must survive, just falls back to the Arquivados
@@ -430,8 +434,12 @@ async def test_delete_demand_group_cascades_subfolders_and_unsets_demands():
         await session.flush()
         child = DemandGroup(name=f"Child {uuid.uuid4().hex[:8]}", parent_id=root.id)
         session.add(child)
+        # from_agent_id explicitly: this row is built through the ORM, not
+        # the route, so nothing resolves the free-text slug for it -- and an
+        # incubation (the default Tipo) needs an owner (invariant 1).
         demand = AgentDemand(
             from_agent="test-suite",
+            from_agent_id=test_suite_agent,
             subject=f"Cascade test {uuid.uuid4().hex[:8]}",
             body="body",
             status="archived",
@@ -462,6 +470,11 @@ async def test_attachment_upload_download_delete(client: AsyncClient, monkeypatc
     from app.api.routes import demand as demand_routes
 
     monkeypatch.setattr(demand_routes, "DOCS_ROOT", tmp_path)
+    # Attachments write under their own root since 2026-07-27 -- storage
+    # layout and naming are covered in test_demand_attachments.py; this test
+    # only needs the round trip not to touch the real directory.
+    monkeypatch.setattr(demand_routes, "MESSAGES_ROOT", tmp_path / "messages")
+    (tmp_path / "messages").mkdir()
 
     demand = await _create_demand(client)
     try:

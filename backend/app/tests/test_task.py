@@ -20,15 +20,19 @@ and `company.planning_items` concurrently. Specifically:
 """
 import uuid
 
+import httpx
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
+from sqlalchemy import delete, select, text
 
 from app.db.base import AsyncSessionLocal, Base, engine
+from app.db.models.agent import Agent
 from app.db.models.backlog import PlanningItem
+from app.db.models.governance import AuditEvent
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import Project
+from app.db.models.progress import ProgressCheckpoint
 from app.db.models.task import (  # noqa: F401  (ensures tables register on Base.metadata)
     ProjectTask,
     TaskAssignment,
@@ -36,12 +40,211 @@ from app.db.models.task import (  # noqa: F401  (ensures tables register on Base
     TaskExecution,
     TaskRequiredSkill,
 )
+from app.api.schemas.task import TaskExecutionCreate
 from app.main import app
 from app.api.routes import task as task_routes
 
 # Make sure this domain's router is mounted even though the central wiring
 # step (main.py) hasn't added it yet -- keeps this test self-contained.
 app.include_router(task_routes.router)
+
+
+@pytest_asyncio.fixture
+async def dependency_pair(client, created_ids, planning_item_id):
+    ids = []
+    for title in ("Prerequisite", "Dependent"):
+        response = await client.post("/api/v1/tasks", json=_task_payload(planning_item_id, title=title))
+        assert response.status_code == 201, response.text
+        ids.append(response.json()["id"])
+    created_ids["project_tasks"].extend(ids)
+    response = await client.post(
+        f"/api/v1/tasks/{ids[1]}/dependencies",
+        json={"task_id": ids[1], "depends_on_task_id": ids[0]},
+    )
+    assert response.status_code == 201, response.text
+    created_ids["task_dependencies"].append(response.json()["id"])
+    return ids
+
+
+@pytest.mark.parametrize("entry", ["execution", "execution_update", "status", "messages", "execution_link", "scheduler"])
+async def test_dependencies_gate_every_execution_entry(
+    client, dependency_pair, test_suite_agent, monkeypatch, entry
+):
+    from datetime import datetime, timedelta, timezone
+    from unittest.mock import AsyncMock
+
+    from app.api.routes import demand as demand_routes
+    from app.db.models.demand import AgentDemand
+
+    predecessor_id, task_id = dependency_pair
+    starts = []
+
+    async def runner(run_id, agent, prompt, path):
+        starts.append(run_id)
+        return {"run_id": run_id}
+
+    monkeypatch.setattr(demand_routes, "dispatch_agent_run", runner)
+    monkeypatch.setattr(demand_routes, "_send_notice", AsyncMock())
+    if entry == "execution":
+        response = await client.post(f"/api/v1/tasks/{task_id}/executions", json={"executor_type": "agent"})
+        assert response.status_code == 409, response.text
+    elif entry == "execution_update":
+        response = await client.patch(f"/api/v1/tasks/{predecessor_id}", json={"status": "done"})
+        assert response.status_code == 200, response.text
+        response = await client.post(f"/api/v1/tasks/{task_id}/executions", json={"executor_type": "agent"})
+        assert response.status_code == 201, response.text
+        execution_id = response.json()["id"]
+        response = await client.patch(f"/api/v1/tasks/{predecessor_id}", json={"status": "planned"})
+        assert response.status_code == 200, response.text
+        response = await client.patch(
+            f"/api/v1/tasks/{task_id}/executions/{execution_id}", json={"status": "running"}
+        )
+        assert response.status_code == 409, response.text
+    elif entry == "status":
+        response = await client.patch(f"/api/v1/tasks/{task_id}", json={"status": "in_progress"})
+        assert response.status_code == 409, response.text
+    else:
+        due = datetime(2000, 1, 1, tzinfo=timezone.utc)
+
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2001, 1, 1, tzinfo=timezone.utc)
+
+        monkeypatch.setattr(demand_routes, "datetime", Clock)
+        monkeypatch.setattr(demand_routes, "_dispatch_slots", AsyncMock(return_value=1))
+        async with AsyncSessionLocal() as db:
+            linked_execution_id = None
+            if entry == "execution_link":
+                execution = TaskExecution(
+                    task_id=uuid.UUID(task_id), executor_type="agent", attempt_number=1, status="pending",
+                )
+                db.add(execution)
+                await db.flush()
+                linked_execution_id = execution.id
+            item = AgentDemand(
+                from_agent="test-suite", from_agent_id=test_suite_agent,
+                target_agent_id=test_suite_agent, subject="Dependency guard", body="test",
+                working_path="/tmp", origin_type="task",
+                origin_id=uuid.UUID(predecessor_id if entry == "execution_link" else task_id),
+                task_execution_id=linked_execution_id,
+                scheduled_at=due,
+            )
+            db.add(item)
+            independent = None
+            if entry == "scheduler":
+                independent = AgentDemand(
+                    from_agent="test-suite", from_agent_id=test_suite_agent,
+                    target_agent_id=test_suite_agent, subject="Independent work", body="test",
+                    working_path="/tmp", origin_type="task", scheduled_at=due + timedelta(seconds=1),
+                )
+                db.add(independent)
+            await db.commit()
+            demand_id = item.id
+            demand_ids = [item.id] + ([independent.id] if independent is not None else [])
+        try:
+            if entry in {"messages", "execution_link"}:
+                response = await client.post(
+                    f"/api/v1/demands/{demand_id}/dispatch",
+                    json={"target_agent_id": str(test_suite_agent)},
+                )
+                assert response.status_code == 409, response.text
+                assert response.json()["detail"]["blocking"][0]["task_id"] == predecessor_id
+            else:
+                async with AsyncSessionLocal() as db:
+                    await demand_routes.run_scheduled_dispatch_pass(db)
+            async with AsyncSessionLocal() as db:
+                queued = await db.get(AgentDemand, demand_id)
+                assert queued.dispatch_status is None
+                assert queued.agent_run_id is None
+                assert queued.dispatch_attempts == 0
+                assert queued.dispatch_error is None
+                if independent is not None:
+                    ready = await db.get(AgentDemand, independent.id)
+                    assert ready.dispatch_status == "dispatched"
+                    # The external runner is a fake; simulate its terminal
+                    # result before expecting a second run for this agent.
+                    ready.dispatch_status = "completed"
+                    await db.commit()
+            assert len(starts) == (1 if entry == "scheduler" else 0)
+            finished = await client.patch(f"/api/v1/tasks/{predecessor_id}", json={"status": "done"})
+            assert finished.status_code == 200, finished.text
+            async with AsyncSessionLocal() as db:
+                await demand_routes.run_scheduled_dispatch_pass(db)
+            async with AsyncSessionLocal() as db:
+                released = await db.get(AgentDemand, demand_id)
+                assert released.dispatch_status == "dispatched"
+                assert released.dispatch_attempts == 1
+            assert len(starts) == (2 if entry == "scheduler" else 1)
+        finally:
+            async with AsyncSessionLocal() as db:
+                await db.execute(delete(AgentDemand).where(AgentDemand.id.in_(demand_ids)))
+                await db.commit()
+    if entry in {"execution", "execution_update", "status"}:
+        assert starts == []
+    else:
+        assert len(starts) == (2 if entry == "scheduler" else 1)
+
+
+async def test_every_prerequisite_must_finish(client, dependency_pair, created_ids, planning_item_id):
+    first_id, task_id = dependency_pair
+    response = await client.post("/api/v1/tasks", json=_task_payload(planning_item_id, title="Second prerequisite"))
+    assert response.status_code == 201, response.text
+    second_id = response.json()["id"]
+    created_ids["project_tasks"].append(second_id)
+    response = await client.post(
+        f"/api/v1/tasks/{task_id}/dependencies",
+        json={"task_id": task_id, "depends_on_task_id": second_id},
+    )
+    assert response.status_code == 201, response.text
+    created_ids["task_dependencies"].append(response.json()["id"])
+    response = await client.patch(f"/api/v1/tasks/{first_id}", json={"status": "done"})
+    assert response.status_code == 200, response.text
+    response = await client.post(f"/api/v1/tasks/{task_id}/dispatch", json={})
+    assert response.status_code == 409, response.text
+    assert [item["task_id"] for item in response.json()["detail"]["blocking"]] == [second_id]
+    response = await client.patch(f"/api/v1/tasks/{second_id}", json={"status": "done"})
+    assert response.status_code == 200, response.text
+    response = await client.post(f"/api/v1/tasks/{task_id}/dispatch", json={})
+    assert response.status_code == 400, response.text
+    assert "dependencies" not in response.json()["detail"]
+
+
+@pytest.mark.parametrize("predecessor_status", ["in_progress", "blocked", "cancelled"])
+async def test_unfinished_dependency_states_block_dispatch(client, dependency_pair, predecessor_status):
+    predecessor_id, task_id = dependency_pair
+    response = await client.patch(f"/api/v1/tasks/{predecessor_id}", json={"status": predecessor_status})
+    assert response.status_code == 200, response.text
+    response = await client.post(f"/api/v1/tasks/{task_id}/dispatch", json={})
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["blocking"][0]["status"] == predecessor_status
+
+
+async def test_deployed_dependency_allows_completion(client, dependency_pair):
+    predecessor_id, task_id = dependency_pair
+    response = await client.patch(f"/api/v1/tasks/{predecessor_id}", json={"status": "deployed"})
+    assert response.status_code == 200, response.text
+    response = await client.patch(f"/api/v1/tasks/{task_id}", json={"status": "done"})
+    assert response.status_code == 200, response.text
+
+
+async def test_indirect_dependency_cycle_rejected(client, dependency_pair, created_ids, planning_item_id):
+    predecessor_id, task_id = dependency_pair
+    response = await client.post("/api/v1/tasks", json=_task_payload(planning_item_id, title="Third"))
+    assert response.status_code == 201, response.text
+    third_id = response.json()["id"]
+    created_ids["project_tasks"].append(third_id)
+    response = await client.post(
+        f"/api/v1/tasks/{third_id}/dependencies",
+        json={"task_id": third_id, "depends_on_task_id": task_id},
+    )
+    assert response.status_code == 201, response.text
+    created_ids["task_dependencies"].append(response.json()["id"])
+    response = await client.post(
+        f"/api/v1/tasks/{predecessor_id}/dependencies",
+        json={"task_id": predecessor_id, "depends_on_task_id": third_id},
+    )
+    assert response.status_code == 409, response.text
 
 
 # NOTE: this module previously declared local stub `Table()` objects for the
@@ -292,6 +495,12 @@ async def test_execution_requires_evidence_when_completed(
     execution_id = ok_exec.json()["id"]
     assert ok_exec.json()["attempt_number"] == 1
     created_ids["task_executions"].append(execution_id)
+    async with AsyncSessionLocal() as session:
+        started_checkpoint = (await session.execute(select(ProgressCheckpoint).where(
+            ProgressCheckpoint.task_execution_id == uuid.UUID(execution_id),
+            ProgressCheckpoint.checkpoint_type == "started",
+        ))).scalar_one()
+        assert started_checkpoint.resume_from_step_key == "execution.started"
 
     # Task should have moved from planned -> in_progress as a side effect.
     task_after = await client.get(f"/api/v1/tasks/{task_id}")
@@ -309,6 +518,18 @@ async def test_execution_requires_evidence_when_completed(
     )
     assert good_patch.status_code == 200
     assert good_patch.json()["status"] == "completed"
+    async with AsyncSessionLocal() as session:
+        lifecycle = list((await session.execute(select(ProgressCheckpoint).where(
+            ProgressCheckpoint.task_execution_id == uuid.UUID(execution_id)
+        ).order_by(ProgressCheckpoint.sequence))).scalars())
+        assert [checkpoint.checkpoint_type for checkpoint in lifecycle] == ["started", "completed"]
+        assert lifecycle[-1].evidence_refs == ["https://example.com/pr/123"]
+
+
+def test_task_execution_normalizes_legacy_runtime_name():
+    payload = TaskExecutionCreate(runtime_type="antigravity")
+
+    assert payload.runtime_type == "agy"
 
 
 @pytest.mark.asyncio
@@ -348,6 +569,57 @@ async def test_task_cannot_complete_with_unfinished_dependency(
     unblocked = await client.patch(f"/api/v1/tasks/{main_id}", json={"status": "done"})
     assert unblocked.status_code == 200
     assert unblocked.json()["status"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_task_cannot_complete_with_unfinished_subtask(
+    client: AsyncClient, created_ids, planning_item_id
+):
+    """Layered task-execution governance, Fase 4 (plan: resilient-twirling-
+    blossom): the fan-out half -- a parent task cannot be marked done while
+    any of its own subtasks (parent_task_id) hasn't reached done/deployed.
+    Mirrors test_task_cannot_complete_with_unfinished_dependency above,
+    walking the parent/child axis instead of the explicit TaskDependency
+    one."""
+    parent_resp = await client.post(
+        "/api/v1/tasks", json=_task_payload(planning_item_id, title="Parent task")
+    )
+    assert parent_resp.status_code == 201
+    parent_id = parent_resp.json()["id"]
+    created_ids["project_tasks"].append(parent_id)
+
+    sub_resp = await client.post(
+        "/api/v1/tasks",
+        json=_task_payload(planning_item_id, title="Subtask", parent_task_id=parent_id),
+    )
+    assert sub_resp.status_code == 201, sub_resp.text
+    sub_id = sub_resp.json()["id"]
+    created_ids["project_tasks"].append(sub_id)
+
+    blocked = await client.patch(f"/api/v1/tasks/{parent_id}", json={"status": "done"})
+    assert blocked.status_code == 409, blocked.text
+    assert "subtask" in blocked.json()["detail"]
+
+    finish_sub = await client.patch(f"/api/v1/tasks/{sub_id}", json={"status": "done"})
+    assert finish_sub.status_code == 200
+
+    unblocked = await client.patch(f"/api/v1/tasks/{parent_id}", json={"status": "done"})
+    assert unblocked.status_code == 200
+    assert unblocked.json()["status"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_task_with_no_subtasks_is_unaffected(client: AsyncClient, created_ids, planning_item_id):
+    """A leaf task (no children at all) must keep completing exactly as
+    before -- the new gate only engages when parent_task_id rows actually
+    exist for it."""
+    resp = await client.post("/api/v1/tasks", json=_task_payload(planning_item_id, title="Leaf task"))
+    assert resp.status_code == 201
+    task_id = resp.json()["id"]
+    created_ids["project_tasks"].append(task_id)
+
+    done = await client.patch(f"/api/v1/tasks/{task_id}", json={"status": "done"})
+    assert done.status_code == 200, done.text
 
 
 @pytest.mark.asyncio
@@ -391,3 +663,209 @@ async def test_assignment_requires_exactly_one_target(
         },
     )
     assert both.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_dispatch_blocked_by_unfinished_dependency(
+    client: AsyncClient, created_ids, planning_item_id
+):
+    """Pacote 3 (2026-08-01): dispatch_task now ports execution.py's
+    dependency preflight -- a task cannot be dispatched via Messages while
+    a predecessor hasn't reached done/deployed. Verified without touching
+    the real dispatch/host-bridge path: the dependency check happens before
+    target-agent resolution, so a blocked dispatch never gets that far, and
+    an unblocked-but-unassigned dispatch fails on the *next* check (400, no
+    active assignment) instead -- proving the dependency gate specifically
+    let it through."""
+    predecessor = await client.post(
+        "/api/v1/tasks", json=_task_payload(planning_item_id, title="Predecessor task")
+    )
+    assert predecessor.status_code == 201
+    predecessor_id = predecessor.json()["id"]
+    created_ids["project_tasks"].append(predecessor_id)
+
+    dependent = await client.post(
+        "/api/v1/tasks", json=_task_payload(planning_item_id, title="Dependent task", plan_brief="Faça X depois de Y")
+    )
+    assert dependent.status_code == 201
+    dependent_id = dependent.json()["id"]
+    assert dependent.json()["plan_brief"] == "Faça X depois de Y"
+    created_ids["project_tasks"].append(dependent_id)
+
+    dependency = await client.post(
+        f"/api/v1/tasks/{dependent_id}/dependencies",
+        json={"task_id": dependent_id, "depends_on_task_id": predecessor_id},
+    )
+    assert dependency.status_code == 201, dependency.text
+    created_ids["task_dependencies"].append(dependency.json()["id"])
+
+    blocked = await client.post(f"/api/v1/tasks/{dependent_id}/dispatch", json={})
+    assert blocked.status_code == 409, blocked.text
+    detail = blocked.json()["detail"]
+    assert "unfinished dependencies" in detail["message"]
+    assert detail["blocking"][0]["task_id"] == predecessor_id
+
+    finish_predecessor = await client.patch(f"/api/v1/tasks/{predecessor_id}", json={"status": "done"})
+    assert finish_predecessor.status_code == 200
+
+    unblocked = await client.post(f"/api/v1/tasks/{dependent_id}/dispatch", json={})
+    # Dependency gate passed -- next gate (no active agent assignment) is
+    # what actually stops it here, a different status/reason than before.
+    assert unblocked.status_code == 400, unblocked.text
+    assert "dependencies" not in unblocked.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_successful_dispatch_commits_and_writes_audit_event(
+    client: AsyncClient, created_ids, planning_item_id, monkeypatch
+):
+    """Pacote 4 (2026-08-01) regression test for a pre-existing bug: a
+    successful dispatch used to construct AuditEvent(description=...), a
+    kwarg the model doesn't have (it has actor/payload) -- this raised
+    *after* the agent run had already been kicked off via dispatch_agent_run
+    (no commit yet, "Caller commits"), so the whole transaction rolled back
+    while the real side effect (starting the run) had already happened.
+    Mocks dispatch_agent_run the same way test_demand_backlog_dispatch.py
+    does, since there's no live host-bridge in this test environment."""
+    from app.api.routes import demand as demand_routes
+
+    dispatched_paths: list[str] = []
+
+    async def fake_dispatch(_run_id, _agent, _prompt, project_path):
+        dispatched_paths.append(project_path)
+        return {"run_id": "fake-run-id"}
+
+    monkeypatch.setattr(demand_routes, "dispatch_agent_run", fake_dispatch)
+
+    async with AsyncSessionLocal() as db:
+        agent = Agent(
+            name=f"Dispatch Test Agent {uuid.uuid4().hex[:8]}",
+            agent_type="executor",
+            runtime_type="claude",
+        )
+        db.add(agent)
+        planning_item = await db.get(PlanningItem, planning_item_id)
+        project = await db.get(Project, planning_item.project_id)
+        project.working_directory_path = "/root/project/task-dispatch-test"
+        await db.commit()
+        await db.refresh(agent)
+        agent_id = agent.id
+
+    resp = await client.post(
+        "/api/v1/tasks", json=_task_payload(planning_item_id, title="Dispatchable task")
+    )
+    assert resp.status_code == 201
+    task_id = resp.json()["id"]
+    created_ids["project_tasks"].append(task_id)
+
+    try:
+        dispatched = await client.post(
+            f"/api/v1/tasks/{task_id}/dispatch", json={"target_agent_id": str(agent_id)}
+        )
+        assert dispatched.status_code == 200, dispatched.text
+        assert dispatched.json()["dispatch_status"] == "dispatched"
+        assert dispatched.json()["task_status"] == "in_progress"
+        assert dispatched_paths == ["/root/project/task-dispatch-test"]
+
+        async with AsyncSessionLocal() as db:
+            events = list((await db.execute(select(AuditEvent).where(
+                AuditEvent.entity_type == "project_task", AuditEvent.entity_id == uuid.UUID(task_id),
+                AuditEvent.event_type == "task.dispatched",
+            ))).scalars())
+            assert len(events) == 1
+            assert events[0].actor == "forgehub"
+            assert "dispatched to Dispatch Test Agent" in (events[0].payload or {}).get("description", "")
+            await db.execute(text("DELETE FROM company.audit_events WHERE id = :id"), {"id": events[0].id})
+            await db.commit()
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("DELETE FROM company.agent_demands WHERE origin_id = :id"), {"id": task_id})
+            await db.execute(delete(Agent).where(Agent.id == agent_id))
+            await db.commit()
+
+
+async def test_ambiguous_task_dispatch_reuses_the_persisted_inbox_demand(
+    client: AsyncClient, created_ids, planning_item_id, monkeypatch
+):
+    """A retry must follow the original potentially-running task execution."""
+    from app.api.routes import demand as demand_routes
+    from app.db.models.demand import AgentDemand
+
+    async def accepted_but_timed_out(run_id, *_args):
+        raise httpx.ReadTimeout(
+            "bridge response timed out",
+            request=httpx.Request("POST", "http://bridge/v1/agent-runs"),
+        )
+
+    monkeypatch.setattr(demand_routes, "dispatch_agent_run", accepted_but_timed_out)
+    async with AsyncSessionLocal() as db:
+        agent = Agent(
+            name=f"Ambiguous Task Agent {uuid.uuid4().hex[:8]}",
+            agent_type="executor", runtime_type="claude",
+        )
+        db.add(agent)
+        planning_item = await db.get(PlanningItem, planning_item_id)
+        project = await db.get(Project, planning_item.project_id)
+        project.working_directory_path = "/root/project/task-dispatch-test"
+        await db.commit()
+        agent_id = agent.id
+
+    created = await client.post(
+        "/api/v1/tasks", json=_task_payload(planning_item_id, title="Ambiguous task dispatch")
+    )
+    assert created.status_code == 201, created.text
+    task_id = uuid.UUID(created.json()["id"])
+    created_ids["project_tasks"].append(task_id)
+    try:
+        first = await client.post(
+            f"/api/v1/tasks/{task_id}/dispatch", json={"target_agent_id": str(agent_id)}
+        )
+        assert first.status_code == 502, first.text
+        async with AsyncSessionLocal() as db:
+            demand = (
+                await db.execute(select(AgentDemand).where(AgentDemand.origin_id == task_id))
+            ).scalar_one()
+            original_demand_id = demand.id
+            assert demand.task_execution_id is not None
+            assert demand.agent_run_id is not None
+
+        repeat = await client.post(
+            f"/api/v1/tasks/{task_id}/dispatch", json={"target_agent_id": str(agent_id)}
+        )
+        assert repeat.status_code == 200, repeat.text
+        assert uuid.UUID(repeat.json()["demand_id"]) == original_demand_id
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(AgentDemand).where(AgentDemand.origin_id == task_id))
+            await db.execute(delete(Agent).where(Agent.id == agent_id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_requires_a_configured_project_working_directory(
+    client: AsyncClient, created_ids, planning_item_id
+):
+    """A Task route must surface missing execution context before any run starts."""
+    async with AsyncSessionLocal() as db:
+        agent = Agent(name=f"No path Agent {uuid.uuid4().hex[:8]}", agent_type="executor")
+        db.add(agent)
+        await db.commit()
+        agent_id = agent.id
+
+    response = await client.post(
+        "/api/v1/tasks", json=_task_payload(planning_item_id, title="Task without project directory")
+    )
+    assert response.status_code == 201, response.text
+    task_id = response.json()["id"]
+    created_ids["project_tasks"].append(task_id)
+    try:
+        dispatched = await client.post(
+            f"/api/v1/tasks/{task_id}/dispatch", json={"target_agent_id": str(agent_id)}
+        )
+        assert dispatched.status_code == 409, dispatched.text
+        assert "absolute working directory" in dispatched.json()["detail"]
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("DELETE FROM company.agent_demands WHERE origin_id = :id"), {"id": task_id})
+            await db.execute(delete(Agent).where(Agent.id == agent_id))
+            await db.commit()

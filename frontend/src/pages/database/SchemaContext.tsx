@@ -1,7 +1,7 @@
 import { createContext, useContext, useState } from "react";
 import { DEFAULT_SCHEMA } from "@/hooks/useDatabase";
 
-export const DEFAULT_INSTANCE = "company_postgres";
+export const DEFAULT_INSTANCE = "forgehub_postgres";
 export const DEFAULT_DB = "forgehub";
 
 interface SchemaContextValue {

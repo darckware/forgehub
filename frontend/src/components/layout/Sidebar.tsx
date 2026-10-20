@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { motion } from "framer-motion";
 import {
   ChevronDown,
@@ -13,11 +14,12 @@ import { cn } from "@/lib/utils";
 import { UserSettingsMenu } from "@/components/layout/UserSettingsMenu";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { CommandPalette } from "@/components/layout/CommandPalette";
-import { NAV_SECTIONS, type NavGroupEntry, type NavLinkEntry } from "@/components/layout/navSections";
-import { Logo } from "@/components/Logo";
+import { NAV_SECTIONS, isNavEntryVisible, type NavGroupEntry, type NavLinkEntry } from "@/components/layout/navSections";
+import { Logo, LogoMark } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/authStore";
 import { usePermission } from "@/hooks/usePermission";
+import { computeInboxTotalCount, useDemands } from "@/hooks/useDemands";
 
 const COLLAPSE_STORAGE_KEY = "forgehub-sidebar-collapsed";
 const GROUP_COLLAPSE_STORAGE_KEY = "forgehub-sidebar-group-collapsed";
@@ -69,8 +71,18 @@ function AnimatedMenuIcon({ open }: { open: boolean }) {
 const MOBILE_BREAKPOINT = 768;
 
 export function Sidebar() {
+  const { t } = useTranslation("common");
   const location = useLocation();
   const { user } = useAuthStore();
+  // Badge on the "Messages" nav link -- same count/query the Messages
+  // page's own header badge uses (react-query dedupes the request
+  // regardless of which page is mounted, so this doesn't add a second poll
+  // while /demands is open), both reading computeInboxTotalCount so this
+  // always agrees with the Incoming tree's own root badge (2026-07-28,
+  // Marcelo: "os todas tem que obedecer o total do grupo de entrada...
+  // tem que haver sync").
+  const { data: demandsForBadge } = useDemands();
+  const unreadDemandsCount = computeInboxTotalCount(demandsForBadge ?? []);
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem(COLLAPSE_STORAGE_KEY) === "1"
   );
@@ -120,25 +132,48 @@ export function Sidebar() {
     }
   }
 
-  const toggleGroup = (label: string) =>
-    setCollapsedGroups((prev) => ({ ...prev, [label]: !prev[label] }));
+  const toggleGroup = (key: string) =>
+    setCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
 
-  const renderLink = (entry: NavLinkEntry) => (
-    <PermissionGate key={entry.to} module={entry.module}>
-      <NavLink
-        to={entry.to}
-        end={entry.to === "/"}
-        title={effectiveCollapsed ? entry.label : undefined}
-        className={({ isActive }) => navLinkClasses(isActive, effectiveCollapsed)}
-      >
-        <entry.icon className="h-4 w-4 shrink-0" />
-        {!effectiveCollapsed && entry.label}
-      </NavLink>
-    </PermissionGate>
-  );
+  const renderLink = (entry: NavLinkEntry) => {
+    if (!isNavEntryVisible(entry, user?.is_admin === true)) return null;
+    // Only "Messages" carries a badge today -- generalize (a `badgeCount`
+    // field on NavLinkEntry) if a second nav item ever needs one.
+    const badgeCount = entry.to === "/demands" ? unreadDemandsCount : 0;
+    const badgeText = badgeCount > 9 ? "9+" : String(badgeCount);
+    return (
+      <PermissionGate key={entry.to} module={entry.module}>
+        <NavLink
+          to={entry.to}
+          end={entry.to === "/"}
+          title={effectiveCollapsed ? t(entry.labelKey) : undefined}
+          className={({ isActive }) => navLinkClasses(isActive, effectiveCollapsed)}
+        >
+          <span className="relative shrink-0">
+            <entry.icon className="h-4 w-4" />
+            {effectiveCollapsed && badgeCount > 0 && (
+              <span className="absolute -right-1.5 -top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-destructive text-[8px] font-bold text-destructive-foreground">
+                {badgeText}
+              </span>
+            )}
+          </span>
+          {!effectiveCollapsed && (
+            <span className="flex flex-1 items-center justify-between gap-2">
+              {t(entry.labelKey)}
+              {badgeCount > 0 && (
+                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+                  {badgeText}
+                </span>
+              )}
+            </span>
+          )}
+        </NavLink>
+      </PermissionGate>
+    );
+  };
 
   const renderGroup = (entry: NavGroupEntry) => {
-    const visibleItems = entry.items; // PermissionGate handles hiding inside
+    const visibleItems = entry.items.filter((item) => isNavEntryVisible(item, user?.is_admin === true));
     if (visibleItems.length === 0) return null;
 
     if (effectiveCollapsed) {
@@ -146,7 +181,7 @@ export function Sidebar() {
         <PermissionGate key={item.to} module={item.module}>
           <NavLink
             to={item.to}
-            title={item.label}
+            title={t(item.labelKey)}
             className={({ isActive }) => navLinkClasses(isActive, effectiveCollapsed)}
           >
             <item.icon className="h-4 w-4 shrink-0" />
@@ -157,13 +192,13 @@ export function Sidebar() {
 
     const GroupIcon = entry.icon;
     const isGroupActive = entry.items.some((item) => location.pathname.startsWith(item.to));
-    const isGroupCollapsed = collapsedGroups[entry.label] ?? false;
+    const isGroupCollapsed = collapsedGroups[entry.labelKey] ?? false;
 
     return (
-      <div key={entry.label}>
+      <div key={entry.labelKey}>
         <button
           type="button"
-          onClick={() => toggleGroup(entry.label)}
+          onClick={() => toggleGroup(entry.labelKey)}
           className={cn(
             "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
             isGroupActive
@@ -172,7 +207,7 @@ export function Sidebar() {
           )}
         >
           <GroupIcon className="h-4 w-4 shrink-0" />
-          <span className="flex-1 text-left">{entry.label}</span>
+          <span className="flex-1 text-left">{t(entry.labelKey)}</span>
           {isGroupCollapsed ? (
             <ChevronRight className="h-3.5 w-3.5 shrink-0" />
           ) : (
@@ -181,14 +216,14 @@ export function Sidebar() {
         </button>
         {!isGroupCollapsed && (
           <div className="ml-3 space-y-1 border-l border-border pl-2 pt-1">
-            {entry.items.map((item) => (
+            {visibleItems.map((item) => (
               <PermissionGate key={item.to} module={item.module}>
                 <NavLink
                   to={item.to}
                   className={({ isActive }) => navLinkClasses(isActive, false)}
                 >
                   <item.icon className="h-4 w-4 shrink-0" />
-                  {item.label}
+                  {t(item.labelKey)}
                 </NavLink>
               </PermissionGate>
             ))}
@@ -211,8 +246,8 @@ export function Sidebar() {
           variant="outline"
           size="icon"
           className="fixed left-3 top-3 z-40 h-9 w-9 shadow-md"
-          aria-label="Abrir menu"
-          title="Abrir menu"
+          aria-label={t("sidebar.openMenu")}
+          title={t("sidebar.openMenu")}
           onClick={toggleSidebar}
         >
           <AnimatedMenuIcon open={false} />
@@ -243,13 +278,31 @@ export function Sidebar() {
             effectiveCollapsed ? "justify-center px-2" : "justify-between px-6"
           )}
         >
-          <Logo iconOnly={effectiveCollapsed} />
+          {effectiveCollapsed && !isMobile ? (
+            // Icon-rail mode: the logo itself is the expand trigger -- hover
+            // (or click) swaps the mark for the expand icon, same affordance
+            // as the collapse button in expanded mode below.
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              aria-label={t("sidebar.expandSidebar")}
+              className="group relative flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent"
+            >
+              <LogoMark className="h-8 w-8 shrink-0 transition-opacity group-hover:opacity-0" />
+              <PanelLeftOpen className="absolute h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100" />
+              <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-2 -translate-y-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background opacity-0 shadow-md transition-opacity group-hover:opacity-100">
+                {t("sidebar.expandSidebar")}
+              </span>
+            </button>
+          ) : (
+            <Logo iconOnly={effectiveCollapsed} />
+          )}
           {!effectiveCollapsed && !isMobile && (
             <Button
               variant="ghost"
               size="icon"
-              aria-label="Recolher sidebar"
-              title="Recolher sidebar"
+              aria-label={t("sidebar.collapseSidebar")}
+              title={t("sidebar.collapseSidebar")}
               onClick={toggleSidebar}
             >
               <PanelLeftClose className="h-4 w-4" />
@@ -258,22 +311,10 @@ export function Sidebar() {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-4">
-          {effectiveCollapsed && !isMobile && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="w-full"
-              aria-label="Expandir sidebar"
-              title="Expandir sidebar"
-              onClick={toggleSidebar}
-            >
-              <PanelLeftOpen className="h-4 w-4" />
-            </Button>
-          )}
           <button
             type="button"
             onClick={() => setPaletteOpen(true)}
-            title="Search (Ctrl/Cmd+K)"
+            title={t("sidebar.searchHint")}
             className={cn(
               "flex w-full items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
               effectiveCollapsed && "justify-center px-2"
@@ -282,7 +323,7 @@ export function Sidebar() {
             <Search className="h-4 w-4 shrink-0" />
             {!effectiveCollapsed && (
               <>
-                <span className="flex-1 text-left">Search</span>
+                <span className="flex-1 text-left">{t("sidebar.search")}</span>
                 <kbd className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px]">
                   {navigator.platform.toLowerCase().includes("mac") ? "⌘K" : "Ctrl K"}
                 </kbd>
@@ -292,16 +333,16 @@ export function Sidebar() {
           {NAV_SECTIONS.map((section) => {
             // Icon-rail mode ignores section collapse -- there's no label to
             // click there, so items always render as bare icons.
-            const isSectionCollapsed = !effectiveCollapsed && (collapsedGroups[section.label] ?? false);
+            const isSectionCollapsed = !effectiveCollapsed && (collapsedGroups[section.labelKey] ?? false);
             return (
-              <div key={section.label}>
+              <div key={section.labelKey}>
                 {!effectiveCollapsed && (
                   <button
                     type="button"
-                    onClick={() => toggleGroup(section.label)}
+                    onClick={() => toggleGroup(section.labelKey)}
                     className="flex w-full items-center justify-between px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 hover:text-muted-foreground"
                   >
-                    <span>{section.label}</span>
+                    <span>{t(section.labelKey)}</span>
                     {isSectionCollapsed ? (
                       <ChevronRight className="h-3 w-3 shrink-0" />
                     ) : (
@@ -311,9 +352,16 @@ export function Sidebar() {
                 )}
                 {!isSectionCollapsed && (
                   <div className="space-y-1">
-                    {section.entries.map((entry, i) => (
-                      <React.Fragment key={i}>{renderEntry(entry as NavLinkEntry | NavGroupEntry)}</React.Fragment>
-                    ))}
+                    {section.entries
+                      // hiddenInSidebar routes are reached from inside another
+                      // page; they stay in NAV_SECTIONS only so the command
+                      // palette can still find them.
+                      .filter((entry) => !(entry.type === "link" && entry.hiddenInSidebar))
+                      .map((entry, i) => (
+                        <React.Fragment key={i}>
+                          {renderEntry(entry as NavLinkEntry | NavGroupEntry)}
+                        </React.Fragment>
+                      ))}
                   </div>
                 )}
               </div>
@@ -335,7 +383,7 @@ export function Sidebar() {
                 <p className="text-xs font-medium truncate">{user.username}</p>
                 {user.is_admin ? (
                   <p className="flex items-center gap-0.5 text-[10px] text-amber-600">
-                    <ShieldCheck className="h-2.5 w-2.5" /> Admin
+                    <ShieldCheck className="h-2.5 w-2.5" /> {t("sidebar.admin")}
                   </p>
                 ) : null}
               </div>

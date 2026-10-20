@@ -1,0 +1,175 @@
+{
+  "pipelineStatus": {
+    "draft": "proyecto",
+    "active": "activo",
+    "paused": "pausado",
+    "completed": "completado",
+    "archived": "archivado"
+  },
+  "stageStatus": {
+    "pending": "pendientes",
+    "in_progress": "en curso",
+    "blocked": "bloqueado",
+    "completed": "completado",
+    "skipped": "omitida"
+  },
+  "stageType": {
+    "discovery": "descubrimiento",
+    "spec": "spec",
+    "architecture_review": "revisión de la arquitectura",
+    "implementation": "Aplicación",
+    "migration": "migración",
+    "testing": "ensayos",
+    "build": "construir",
+    "release_notes": "notas de liberación",
+    "deployment_package": "paquete de despliegue",
+    "release_approval": "aprobación de la liberación",
+    "other": "otros"
+  },
+  "checkpointType": {
+    "started": "iniciado",
+    "progress": "Progresos",
+    "evidence": "pruebas",
+    "blocked": "bloqueado",
+    "failed": "Falló",
+    "paused": "pausado",
+    "heartbeat_lost": "latidos del corazón perdidos",
+    "reconciled": "reconciliados",
+    "resumed": "reanudado",
+    "completed": "completado"
+  },
+  "list": {
+    "title": "Tuberías",
+    "description": "Flujo de entrega para cada proyecto: etapas ordenadas, artefactos requeridos, y puertas de aprobación que deben pasar antes de la liberación.",
+    "newPipeline": "Nueva tubería",
+    "createTitle": "Crear tubería",
+    "createDescription": "Registrar una tubería de proyecto, opcionalmente sembrada de una plantilla de tubería. Las etapas se pueden agregar después.",
+    "createError": "Falló al crear la tubería: {{message}}",
+    "saveChanges": "Guardar cambios",
+    "loading": "Cargando tuberías...",
+    "loadError": "Falló al cargar tuberías: {{message}}",
+    "emptyTitle": "Todavía no hay tuberías.",
+    "emptyDescription": "Cada proyecto debe tener una tubería activa. Cree una para comenzar a definir etapas.",
+    "activeDescription": "Gasoducto activo para este proyecto",
+    "inactiveDescription": "Inactivo",
+    "projectLabel": "Proyecto: {{name}}",
+    "stagesCompleted": "Etapas {{completed}}/{{total}}",
+    "noStagesYet": "Todavía no se han definido etapas",
+    "viewDetails": "Ver detalles",
+    "editAria": "Editar {{name}}",
+    "deleteAria": "Borrar {{name}}",
+    "deleteTitle": "¿Borrar la tubería?",
+    "deleteDescription": "Esto eliminará permanentemente la tubería y todas sus etapas. Esto no se puede deshacer.",
+    "deleteConfirm": "Eliminar"
+  },
+  "detail": {
+    "loading": "Cargando tubería...",
+    "loadError": "Falló al cargar la tubería: {{message}}",
+    "activePipelineBadge": "Gasoducto activo",
+    "requiresApproval": "Requiere aprobación",
+    "requiresVerification": "Requiere verificación",
+    "projectProgressTitle": "Progreso del proyecto",
+    "projectProgressDescription": "Puestos de control autorizados y el punto exacto de curriculum vitae seguro.",
+    "macroflowLabel": "Macroflow",
+    "lastConfirmationLabel": "Última confirmación",
+    "noCheckpointShort": "No hay puesto de control",
+    "nextSafeActionLabel": "Próxima acción segura",
+    "evaluateCurrentStageFallback": "Evaluar la etapa actual",
+    "stoppedAt": "Detenido en {{step}}:",
+    "timelineTitle_one": "Línea horaria · Puesto de control {{count}}",
+    "timelineTitle_other": "Línea horaria · Puntos de control {{count}}",
+    "stagesTitle": "Etapas",
+    "stagesDescription": "Las etapas se ejecutan en orden. Una etapa no puede completarse hasta que existan los artefactos requeridos, sus puertas pasen, y una evaluación de finalización actual confirma la preparación.",
+    "addStage": "Añadir etapa",
+    "noStagesDefined": "Aún no se han definido etapas para este oleoducto.",
+    "backToList": "Volver a la lista",
+    "stageCard": {
+      "changeStatusTitle": "Haga clic para cambiar el estado",
+      "editAria": "Editar etapa {{name}}",
+      "deleteAria": "Borrar etapa {{name}}",
+      "typeLabel": "Tipo",
+      "requiredArtifactsTitle": "Artefactos necesarios",
+      "gatesTitle": "Puertas",
+      "noneDefined": "Ninguna definida",
+      "dependsOn_one": "Depende de la etapa {{count}}",
+      "dependsOn_other": "Depende de las etapas {{count}}",
+      "completionControlTitle": "Control de la finalización",
+      "confirmedCount": "{{completed}}/{{total}} confirmado",
+      "lastCheckpoint": "Último punto de control: {{label}}",
+      "stopped": "Detenido: {{reason}}",
+      "resumeFrom": "Reanudar desde: {{resume}}",
+      "noCheckpoint": "No se registró ningún puesto de control.",
+      "pendingItem": "Pendiente: {{label}}",
+      "evaluate": "Evaluar",
+      "completeStage": "Etapa completa"
+    },
+    "addStageForm": {
+      "nameLabel": "Nombre",
+      "namePlaceholder": "Aplicación",
+      "orderLabel": "Orden",
+      "typeLabel": "Tipo",
+      "statusLabel": "Situación",
+      "cancel": "Cancelar"
+    }
+  },
+  "form": {
+    "nameLabel": "Nombre",
+    "namePlaceholder": "Fundación MVP tubería de entrega",
+    "projectLabel": "Proyecto",
+    "loadingProjects": "Cargando proyectos...",
+    "selectProject": "Seleccionar un proyecto",
+    "templateLabel": "Plantilla (opcional)",
+    "loadingTemplates": "Cargando plantillas...",
+    "noTemplate": "Sin plantilla",
+    "templateHint": "Crea la tubería con las etapas de la plantilla ya en su lugar.",
+    "statusLabel": "Situación",
+    "cancel": "Cancelar",
+    "createPipelineLabel": "Crear tubería"
+  },
+  "templates": {
+    "pageTitle": "Plantillas de tuberías",
+    "importPipelineButton": "Importación de tuberías",
+    "newTemplateButton": "Nueva plantilla",
+    "cancel": "Cancelar",
+    "optionalPlaceholder": "opcional",
+    "emptyDescription": "No hay plantillas registradas. Cree una o importe desde una tubería existente.",
+    "stageRow": {
+      "editTitle": "Editar",
+      "deleteTitle": "Eliminar"
+    },
+    "addStageForm": {
+      "nameLabel": "Nombre de la etapa",
+      "namePlaceholder": "Por ejemplo, el desarrollo",
+      "typeLabel": "Tipo",
+      "addButton": "Añadir"
+    },
+    "table": {
+      "nameHeader": "Nombre",
+      "typeHeader": "Tipo",
+      "approvalHeader": "Homologación",
+      "verificationHeader": "Verificación"
+    },
+    "card": {
+      "nameLabel": "Nombre",
+      "descriptionLabel": "Descripción",
+      "editTitle": "Editar",
+      "deleteTitle": "Eliminar",
+      "deleteConfirm": "¿Borrar la plantilla \"{{name}}\"?",
+      "noStagesYet": "No hay etapas todavía. Añádase una abajo.",
+      "addStageButton": "Añadir etapa"
+    },
+    "import": {
+      "title": "Importar tubería como plantilla",
+      "sourceLabel": "Gasoducto de origen",
+      "selectPlaceholder": "— seleccionar —",
+      "nameLabel": "Nombre de la plantilla *",
+      "namePlaceholder": "Por ejemplo, entrega de software",
+      "importButton": "Importar"
+    },
+    "create": {
+      "nameLabel": "Nombre *",
+      "namePlaceholder": "Por ejemplo, entrega estándar",
+      "submitButton": "Crear"
+    }
+  }
+}

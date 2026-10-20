@@ -59,6 +59,47 @@ export function useFoundationScripts() {
   });
 }
 
+/**
+ * The *full* per-profile script catalog, straight off the filesystem
+ * (`/api/v1/foundation/scripts`) — not the DB-backed `/api/v1/scripts` above,
+ * which deliberately returns only scripts a cron job references. The Agents
+ * overview needs everything a profile owns, including scripts no cron calls.
+ *
+ * The response shape is the same `scriptSchema` minus the DB row's `id`, and
+ * with `exists` rather than `exists_on_disk`; normalised here so consumers see
+ * one `Script` type.
+ */
+const foundationScriptSchema = scriptSchema
+  .omit({ id: true, exists_on_disk: true, active: true, category: true, referenced_by: true })
+  .extend({
+    exists: z.boolean(),
+    description: z.string().nullable().default(null),
+    // foundation.py's CronJobRefOut carries no last_run_at, unlike the
+    // DB-backed /api/v1/scripts ref above — reusing cronJobRefSchema here
+    // would reject every script a cron job actually references.
+    referenced_by: z
+      .array(cronJobRefSchema.omit({ last_run_at: true }))
+      .default([]),
+  });
+
+export type FoundationScript = z.infer<typeof foundationScriptSchema>;
+
+const foundationScriptListSchema = z.object({ scripts: z.array(foundationScriptSchema) });
+
+export const foundationScriptKeys = {
+  list: ["foundation-scripts"] as const,
+};
+
+export function useFoundationAllScripts() {
+  return useQuery({
+    queryKey: foundationScriptKeys.list,
+    queryFn: async () => {
+      const data = await apiClient.get<unknown>("/api/v1/foundation/scripts");
+      return foundationScriptListSchema.parse(data).scripts;
+    },
+  });
+}
+
 export function useSyncScripts() {
   return { sync: () => apiClient.post<unknown>("/api/v1/scripts/sync", {}) };
 }
@@ -71,39 +112,17 @@ export interface ScriptLocationRef {
 const scriptContentSchema = z.object({ content: z.string(), path: z.string() });
 export type ScriptContent = z.infer<typeof scriptContentSchema>;
 
-async function fetchScriptContent(ref: ScriptLocationRef): Promise<ScriptContent> {
+export async function fetchScriptContent(ref: ScriptLocationRef): Promise<ScriptContent> {
   const data = await apiClient.get<unknown>(
     `/api/v1/foundation/scripts/${encodeURIComponent(ref.location)}/${encodeURIComponent(ref.name)}/content`
   );
   return scriptContentSchema.parse(data);
 }
 
-/**
- * A cron job's `script` filename can exist under the job's own profile
- * scripts/ dir, the central catalog, or neither (broken job) -- try each
- * candidate location in order and return the first readable hit.
- */
-export async function fetchScriptContentWithFallback(
-  candidates: ScriptLocationRef[]
-): Promise<ScriptContent | null> {
-  for (const candidate of candidates) {
-    try {
-      return await fetchScriptContent(candidate);
-    } catch {
-      // try the next candidate location
-    }
-  }
-  return null;
-}
-
-export function useScriptFileContent(candidates: ScriptLocationRef[], enabled: boolean) {
+export function useScriptFileContent(ref: ScriptLocationRef, enabled: boolean) {
   return useQuery({
-    queryKey: ["foundation-script-content", candidates],
-    queryFn: async () => {
-      const result = await fetchScriptContentWithFallback(candidates);
-      if (!result) throw new Error("Script file not found or unreadable");
-      return result;
-    },
+    queryKey: ["foundation-script-content", ref],
+    queryFn: () => fetchScriptContent(ref),
     enabled,
   });
 }

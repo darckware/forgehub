@@ -14,7 +14,7 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -26,22 +26,31 @@ from app.db.base import get_db
 # ---------------------------------------------------------------------------
 
 _INSTANCES: dict[str, dict] = {
-    "company_postgres": {
-        "label": "company_postgres",
-        "host": settings.POSTGRES_HOST,   # overridden to "company_postgres" in docker-compose
+    "forgehub_postgres": {
+        "label": "forgehub_postgres",
+        "host": settings.POSTGRES_HOST,   # overridden to "forgehub_postgres" in docker-compose
         "port": int(settings.POSTGRES_PORT),
-        "databases": ["forgehub", "kanboard"],
+        "databases": ["forgehub"],
         "default_db": "forgehub",
     },
-    "foundation_postgres": {
-        "label": "foundation_postgres",
+    "hindsight_postgres": {
+        "label": "hindsight_postgres",
         "host": settings.FOUNDATION_POSTGRES_HOST,
         "port": settings.FOUNDATION_POSTGRES_PORT,
         # "hermes_control" was a standalone database (schema git_control, 1
         # table) folded into foundation's own git_control schema on
         # 2026-07-09 -- see docs/governance/POSTGRESQL_TOPOLOGY.md.
-        "databases": ["foundation", "forgerouter"],
+        "databases": ["foundation"],
         "default_db": "foundation",
+    },
+    "forgerouter_postgres": {
+        "label": "forgerouter_postgres",
+        "host": settings.FORGEROUTER_POSTGRES_HOST,
+        "port": settings.FORGEROUTER_POSTGRES_PORT,
+        "databases": ["forgerouter"],
+        "default_db": "forgerouter",
+        "user": settings.FORGEROUTER_POSTGRES_USER,
+        "password": settings.FORGEROUTER_POSTGRES_PASSWORD or settings.POSTGRES_PASSWORD,
     },
 }
 
@@ -56,7 +65,10 @@ def _get_session_factory(instance: str, db: str) -> async_sessionmaker:
     cfg = _INSTANCES[instance]
     key = (cfg["host"], cfg["port"], db)
     if key not in _session_cache:
-        url = settings.db_url_for(cfg["host"], cfg["port"], db)
+        url = settings.db_url_for(
+            cfg["host"], cfg["port"], db,
+            user=cfg.get("user"), password=cfg.get("password"),
+        )
         engine = create_async_engine(url, future=True, pool_pre_ping=True, pool_size=2, max_overflow=3)
         _session_cache[key] = async_sessionmaker(
             bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
@@ -65,7 +77,7 @@ def _get_session_factory(instance: str, db: str) -> async_sessionmaker:
 
 
 async def _get_dynamic_db(
-    instance: str = Query(default="company_postgres"),
+    instance: str = Query(default="forgehub_postgres"),
     db: str = Query(default="forgehub"),
 ) -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency — yields a session for any configured instance+database."""
@@ -174,12 +186,14 @@ class SchemaOut(BaseModel):
 
 
 class QueryRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     sql: str
     limit: int = 1000
     offset: int = 0
-    instance: str = "company_postgres"
+    instance: str = "forgehub_postgres"
     db: str = "forgehub"
-    schema: str = SCHEMA
+    database_schema: str = Field(default=SCHEMA, alias="schema")
 
 
 class QueryResult(BaseModel):
@@ -191,10 +205,12 @@ class QueryResult(BaseModel):
 
 
 class ValidateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     sql: str
-    instance: str = "company_postgres"
+    instance: str = "forgehub_postgres"
     db: str = "forgehub"
-    schema: str = SCHEMA
+    database_schema: str = Field(default=SCHEMA, alias="schema")
 
 
 class ValidateResult(BaseModel):
@@ -429,7 +445,7 @@ async def validate_query(payload: ValidateRequest) -> ValidateResult:
 
     try:
         async with factory() as session:
-            await session.execute(text(f"SET search_path TO {payload.schema}, public"))
+            await session.execute(text(f"SET search_path TO {payload.database_schema}, public"))
             await session.execute(text(explain_sql))
         return ValidateResult(valid=True)
     except Exception as exc:
@@ -470,7 +486,7 @@ async def execute_query(payload: QueryRequest):
     try:
         t0 = time.perf_counter()
         async with factory() as session:
-            await session.execute(text(f"SET search_path TO {payload.schema}, public"))
+            await session.execute(text(f"SET search_path TO {payload.database_schema}, public"))
             result = await session.execute(text(safe_sql))
         elapsed = (time.perf_counter() - t0) * 1000
 

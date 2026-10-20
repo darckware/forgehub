@@ -1,0 +1,855 @@
+{
+  "title": "Remote Access",
+  "subtitle": "Servers and workstations ForgeHub reaches over SSH, through Tailscale or a subnet announced on it.",
+  "loading": "Loading the private network...",
+  "refresh": "Refresh",
+  "cancel": "Cancel",
+  "privateOnly": "Maintenance only uses the Tailscale private network; nothing goes over the public IP. Cloudflare remains responsible only for published services.",
+  "degraded": {
+    "title": "Partial read",
+    "description": "Some telemetry could not be refreshed. Available data is still shown; refresh before running an action."
+  },
+  "unavailable": {
+    "title": "Remote Access unavailable",
+    "description": "Could not query this server's Tailscale. Check the host bridge and try again."
+  },
+  "server": {
+    "title": "This server",
+    "daemon": "Service",
+    "dns": "Tailnet DNS",
+    "routes": "Accepts routes",
+    "ssh": "Tailscale SSH",
+    "exitNode": "Exit node",
+    "restart": "Restart Tailscale"
+  },
+  "totals": {
+    "devices": "Devices",
+    "online": "Online",
+    "offline": "Offline"
+  },
+  "devices": {
+    "name": "Device",
+    "os": "OS",
+    "status": "State",
+    "actions": "Actions"
+  },
+  "state": {
+    "online": "Online",
+    "offline": "Offline",
+    "needs_login": "Needs login",
+    "unavailable": "Unavailable"
+  },
+  "daemon": {
+    "active": "Active",
+    "inactive": "Inactive",
+    "unavailable": "Unavailable"
+  },
+  "common": {
+    "enabled": "enabled",
+    "disabled": "disabled"
+  },
+  "result": {
+    "success": "{{summary}}",
+    "failure": "Failed: {{summary}}"
+  },
+  "action": {
+    "restart": "Restart",
+    "test": "Test",
+    "connect": "Connect",
+    "disconnect": "Disconnect"
+  },
+  "confirmRestart": {
+    "title": "Restart Tailscale on this server",
+    "description": "Restart the Tailscale service on {{hostname}}? Connectivity to every device may drop for a few seconds.",
+    "confirm": "Restart"
+  },
+  "target": {
+    "self": "This server",
+    "peer": "Device",
+    "local": "Local host (legacy)",
+    "remote": "Remote VPS (legacy)"
+  },
+  "history": {
+    "title": "Operation history",
+    "loading": "Loading history...",
+    "empty": "No operations recorded.",
+    "time": "Time",
+    "actor": "Operator",
+    "target": "Target",
+    "action": "Action",
+    "result": "Result",
+    "summary": "Detail"
+  },
+  "operationStatus": {
+    "running": "Running",
+    "succeeded": "Succeeded",
+    "failed": "Failed"
+  },
+  "agents": {
+    "title": "Agents authorized for maintenance",
+    "subtitle": "Only these agents may run scripts on machines, always through the darckware account via ForgeHub and recorded under their name. Without authorization every agent request is refused.",
+    "grant": "Grant access to agents",
+    "grantTitle": "Grant access to agents",
+    "pickAgents": "Agents",
+    "noneToGrant": "Every active agent is already authorized.",
+    "maxRisk": "Maximum risk",
+    "validity": "Valid for",
+    "days_one": "{{count}} day",
+    "days_other": "{{count}} days",
+    "risks": {
+      "low": "Low (read only)",
+      "medium": "Medium (read and change)",
+      "high": "High (includes destructive)"
+    },
+    "riskHelp": {
+      "low": "The agent only runs read scripts (diagnostics, queries).",
+      "medium": "The agent runs read and change scripts (install, adjust, change passwords). Destructive scripts stay blocked.",
+      "high": "The agent may run any library script, including destructive ones."
+    },
+    "grantConfirm_one": "Grant to {{count}} agent",
+    "grantConfirm_other": "Grant to {{count}} agents",
+    "until": "until {{date}}",
+    "revoke": "Revoke",
+    "revokeTitle": "Revoke {{name}}'s access?",
+    "revokeText": "The agent immediately loses permission to run scripts on machines. Runs already started finish.",
+    "empty": "No agent authorized. Grant access so an agent can do maintenance."
+  },
+  "askAgent": {
+    "button": "Ask an agent",
+    "forMachine": "Ask an agent for a task on {{name}}",
+    "fromComposerHelp": "Sends a maintenance task on the selected machines to authorized agents",
+    "title": "Ask an agent",
+    "machines": "Machines",
+    "instruction": "What to do",
+    "instructionPlaceholder": "E.g. the printer stopped; check the spooler and restart it if needed",
+    "scripts": "Library scripts (optional)",
+    "scriptsHelp": "If you pick scripts, the agent is told to use only these, with these values. Without scripts it picks from the library within its allowed risk.",
+    "addScript": "Add script…",
+    "removeScript": "Remove {{name}}",
+    "secretParam": "Secret parameter: not sent in the task (the agent provides it when running, if needed).",
+    "agents": "Agents",
+    "agentsHelp": "Each checked agent gets its own task in Messages.",
+    "noAgents": "No agent authorized. Grant access in \"Agents authorized\" on the Machines tab.",
+    "riskTooLow": "risk below what the scripts need",
+    "send_one": "Send to {{count}} agent",
+    "send_other": "Send to {{count}} agents",
+    "sent_one": "Task sent to {{count}} agent.",
+    "sent_other": "Tasks sent to {{count}} agents.",
+    "message": "message #{{number}}",
+    "sentHelp": "Follow the answer in Messages. What the agent runs shows in each machine's history."
+  },
+  "categories": {
+    "title": "Classifications",
+    "newLabel": "New classification",
+    "label": "Name",
+    "description": "Description (optional)",
+    "add": "Add",
+    "save": "Save",
+    "count_one": "{{count}} script",
+    "count_other": "{{count}} scripts",
+    "editFor": "Edit {{name}}",
+    "deleteFor": "Delete {{name}}",
+    "systemLocked": "ForgeHub classification: it can be renamed, not deleted",
+    "inUse": "Used by scripts: move them before deleting",
+    "deleteTitle": "Delete the classification {{name}}?",
+    "deleteText": "It has no scripts. The deletion is recorded in the audit trail.",
+    "delete": "Delete"
+  },
+  "apiKey": {
+    "title": "Tailscale API credential",
+    "subtitle": "With it, ForgeHub generates each machine's auth key when the installer's field is left blank: one single-use key per machine, with the given tag and not pre-approved — each machine waits for your approval in the Tailscale console.",
+    "openConsole": "Open Settings › Keys",
+    "configured": "Configured (ends in {{hint}})",
+    "updated": "by {{who}} on {{when}}",
+    "notConfigured": "Not configured: the installer only works with an auth key pasted by hand.",
+    "input": "New API credential",
+    "save": "Save",
+    "replace": "Replace",
+    "remove": "Remove",
+    "help": "In the console: Settings › Keys › Generate access token (tskey-api-…). It expires within 90 days; replace it here before then. Also turn on \"Device approval\" in the tailnet settings so the per-machine approval applies.",
+    "removeTitle": "Remove the API credential?",
+    "removeText": "ForgeHub stops generating auth keys: installers again require a key pasted by hand. Revoke the token in the Tailscale console too."
+  },
+  "maintenance": {
+    "open": "Maintenance of {{name}}",
+    "title": "Maintenance · {{name}}",
+    "help": "Everything that reached this machine through ForgeHub: scripts and commands (by a person or an agent, with the reason and the client item), SSH terminal sessions and access events. The machine has one account (darckware); who did what is recorded here.",
+    "loading": "Loading",
+    "loadError": "Couldn't load the history.",
+    "empty": "No maintenance recorded yet.",
+    "byAgent": "agent {{name}}",
+    "item": {
+      "ticket": "ticket {{id}}",
+      "demand": "demand {{id}}"
+    }
+  },
+  "status": {
+    "complete": "Ready",
+    "partial_no_rustdesk": "No RustDesk",
+    "partial_no_ssh": "RustDesk only (no SSH)",
+    "not_prepared": "Not prepared",
+    "offline": "Offline",
+    "disabled": "Disabled",
+    "unknown": "Unknown",
+    "channels": {
+      "sshOk": "ForgeHub SSH working",
+      "sshMissing": "No ForgeHub SSH",
+      "rustdeskOk": "RustDesk {{id}}",
+      "rustdeskMissing": "No RustDesk on record"
+    }
+  },
+  "readiness": {
+    "ready": "Ready",
+    "busy": "Busy",
+    "offline": "Offline",
+    "not_prepared": "Not prepared",
+    "disabled": "Disabled",
+    "unknown": "Unknown"
+  },
+  "os": {
+    "windows": "Windows",
+    "linux": "Linux",
+    "macos": "macOS"
+  },
+  "workstations": {
+    "counts": "{{ready}}/{{total}} ready",
+    "attentionCount": "{{count}} need attention",
+    "offlineCount": "{{count}} offline",
+    "syncTailnet": "Sync from tailnet",
+    "probeNow": "Check now",
+    "newGroup": "New group",
+    "groupName": "Group name",
+    "client": "Client",
+    "noClient": "No client",
+    "createGroup": "Create group",
+    "filter": "Filter by readiness",
+    "filters": {
+      "all": "All",
+      "attention": "Need attention"
+    },
+    "tailnetUnavailable": "The tailnet could not be read right now; readiness uses the SSH probe only, and anything unread shows as Unknown.",
+    "columns": {
+      "login": "Login",
+      "readiness": "Readiness"
+    },
+    "editFor": "Edit {{name}}",
+    "deleteGroup": "Delete group",
+    "deleteGroupFor": "Delete group {{name}}",
+    "deleteGroupTitle": "Delete the group?",
+    "deleteGroupDescription": "Group {{name}} will be deleted. Its workstations stay registered; they just leave the group.",
+    "sync": {
+      "created": "{{count}} new",
+      "linked": "{{count}} linked",
+      "updated": "{{count}} updated",
+      "missing": "{{count}} left the tailnet (kept)",
+      "nothing": "Nothing changed in the tailnet.",
+      "failed": "Could not read the tailnet to sync.",
+      "available": "{{count}} available to import"
+    }
+  },
+  "verdict": {
+    "running": "Running",
+    "pending": "Queued",
+    "succeeded": "Succeeded",
+    "failed": "Failed",
+    "skipped": "Not run",
+    "nothing_ran": "Nothing ran"
+  },
+  "failure": {
+    "timeout": "Timed out",
+    "auth": "Key refused (access denied)",
+    "connection": "Could not connect — the command did not run",
+    "command": "The command exited with an error",
+    "interrupted": "Interrupted by a ForgeHub restart"
+  },
+  "run": {
+    "shell": "Command type",
+    "shells": {
+      "sh": "Linux/macOS (sh)",
+      "powershell": "Windows (PowerShell)"
+    },
+    "timeout": "Timeout (seconds)",
+    "command": "Command",
+    "review": "Review",
+    "back": "Back"
+  },
+  "executions": {
+    "stopAll_one": "Stop {{count}} execution",
+    "stopAll_other": "Stop {{count}} executions",
+    "stopAllTitle": "Stop every running execution?",
+    "stopAllText": "Machines that haven't started are skipped. Ones already running finish what they started, so no change is left half-applied.",
+    "stopAllConfirm": "Stop all",
+    "stopped": "{{count}} execution(s) stopped; {{skipped}} machine(s) never ran.",
+    "title": "Executions",
+    "loadFailed": "Could not load executions.",
+    "empty": "No commands run yet.",
+    "when": "When",
+    "command": "Command",
+    "targets": "Where",
+    "results": "Results",
+    "verdict": "Status",
+    "followUp": "Fix for an earlier execution",
+    "countsLine": "{{ok}} ok · {{failed}} failed · {{skipped}} skipped of {{total}}",
+    "filterAgent": "Filter by agent",
+    "allAgents": "All agents",
+    "filterPerson": "Filter by person",
+    "allPeople": "All people",
+    "filterOrigin": "Filter by origin",
+    "allOrigins": "All origins",
+    "origin": "Who",
+    "origins": {
+      "manual": "From the screen",
+      "schedule": "Schedule",
+      "agent": "Agent"
+    }
+  },
+  "execution": {
+    "record": "Maintenance record",
+    "title": "Execution",
+    "subtitle": "By {{who}} on {{when}} · {{targets}}",
+    "notFound": "Execution not found.",
+    "loadFailed": "Could not load the execution.",
+    "cancel": "Stop",
+    "cancelled": "Stopped",
+    "cancelTitle": "Stop the execution?",
+    "cancelDescription": "{{count}} machine(s) that haven't started won't run. Those already running finish normally.",
+    "fixFailed": "Fix the failed ones ({{count}})",
+    "fixTitle": "Fix on the {{count}} failed machine(s)",
+    "runFix": "Run fix ({{count}})",
+    "command": "Command ({{shell}})",
+    "parent": "Fix for the previous execution",
+    "followUpLink": "Fix {{n}}",
+    "perMachine": "Result per machine",
+    "exitCode": "exit {{code}}",
+    "stdout": "Output",
+    "stderr": "Errors",
+    "truncated": "Output cut at 64 KB.",
+    "copyCommand": "Copy the command (secrets stay masked)"
+  },
+  "prepare": {
+    "step1": "Open the station through RustDesk.",
+    "step2Windows": "Open PowerShell as administrator, paste the script below and press Enter.",
+    "step2Posix": "Open Terminal, save the script as preparar.sh and run: sudo sh preparar.sh",
+    "step3": "Come back and click \"Check now\": the station should become Ready.",
+    "copy": "Copy",
+    "copied": "Copied",
+    "close": "Close",
+    "dialogTitle": "Prepare station",
+    "intro": "Puts the machine under ForgeHub's darckware account: turns on OpenSSH (tailnet only), creates darckware as an administrator with a strong password generated for this machine and authorizes ForgeHub's key.",
+    "machine": "Machine",
+    "pickMachine": "Pick the machine",
+    "noCandidates": "Every Windows or Linux machine is already Ready.",
+    "mode": "How to prepare",
+    "modes": {
+      "ssh": "Over SSH with the administrator",
+      "copy": "Copy script (RustDesk)"
+    },
+    "sshHelp": "ForgeHub logs in once with that account (the password is used for this connection only and never stored), prepares the machine, tests the darckware login with the key and, only if that test passes and the option below is checked, locks that account.",
+    "loginRequired": "Installing and configuring ForgeHub's SSH access (the darckware account) needs one login with an administrator account on this machine.",
+    "accountLabel": "Account used for the setup",
+    "accounts": {"registered": "Account on record: {{user}}", "other": "Another account"},
+    "thisAccount": "used",
+    "adminUser": "Administrator login",
+    "adminPassword": "Administrator password",
+    "disableAdmin": "Disable \"{{user}}\" after confirming darckware signs in with the key",
+    "copyHelp": "Generates this machine's script to paste once through RustDesk, in an administrator PowerShell (Windows) or as root (Linux). The administrator is not disabled in this mode.",
+    "vaultNote": "The darckware password is generated by ForgeHub and kept in ForgeVault (infra project); it is never stored on the record.",
+    "runSsh": "Prepare now",
+    "generateCopy": "Generate script"
+  },
+  "policy": {
+    "title": "Tailnet policy (ACL)",
+    "subtitle": "Copy of the Tailscale console policy, checked for the rule maintenance depends on: ForgeHub's server being able to open SSH to the client tags.",
+    "openConsole": "Open in the Tailscale console",
+    "record": "Record policy",
+    "recordNew": "Record new version",
+    "loadFailed": "Could not load the policy.",
+    "pasteHelp": "Paste the whole policy from the Tailscale console (Access controls › Edit file). Recording it here doesn't change Tailscale: changes are applied there.",
+    "content": "Policy (HuJSON)",
+    "note": "Version note",
+    "notePlaceholder": "What changed (optional)",
+    "save": "Record",
+    "empty": "No policy recorded yet. Record the current copy so ForgeHub can check whether it can reach the stations.",
+    "recordedBy": "Recorded by {{who}} on {{when}}",
+    "versions": "Versions",
+    "latest": "Latest version",
+    "allGood": "The server ({{server}}) can open SSH to every client tag.",
+    "missing_one": "The server ({{server}}) can't open SSH to {{count}} client tag. Its stations will read \"Offline\" or \"Not prepared\" even with SSH on. Add the rule below in Tailscale and record the new version here:",
+    "missing_other": "The server ({{server}}) can't open SSH to {{count}} client tags. Their stations will read \"Offline\" or \"Not prepared\" even with SSH on. Add the rule below in Tailscale and record the new version here:",
+    "whereGrants": "Where to paste: inside \"grants\": [ ... ].",
+    "whereAcls": "Where to paste: inside \"acls\": [ ... ].",
+    "showContent": "Show the recorded policy",
+    "hideContent": "Hide the policy"
+  },
+  "enroll": {
+    "step2Linux": "Open Terminal, save the script as ingressar.sh and run: sudo sh ingressar.sh"
+  },
+  "password": {
+    "title": "{{name}} password",
+    "for": "Show {{name}}'s password",
+    "login": "Login",
+    "confirm": "This station's account password will be shown. The reveal is recorded in the audit log.",
+    "show": "Show password",
+    "rustdeskFor": "{{name}} RustDesk: show ID and password",
+    "rustdeskTitle": "{{name}} RustDesk",
+    "rustdeskId": "RustDesk ID"
+  },
+  "tabs": {
+    "machines": "Machines",
+    "scripts": "Scripts and executions",
+    "network": "Tailscale network",
+    "run": "Run",
+    "library": "Library",
+    "schedules": "Schedules",
+    "history": "History"
+  },
+  "quick": {
+    "detectOs": "Detect operating systems",
+    "detectOsResult": "OS detected on {{found}} of {{total}} machine(s) without one",
+    "title": "Installs",
+    "remote_access_install": "Darckware Remote installer",
+    "rustdesk_get_id": "Get RustDesk ID",
+    "rustdesk_firewall": "Allow RustDesk in the firewall",
+    "tailscale_install": "Install Tailscale",
+    "rustdesk_install": "Install RustDesk",
+    "rustdesk_password": "Change RustDesk password",
+    "prepare": "Prepare station",
+    "rotate_login_password": "Rotate password",
+    "rotate_ssh_key": "Rotate SSH key"
+  },
+  "composer": {
+    "authKey": {"autoOn": "Left blank, ForgeHub generates one key per machine with the given tag; each machine waits for your approval in the Tailscale console.", "autoOff": "For ForgeHub to generate the key itself, register the API credential on the Tailscale network tab.", "open": "Generate an auth key in the Tailscale console", "help": "In Settings › Keys › Generate auth key: tick Pre-approved or approve the machine in the console afterwards, keep Reusable off (one key per machine) and pick the client's tag (workstation: tag:<client>-users; server: tag:<client>-srv) — without it ForgeHub can't reach the machine over SSH. Paste the tskey-auth-… key here."},
+    "canary": "Canary: one machine first",
+    "canaryHelp": "Runs on the first machine and only goes on to the others if it succeeds.",
+    "canaryOn": "Canary on: the other machines run only if the first one succeeds.",
+    "confirmWord": "Type {{word}} to run (destructive script or ad-hoc command on several machines)",
+    "machines_one": "Machines ({{count}} selected)",
+    "machines_other": "Machines ({{count}} selected)",
+    "search": "Search by name, IP, location or client",
+    "client": "Client",
+    "allClients": "All clients",
+    "group": "Group",
+    "allGroups": "All groups",
+    "os": "System",
+    "allOs": "All systems",
+    "onlyReady": "Ready only",
+    "selectVisible": "Select visible",
+    "clear": "Clear selection",
+    "noMachines": "No machines match these filters.",
+    "server": "server",
+    "what": "What to run",
+    "review": "Review",
+    "source": "Script source",
+    "sources": {
+      "library": "Library script",
+      "adhoc": "Ad-hoc command"
+    },
+    "script": "Script",
+    "pickScript": "Pick a script",
+    "fits": "Runs on {{fit}} of {{total}} selected machines (the others read \"Not run\").",
+    "when": "When",
+    "whenModes": {
+      "now": "Now",
+      "once": "Schedule once",
+      "weekly": "Every week"
+    },
+    "scheduleName": "Schedule name",
+    "runAt": "Date and time (Brasília time)",
+    "weekdays": "Weekdays",
+    "days": {
+      "1": "Mon",
+      "2": "Tue",
+      "3": "Wed",
+      "4": "Thu",
+      "5": "Fri",
+      "6": "Sat",
+      "7": "Sun"
+    },
+    "time": "Time (Brasília)",
+    "window": "Window (minutes)",
+    "windowHelp": "A machine that is off or off the network is retried until the window ends; then it reads \"Not run\".",
+    "record": {
+      "title": "Maintenance record",
+      "reason": "Reason",
+      "reasonPlaceholder": "E.g. the client reported slow printing",
+      "item": "Client ticket or demand",
+      "itemNone": "None"
+    },
+    "login": {
+      "title": "Login for machines without ForgeHub access",
+      "help_one": "{{names}} doesn't have ForgeHub's login yet. Enter an account with administrator rights on it: used for this run only, never stored.",
+      "help_other": "{{names}} don't have ForgeHub's login yet. Enter an account with administrator rights on them: used for this run only, never stored.",
+      "user": "Login",
+      "password": "Password"
+    },
+    "problems": {
+      "missingLogin": "Enter the login and password for the machines without ForgeHub access.",
+      "scheduleNeedsAccess": "Schedules only run on machines with ForgeHub's login (use \"Configure access\" first).",
+      "noMachines": "Select at least one machine.",
+      "noScript": "Pick a script.",
+      "noCompatible": "No selected machine fits this script.",
+      "missingParams": "Fill in the required parameters.",
+      "noCommand": "Write the command.",
+      "scheduleNeedsScript": "Schedules only run library scripts.",
+      "noScheduleName": "Name the schedule.",
+      "noRunAt": "Pick the date and time.",
+      "noWeekdays": "Pick the weekdays."
+    },
+    "confirmNow_one": "Will run now on {{count}} machine:",
+    "confirmNow_other": "Will run now on {{count}} machines:",
+    "confirmOnce": "Will run once on {{at}} (Brasília):",
+    "confirmWeekly": "Will run every week ({{days}}) at {{time}} (Brasília):",
+    "destructive": "This script is marked destructive. Check the machines before confirming.",
+    "runNow": "Run now",
+    "schedule": "Schedule",
+    "copyScript": "Copy ready script",
+    "copyHelp": "For a machine without SSH yet: copies the script with its parameters filled, to paste through RustDesk.",
+    "copyTitle": "Script ready to paste",
+    "usesDefault": "Left blank, the script's default value is used.",
+    "fromVault": "{{fields}}: read from ForgeVault ({{secret}}) when it runs.",
+    "optionNone": "Select...",
+    "options": {
+      "todos": "All",
+      "dominio_e_privado": "Domain and private only",
+      "ver_configuracao": "Only show the configuration",
+      "anunciar_subrede": "Advertise subnet (become a router)",
+      "parar_de_rotear": "Stop advertising subnets",
+      "aceitar_rotas": "Use the tailnet's subnets",
+      "nao_aceitar_rotas": "Don't use the tailnet's subnets",
+      "manter": "Keep as is",
+      "sim": "Yes",
+      "nao": "No",
+      "ativa": "Enabled",
+      "desativada": "Disabled",
+      "tailscale_e_rustdesk": "Tailscale and RustDesk",
+      "somente_tailscale": "Tailscale only",
+      "somente_rustdesk": "RustDesk only",
+      "tailscale_local": "Through this machine's Tailscale",
+      "roteador_subrede": "Through a Tailscale subnet-router host on the local network"
+    }
+  },
+  "library": {
+    "title": "Script library",
+    "new": "New script",
+    "edit": "Edit script",
+    "search": "Search scripts",
+    "category": "Classification",
+    "allCategories": "All classifications",
+    "platform": "System",
+    "platforms": {
+      "windows": "Windows (PowerShell)",
+      "linux": "Linux (sh)",
+      "macos": "macOS (sh)"
+    },
+    "showArchived": "Show archived",
+    "name": "Name",
+    "newCategory": "New classification",
+    "addCategory": "Add",
+    "risk": "Risk",
+    "risks": {
+      "read": "Read",
+      "change": "Change",
+      "destructive": "Destructive"
+    },
+    "description": "Description",
+    "parameters": "Parameters",
+    "parametersHelp": "Each parameter becomes a variable ($NAME) available to the script; the value is passed quoted, never as code. Tick \"Secret\" to mask the value in the records.",
+    "paramName": "Name (UPPERCASE)",
+    "paramLabel": "Label",
+    "paramDefault": "Default value",
+    "required": "Required",
+    "secret": "Secret",
+    "removeParam": "Remove parameter",
+    "addParam": "Add parameter",
+    "content": "Script",
+    "note": "What changed in this version",
+    "save": "Save",
+    "loadFailed": "Could not load the library.",
+    "empty": "No scripts match these filters.",
+    "system": "System",
+    "archived": "Archived",
+    "versions": "Versions",
+    "versionsFor": "Versions of {{name}}",
+    "editFor": "Edit {{name}}",
+    "archive": "Archive",
+    "archiveFor": "Archive {{name}}",
+    "restore": "Restore",
+    "restoreFor": "Restore {{name}}"
+  },
+  "schedules": {
+    "title": "Schedules",
+    "loadFailed": "Could not load the schedules.",
+    "empty": "No schedules. Create one in the Run tab with \"Schedule once\" or \"Every week\".",
+    "name": "Name",
+    "script": "Script",
+    "when": "When",
+    "next": "Next",
+    "last": "Last",
+    "once": "Once: {{at}}",
+    "weekly": "{{days}} at {{time}}",
+    "machines_one": "{{count}} target",
+    "machines_other": "{{count}} targets",
+    "paused": "Paused",
+    "open": "Open",
+    "runNow": "Run now",
+    "runNowFor": "Run {{name}} now",
+    "pause": "Pause",
+    "pauseFor": "Pause {{name}}",
+    "resume": "Resume",
+    "resumeFor": "Resume {{name}}",
+    "delete": "Delete",
+    "deleteFor": "Delete {{name}}",
+    "deleteTitle": "Delete the schedule?",
+    "deleteDescription": "Schedule {{name}} will be deleted. The runs it already made stay in the history."
+  },
+  "rotation": {
+    "login_password": {
+      "title": "Rotate the darckware password",
+      "help": "For each machine: generates a new strong password, stores it as a new version in ForgeVault, applies it and tests the login. If anything fails, the previous password stays in effect."
+    },
+    "ssh_key": {
+      "title": "Rotate the SSH key",
+      "help": "For each machine: generates a new key, installs it with the current one, tests the login with the new key and only then removes the old one. The new private key goes to ForgeVault."
+    },
+    "selected_one": "{{count}} machine selected",
+    "selected_other": "{{count}} machines selected",
+    "selectAll": "Select all",
+    "none": "No Ready machines.",
+    "confirm_one": "Rotate on {{count}} machine? The result shows on the execution screen.",
+    "confirm_other": "Rotate on {{count}} machines? The result shows on the execution screen.",
+    "run_one": "Rotate ({{count}})",
+    "run_other": "Rotate ({{count}})"
+  },
+  "machines": {
+    "copyRustdeskId": "Copy the RustDesk ID",
+    "title": "Machines",
+    "totals": "{{ready}} of {{total}} ready · {{attention}} need attention · {{offline}} offline",
+    "new": "New machine",
+    "importCsv": "Import CSV",
+    "groups": "Groups:",
+    "search": "Search by name, IP, client or location",
+    "loadFailed": "Could not load the machines.",
+    "empty": "No machines registered. Use \"New machine\" or \"Sync from tailnet\".",
+    "tailscaleIpHint": "This device's Tailscale address; the record uses the local network IP.",
+    "routerOf": "Routes {{routes}}",
+    "notAccepted": "The VPS sees this route but has \"accept routes\" off: these machines are unreachable until it is turned on.",
+    "kind": {
+      "server": "Server",
+      "workstation": "Workstation"
+    },
+    "sections": {
+      "tailscale": "Tailscale",
+      "subnet": "Via subnet · {{router}}",
+      "none": "No path",
+      "unknown": "Path unknown",
+      "unregistered": "On the tailnet, not registered"
+    },
+    "sectionHelp": {
+      "tailscale": "Tailscale installed; the VPS reaches them directly on their 100.x IP.",
+      "subnet": "No Tailscale; the VPS reaches them through the {{routes}} subnet this router advertises.",
+      "none": "No Tailscale and outside every subnet the VPS can see: ForgeHub cannot reach these machines.",
+      "unknown": "The tailnet could not be read right now to tell the path.",
+      "unregistered": "Tailnet devices with no ForgeHub record (phones, laptops, machines not imported yet)."
+    },
+    "filters": {
+      "path": "Path",
+      "allPaths": "All paths",
+      "subnet": "Via subnet",
+      "kind": "Type",
+      "allKinds": "All types",
+      "allClients": "All clients"
+    },
+    "columns": {
+      "rustdesk": "RustDesk ID",
+      "name": "Machine",
+      "kind": "Type / OS",
+      "client": "Client / group"
+    },
+    "actions": {
+      "terminal": "Open SSH terminal on {{name}}",
+      "testTailscale": "Test Tailscale connection to {{name}}",
+      "services": "Services published by {{name}}",
+      "turnOff": "Turn off ForgeHub access to {{name}}",
+      "turnOn": "Turn on ForgeHub access to {{name}}",
+      "delete": "Delete {{name}}",
+      "register": "Register",
+      "configure": "Configure access to {{name}}"
+    },
+    "delete": "Delete",
+    "deleteTitle": "Delete the machine?",
+    "deleteDescription": "{{name}} will be removed from ForgeHub's inventory. Nothing changes on the machine itself or on the tailnet.",
+    "migrate": {
+      "action": "Move keys to ForgeVault",
+      "title": "Move keys to ForgeVault?",
+      "description": "For every machine with a key file: stores the key in ForgeVault, tests logging in with it alone and, if that works, ForgeHub stops using the file (which stays on disk). If the test fails, the machine keeps using the file.",
+      "confirm": "Move",
+      "summary": "{{switched}} moved · {{already}} already there · {{failed}} kept on the file"
+    }
+  },
+  "servers": {
+    "install": {
+      "title": "Install SSH key — {{name}}",
+      "description": "Generates a dedicated ed25519 key on this host (reused if it already exists), installs the public key on {{ip}}, and verifies key authentication. Passwords are used only for this installation; never stored or logged.",
+      "adminDescription": "Use a server admin account to create the user and install the key. Enable this if {{user}} is not provisioned on the server yet. The admin must be root or have passwordless sudo.",
+      "registeredUserCreate": "Registered user (created if missing)",
+      "registeredUser": "Registered user",
+      "adminAccount": "Admin account",
+      "passwordFor": "Password for \"{{user}}\"",
+      "hidePassword": "Hide password",
+      "showPassword": "Show password",
+      "installing": "Generating key, installing on the server and verifying…",
+      "failedAt": "Failed at \"{{step}}\": {{error}}",
+      "installedPublicKey": "Installed public key (saved on the server record)",
+      "action": "Install key",
+      "vaultSwitched": "Key stored in ForgeVault and verified; the file is no longer used.",
+      "vaultFailed": "The key works, but did not go to ForgeVault: {{reason}}"
+    },
+    "import": {
+      "title": "Import servers (CSV)",
+      "description": "Paste the CSV or choose a file. Required header: SERVER_NAME,SERVER_IP,REMOTE_USER,DESCRIPTION. Existing servers with the same name are updated.",
+      "chooseFile": "Choose file",
+      "created": "Created: {{count}}",
+      "updated": "Updated: {{count}}",
+      "failed": "Import failed. Check the CSV format.",
+      "action": "Import"
+    },
+    "page": {
+      "close": "Close"
+    },
+    "services": {
+      "title": "Services",
+      "scanTitle": "Scan common ports on this server",
+      "scanDisabled": "Access is turned off — turn it on to scan",
+      "new": "New service",
+      "loading": "Loading services…",
+      "empty": "No services registered. Add one, or scan for open ports.",
+      "openNewTab": "Open {{url}} in a new tab",
+      "edit": "Edit service",
+      "remove": "Remove service",
+      "namePlaceholder": "Name (e.g. Moodle)",
+      "pathPlaceholder": "/path (optional)",
+      "noOpenPorts": "No open ports among the {{count}} checked.",
+      "scanResult": "{{count}} of {{total}} ports answered. Nothing was saved; choose one to register it.",
+      "alreadyRegistered": "Already registered",
+      "registerPort": "Register this port as a service",
+      "nonWebTitle": "Answers TCP but is not a web endpoint",
+      "nonWeb": "non-web",
+      "removeDescription": "Remove \"{{name}}\" ({{url}}) from {{server}}? Only the ForgeHub entry is deleted; nothing changes on the server."
+    },
+    "form": {
+      "loading": "Loading…",
+      "save": "Save",
+      "cancel": "Cancel",
+      "saveFailed": "Could not save.",
+      "createFailed": "Could not save. The name may already exist.",
+      "editTitle": "Edit server",
+      "newTitle": "New server",
+      "name": "Server name",
+      "ipAddress": "IP address",
+      "sshPort": "SSH port",
+      "remoteUser": "Remote user",
+      "group": "Classification / Group",
+      "groups": {
+        "vps": "VPS / Production (Darckware)",
+        "semed": "SEMED (Client / Cloudflare)",
+        "client": "Client (workstation)"
+      },
+      "kind": "Type",
+      "kinds": {
+        "server": "Server",
+        "workstation": "Workstation"
+      },
+      "os": "Operating system",
+      "osNotSet": "Not set",
+      "client": "Client",
+      "noClient": "No client",
+      "adminUser": "Administrator login",
+      "adminUserHelp": "Local account used once to install the key. The password is typed when needed and never stored.",
+      "location": "Location",
+      "locationExample": "Front office — ground floor",
+      "hostGroups": "Groups",
+      "noHostGroups": "No groups for this client. Create one in Remote Access › Machines.",
+      "tailnetLinked": "Linked to tailnet device {{name}}.",
+      "sshKeyPath": "SSH key path (identity file)",
+      "copyPathPublicKey": "Copy the public key of this path",
+      "sshKeyHelpBefore": "Used as",
+      "sshKeyHelpAfter": "when opening the SSH terminal. Leave blank to use the shell's default key or agent.",
+      "sshKeyCopyHelp": "The copy button reads the public key (<path>.pub) and saves it to this record.",
+      "description": "Description",
+      "descriptionExample": "Main application server",
+      "publicKey": "Public key (installed on the server)",
+      "copyPublicKey": "Copy public key",
+      "publicKeyHelp": "Stored encrypted; filled automatically by the Install SSH key action.",
+      "vault": {
+        "title": "Key vault",
+        "stored": "Encrypted copy stored",
+        "notStored": "No copy stored",
+        "description": "Keeps the private key encrypted in ForgeHub's database. If the file is lost on the host, server access can still be recovered. The key is never sent back to the browser; restoring writes it directly to the path above.",
+        "storeTitle": "Read the identity file from the host and store it encrypted",
+        "pathRequired": "Set an SSH key path first",
+        "updateCopy": "Update copy from host",
+        "storeFromHost": "Store key from host",
+        "restoreTitle": "Write the stored key back to the host (never overwrites an existing file)",
+        "restore": "Restore to host",
+        "removeCopy": "Remove copy",
+        "pastePlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----\n…paste a key this host doesn't have…",
+        "storePasted": "Store pasted key",
+        "removeTitle": "Remove the stored key?",
+        "removeDescription": "ForgeHub's encrypted copy of {{name}}'s key will be deleted. The file on the host remains; if it is ever lost, there will be no copy to restore."
+      },
+      "passphrase": {
+        "title": "Key passphrase",
+        "configured": "Configured",
+        "notSet": "Not set",
+        "description": "Passphrase that unlocks the identity file above. Stored encrypted and shown only to admins. A vaulted key without its passphrase cannot be recovered for use.",
+        "leaveBlank": "Leave blank if the key has none",
+        "encrypted": "Stored encrypted in ForgeHub's database.",
+        "remove": "Remove the stored passphrase",
+        "removeTitle": "Remove the stored passphrase?",
+        "removeDescription": "{{name}}'s key remains where it is; only the passphrase stored by ForgeHub is deleted. A protected key without its passphrase cannot be used by the status probe.",
+        "removeAction": "Remove passphrase"
+      },
+      "access": {
+        "title": "Access",
+        "enabledDescription": "ForgeHub probes this server and can open a terminal to it.",
+        "disabledDescription": "Parked: no status check or terminal. The key, vaulted copy, and server remain untouched.",
+        "turnOff": "Turn off",
+        "turnOn": "Turn on"
+      }
+    }
+  },
+  "routes": {
+    "title": "Subnet routes",
+    "description": "Tailnet nodes announcing a physical network (e.g. the SEMED LAN). Machines in those ranges show up under Machines beneath the router that reaches them.",
+    "router": "Router",
+    "routes": "Routes",
+    "empty": "No approved subnet route visible to this VPS.",
+    "notAccepted": "This VPS does not accept subnet routes (tailscale set --accept-routes): machines in those ranges are unreachable.",
+    "approvedOnly": "Only routes approved in the Tailscale admin console and allowed to this VPS by the ACL appear."
+  },
+  "knownFailure": {
+    "tailscale_not_unattended": {
+      "short": "The machine's Tailscale belongs to a Windows user",
+      "title": "This machine's Tailscale belongs to a Windows account",
+      "why": "It was connected in {{owner}}'s session, and Windows only lets that account control it (even with unattended mode on, which binds it to that account in \"server mode\"). ForgeHub logs in as darckware and gets \"access denied\" on any Tailscale command. SSH access, RustDesk and other scripts keep working.",
+      "someone": "the user who connected it",
+      "steps": [
+        "Scripts that don't touch Tailscale need no change.",
+        "For ForgeHub to manage Tailscale, it must be reconnected by the darckware account (ForgeHub's installer, with a new auth key generated in the Tailscale console for this machine). Closing the tray icon or turning on \"Run unattended\" doesn't help."
+      ]
+    },
+    "host_key_changed": {
+      "short": "The machine's SSH key changed",
+      "title": "The machine answered with an SSH key different from the recorded one",
+      "why": "For safety ForgeHub refuses the connection. Expected after reinstalling Windows/Linux, replacing the machine or a Tailscale address moving to another device. If none of that happened, someone may be impersonating the machine: don't accept.",
+      "steps": [
+        "Confirm why it changed (reinstall, new machine, reused address).",
+        "Only then accept the new key: the next connection records it."
+      ],
+      "action": "Accept this machine's new key",
+      "confirmTitle": "Accept the new SSH key?",
+      "confirmText": "The old key is discarded and the next connection records the new one. Do it only if you know why it changed. It is recorded in the audit trail and the machine's history.",
+      "done": "Old key discarded. Run the script again."
+    }
+  }
+}

@@ -6,7 +6,10 @@ ForgeHub is split into a FastAPI backend and a React/Vite frontend. Backend code
 
 ## Build, Test, and Development Commands
 
-- `docker compose up -d --build`: build and run the full stack.
+- `./dev.sh`: start development servers with hot-reload (backend on :8001, frontend on :5172).
+- `./dev.sh status` / `./dev.sh stop` / `./dev.sh restart`: inspect and manage dev servers.
+- `./scripts/build.sh`: build versioned images with commit and build metadata.
+- `./scripts/deploy.sh`: build and deploy the full stack with traceable version metadata.
 - `cd backend && uvicorn app.main:app --reload --port 8000`: run the API locally.
 - `cd backend && alembic upgrade head`: apply database migrations.
 - `cd backend && pytest`: run backend tests.
@@ -18,7 +21,7 @@ ForgeHub is split into a FastAPI backend and a React/Vite frontend. Backend code
 
 ## Coding Style & Naming Conventions
 
-Backend code targets Python 3.11. Follow the domain-module pattern: matching `db/models/<domain>.py`, `api/schemas/<domain>.py`, and `api/routes/<domain>.py` files when applicable. Use UUID primary keys, `TimestampMixin`, string-form cross-domain foreign keys, and route-level business-rule validation. Ruff enforces Pyflakes plus `B904`; do not broaden lint scope without team agreement.
+Backend code targets Python 3.13. Follow the domain-module pattern: matching `db/models/<domain>.py`, `api/schemas/<domain>.py`, and `api/routes/<domain>.py` files when applicable. Use UUID primary keys, `TimestampMixin`, string-form cross-domain foreign keys, and route-level business-rule validation. Ruff enforces Pyflakes plus `B904`; do not broaden lint scope without team agreement.
 
 Frontend code uses TypeScript, React 18, Tailwind, shadcn/ui, TanStack Query, and Zustand. Keep API calls centralized through `frontend/src/lib/api.ts`. Use PascalCase for components, `useX` for hooks, and domain-oriented folders under `src/pages/`.
 

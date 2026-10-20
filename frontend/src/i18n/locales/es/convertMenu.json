@@ -1,0 +1,31 @@
+{
+  "targets": {
+    "task": "Tarea (partida existente)",
+    "doc": "Documento",
+    "artifact": "Artículo",
+    "knowledge_base": "Base de conocimientos",
+    "project_doc": "Proyecto específico (doc)",
+    "quick_task": "Tareas independientes (nuevo elemento)",
+    "planning_item": "Planificación de proyectos"
+  },
+  "loading": "Cargando...",
+  "selectPlanningItem": "Seleccione el elemento de planificación...",
+  "selectProject": "Seleccionar proyecto...",
+  "creationArea": "Área de creación...",
+  "folderPlaceholder": "carpeta (por ejemplo, notas/procedures)",
+  "documentNamePlaceholder": "nombre del documento",
+  "vaultPathPlaceholder": "ruta de bóveda (requerido).md",
+  "pathOptionalPlaceholder": "ruta (opcional).md",
+  "titlePlaceholder": "Título",
+  "forward": "Adelante",
+  "willBeSavedTo": "Se guardará en:",
+  "results": {
+    "task": "Tarea creada con éxito.",
+    "doc": "Documento guardado en {{reference}}.",
+    "artifact": "Arte creado con éxito.",
+    "knowledge_base": "Nota guardada en la base de conocimientos de {{reference}}.",
+    "planning_item": "Elemento añadido a la planificación del proyecto.",
+    "project_doc": "Documento vinculado al proyecto en {{reference}}.",
+    "quick_task": "Creación de tareas independientes (con su propio elemento de planificación)."
+  }
+}

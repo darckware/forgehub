@@ -10,6 +10,7 @@ session and removes it in a finally block (agent_tools rows cascade).
 """
 import uuid
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
@@ -212,3 +213,21 @@ async def test_content_refuses_paths_outside_catalogs(client: AsyncClient):
         assert resp.status_code == 404
     finally:
         await _delete_agent(agent.id)
+
+
+async def test_catalog_reachable_with_bridge_token_only():
+    """The forgehub MCP's list/register/update/scan_agent_tools send only
+    `X-Bridge-Token`, no `Authorization` -- RequireAuthMiddleware must let
+    that through for /api/v1/tools, and still refuse a missing/wrong token."""
+    from app.core.config import settings
+    from app.main import app
+
+    if not settings.CHAT_BRIDGE_TOKEN:
+        pytest.skip("CHAT_BRIDGE_TOKEN not configured")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        ok = await ac.get("/api/v1/tools", headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN})
+        assert ok.status_code == 200, ok.text
+        assert (await ac.get("/api/v1/tools/categories", headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN})).status_code == 200
+        assert (await ac.get("/api/v1/tools", headers={"X-Bridge-Token": "wrong"})).status_code == 401
+        assert (await ac.get("/api/v1/tools")).status_code == 401

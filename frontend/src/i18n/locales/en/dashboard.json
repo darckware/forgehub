@@ -1,0 +1,118 @@
+{
+  "title": "Dashboard",
+  "welcome": "Welcome to ForgeHub.",
+  "toolVersions": {
+    "title": "Tool Versions",
+    "checkNow": "Check now",
+    "checkVersionsNowAria": "Check versions now",
+    "enableSync": "Enable automatic sync",
+    "disableSync": "Disable automatic sync",
+    "toggleSyncAria": "Toggle automatic version sync",
+    "hostBridgeError": "Failed to reach the host bridge — is forgehub-chat-bridge running?",
+    "loading": "Loading...",
+    "error": "Error",
+    "unknown": "Unknown",
+    "updateAvailable": "Update available",
+    "upToDate": "Up to date",
+    "checkFailed": "Check failed",
+    "notChecked": "Not checked",
+    "updateAria": "Update {{tool}}",
+    "update": "Update",
+    "notInstalled": "Not installed",
+    "install": "Install",
+    "installAria": "Install {{tool}}",
+    "installing": "Installing...",
+    "details": "Details",
+    "closeDetails": "Close and clear details",
+    "closeDetailsAria": "Close and clear {{tool}} details"
+  },
+  "systemStats": {
+    "loading": "Loading...",
+    "hostBridgeError": "Failed to reach the host bridge — is forgehub-chat-bridge running?",
+    "memory": "Memory",
+    "disk": "Disk",
+    "network": "Network",
+    "docker": "Docker",
+    "dockerBreakdown": "build cache {{cache}} · images {{images}}",
+    "dockerReclaimable": "{{size}} reclaimable",
+    "dockerReclaimableWarning": "{{size}} reclaimable in Docker — clean up in System Control"
+  },
+  "crons": {
+    "title": "Crons",
+    "workingCount": "{{working}}/{{total}} working",
+    "refresh": "Refresh",
+    "refreshAria": "Refresh cron list",
+    "openCrons": "Open Crons",
+    "openCronsAria": "Open the Crons page",
+    "loading": "Loading...",
+    "loadError": "Failed to load the cron jobs.",
+    "corruptedStore": "Corrupted cron store ({{profiles}}) — those jobs are not running. See the Crons page.",
+    "empty": "No cron jobs registered.",
+    "health": {
+      "working": "Working",
+      "error": "Error",
+      "notRunning": "Not running",
+      "neverRan": "Never ran",
+      "off": "Off"
+    }
+  },
+  "projectsForgeRouter": {
+    "title": "Projects",
+    "description": "ForgeRouter is configured per project inside each project's directory.",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "loadingProjects": "Loading projects...",
+    "noProjects": "No projects registered yet.",
+    "noWorkingDir": "No working directory set",
+    "setWorkingDirFirst": "Set working_directory_path on the project first",
+    "toolConfigured": "{{tool}}: configured — click to disable",
+    "toolNotConfigured": "{{tool}}: not configured — click to enable",
+    "active": "Active",
+    "off": "Off",
+    "disableAll": "Disable all",
+    "apiKeyPrompt": "Enter the ForgeRouter API key for {{tool}} on this project (leave blank if ForgeRouter has no auth). Each tool keeps its own key.",
+    "apiKeyPlaceholder": "API key (optional)",
+    "enable": "Enable",
+    "cancel": "Cancel",
+    "lastConfigured": "Last configured: {{timestamp}}",
+    "globalConfigsDetected": "{{count}} global ForgeRouter config(s) detected — these should be per-project.",
+    "hide": "Hide",
+    "details": "Details",
+    "reAudit": "Re-audit",
+    "legend": "Click a CLI icon to enable/disable ForgeRouter for it individually: Claude (.claude/settings.local.json), Codex (.codex/forgerouter.env, activated via launcher -c overrides since Codex ignores model_provider from project config). Antigravity requires manual env sourcing (.forgerouter/antigravity.env)."
+  },
+  "cliForgeRouter": {
+    "title": "Global CLI ForgeRouter",
+    "description": "Route global AI CLI tools through the local ForgeRouter gateway (port 2100).",
+    "refresh": "Refresh CLI status",
+    "targetGateway": "Target Gateway",
+    "gatewayUrl": "http://localhost:2100 (ForgeRouter Local Gateway)",
+    "localGatewayDesc": "ForgeRouter Local Proxy & Telemetry",
+    "active": "Active",
+    "off": "Off",
+    "protocol": "Protocol",
+    "configLocation": "Global Config",
+    "tools": {
+      "claude": {
+        "title": "Claude Code",
+        "protocol": "Anthropic Messages Protocol",
+        "description": "Routes ~/.claude/settings.json base URL to local ForgeRouter port 2100."
+      },
+      "codex": {
+        "title": "OpenAI Codex",
+        "protocol": "Responses Protocol",
+        "description": "Routes ~/.codex/config.toml model provider to local ForgeRouter."
+      },
+      "antigravity": {
+        "title": "Antigravity",
+        "protocol": "OpenAI Compatible Protocol",
+        "description": "Routes ~/.antigravity/settings.json AI endpoint to local ForgeRouter."
+      }
+    },
+    "loading": "Loading CLI router status...",
+    "loadError": "Failed to connect to host bridge to check CLI router configurations.",
+    "toggleSuccess": "Successfully updated {{tool}} configuration.",
+    "toggleError": "Failed to update {{tool}} configuration.",
+    "status": "Status"
+  }
+}

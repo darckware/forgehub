@@ -1,0 +1,121 @@
+{
+  "page": {
+    "title": "2. Pantallas y reglas de negocio",
+    "description": "Área de especificación del sistema. Las pantallas, maquetas y reglas de negocio son opcionales y describen requisitos visuales y de comportamiento para los agentes de IA.",
+    "deriveDatabase": "Derivar base de datos (ERD)",
+    "viewErd": "Ver diagrama ERD",
+    "deriveSuccess": "Modelo derivado: {{created}} tabla(s) creada(s), {{updated}} actualizada(s), {{fields}} campo(s) registrado(s).",
+    "openErd": "Abrir diagrama ERD →"
+  },
+  "selectors": {
+    "project": "Proyecto",
+    "selectProject": "Seleccione un proyecto...",
+    "scope": "Alcance del proyecto",
+    "selectScope": "Seleccione un alcance...",
+    "revision": "Revisión {{revision}} · {{status}}"
+  },
+  "empty": {
+    "selectProject": "Seleccione un proyecto para ver y gestionar pantallas y reglas de negocio.",
+    "noScopeTitle": "No se encontró un alcance inicial para este proyecto",
+    "noScopeDescription": "Inicialice el alcance del proyecto para añadir pantallas, maquetas y reglas de negocio.",
+    "initializeScope": "Inicializar alcance y empezar",
+    "selectScreen": "Seleccione o cree una pantalla en la barra lateral para verla y editarla."
+  },
+  "sidebar": {
+    "title": "Pantallas del alcance",
+    "registered": "{{count}} registrada(s)",
+    "collapse": "Contraer barra lateral",
+    "expand": "Expandir barra de pantallas",
+    "newScreen": "Nombre de la nueva pantalla",
+    "filter": "Filtrar pantallas...",
+    "noScreens": "No se encontraron pantallas.",
+    "fields": "{{count}} campo(s)",
+    "images": "{{count}} img"
+  },
+  "common": {
+    "loading": "Cargando...",
+    "project": "proyecto"
+  },
+  "workspace": {
+    "mdFile": "Archivo MD:",
+    "exitFullscreen": "Salir de la vista completa",
+    "enterFullscreen": "Expandir a vista completa",
+    "reduce": "Reducir",
+    "fullscreen": "Vista completa",
+    "removeScreen": "Eliminar pantalla del alcance"
+  },
+  "tabs": {
+    "visual": "Vista de la pantalla",
+    "rules": "Reglas de negocio (.md)",
+    "attributes": "Atributos y datos"
+  },
+  "prompt": {
+    "required": "obligatorio",
+    "noAttributes": "(no hay atributos registrados)",
+    "template": "Por favor, lea la especificación y las reglas de negocio de la pantalla \"{{name}}\" en el archivo:\n`{{path}}`\n\nAtributos esperados:\n{{attributes}}"
+  },
+  "preview": {
+    "noHtml": "No hay contenido HTML definido para esta pantalla. Escriba HTML en el editor para verlo aquí.",
+    "mode": "Modo del prototipo:",
+    "renderedHtml": "HTML renderizado",
+    "imagesAndMockups": "Imágenes y maquetas",
+    "plainCss": "CSS estándar",
+    "htmlCode": "Código HTML del prototipo",
+    "autosave": "Se guarda automáticamente al salir del campo",
+    "htmlPlaceholder": "<div><h1>Título de la pantalla</h1><p>Contenido...</p></div>",
+    "renderedPreview": "Vista renderizada",
+    "imageUrlPlaceholder": "Añadir URL de imagen o maqueta en línea...",
+    "addUrl": "Añadir URL",
+    "uploadImage": "Subir imagen",
+    "referenceTemplate": "Plantilla de referencia / archivo UI:",
+    "templatePlaceholder": "Ej.: templates/dashboard-v2.tsx o enlace de Figma",
+    "noImages": "No hay imágenes adjuntas. Añada URLs o suba capturas para ilustrar la maqueta.",
+    "mockupAlt": "Maqueta {{number}}",
+    "imageNumber": "Imagen #{{number}}",
+    "openImage": "Abrir imagen a tamaño completo",
+    "removeImage": "Eliminar imagen",
+    "sandboxIframe": "Iframe aislado",
+    "screenPreviewTitle": "Vista previa de la pantalla"
+  },
+  "rules": {
+    "fileLocation": "Ubicación del archivo MD:",
+    "fileDescription": "Los agentes pueden acceder a las reglas guardadas en este archivo mediante MCP y el canal de mensajes.",
+    "pathCopied": "¡Ruta copiada!",
+    "copyPath": "Copiar ruta",
+    "promptCopied": "¡Instrucción copiada!",
+    "copyPrompt": "Copiar instrucción para el agente",
+    "view": "Vista:",
+    "edit": "Editar (.md)",
+    "rendered": "Renderizado",
+    "sideBySide": "Lado a lado",
+    "savedAt": "Guardado: {{date}}",
+    "save": "Guardar reglas (.md)",
+    "loading": "Cargando reglas de negocio...",
+    "editorPlaceholder": "# Reglas de negocio de la pantalla\n\n1. Reglas de validación...\n2. Permisos de acceso...\n3. Integraciones con el backend...",
+    "noContent": "Todavía no hay reglas de negocio registradas.",
+    "markdownEditor": "Editor Markdown (.md)",
+    "shortPlaceholder": "# Reglas de negocio...",
+    "renderedPreview": "Vista renderizada",
+    "nothingToRender": "No hay contenido para mostrar."
+  },
+  "attributes": {
+    "title": "Atributos y campos de la pantalla",
+    "description": "Datos usados en esta pantalla para derivar la base de datos (ERD).",
+    "add": "Añadir atributo",
+    "empty": "No hay atributos registrados. Añada campos para documentar y derivar la base de datos.",
+    "fieldName": "Nombre del campo",
+    "type": "Tipo",
+    "required": "Obligatorio",
+    "descriptionRule": "Descripción / regla",
+    "namePlaceholder": "ej.: correo, importe, estado",
+    "yes": "Sí",
+    "purposePlaceholder": "Finalidad del campo...",
+    "types": {
+      "string": "Texto",
+      "number": "Número",
+      "boolean": "Booleano",
+      "date": "Fecha",
+      "relation": "Relación"
+    }
+  }
+}

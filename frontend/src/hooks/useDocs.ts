@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { apiClient } from "@/lib/api";
+import type { DocGraph } from "@/components/GraphView";
 
 /**
  * Docs "áreas de criação" (backend/app/api/routes/docs.py): a user-
@@ -45,6 +46,7 @@ export const docsKeys = {
   areas: ["docs-areas"] as const,
   tree: (areaId: string) => ["docs-tree", areaId] as const,
   file: (areaId: string, path: string) => ["docs-file", areaId, path] as const,
+  graph: (areaId: string) => ["docs-graph", areaId] as const,
 };
 
 export function useDocAreas() {
@@ -78,6 +80,14 @@ export function useDocsTree(areaId: string | null) {
       z
         .array(docNodeSchema)
         .parse(await apiClient.get<unknown>(`${RESOURCE}/tree`, { params: { area_id: areaId ?? "" } })),
+    enabled: Boolean(areaId),
+  });
+}
+
+export function useDocsGraph(areaId: string | null) {
+  return useQuery({
+    queryKey: docsKeys.graph(areaId ?? ""),
+    queryFn: () => apiClient.get<DocGraph>(`${RESOURCE}/graph`, { params: { area_id: areaId ?? "" } }),
     enabled: Boolean(areaId),
   });
 }

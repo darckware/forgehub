@@ -1,0 +1,162 @@
+{
+  "list": {
+    "title": "Ejecución",
+    "subtitle": "Las tareas y subtareas planificadas se separaron de los elementos de planificación, se asignaron a agentes y se rastrearon a través de la ejecución.",
+    "filterAllProjects": "Todos los proyectos",
+    "newTask": "Nueva tarea",
+    "forgeRouterCard": {
+      "title": "ForgeRouter Anthropic Adapter task",
+      "description": "Solo es viable si ForgeRouter añade una API de mensajes de Anthropic mientras mantiene la API actual compatible con OpenAI para Codex.",
+      "copyPrompt": "Copiar prompt",
+      "copied": "Copiado"
+    },
+    "createCard": {
+      "title": "Crear tarea",
+      "description": "Registrar una nueva tarea. Las asignaciones y ejecuciones son rastreadas una vez que comienza el trabajo.",
+      "createError": "Falló al crear la tarea: {{message}}"
+    },
+    "loading": "Cargando tareas...",
+    "loadError": "Falló al cargar las tareas: {{message}}",
+    "emptyState": {
+      "title": "Todavía no hay tareas",
+      "description": "Crea tu primera tarea para iniciar el seguimiento de la asignación y ejecución.",
+      "cta": "Nueva tarea"
+    },
+    "columns": {
+      "title": "Título",
+      "status": "Situación",
+      "priority": "Prioridad",
+      "dueDate": "Fecha de vencimiento",
+      "executions": "Ejecuciones",
+      "actions": "Medidas"
+    },
+    "subtask": "Subtarea",
+    "view": "Ver",
+    "deleteAria": "Borrar {{title}}",
+    "deleteDialog": {
+      "title": "¿Borrar tarea?",
+      "description": "Esto eliminará permanentemente la tarea y todas sus ejecuciones. Esto no se puede deshacer.",
+      "confirm": "Eliminar"
+    }
+  },
+  "detail": {
+    "planApproach": "Plan/enfoque:", "dispatchTooltip": "Crea un mensaje vinculado a esta tarea y lo envía al agente asignado", "dispatchButton": "Ejecutar por mensajes", "blockedDependencies": "La tarea tiene dependencias pendientes:", "dispatchedAsMessage": "Enviada como mensaje", "dispatchStatus": "Estado del envío",
+    "breadcrumbExecution": "Ejecución",
+    "loading": "Cargando tarea...",
+    "loadError": "Falló al cargar la tarea: {{message}}",
+    "priorityLabel": "Prioridad {{priority}}",
+    "projectCard": {
+      "title": "Proyecto",
+      "description": "El proyecto de propiedad para esta tarea.",
+      "none": "Ningún proyecto vinculado."
+    },
+    "planningItemCard": {
+      "title": "Partida de planificación",
+      "description": "El elemento de planificación de la fuente de esta tarea se separó.",
+      "none": "Ningún elemento de planificación vinculado."
+    },
+    "scheduleCard": {
+      "title": "& Costo de planificación",
+      "description": "Fecha de vencimiento y costo estimado.",
+      "dueDate": "Fecha de vencimiento",
+      "estimatedCost": "Costo estimado",
+      "parentTask": "La tarea de los padres"
+    },
+    "executions": {
+      "title": "Ejecuciones de tareas",
+      "description": "Cada intento de ejecución real por un agente, sub-agente, humano, o sistema. Una tarea puede tener múltiples ejecuciones (fallaron, volvieron a juzgar, verificaron, completaron).",
+      "record": "Ejecución del registro",
+      "cancel": "Cancelar",
+      "columns": {
+        "number": "#",
+        "executor": "Ejecutador",
+        "status": "Situación",
+        "started": "Iniciado",
+        "finished": "Terminado",
+        "cost": "Costo",
+        "evidence": "Pruebas"
+      },
+      "unknownExecutor": "desconocido",
+      "empty": "Todavía no se han registrado ejecuciones para esta tarea.",
+      "attempt": "#{{number}}"
+    },
+    "backToList": "Volver a la lista"
+  },
+  "startExecutionForm": {
+    "executorTypeLabel": "Tipo de ejecutor",
+    "initialStatusLabel": "Situación inicial",
+    "summaryLabel": "Resumen (optativo)",
+    "summaryPlaceholder": "¿Qué se intentó o logró?",
+    "evidenceRefLabel": "Ref. de pruebas (requerido para /verified completado)",
+    "evidenceRefPlaceholder": "PR #123, commit sha, doc URL...",
+    "actualCostLabel": "Costo real",
+    "cancel": "Cancelar",
+    "submit": "Ejecución del registro"
+  },
+  "form": {
+    "titleLabel": "Título",
+    "titlePlaceholder": "Implementar el punto final de asignación de tareas",
+    "descriptionLabel": "Descripción",
+    "descriptionPlaceholder": "¿Qué implica esta tarea, y qué aspecto tiene?",
+    "projectLabel": "Proyecto",
+    "loadingProjects": "Cargando proyectos...",
+    "allProjects": "Todos los proyectos",
+    "projectHint": "Filtra el elemento de planificación / Cambiar opciones de solicitud a continuación -- una tarea no se almacena contra un proyecto directamente, sólo a través de uno de esos dos.",
+    "planningItemLabel": "Partida de planificación",
+    "loadingGeneric": "Cargando...",
+    "selectPlanningItem": "Seleccione un elemento de planificación (opcional)",
+    "changeRequestLabel": "Cambiar la solicitud (fuente)",
+    "selectChangeRequest": "Seleccione una solicitud de cambio (opcional)",
+    "parentTaskLabel": "Tareas de los padres (subtarea de)",
+    "loadingTasks": "Cargando tareas...",
+    "noParentTask": "Sin padre (tarea de nivel superior)",
+    "dueDateLabel": "Fecha de vencimiento",
+    "statusLabel": "Situación",
+    "priorityLabel": "Prioridad",
+    "policyLabel": "Política de gobernanza (opcional)",
+    "noPolicy": "Ninguna política vinculada",
+    "cancel": "Cancelar",
+    "submit": "Crear tarea"
+  },
+  "enums": {
+    "taskStatus": {
+      "planned": "Previsto",
+      "ready": "Listos",
+      "assigned": "Recursos asignados",
+      "in_progress": "En curso",
+      "blocked": "Bloqueado",
+      "done": "Hecho",
+      "deployed": "Desplegados",
+      "cancelled": "Cancelado"
+    },
+    "taskPriority": {
+      "low": "Baja",
+      "medium": "Medio",
+      "high": "Alta",
+      "critical": "Crítico"
+    },
+    "taskHealth": {
+      "overdue": "Atrasada",
+      "stalled": "Estallado",
+      "failed": "Ejecución fallida"
+    },
+    "executorType": {
+      "agent": "Agente",
+      "sub_agent": "Subagente",
+      "human": "Humanos",
+      "system": "Sistema"
+    },
+    "executionStatus": {
+      "pending": "Pendiente",
+      "running": "Correr",
+      "blocked": "Bloqueado",
+      "paused": "Pausa",
+      "reconciling": "Conciliación",
+      "recovering": "Recuperando",
+      "failed": "Falló",
+      "retried": "Recomendado",
+      "verified": "Verificado",
+      "completed": "Terminado"
+    }
+  }
+}

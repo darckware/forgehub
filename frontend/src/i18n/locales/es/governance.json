@@ -1,0 +1,196 @@
+{
+  "list": {
+    "title": "Gobernanza",
+    "description": "Aprobaciones para transiciones cerradas (puertas de la etapa de la tubería, preparación para la liberación, habilidades críticas y solicitudes de cambio) respaldadas por eventos y políticas de auditoría.",
+    "newApproval": "Nueva aprobación",
+    "requestForm": {
+      "title": "Solicitud de aprobación",
+      "description": "Registrar una solicitud de aprobación para una transición cerrada antes de que se decida.",
+      "createFailed": "Fallo al crear la aprobación: {{message}}"
+    },
+    "governed": {
+      "title": "Aprobación de la planificación dirigida",
+      "description": "La identidad, el hash de revisión, la evaluación de políticas y la separación de funciones son impuestos por el motor.",
+      "loading": "Cargando aprobaciones reguladas...",
+      "empty": "No hay ninguna aprobación regulada pendiente.",
+      "noPermission": "Usted no tiene permiso para ver aprobaciones gobernadas.",
+      "requestedBy": "Solicitado por {{name}}",
+      "revision": "{{id}} · {{hash}}",
+      "policyEvaluation": "evaluación de políticas {{id}}",
+      "approve": "Aprobar",
+      "requestChanges": "Solicitud de cambios",
+      "reject": "Rechazar",
+      "separationOfDuties": "Separación de funciones: otra autoridad debe decidir.",
+      "decisionBlocked": "Decisión bloqueada por autoridad, política, expiración o separación de funciones."
+    },
+    "athos": {
+      "title": "Autoridad de Athos",
+      "description": "Conceder autoridad limitada, que expira. Esto no libera tareas o ejecución CLI.",
+      "grantButton": "Mandato de planificación de 24 horas de Grant Athos",
+      "notFound": "El agente Athos no fue encontrado en el registro de agentes.",
+      "expires": "{{date}}",
+      "revoke": "Revocar"
+    },
+    "loading": "Cargando aprobaciones...",
+    "loadFailed": "Falló al cargar las homologaciones: {{message}}",
+    "empty": {
+      "title": "Todavía no hay aprobaciones",
+      "description": "Solicita tu primera aprobación para empezar a rastrear las decisiones cerradas."
+    },
+    "table": {
+      "entity": "Entidad",
+      "status": "Situación",
+      "requestedBy": "Solicitado por",
+      "decidedBy": "Decidido por",
+      "actions": "Medidas",
+      "view": "Ver"
+    }
+  },
+  "detail": {
+    "backToGovernance": "De vuelta a la gobernanza",
+    "loading": "Cargando la aprobación...",
+    "loadFailed": "Falló al cargar la homologación: {{message}}",
+    "decision": {
+      "title": "Decisión",
+      "description": "Quién solicitó y decidió esta aprobación.",
+      "approvalType": "Tipo de homologación",
+      "requestedBy": "Solicitado por",
+      "decidedBy": "Decidido por",
+      "notYetDecided": "Aún no se ha decidido",
+      "comments": "Observaciones"
+    },
+    "policy": {
+      "title": "Política de gobierno",
+      "description": "La política de esta aprobación se evalúa en contra.",
+      "name": "Nombre",
+      "descriptionLabel": "Descripción",
+      "policyType": "Tipo de política",
+      "active": "Activo",
+      "activeValue": "activo",
+      "inactiveValue": "inactivo",
+      "notLoaded": "No se pudieron cargar los detalles de la política.",
+      "noPolicy": "Ninguna política está vinculada a esta aprobación."
+    },
+    "auditTrail": {
+      "title": "Trayectoria de auditoría",
+      "description": "Los eventos de auditoría registrados contra esta aprobación, en orden cronológico.",
+      "by": "Por {{actor}}",
+      "empty": "Todavía no se han registrado acontecimientos de auditoría para su aprobación."
+    },
+    "backToList": "Volver a la lista"
+  },
+  "form": {
+    "selectPlaceholder": "Seleccionar...",
+    "entityUuidPlaceholder": "Entidad UUID",
+    "entityType": "Tipo de entidad",
+    "entity": "Entidad",
+    "approvalType": "Tipo de homologación",
+    "approvalTypePlaceholder": "ex: gate_approval, release_approval, security_review",
+    "requestedBy": "Solicitado por",
+    "requestedByPlaceholder": "agente o usuario",
+    "policy": "Política (optativa)",
+    "noPolicyLinked": "Ninguna política vinculada",
+    "comments": "Observaciones",
+    "commentsPlaceholder": "Justificación, condiciones o contexto",
+    "cancel": "Cancelar",
+    "createApproval": "Crear aprobación"
+  },
+  "policies": {
+    "title": "Políticas de gobernanza",
+    "description": "Normas comerciales relacionadas con artefactos: definir criterios de aprobación para transiciones controladas.",
+    "newPolicy": "Nueva política",
+    "newPolicyCard": {
+      "description": "Vincula una regla de aprobación a un artefacto específico."
+    },
+    "createPolicy": "Crear una política",
+    "saveChanges": "Guardar cambios",
+    "loading": "Cargando...",
+    "loadFailed": "Falló al cargar las políticas.",
+    "empty": {
+      "title": "No se han registrado políticas",
+      "description": "Crear la primera política para vincular a las aprobaciones."
+    },
+    "table": {
+      "name": "Nombre",
+      "type": "Tipo",
+      "artifact": "Artículo",
+      "status": "Situación",
+      "description": "Descripción",
+      "tasks": "Tareas",
+      "actions": "Medidas",
+      "active": "Activo",
+      "inactive": "Inactivo",
+      "viewTasks": "Ver tareas",
+      "hide": "Ocultar"
+    },
+    "deleteConfirm": "¿Borrar la política \"{{name}}\"?",
+    "tasks": {
+      "loading": "Cargando tareas...",
+      "empty": "No hay tareas relacionadas con esta política.",
+      "heading": "Tareas de aplicación de esta política"
+    },
+    "validation": {
+      "nameRequired": "Se requiere el nombre",
+      "typeRequired": "Se requiere el tipo",
+      "artifactRequired": "Se requiere artefacto"
+    },
+    "form": {
+      "name": "Nombre",
+      "namePlaceholder": "Por ejemplo, la aprobación del despliegue de la producción",
+      "type": "Tipo",
+      "typePlaceholder": "ex: liberación_aprobación, seguridad_revisión",
+      "linkedArtifact": "Artefacto vinculado",
+      "selectArtifact": "Seleccione un artefacto...",
+      "description": "Descripción",
+      "descriptionPlaceholder": "Describir los criterios o la regla para esta política",
+      "active": "Activo",
+      "cancel": "Cancelar",
+      "save": "Guardar"
+    }
+  },
+  "gate": {
+    "title": "5. Control de gobernanza",
+    "description": "Validación y autorización del trabajo planificado para la ejecución por agentes.",
+    "seeAlso": "Ver también",
+    "policies": "Políticas",
+    "bannerTitle": "Control de autorización para ejecución",
+    "bannerDescription": "Los elementos <strong>sin validar permanecen en el trabajo pendiente</strong>. Al pasar por <strong>En análisis</strong> y <strong>Autorizado</strong>, entran en la fase de <strong>Ejecución</strong> de agentes y desarrolladores.",
+    "projectFilter": "Filtrar proyecto:",
+    "allProjects": "Todos los proyectos",
+    "loading": "Cargando elementos de gobernanza...",
+    "emptyTitle": "No se encontraron elementos en esta categoría de gobernanza",
+    "emptyDescription": "Cambia los filtros para ver elementos pendientes, en análisis o autorizados.",
+    "projectFallback": "Proyecto",
+    "priority": "Prioridad",
+    "assignedAgent": "Agente asignado",
+    "selectAgent": "Selecciona un agente *",
+    "selectAgentFirst": "Selecciona un agente ejecutor antes de autorizar este elemento",
+    "releaseHelp": "Autorizar la ejecución del elemento",
+    "release": "Autorizar ejecución",
+    "moveToAnalysis": "Pasar a análisis",
+    "backToBacklog": "Volver a pendientes",
+    "reject": "Rechazar",
+    "taskCount_one": "{{count}} tarea",
+    "taskCount_other": "{{count}} tareas",
+    "categories": {
+      "in_analysis": "En análisis",
+      "backlog": "Pendientes (sin validar)",
+      "released": "Autorizados para ejecución",
+      "rejected": "Rechazados / Bloqueados",
+      "all": "Todos"
+    },
+    "badges": {
+      "released": "✓ Autorizado para ejecución",
+      "in_analysis": "⏳ En análisis",
+      "rejected": "✗ Rechazado",
+      "backlog": "📋 Pendiente"
+    },
+    "priorities": {
+      "low": "Baja",
+      "medium": "Media",
+      "high": "Alta",
+      "critical": "Crítica",
+      "urgent": "Urgente"
+    }
+  }
+}

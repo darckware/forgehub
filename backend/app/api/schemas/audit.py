@@ -1,6 +1,7 @@
 """Pydantic schemas for the audit domain (ecosystem checkpoints)."""
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -12,10 +13,12 @@ class AuditCheckBase(BaseModel):
     description: str | None = None
     category: str | None = Field(default=None, max_length=50)
     command: str = Field(min_length=1)
+    remediation_description: str | None = None
+    remediation_command: str | None = None
     workdir: str | None = Field(default=None, max_length=500)
     agent_profile: str = Field(default="athos", max_length=50)
     enabled: bool = True
-    timeout_seconds: int = Field(default=55, ge=1, le=55)
+    timeout_seconds: int = Field(default=55, ge=1, le=600)
 
 
 class AuditCheckCreate(AuditCheckBase):
@@ -29,10 +32,12 @@ class AuditCheckUpdate(BaseModel):
     description: str | None = None
     category: str | None = Field(default=None, max_length=50)
     command: str | None = Field(default=None, min_length=1)
+    remediation_description: str | None = None
+    remediation_command: str | None = None
     workdir: str | None = Field(default=None, max_length=500)
     agent_profile: str | None = Field(default=None, max_length=50)
     enabled: bool | None = None
-    timeout_seconds: int | None = Field(default=None, ge=1, le=55)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=600)
 
 
 class AuditRunOut(BaseModel):
@@ -64,6 +69,21 @@ class AuditCheckOut(AuditCheckBase):
     last_run: AuditRunOut | None = None
 
 
+class AthosAuditMonitorOut(BaseModel):
+    state: Literal["healthy", "degraded", "failed", "not_configured"]
+    job_id: str | None = None
+    job_name: str | None = None
+    script: str | None = None
+    schedule: str | None = None
+    enabled: bool | None = None
+    health: str | None = None
+    last_run_at: str | None = None
+    last_status: str | None = None
+    next_run_at: str | None = None
+    last_cron_run_at: datetime | None = None
+    issues: list[str] = Field(default_factory=list)
+
+
 class AuditStatusOut(BaseModel):
     """Header summary for the Auditor page."""
 
@@ -73,7 +93,15 @@ class AuditStatusOut(BaseModel):
     fail: int
     never_ran: int
     last_run_at: datetime | None = None
+    athos_monitor: AthosAuditMonitorOut | None = None
 
 
 class AuditRunAllOut(BaseModel):
     runs: list[AuditRunOut]
+
+
+class AuditRemediationOut(BaseModel):
+    remediation_run: AuditRunOut
+    verification_run: AuditRunOut
+    escalated_to_inbox: bool = False
+    inbox_demand_id: uuid.UUID | None = None

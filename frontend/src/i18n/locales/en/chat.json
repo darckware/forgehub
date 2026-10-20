@@ -1,0 +1,316 @@
+{
+  "telegram": {
+    "paneFor": "{{agent}}'s Telegram",
+    "agent": "agent",
+    "thisAgent": "this agent",
+    "historyError": "Could not load Telegram history.",
+    "noConversation": "No Telegram conversation found for {{agent}}.",
+    "startChannel": "Send a message to this agent's bot first to establish the channel.",
+    "deliveryWarning": "The response was saved but could not be delivered to Telegram. Refresh the channel before trying again.",
+    "improvePrompt": "Improve prompt",
+    "stopRecording": "Stop recording",
+    "dictate": "Dictate message",
+    "disableAutoSync": "Disable automatic refresh",
+    "enableAutoSync": "Enable automatic refresh",
+    "autoSyncOn": "Automatic sync is on — click to disable",
+    "autoSyncOff": "Automatic sync is off — click to enable",
+    "sending": "Sending",
+    "waitingForFirstMessage": "Interaction becomes available after the bot receives its first message on Telegram.",
+    "removeFile": "Remove {{name}}",
+    "composerPlaceholder": "Chat with {{agent}} on this channel…",
+    "theAgent": "the agent",
+    "channelActive": "active channel",
+    "gatewayStopped": "gateway stopped",
+    "notConfigured": "not configured"
+  },
+  "secret": {
+    "hide": "Hide secret",
+    "reveal": "Reveal secret",
+    "copy": "Copy secret"
+  },
+  "assistantDrawer": {
+    "title": "Assistant",
+    "contextTooltip": "Starts a new chat with this screen's context, sent invisibly to the agent with your first message",
+    "close": "Close assistant",
+    "noAgent": "No agent with a profile available."
+  },
+  "slashCommands": {
+    "model": "Switch model (persists by default)",
+    "status": "Show session, model, tokens and context",
+    "help": "Show available commands",
+    "version": "Show Hermes Agent version",
+    "title": "Set a title for the current session",
+    "profile": "Show active profile and home directory",
+    "config": "Show current configuration",
+    "toolsets": "List available toolsets",
+    "platforms": "Show gateway/messaging platform status",
+    "plugins": "List installed plugins; add an agent name (e.g. /plugins athos) to check a different profile",
+    "new": "Start a new chat",
+    "testar": "Test an application in the background or live",
+    "kindLocal": "Local",
+    "kindHermes": "Hermes",
+    "kindPrompt": "Prompt"
+  },
+  "testDialog": {
+    "title": "Test application",
+    "description": "Pick a product and automation routine, and whether to watch it live or run it in the background.",
+    "loading": "Loading…",
+    "noRoutines": "This product has no testable automation routines yet -- create one from the Systems Hub first.",
+    "fields": {
+      "product": "Product",
+      "pickProduct": "Select a product…",
+      "routine": "Routine",
+      "pickRoutine": "Select a routine…",
+      "mode": "Mode"
+    },
+    "modeBackground": "Background",
+    "modeVisible": "Watch live",
+    "dispatchedBackground": "Test dispatched in the background. Track it in the Systems Hub, \"Background tests\" tab.",
+    "dispatchedVisible": "Test finished -- see the result in the Systems Hub, \"Background tests\" tab.",
+    "buttons": {
+      "cancel": "Cancel",
+      "close": "Close",
+      "run": "Run test"
+    }
+  },
+  "attachMenu": {
+    "addAttachment": "Add attachment",
+    "sendFile": "Send file",
+    "hermesCommand": "Command",
+    "directoryFiles": "Directory/Files",
+    "agents": "Agents",
+    "artifacts": "Artifacts",
+    "directBashCommand": "Direct bash command"
+  },
+  "itemMenu": {
+    "chatOptions": "Chat options",
+    "rename": "Rename",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "delete": "Delete",
+    "moveToProject": "Move to project",
+    "moveToGroup": "Move to group",
+    "back": "Back",
+    "confirmDelete": "Delete chat \"{{title}}\"? This cannot be undone."
+  },
+  "groups": {
+    "projectsRoot": "Projects",
+    "groupsRoot": "Groups",
+    "generalRoot": "General",
+    "noProjectChats": "No chat linked to a project.",
+    "noGroupsYet": "No group created yet.",
+    "noGroup": "No group",
+    "newGroup": "New group",
+    "newGroupPlaceholder": "Group name",
+    "renamePrompt": "New group name",
+    "clearProjectChats": "Clear this project's chats",
+    "clearGroupChats": "Clear this group's chats",
+    "clearGeneralChats": "Clear general chats (no project/group)",
+    "confirmClearProject": "Permanently delete {{count}} chat(s) from project \"{{name}}\"? This cannot be undone.",
+    "confirmClearGroup": "Permanently delete {{count}} chat(s) from group \"{{name}}\"? This cannot be undone.",
+    "confirmClearGeneral": "Permanently delete {{count}} chat(s) with no project/group? This cannot be undone.",
+    "confirmDeleteGroup": "Delete group \"{{name}}\"? Its chats return to the general list (not deleted)."
+  },
+  "agentPicker": {
+    "agentLabel": "Agent: {{name}}",
+    "selectAgent": "Select agent",
+    "agentFallback": "Agent"
+  },
+  "mcpInfo": {
+    "viewMcps": "View available MCPs",
+    "title": "Agent MCPs",
+    "loading": "Loading MCPs...",
+    "error": "Could not load MCPs.",
+    "empty": "No MCP server configured.",
+    "enabled": "Enabled",
+    "disabled": "Disabled"
+  },
+  "mentionFilePicker": {
+    "useFolder": "Use folder",
+    "parentFolder": "Parent folder",
+    "loading": "Loading…",
+    "emptyFolder": "Empty folder"
+  },
+  "agentMentionPicker": {
+    "noAgentsFound": "No agents found"
+  },
+  "artifactMentionPicker": {
+    "loading": "Loading…",
+    "noArtifactsFound": "No artifacts found"
+  },
+  "messageBubble": {
+    "thoughtFor": "Thought for {{duration}}",
+    "copyMessage": "Copy message",
+    "regenerateReply": "Regenerate reply",
+    "cancel": "Cancel",
+    "saveAndResend": "Save and resend",
+    "editMessage": "Edit message"
+  },
+  "thinking": {
+    "working": "⏳ Working — {{duration}}"
+  },
+  "composer": {
+    "improvePrompt": "Improve prompt with {{agent}}",
+    "improvePromptTitle": "Improve prompt with {{subject}}",
+    "improvePromptDraftLabel": "Prompt",
+    "improvePromptInstructionLabel": "Improvement instruction",
+    "improvePromptInstructionPlaceholder": "e.g. make it more formal, add more context about...",
+    "improvePromptConfirm": "Rewrite",
+    "improvePromptApply": "OK",
+    "improvePromptShortcutHint": "Ctrl+Enter to rewrite · Alt+Enter to use as-is",
+    "promptTechniqueLabel": "Improvement strategy",
+    "promptTechniqueRecommend": "Choose the technique that best matches the current draft",
+    "promptTechniqueRecommended": "Recommended technique selected for the current context",
+    "promptTechniqueWhen": "Use when",
+    "promptTechniqueAvoid": "Avoid when",
+    "promptTechniqueCategories": {
+      "text": "Text",
+      "structure": "Structure",
+      "reasoning": "Reasoning",
+      "software": "Software",
+      "agentic": "Agentic",
+      "research": "Research",
+      "content": "Content",
+      "design": "Product Design",
+      "automation": "Automation",
+      "image": "Image",
+      "video": "Video"
+    },
+    "promptTechniqueEffort": {
+      "low": "low effort",
+      "medium": "medium effort",
+      "high": "high effort",
+      "very_high": "very high effort"
+    },
+    "typeMessageFirst": "Type a message before sending.",
+    "selectAgentFirst": "Select an agent before sending.",
+    "selfRestartWarning": "This may briefly drop this very conversation -- history is saved, but the in-flight turn might need to be resent.",
+    "couldNotAttach": "Could not attach {{name}}.",
+    "suggestedReplyYes": "Yes",
+    "completeHint": "{{text}} (→ to complete)",
+    "dropIntoAssistant": "Drop into assistant",
+    "viewAttachedImage": "View attached image",
+    "removeAttachment": "Remove attachment",
+    "remove": "Remove",
+    "close": "Close",
+    "stopRecording": "Stop recording",
+    "recordVoiceMessage": "Record voice message"
+  },
+  "voice": {
+    "micBlocked": "Microphone blocked. Allow it in your browser settings.",
+    "transcribing": "Transcribing…",
+    "recording": "🔴 Recording…",
+    "failedResponse": "Failed to get a response: {{error}}",
+    "checklist": {
+      "audioRecording": "Audio recording",
+      "audioRecordingOk": "Supported",
+      "audioRecordingFail": "Browser does not support MediaRecorder — use Chrome or Edge.",
+      "tts": "Speech synthesis (TTS)",
+      "ttsNotSupported": "Not supported",
+      "ttsNoVoices": "No voices — replies will be shown without audio",
+      "ttsVoiceCount": "{{count}} voice(s)",
+      "microphone": "Microphone",
+      "microphoneOk": "Authorized",
+      "microphoneFail": "Denied — click the padlock in the address bar and allow the microphone."
+    },
+    "greeting": {
+      "goodMorning": "Good morning",
+      "goodAfternoon": "Good afternoon",
+      "goodEvening": "Good evening",
+      "text": "{{period}}! I'm {{name}}. How can I help you now?",
+      "agentFallback": "Assistant"
+    },
+    "conversationWith": "Voice conversation · {{name}}",
+    "starting": "Starting…",
+    "couldNotStart": "Could not start the voice conversation.",
+    "waitingFor": "Waiting for {{name}}…",
+    "listening": "Listening…",
+    "thinking": "{{name}}\nis thinking…",
+    "replying": "{{name}}\nis replying…",
+    "micActive": "Mic active",
+    "agentSpeaking": "Agent speaking",
+    "waiting": "Waiting…",
+    "endConversation": "End voice conversation",
+    "conversationWithAgent": "Voice conversation with {{name}}"
+  },
+  "sidebar": {
+    "chats": "Chats",
+    "newChat": "New chat",
+    "searchConversations": "Search conversations…",
+    "searching": "Searching…",
+    "noConversationsFound": "No conversations found.",
+    "noConversationsYet": "No conversations yet."
+  },
+  "sessionFolder": {
+    "pickProject": "Link this chat to a project",
+    "noProject": "No project",
+    "noProjectsRegistered": "No project with a working directory registered."
+  },
+  "queue": {
+    "queued": "📥 Queued…",
+    "cancel": "Cancel",
+    "cancelPrompt": "Cancel this queued prompt",
+    "stop": "Stop",
+    "runningCommand": "Running command",
+    "agentIsTyping": "{{name}} is typing",
+    "agentFallback": "The agent",
+    "approvalRequest": "🔐 {{name}} requests authorization to run a privileged action",
+    "approveOnce": "✅ Approve once",
+    "approveSessionTitle": "Do not ask again for this same command type in this session",
+    "approveSession": "☑️ Approve for this session",
+    "deny": "🚫 Deny",
+    "failed": "❌ Failed: {{error}}",
+    "dismiss": "Dismiss",
+    "subagentLoading": "Loading delegation status…",
+    "subagentDelegatedTo": "Delegated #{{number}} to {{agent}}",
+    "internalContext": "Internal context",
+    "processDetails": "Processing details"
+  },
+  "artifactsPanel": {
+    "title": "Artifacts",
+    "searchArtifacts": "Search artifacts…",
+    "dragToReference": "Drag to the message field to reference {{path}}",
+    "download": "Download {{name}}",
+    "downloadTitle": "Download",
+    "removeFromList": "Remove {{name}} from list",
+    "removeFromListTitle": "Remove from list (does not delete the actual file)",
+    "noArtifactsYet": "No artifacts created in this conversation yet.",
+    "noArtifactsFound": "No artifacts found."
+  },
+  "secretInput": {
+    "agentInstruction": "Please store this credential securely in ForgeVault:",
+    "open": "Insert a secret password or token (ForgeVault)",
+    "dialog": "Insert a password or token into ForgeVault",
+    "title": "Store a secret in ForgeVault",
+    "close": "Close",
+    "keyName": "Key name / identifier",
+    "keyExample": "E.g. TYPESAFE_API_KEY",
+    "environment": "Environment",
+    "production": "Production",
+    "staging": "Staging",
+    "development": "Development",
+    "encryption": "AES encryption",
+    "secretValue": "Secret password or token",
+    "valuePlaceholder": "Paste the secret value…",
+    "nameRequired": "Enter the secret name (e.g. TYPESAFE_API_KEY)",
+    "valueRequired": "Enter the secret password or token",
+    "insert": "Insert into ForgeVault"
+  },
+  "running": {
+    "title": "Running",
+    "main": "Main",
+    "subagentFallback": "Subagent",
+    "lastTool": "last step: {{tool}}",
+    "delegation": "#{{number}} → {{agent}}",
+    "noOutput": "No output yet.",
+    "noneRunning": "Nothing running right now.",
+    "finished_one": "Finished ({{count}})",
+    "finished_other": "Finished ({{count}})",
+    "status": {
+      "running": "running",
+      "completed": "completed",
+      "failed": "failed",
+      "stopped": "ended"
+    }
+  }
+}

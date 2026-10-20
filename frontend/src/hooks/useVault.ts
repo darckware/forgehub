@@ -56,6 +56,19 @@ export function useUpdateVaultNote() {
       apiClient.put<VaultNote>(`${RESOURCE}/note`, { content }, { params: { path } }),
     onSuccess: (note) => {
       queryClient.setQueryData(vaultKeys.note(note.path), note);
+      // PUT also creates brand-new notes (see vault.py docstring), so the
+      // tree may have gained a node -- cheap to refetch either way.
+      queryClient.invalidateQueries({ queryKey: vaultKeys.tree });
+    },
+  });
+}
+
+export function useCreateVaultFolder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (path: string) => apiClient.post<VaultNode>(`${RESOURCE}/folder`, { path }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: vaultKeys.tree });
     },
   });
 }
@@ -70,4 +83,62 @@ export function useDeleteVaultNote() {
       queryClient.invalidateQueries({ queryKey: ["vault-graph"] });
     },
   });
+}
+
+/** Backs both the content panel's rename button and the tree's hover
+ * rename/drag-and-drop-move icons. */
+export function useRenameVaultPath() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ path, newPath }: { path: string; newPath: string }) =>
+      apiClient.post<VaultNode>(`${RESOURCE}/rename`, { path, new_path: newPath }),
+    onSuccess: (_data, { path }) => {
+      queryClient.removeQueries({ queryKey: vaultKeys.note(path) });
+      queryClient.invalidateQueries({ queryKey: vaultKeys.tree });
+      queryClient.invalidateQueries({ queryKey: ["vault-graph"] });
+    },
+  });
+}
+
+export function useUploadVaultFile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ folder, file }: { folder: string; file: File }) => {
+      const form = new FormData();
+      form.append("folder", folder);
+      form.append("file", file);
+      return apiClient.postForm<VaultNode>(`${RESOURCE}/upload`, form);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: vaultKeys.tree });
+      queryClient.invalidateQueries({ queryKey: ["vault-graph"] });
+    },
+  });
+}
+
+/** Deletes a note, a folder (recursively), or any other file -- unlike
+ * useDeleteVaultNote, not restricted to markdown. Backs the tree's hover
+ * delete icon. */
+export function useDeleteVaultPath() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (path: string) => apiClient.delete<void>(`${RESOURCE}/path`, { params: { path } }),
+    onSuccess: (_data, path) => {
+      queryClient.removeQueries({ queryKey: vaultKeys.note(path) });
+      queryClient.invalidateQueries({ queryKey: vaultKeys.tree });
+      queryClient.invalidateQueries({ queryKey: ["vault-graph"] });
+    },
+  });
+}
+
+export async function downloadVaultFile(path: string): Promise<void> {
+  const { blob, filename } = await apiClient.downloadFile(
+    `${RESOURCE}/download?path=${encodeURIComponent(path)}`
+  );
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename || path.split("/").pop() || "download";
+  a.click();
+  URL.revokeObjectURL(url);
 }

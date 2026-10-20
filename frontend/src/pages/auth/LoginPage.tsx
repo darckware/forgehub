@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import ReCAPTCHA from "react-google-recaptcha";
 import { motion } from "framer-motion";
 import {
   Loader2,
@@ -7,16 +9,20 @@ import {
   Eye,
   EyeOff,
   ShieldCheck,
+  ShieldAlert,
   GitBranch,
   Bot,
   User,
   KeyRound,
+  ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { OtpInput, OTP_LENGTH } from "@/components/ui/otp-input";
 import { Logo, LogoMark } from "@/components/Logo";
-import { useLogin } from "@/hooks/useAuth";
+import { useLogin, useVerifyTotp } from "@/hooks/useAuth";
+import { getRememberMe, setRememberMe } from "@/store/authStore";
 
 /**
  * Deterministic spark field (module-level so positions don't reshuffle on
@@ -104,6 +110,7 @@ function PipelineGraph() {
           r={3}
           fill="#818cf8"
           style={{ filter: "drop-shadow(0 0 4px rgba(129,140,248,0.9))" }}
+          initial={{ cx: DAG_NODES[a].x, cy: DAG_NODES[a].y }}
           animate={{
             cx: [DAG_NODES[a].x, DAG_NODES[b].x],
             cy: [DAG_NODES[a].y, DAG_NODES[b].y],
@@ -202,37 +209,72 @@ function ForgeBackdrop() {
 const PILLARS = [
   {
     icon: GitBranch,
-    title: "Governed pipelines",
-    text: "Stage gates with mandatory artifacts and explicit approvals before anything moves forward.",
+    title: "pillarGovernedTitle",
+    text: "pillarGovernedText",
   },
   {
     icon: Bot,
-    title: "Agent execution",
-    text: "AI agents pick up planned tasks and execute them under recorded, auditable runs.",
+    title: "pillarExecutionTitle",
+    text: "pillarExecutionText",
   },
   {
     icon: ShieldCheck,
-    title: "End-to-end traceability",
-    text: "Every feature, task and artifact stays linked to product, version, owner and audit trail.",
+    title: "pillarTraceabilityTitle",
+    text: "pillarTraceabilityText",
   },
 ];
 
+// Unset until the key pair is provisioned for this domain (see CLAUDE.md's
+// reCAPTCHA note) -- the widget below only renders once a site key exists,
+// so login keeps working exactly as before in the meantime.
+const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY as string | undefined;
+
 export default function LoginPage() {
+  const { t } = useTranslation("common");
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string })?.from ?? "/";
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  // Pre-fills from the last choice (defaults true -- see authStore's
+  // getRememberMe docstring for why an unset preference isn't "false").
+  const [rememberMe, setRememberMeChecked] = useState(getRememberMe);
+  const [recaptchaToken, setRecaptchaToken] = useState<string | null>(null);
+  const recaptchaRef = useRef<ReCAPTCHA>(null);
   const login = useLogin();
+
+  const [totpStep, setTotpStep] = useState(false);
+  const [totpCode, setTotpCode] = useState("");
+  const [totpPendingToken, setTotpPendingToken] = useState("");
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
+  const verifyTotp = useVerifyTotp();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (RECAPTCHA_SITE_KEY && !recaptchaToken) return;
     try {
-      await login.mutateAsync({ username, password });
+      setRememberMe(rememberMe);
+      const result = await login.mutateAsync({ username, password, recaptchaToken });
+      if (result.requires_totp && result.totp_pending_token) {
+        setTotpPendingToken(result.totp_pending_token);
+        setTotpStep(true);
+        return;
+      }
       navigate(from, { replace: true });
     } catch {
-      // error shown below
+      recaptchaRef.current?.reset();
+      setRecaptchaToken(null);
+    }
+  };
+
+  const handleTotpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await verifyTotp.mutateAsync({ totp_pending_token: totpPendingToken, code: totpCode });
+      navigate(from, { replace: true });
+    } catch {
+      // Error shown via verifyTotp.error
     }
   };
 
@@ -253,10 +295,10 @@ export default function LoginPage() {
           >
             <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-400/25 bg-indigo-500/10 px-3 py-1 text-xs font-medium tracking-wide text-indigo-300">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-              AI delivery control plane
+              {t("auth.tagline")}
             </p>
             <h1 className="text-4xl font-semibold leading-tight tracking-tight">
-              Plan, govern and execute software with AI agents.
+              {t("auth.heroTitle")}
             </h1>
 
             <div className="mt-10 flex flex-col gap-6">
@@ -272,8 +314,8 @@ export default function LoginPage() {
                     <p.icon className="h-5 w-5 text-indigo-300" />
                   </div>
                   <div>
-                    <p className="font-medium">{p.title}</p>
-                    <p className="text-sm text-muted-foreground">{p.text}</p>
+                    <p className="font-medium">{t(`auth.${p.title}`)}</p>
+                    <p className="text-sm text-muted-foreground">{t(`auth.${p.text}`)}</p>
                   </div>
                 </motion.div>
               ))}
@@ -281,7 +323,7 @@ export default function LoginPage() {
           </motion.div>
 
           <p className="font-mono text-xs text-muted-foreground/70">
-            ForgeHub · API v1 · products → pipelines → tasks → agents → audit
+            {t("auth.footer")}
           </p>
         </div>
 
@@ -301,72 +343,200 @@ export default function LoginPage() {
 
             <div className="rounded-xl border border-white/10 bg-card/60 p-8 shadow-2xl shadow-indigo-950/40 backdrop-blur-xl">
               <div className="mb-6">
-                <h2 className="text-2xl font-semibold tracking-tight">Welcome back</h2>
+                <h2 className="text-2xl font-semibold tracking-tight">{t("auth.welcomeBack")}</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Sign in to your workspace
+                  {t("auth.signInToWorkspace")}
                 </p>
               </div>
 
-              <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="username">Username</Label>
-                  <div className="relative">
-                    <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      id="username"
-                      autoFocus
-                      autoComplete="username"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      placeholder="Enter your username"
-                      className="pl-9"
-                    />
+              {totpStep ? (
+                <form noValidate onSubmit={handleTotpSubmit} className="flex flex-col gap-4">
+                  <div className="flex flex-col items-center gap-2 text-center">
+                    <ShieldAlert className="h-8 w-8 text-amber-400" />
+                    <p className="text-sm font-medium text-foreground">
+                      {t("auth.twoFactorTitle")}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {useRecoveryCode
+                        ? t("auth.recoveryInstructions")
+                        : t("auth.authenticatorInstructions")}
+                    </p>
                   </div>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="password">Password</Label>
-                  <div className="relative">
-                    <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      id="password"
-                      type={showPassword ? "text" : "password"}
-                      autoComplete="current-password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="pl-9 pr-9"
-                    />
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="totp-code" className="text-center">
+                      {useRecoveryCode ? t("auth.recoveryCode") : t("auth.authenticatorCode")}
+                    </Label>
+                    {useRecoveryCode ? (
+                      <Input
+                        id="totp-code"
+                        autoFocus
+                        autoComplete="one-time-code"
+                        value={totpCode}
+                        onChange={(e) => setTotpCode(e.target.value)}
+                        placeholder="XXXXXXXX"
+                        maxLength={32}
+                        className="text-center font-mono text-lg tracking-widest uppercase"
+                      />
+                    ) : (
+                      <div className="py-2">
+                        <OtpInput
+                          value={totpCode}
+                          onChange={setTotpCode}
+                          autoFocus
+                          disabled={verifyTotp.isPending}
+                        />
+                      </div>
+                    )}
+                    <p className="text-[11px] text-muted-foreground/80 text-center">
+                      {useRecoveryCode
+                        ? t("auth.recoveryCodeOnce")
+                        : t("auth.authenticatorCodeHelp")}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between pt-1">
                     <button
                       type="button"
-                      onClick={() => setShowPassword((s) => !s)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      tabIndex={-1}
+                      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => {
+                        setTotpStep(false);
+                        setTotpCode("");
+                        setTotpPendingToken("");
+                        setUseRecoveryCode(false);
+                      }}
                     >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      <ArrowLeft className="h-3 w-3" />
+                      {t("auth.backToSignIn")}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs text-primary hover:underline transition-colors"
+                      onClick={() => {
+                        setUseRecoveryCode((v) => !v);
+                        setTotpCode("");
+                      }}
+                    >
+                      {useRecoveryCode ? t("auth.useAuthenticator") : t("auth.useRecoveryCode")}
                     </button>
                   </div>
-                </div>
-
-                {login.error && (
-                  <p className="text-xs text-destructive">{login.error.message}</p>
-                )}
-
-                <Button
-                  type="submit"
-                  disabled={login.isPending || !username || !password}
-                  className="mt-2 gap-2"
-                >
-                  {login.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <LogIn className="h-4 w-4" />
+                  {verifyTotp.error && (
+                    <div className="flex flex-col items-center gap-1 text-center">
+                      <p className="text-xs text-destructive">{verifyTotp.error.message}</p>
+                      {verifyTotp.error.message.toLowerCase().includes("pending token") && (
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-primary hover:underline"
+                          onClick={() => {
+                            setTotpStep(false);
+                            setTotpCode("");
+                            setTotpPendingToken("");
+                            setUseRecoveryCode(false);
+                          }}
+                        >
+                          {t("auth.restartSignIn")}
+                        </button>
+                      )}
+                    </div>
                   )}
-                  Sign in
-                </Button>
-              </form>
+                  <Button
+                    type="submit"
+                    disabled={
+                      verifyTotp.isPending ||
+                      (useRecoveryCode ? !totpCode.trim() : totpCode.length !== OTP_LENGTH)
+                    }
+                    className="mt-2 gap-2"
+                  >
+                    {verifyTotp.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ShieldCheck className="h-4 w-4" />
+                    )}
+                    {t("auth.verifyAndSignIn")}
+                  </Button>
+                </form>
+              ) : (
+                <form noValidate onSubmit={handleSubmit} className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="username">{t("auth.username")}</Label>
+                    <div className="relative">
+                      <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="username"
+                        autoFocus
+                        autoComplete="username"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        placeholder={t("auth.enterUsername")}
+                        className="pl-9"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="password">{t("auth.password")}</Label>
+                    <div className="relative">
+                      <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="password"
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="current-password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="pl-9 pr-9"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((s) => !s)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        tabIndex={-1}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground select-none">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMeChecked(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-indigo-500"
+                    />
+                    {t("auth.stayLoggedIn")}
+                  </label>
+
+                  {RECAPTCHA_SITE_KEY && (
+                    <div className="flex justify-center">
+                      <ReCAPTCHA
+                        ref={recaptchaRef}
+                        sitekey={RECAPTCHA_SITE_KEY}
+                        theme="dark"
+                        onChange={(token) => setRecaptchaToken(token)}
+                        onExpired={() => setRecaptchaToken(null)}
+                      />
+                    </div>
+                  )}
+
+                  {login.error && (
+                    <p className="text-xs text-destructive">{login.error.message}</p>
+                  )}
+
+                  <Button
+                    type="submit"
+                    disabled={login.isPending || !username || !password || (Boolean(RECAPTCHA_SITE_KEY) && !recaptchaToken)}
+                    className="mt-2 gap-2"
+                  >
+                    {login.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <LogIn className="h-4 w-4" />
+                    )}
+                    {t("auth.signIn")}
+                  </Button>
+                </form>
+              )}
             </div>
 
             <p className="mt-6 text-center text-xs text-muted-foreground/70">
-              Restricted access — activity on this platform is audited.
+              {t("auth.restrictedAccess")}
             </p>
           </motion.div>
         </div>

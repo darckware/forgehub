@@ -1,0 +1,17 @@
+{
+  "title": "Catálogo de Técnicas de Prompt",
+  "description": "Consulte, pesquise e entenda quando usar cada estratégia de melhoria.",
+  "search": "Pesquisar por técnica, finalidade ou contexto...",
+  "allCategories": "Todas as classificações",
+  "loading": "Carregando catálogo...",
+  "error": "Não foi possível carregar o catálogo.",
+  "empty": "Nenhuma técnica encontrada.",
+  "resultCount": "{{count}} técnica(s)",
+  "whenToUse": "Quando usar",
+  "whenToAvoid": "Quando evitar",
+  "selectionMode": "Uso no seletor",
+  "version": "Template v{{version}}",
+  "categories": { "text": "Texto", "structure": "Estrutura", "reasoning": "Raciocínio", "software": "Software", "agentic": "Agentic", "research": "Pesquisa", "content": "Conteúdo", "marketing": "Marketing", "social_media": "Redes Sociais", "soft_skills": "Habilidades Interpessoais", "agent_skills": "Skills de Agentes", "design": "Design de Produto", "automation": "Automação", "image": "Imagem", "video": "Vídeo" },
+  "effort": { "low": "Esforço baixo", "medium": "Esforço médio", "high": "Esforço alto", "very_high": "Esforço muito alto" },
+  "selection": { "primary": "Principal", "addon": "Adicional", "both": "Principal ou adicional" }
+}

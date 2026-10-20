@@ -9,6 +9,7 @@ full path.
 import asyncio
 import contextlib
 import logging
+import hashlib
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,47 +22,148 @@ from app.core.security import decode_access_token
 
 from app.api.routes import (
     agent,
+    agent_activity,
+    ai_draft,
     artifact,
     audit,
     auth,
     backlog,
+    channel,
     chat,
+    client_ops,
     cron_scripts,
     database,
     deploy,
     demand,
+    execution,
     docs,
+    factory,
+    file_explorer,
+    personal,
+    personal_contacts,
     forgerouter,
     foundation,
     foundation_docs,
     foundation_script,
     governance,
+    governed_approval,
     hindsight,
+    mcp_catalog,
     notifications,
+    operations,
+    orchestration,
     pipeline,
+    progress,
     prompt_commands,
+    prompt_techniques,
     product,
     profiles,
     project,
     remote_access,
+    host_execution,
+    host_group,
+    host_script,
     server,
     system_control,
+    system_info,
+    system_scope,
     systemstats,
     task,
     terminal,
     tool,
+    totp,
     toolversions,
     users,
     vault,
+    vpn,
+    workspace_browser,
 )
 
-app = FastAPI(title="ForgeHub (ForgeHub) API", version="0.1.0")
+
+async def _recover_host_executions() -> None:
+    """Commands that were running when the process stopped can't report back;
+    close them as interrupted instead of leaving them "running" forever."""
+    from app.core.host_exec_runner import recover_interrupted_executions
+
+    try:
+        closed = await recover_interrupted_executions()
+        if closed:
+            logger.warning("Closed %d host execution result(s) interrupted by a restart", closed)
+    except Exception:
+        logger.exception("Could not recover interrupted host executions")
+
+
+async def _seed_system_scripts() -> None:
+    """Remote Access system scripts (core/system_scripts.py) in the library."""
+    from app.core.system_scripts import seed_system_scripts
+
+    try:
+        changed = await seed_system_scripts()
+        if changed:
+            logger.info("Seeded/updated %d system script(s)", changed)
+    except Exception:
+        logger.exception("Could not seed system scripts")
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Initialize application state and own every background worker.
+
+    FastAPI deprecated ``on_event`` in favor of lifespan handlers. Keeping
+    startup and shutdown in one context also guarantees that every worker
+    started here is cancelled when the application exits.
+    """
+    await _bootstrap_admin()
+    await _recover_host_executions()
+    await _seed_system_scripts()
+    await _start_background_tasks()
+    try:
+        yield
+    finally:
+        await _stop_background_tasks()
+
+
+# docs_url/redoc_url/openapi_url are off in every environment except an
+# explicit dev/homolog opt-in (settings.ENVIRONMENT) -- this API is
+# reachable from the public internet (forgehub.darckware.net), and the
+# schema they'd publish includes every /api/v1/* route's shape. Fail-closed
+# by design: unset/"production"/anything unrecognized all disable them.
+_DOCS_ENABLED_ENVIRONMENTS = {"development", "dev", "homolog", "homologacao", "staging"}
+_docs_enabled = settings.ENVIRONMENT.strip().lower() in _DOCS_ENABLED_ENVIRONMENTS
+
+app = FastAPI(
+    title="ForgeHub (ForgeHub) API",
+    version="0.1.0",
+    lifespan=_lifespan,
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
+)
 
 # Routes not covered by their own Depends(get_current_user)/get_current_admin
 # -- just the login endpoint itself, which is how a client gets a token in
 # the first place.
 # /audit/run-internal self-guards with the shared bridge token (see audit.py).
-_PUBLIC_API_PATHS = {"/api/v1/auth/token", "/api/v1/audit/run-internal", "/api/v1/demands/submit"}
+_PUBLIC_API_PATHS = {
+    "/api/v1/auth/token",
+    "/api/v1/auth/totp/verify",
+    "/api/v1/audit/run-internal",
+    # Monthly client report trigger (Athos cron); self-guards with the bridge token.
+    "/api/v1/client-ops/reports/run-internal",
+    "/api/v1/demands/submit",
+    # Agent runtime activity webhooks -- authenticated by the HMAC signature
+    # over the body (AGENT_ACTIVITY_WEBHOOK_SECRET), checked in the route.
+    "/api/v1/agent-activity/events",
+    # An agent's own cron/loop pulling its pending mail -- see
+    # demand.py's list_pending_for_agent docstring.
+    "/api/v1/demands/pending",
+    # The read-only counterpart: an agent listing its own messages by status
+    # without consuming them (/pending is a queue) -- see list_for_agent.
+    "/api/v1/demands/for-agent",
+    # Any Hermes agent logging a task directly (project_id + planning item
+    # auto-created) -- see task.py's submit_task docstring.
+    "/api/v1/tasks/submit",
+}
 
 
 class RequireAuthMiddleware(BaseHTTPMiddleware):
@@ -81,6 +183,136 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         auth_header = request.headers.get("authorization", "")
         token = auth_header[7:] if auth_header.lower().startswith("bearer ") else None
+        agent_command_path = path.startswith((
+            "/api/v1/governed/", "/api/v1/executions/", "/api/v1/execution-waves/",
+            "/api/v1/work-packages/", "/api/v1/execution-runners", "/api/v1/pipeline-stages/",
+            "/api/v1/workspace-browser/", "/api/v1/products",
+            "/api/v1/tools",
+            # 2026-08-05, see docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md:
+            # /governance/ lets a delegated agent-orchestrator (e.g. Athos,
+            # once granted an AuthorityDelegation for
+            # "governance.approval.decide") decide an Approval with its own
+            # agt_ credential, same as a human would via JWT; /channels/
+            # lets an agent call POST /channels/{id}/tasks/propose with its
+            # own credential instead of only the shared bridge token.
+            "/api/v1/governance/", "/api/v1/channels/",
+            # 2026-10-07: Marcelo's personal tasks/agenda/notes; the route itself only admits the
+            # agents in settings.PERSONAL_AGENT_SLUGS (Maia).
+            "/api/v1/personal/",
+            # 2026-10-19: machine maintenance by agents; the routes check the
+            # delegation for "remote_access.execute" themselves.
+            "/api/v1/host-executions/agent",
+        )) or (path.startswith("/api/v1/projects/") and ("/progress" in path or "/execution-waves" in path))
+        factory_read_path = request.method == "GET" and path.startswith((
+            "/api/v1/projects",
+            "/api/v1/tasks",
+            "/api/v1/planning-items",
+            "/api/v1/project-scopes/",
+            "/api/v1/blueprint-revisions/",
+        ))
+        factory_task_command = request.method == "PATCH" and path.startswith("/api/v1/tasks/")
+        agent_command_path = agent_command_path or factory_read_path or factory_task_command
+        if token and token.startswith("agt_") and agent_command_path:
+            from sqlalchemy import select
+            from app.db.base import AsyncSessionLocal
+            from app.db.models.agent import AgentServiceCredential
+            async with AsyncSessionLocal() as db:
+                token_hash = hashlib.sha256(token.encode()).hexdigest()
+                credential = (await db.execute(select(AgentServiceCredential.id).where(
+                    AgentServiceCredential.token_hash == token_hash,
+                    AgentServiceCredential.revoked_at.is_(None),
+                ))).scalar_one_or_none()
+            if credential is not None:
+                return await call_next(request)
+        # Same shared-bridge-token trust boundary as /api/v1/demands/submit
+        # (see that route's own docstring) -- can't just add these paths to
+        # _PUBLIC_API_PATHS since that set only does exact string matches
+        # and these have dynamic {channel_id} segments. Two things a
+        # bridge-token caller (the forgehub MCP's
+        # list_channel_members/propose_channel_task tools) may do: read
+        # anything under /channels/ (listing channels/members is harmless,
+        # same trust level as /demands/pending's read), or propose a task.
+        # Writes beyond proposing a task still need a real JWT or agt_
+        # credential -- this never opens the whole /channels/ prefix to
+        # unauthenticated writes.
+        is_channels_path = path == "/api/v1/channels" or path.startswith("/api/v1/channels/")
+        channels_bridge_path = is_channels_path and (
+            request.method == "GET" or path.endswith("/tasks/propose")
+        )
+        if channels_bridge_path:
+            bridge_token = request.headers.get("x-bridge-token")
+            if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
+                return await call_next(request)
+        # Same trust boundary as channels_bridge_path above -- read-only,
+        # non-secret roster/skills data (2026-08-06, backs the
+        # forgehub MCP's list_agent_skills tool: an
+        # orchestrator-agent checking a colleague's skills before proposing
+        # a task). Scoped narrowly to GET /agents (roster, for slug
+        # resolution) and any GET path ending in /skills under /agents/
+        # (covers both /agents/{id}/skills and the /agents/skills catalog)
+        # -- never the whole /agents/ prefix, so routes like GET
+        # /agents/{id} (decrypts the ForgeRouter key for admins) stay
+        # behind their own JWT-based dependency untouched by this bypass.
+        is_agents_path = path == "/api/v1/agents" or path.startswith("/api/v1/agents/")
+        agents_bridge_path = is_agents_path and (
+            (request.method == "GET" and (path == "/api/v1/agents" or path.endswith("/skills") or "/credentials" in path))
+            or (request.method in ("POST", "DELETE") and "/credentials" in path)
+            or (request.method == "POST" and path.endswith("/skills"))
+            or (request.method == "DELETE" and "/skills/" in path)
+        )
+        if agents_bridge_path:
+            bridge_token = request.headers.get("x-bridge-token")
+            if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
+                return await call_next(request)
+        # Same trust boundary again (2026-08-15) -- dynamic demand actions
+        demands_bridge_action = path.startswith("/api/v1/demands/") and (
+            path.endswith("/incubation:receive")
+            or path.endswith("/incubation:drop")
+            or path.endswith("/reprocess")
+            or path.endswith("/agent")
+            or path.endswith("/agent-archive")
+        )
+        if demands_bridge_action:
+            bridge_token = request.headers.get("x-bridge-token")
+            if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
+                return await call_next(request)
+
+        # Agents asking Marcelo (MCP ask_marcelo / list_my_questions /
+        # record_marcelo_answer, 2026-10-03). Only the agent-side prefix:
+        # /api/v1/operations/questions (Marcelo's answers) stays JWT-only.
+        # Each route re-checks the token itself.
+        is_agent_questions_path = path == "/api/v1/operations/agent-questions" or path.startswith(
+            "/api/v1/operations/agent-questions/"
+        )
+        if is_agent_questions_path:
+            bridge_token = request.headers.get("x-bridge-token")
+            if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
+                return await call_next(request)
+
+        # System operations via bridge token (system-control, backups, audit, deploy, database query)
+        is_system_bridge_path = (
+            path.startswith("/api/v1/system-control/")
+            or path.startswith("/api/v1/deploy/")
+            or path.startswith("/api/v1/backups")
+            or path.startswith("/api/v1/audit/")
+            or path == "/api/v1/servers"
+            or path == "/api/v1/database/query"
+        )
+        if is_system_bridge_path:
+            bridge_token = request.headers.get("x-bridge-token")
+            if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
+                return await call_next(request)
+
+        # Agent tool catalog via ForgeHub Messages MCP. The MCP bridge already
+        # exposes list/register/update/scan_agent_tools using X-Bridge-Token,
+        # so the HTTP auth boundary must explicitly allow this narrow catalog
+        # surface; without it those installed MCP tools return 401 even though
+        # the bridge token is valid.
+        is_tools_bridge_path = path == "/api/v1/tools" or path.startswith("/api/v1/tools/")
+        if is_tools_bridge_path:
+            bridge_token = request.headers.get("x-bridge-token")
+            if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
+                return await call_next(request)
         if not token or decode_access_token(token) is None:
             return JSONResponse({"detail": "Not authenticated"}, status_code=401)
         return await call_next(request)
@@ -109,6 +341,7 @@ async def health() -> dict[str, str]:
 
 
 app.include_router(auth.router)
+app.include_router(totp.router)
 
 # ---------------------------------------------------------------------------
 # DOMAIN ROUTERS -- added by wiring step
@@ -116,35 +349,59 @@ app.include_router(auth.router)
 app.include_router(product.router)
 app.include_router(project.router)
 app.include_router(pipeline.router)
+app.include_router(progress.router)
+app.include_router(execution.router)
+app.include_router(factory.router)
 app.include_router(backlog.router)
+app.include_router(client_ops.router)
 app.include_router(task.router)
+app.include_router(task.responsibility_router)
 app.include_router(agent.router)
+app.include_router(agent_activity.router)
+app.include_router(ai_draft.router)
+app.include_router(mcp_catalog.router)
 app.include_router(tool.router)
 app.include_router(artifact.router)
 app.include_router(audit.router)
 app.include_router(governance.router)
+app.include_router(governed_approval.router)
 app.include_router(hindsight.router)
 app.include_router(foundation.router)
 app.include_router(foundation_docs.router)
 app.include_router(foundation_script.router)
 app.include_router(chat.router)
+app.include_router(channel.router)
 app.include_router(terminal.router)
 app.include_router(toolversions.router)
+app.include_router(system_info.router)
 app.include_router(systemstats.router)
+app.include_router(workspace_browser.router)
+app.include_router(file_explorer.router)
+app.include_router(personal.router)
+app.include_router(personal_contacts.router)
 app.include_router(vault.router)
 app.include_router(docs.router)
 app.include_router(demand.router)
 app.include_router(cron_scripts.router)
 app.include_router(notifications.router)
 app.include_router(prompt_commands.router)
+app.include_router(prompt_techniques.router)
 app.include_router(deploy.router)
 app.include_router(database.router)
 app.include_router(users.router)
 app.include_router(profiles.router)
 app.include_router(server.router)
+app.include_router(host_group.router)
+app.include_router(host_execution.router)
+app.include_router(host_script.router)
+app.include_router(host_script.schedules_router)
 app.include_router(remote_access.router)
 app.include_router(system_control.router)
+app.include_router(vpn.router)
 app.include_router(forgerouter.router)
+app.include_router(operations.router)
+app.include_router(orchestration.router)
+app.include_router(system_scope.router)
 # ---------------------------------------------------------------------------
 
 logger = logging.getLogger(__name__)
@@ -154,7 +411,75 @@ logger = logging.getLogger(__name__)
 # re-checks itself roughly every 15 min regardless of this loop).
 TOOL_VERSION_POLL_INTERVAL_SECONDS = 900
 
-_tool_version_poll_task: asyncio.Task | None = None
+# Recovery interval for due demands. New due Messages wake the worker as soon
+# as their transaction commits; this timeout catches direct database writes,
+# a signal lost to restart, and future scheduled_at timestamps.
+SCHEDULED_DISPATCH_POLL_INTERVAL_SECONDS = 30
+
+# How often matured incubations are handed to their owners. The deadline
+# being enforced is measured in days (INCUBATION_DEFAULT_MATURATION_DAYS),
+# so a 5-minute pass is already far finer than the thing it watches.
+INCUBATION_MATURATION_POLL_INTERVAL_SECONDS = 300
+
+# How often agent routines are materialized into Messages tasks and their
+# outcomes synced back. Routines run at most every 15 minutes
+# (routine_schedule.MIN_INTERVAL_SECONDS), so a 60s pass starts each one
+# within a minute of its occurrence.
+ROUTINE_POLL_INTERVAL_SECONDS = 60
+
+# How often stalled dispatches are checked against their deadline. Minutes,
+# not seconds: the deadline itself is DISPATCH_TIMEOUT_MINUTES (45), so a
+# 60s pass is already far finer than what it watches.
+DISPATCH_TIMEOUT_POLL_INTERVAL_SECONDS = 60
+
+# How often outcomes that still owe their channel a delivery are retried.
+# The happy path delivers inline when the dispatch finishes; this only
+# catches what that missed -- an app restart mid-delivery, Telegram down.
+FEEDBACK_POLL_INTERVAL_SECONDS = 120
+
+# Com que frequência turnos que passaram do prazo são fechados. O caso real é
+# um restart do host-bridge: ele guarda os subprocessos em memória, então
+# reiniciar perde o processo enquanto a linha ainda diz "rodando" -- e cada
+# reconecte ficaria esperando um stream sem produtor.
+ACTIVE_TURN_SWEEP_INTERVAL_SECONDS = 120
+
+# How often in-flight dispatches are polled to completion. Same interval as
+# the scheduled-send loop above and for the same reason: this is what turns
+# a finished agent run into a reply item in the Inbox, so latency here is
+# latency in an agent-to-agent conversation.
+DISPATCH_COMPLETION_POLL_INTERVAL_SECONDS = 30
+
+# How often the task-health pass scans for overdue/stalled tasks (see
+# core/task_health.py). Much longer than the dispatch poll -- a missed
+# deadline or a stalled execution isn't as time-sensitive as a queued
+# message, and this pass walks every non-terminal task in the system.
+TASK_FAILURE_POLL_INTERVAL_SECONDS = 900
+
+# How often reported-but-unverified TaskExecutions get their evidence_ref
+# checked against reality (see core/task_evidence.py). Short-ish: this is
+# the gate that stops a narrated-but-not-executed claim from sitting as
+# "reported" indefinitely, and it's a cheap query (filesystem/git checks
+# only run for the handful of rows actually in that state).
+EVIDENCE_VERIFICATION_POLL_INTERVAL_SECONDS = 120
+
+# How often in-flight background app-test runs (mode="background") are
+# polled to completion -- same role as DISPATCH_COMPLETION_POLL_INTERVAL_
+# SECONDS above, for the "Background tests" tab / /testar's results.
+BACKGROUND_TEST_COMPLETION_POLL_INTERVAL_SECONDS = 15
+
+# How often terminal mail is checked against its 60-day retention window
+# (DEMAND_RETENTION_DAYS). A day-granularity policy doesn't need a fast
+# pass -- 6h matches the ecosystem's existing cadence for this kind of
+# periodic, non-urgent maintenance sweep (e.g. the Auditor's own checks).
+DEMAND_RETENTION_POLL_INTERVAL_SECONDS = 21600
+
+#: The Maia's per-message context pass over WhatsApp contacts (2026-10-14).
+PERSONAL_CONTEXT_POLL_INTERVAL_SECONDS = 30
+#: ForgeRouter registry -> Agent.forgerouter_api_key_encrypted (2026-10-14).
+FORGEROUTER_KEY_SYNC_INTERVAL_SECONDS = 900
+CLIENT_OPS_POLL_INTERVAL_SECONDS = 120
+
+_background_tasks: list[asyncio.Task[None]] = []
 
 
 async def _tool_version_poll_loop() -> None:
@@ -165,16 +490,152 @@ async def _tool_version_poll_loop() -> None:
             async with AsyncSessionLocal() as db:
                 setting = await toolversions.get_or_create_sync_setting(db)
                 if setting.enabled:
-                    # POLL_TOOLS excludes antigravity -- its "check" is a
-                    # real `agy update`, and it already self-updates on its
-                    # own cadence independent of this loop.
-                    await toolversions.refresh_all_tool_versions(db, tools=toolversions.POLL_TOOLS)
+                    # POLL_NO_MUTATE checks antigravity via `agy --version`
+                    # without running a mutating `agy update` (it already
+                    # self-updates on its own cadence independent of this loop).
+                    await toolversions.refresh_all_tool_versions(
+                        db, tools=toolversions.POLL_TOOLS, no_mutate=toolversions.POLL_NO_MUTATE
+                    )
         except Exception:
             logger.exception("Tool version poll failed")
         await asyncio.sleep(TOOL_VERSION_POLL_INTERVAL_SECONDS)
 
 
-@app.on_event("startup")
+async def _scheduled_dispatch_poll_loop() -> None:
+    from app.api.routes.demand import run_scheduled_dispatch_pass
+    from app.core.dispatch_signal import wait_for_scheduled_dispatch
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_scheduled_dispatch_pass(db)
+        except Exception:
+            logger.exception("Scheduled dispatch poll failed")
+        # Normal path: a committed message wakes this immediately. Timeout is
+        # deliberately retained as a database-backed recovery sweep.
+        await wait_for_scheduled_dispatch(SCHEDULED_DISPATCH_POLL_INTERVAL_SECONDS)
+
+
+async def _incubation_maturation_poll_loop() -> None:
+    """Hands matured incubations to their owners (2026-08-13).
+
+    Its own task rather than a branch inside the dispatch loop above, for
+    the same reason _dispatch_completion_poll_loop is separate: the two fail
+    independently. This one only touches ForgeHub's own database, so a
+    host-bridge outage that stalls dispatching must not also stop decisions
+    from being handed over.
+
+    Minutes, not seconds: the deadline it enforces is measured in days, so
+    polling faster would only add load without making anything more timely.
+    """
+    from app.api.routes.demand import run_incubation_maturation_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_incubation_maturation_pass(db)
+        except Exception:
+            logger.exception("Incubation maturation poll failed")
+        await asyncio.sleep(INCUBATION_MATURATION_POLL_INTERVAL_SECONDS)
+
+
+async def _routine_poll_loop() -> None:
+    """24x7 agent operation: turn due routine occurrences into Messages tasks
+    and copy finished tasks' outcomes back onto their runs. Its own task:
+    it only touches ForgeHub's database, so a host-bridge outage that stalls
+    dispatch must not also stop occurrences from being recorded (a missed
+    occurrence is evidence the screen has to show)."""
+    from app.api.routes.operations import run_evolution_pass, run_routine_generation_pass, run_routine_sync_pass
+    from app.core.agent_questions import run_question_delivery_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_routine_generation_pass(db)
+            async with AsyncSessionLocal() as db:
+                await run_routine_sync_pass(db)
+        except Exception:
+            logger.exception("Routine poll failed")
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_evolution_pass(db)
+        except Exception:
+            logger.exception("Operations evolution pass failed")
+        # Separate try: a Telegram/bridge failure must not stop routines,
+        # and a routine failure must not hold an agent's question back.
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_question_delivery_pass(db)
+        except Exception:
+            logger.exception("Agent question delivery failed")
+        await asyncio.sleep(ROUTINE_POLL_INTERVAL_SECONDS)
+
+
+async def _dispatch_completion_poll_loop() -> None:
+    """Finishes dispatches whose agent run has ended -- creating the reply
+    item -- without needing the message open in a reading pane. Kept as its
+    own task rather than a second call inside the loop above: the two passes
+    fail independently (one talks to agent CLIs through the bridge, the
+    other only reads run status), and a slow dispatch shouldn't delay
+    delivering a reply that's already sitting there finished."""
+    from app.api.routes.demand import run_dispatch_completion_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_dispatch_completion_pass(db)
+        except Exception:
+            logger.exception("Dispatch completion poll failed")
+        await asyncio.sleep(DISPATCH_COMPLETION_POLL_INTERVAL_SECONDS)
+
+
+async def _background_test_completion_poll_loop() -> None:
+    """Finishes background app-test runs whose isolated CDP browser has
+    ended, mirroring _dispatch_completion_poll_loop above for the same
+    reason: the result must be ready in the history list whether or not
+    anyone has the tab open."""
+    from app.api.routes.workspace_browser import run_background_test_completion_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_background_test_completion_pass(db)
+        except Exception:
+            logger.exception("Background test completion poll failed")
+        await asyncio.sleep(BACKGROUND_TEST_COMPLETION_POLL_INTERVAL_SECONDS)
+
+
+async def _task_failure_poll_loop() -> None:
+    from app.core.task_health import run_task_failure_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_task_failure_pass(db)
+        except Exception:
+            logger.exception("Task failure poll failed")
+        await asyncio.sleep(TASK_FAILURE_POLL_INTERVAL_SECONDS)
+
+
+async def _evidence_verification_poll_loop() -> None:
+    from app.core.task_evidence import run_evidence_verification_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_evidence_verification_pass(db)
+        except Exception:
+            logger.exception("Evidence verification poll failed")
+        await asyncio.sleep(EVIDENCE_VERIFICATION_POLL_INTERVAL_SECONDS)
+
+
 async def _bootstrap_admin() -> None:
     """Ensure default profiles exist and admin user is seeded."""
     from sqlalchemy import select
@@ -230,16 +691,204 @@ async def _bootstrap_admin() -> None:
             logger.exception("Bootstrap failed (tables may not exist yet)")
 
 
-@app.on_event("startup")
-async def _start_tool_version_poll() -> None:
-    global _tool_version_poll_task
-    _tool_version_poll_task = asyncio.create_task(_tool_version_poll_loop())
+async def _dispatch_timeout_poll_loop() -> None:
+    """Fails dispatches that never came back (2026-08-13).
+
+    Own task, like the other passes: this one only touches our database, so
+    it must keep running when the host-bridge (which the dispatch loops
+    depend on) is the very thing that is down -- that outage is precisely
+    when runs get stranded.
+    """
+    from app.api.routes.demand import run_dispatch_timeout_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_dispatch_timeout_pass(db)
+        except Exception:
+            logger.exception("Dispatch timeout poll failed")
+        await asyncio.sleep(DISPATCH_TIMEOUT_POLL_INTERVAL_SECONDS)
 
 
-@app.on_event("shutdown")
-async def _stop_tool_version_poll() -> None:
-    if _tool_version_poll_task is None:
+async def _feedback_poll_loop() -> None:
+    """Delivers outcomes whose feedback never went out (2026-08-13).
+
+    The delivery itself happens inline when a dispatch reaches a terminal
+    state; this is the net under it. Driven by state (`feedback_sent_at IS
+    NULL`) rather than by retrying a failed call in memory, so a delivery
+    lost to a restart is still found afterwards.
+    """
+    from app.core.feedback import run_feedback_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_feedback_pass(db)
+        except Exception:
+            logger.exception("Feedback poll failed")
+        await asyncio.sleep(FEEDBACK_POLL_INTERVAL_SECONDS)
+
+
+async def _demand_retention_poll_loop() -> None:
+    """Auto-archives terminal mail past its 60-day retention window
+    (2026-08-15). Own task, same reasoning as the other passes: it must
+    keep running independent of whatever else is happening to the
+    dispatch/host-bridge machinery, since it only ever touches our own
+    database.
+    """
+    from app.api.routes.demand import run_demand_retention_sweep
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_demand_retention_sweep(db)
+        except Exception:
+            logger.exception("Demand retention sweep failed")
+        await asyncio.sleep(DEMAND_RETENTION_POLL_INTERVAL_SECONDS)
+
+
+async def _agent_activity_retention_loop() -> None:
+    """Drops agent runtime events past their 14-day retention (2026-09-28)."""
+    from app.api.routes.agent_activity import run_agent_activity_retention
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_agent_activity_retention(db)
+        except Exception:
+            logger.exception("Agent activity retention sweep failed")
+        await asyncio.sleep(DEMAND_RETENTION_POLL_INTERVAL_SECONDS)
+
+
+async def _active_turn_sweep_loop() -> None:
+    """Fecha turnos que passaram do prazo sem reportar (2026-08-13)."""
+    from app.core.active_turns import sweep_stale
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await sweep_stale(db)
+        except Exception:
+            logger.exception("Active turn sweep failed")
+        await asyncio.sleep(ACTIVE_TURN_SWEEP_INTERVAL_SECONDS)
+
+
+async def _personal_context_poll_loop() -> None:
+    """Context + capture suggestions for each WhatsApp message a contact sent (2026-10-14) -- see
+    core/personal_context.py. Own task: a ForgeRouter outage must not stall any other pass."""
+    from app.core.personal_context import BATCH as BATCH_FULL, run_personal_context_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                handled = await run_personal_context_pass(db)
+        except Exception:
+            logger.exception("Personal context pass failed")
+            handled = 0
+        # A full batch means more is waiting: go again right away instead of sleeping.
+        if handled < BATCH_FULL:
+            await asyncio.sleep(PERSONAL_CONTEXT_POLL_INTERVAL_SECONDS)
+
+
+async def _forgerouter_key_sync_poll_loop() -> None:
+    """Keeps each Agent's ForgeRouter key copy equal to ForgeRouter's own
+    registry (2026-10-14) -- see run_forgerouter_key_sync_pass. Own task:
+    forgerouter_postgres being down must not stall any other pass."""
+    from app.api.routes.agent import run_forgerouter_key_sync_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await run_forgerouter_key_sync_pass(db)
+            if result.updated:
+                logger.info("ForgeRouter key sync updated %d agent key(s)", result.updated)
+        except Exception:
+            logger.exception("ForgeRouter key sync poll failed")
+        await asyncio.sleep(FORGEROUTER_KEY_SYNC_INTERVAL_SECONDS)
+
+
+async def _client_ops_poll_loop() -> None:
+    """Darckware arrivals (new client tickets/demands, e-mails awaiting
+    approval) -> Notification bell (2026-10-04). Own task: Darckware being
+    down must not stall any other pass, and vice versa."""
+    from app.api.routes.client_ops import run_client_ops_notification_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_client_ops_notification_pass(db)
+        except Exception:
+            logger.exception("Client ops notification poll failed")
+        await asyncio.sleep(CLIENT_OPS_POLL_INTERVAL_SECONDS)
+
+
+HOST_SCHEDULE_POLL_SECONDS = 60
+
+
+async def _host_schedule_poll_loop() -> None:
+    """Remote Access schedules (api/routes/host_script.py). Its own loop: a
+    stuck host-bridge must not hold other workers back, and vice versa."""
+    from app.api.routes.host_execution import run_delegation_expiry_pass
+    from app.api.routes.host_script import run_due_schedules
+
+    while True:
+        try:
+            await run_due_schedules()
+        except Exception:
+            logger.exception("Host schedule poll failed")
+        try:
+            await run_delegation_expiry_pass()
+        except Exception:
+            logger.exception("Delegation expiry pass failed")
+        await asyncio.sleep(HOST_SCHEDULE_POLL_SECONDS)
+
+
+async def _start_background_tasks() -> None:
+    """Start each independent maintenance loop exactly once."""
+    global _background_tasks
+    if _background_tasks:
         return
-    _tool_version_poll_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await _tool_version_poll_task
+    from app.core.dispatch_signal import reset_scheduled_dispatch_signal
+
+    reset_scheduled_dispatch_signal()
+    workers = (
+        ("tool-version-poll", _tool_version_poll_loop),
+        ("scheduled-dispatch-poll", _scheduled_dispatch_poll_loop),
+        ("dispatch-timeout-poll", _dispatch_timeout_poll_loop),
+        ("active-turn-sweep", _active_turn_sweep_loop),
+        ("client-ops-poll", _client_ops_poll_loop),
+        ("forgerouter-key-sync-poll", _forgerouter_key_sync_poll_loop),
+        ("personal-context-poll", _personal_context_poll_loop),
+        ("feedback-poll", _feedback_poll_loop),
+        ("incubation-maturation-poll", _incubation_maturation_poll_loop),
+        ("routine-poll", _routine_poll_loop),
+        ("dispatch-completion-poll", _dispatch_completion_poll_loop),
+        ("background-test-completion-poll", _background_test_completion_poll_loop),
+        ("task-failure-poll", _task_failure_poll_loop),
+        ("evidence-verification-poll", _evidence_verification_poll_loop),
+        ("demand-retention-poll", _demand_retention_poll_loop),
+        ("agent-activity-retention", _agent_activity_retention_loop),
+        ("host-schedule-poll", _host_schedule_poll_loop),
+    )
+    _background_tasks = [asyncio.create_task(worker(), name=name) for name, worker in workers]
+
+
+async def _stop_background_tasks() -> None:
+    """Cancel all workers and wait until their cleanup has completed."""
+    global _background_tasks
+    tasks, _background_tasks = _background_tasks, []
+    for background_task in tasks:
+        background_task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    from app.core.dispatch_signal import reset_scheduled_dispatch_signal
+
+    reset_scheduled_dispatch_signal()

@@ -20,10 +20,14 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Identity,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
+    UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -39,6 +43,7 @@ from app.db.base import Base, TimestampMixin
 # distinguish "finished" from "shipped".
 TASK_STATUSES = (
     "planned",
+    "ready",
     "assigned",
     "in_progress",
     "blocked",
@@ -46,6 +51,11 @@ TASK_STATUSES = (
     "deployed",
     "cancelled",
 )
+
+# Canonical execution runtimes backed by AgentRuntimeProfile.  Keep this
+# tuple shared with the API schema so legacy aliases cannot drift back into
+# persisted TaskExecution rows.
+TASK_EXECUTION_RUNTIME_TYPES = ("claude", "codex", "agy")
 
 
 class ProjectTask(Base, TimestampMixin):
@@ -64,6 +74,11 @@ class ProjectTask(Base, TimestampMixin):
     __tablename__ = "project_tasks"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Human-readable display number (#1, #2, ...), a real Postgres IDENTITY
+    # column -- same convention as AgentDemand.number (db/models/demand.py).
+    # This column always exists, from creation -- closes the traceability
+    # gap found while reviewing the Inbox's own AgentDemand.number (2026-07-25).
+    number: Mapped[int] = mapped_column(Integer, Identity(always=False), unique=True, nullable=False)
 
     planning_item_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.planning_items.id", ondelete="CASCADE"), nullable=True
@@ -80,6 +95,12 @@ class ProjectTask(Base, TimestampMixin):
 
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # The HOW, distinct from `description` (the WHAT) -- approach, acceptance
+    # criteria, context meant for whichever agent dispatches this task. Never
+    # required (description is already free-form today, kept consistent);
+    # dispatch_task includes it in the message body when set.
+    plan_brief: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # feature | bug | improvement | technical_debt | refactoring |
     # security_fix | research | documentation | other
@@ -101,12 +122,6 @@ class ProjectTask(Base, TimestampMixin):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # Set once this task has been pushed to Kanboard (see
-    # app/core/kanboard_client.py) -- an int because Kanboard's own task ids
-    # are plain auto-increment integers, not UUIDs. Lets POST .../sync-kanboard
-    # be idempotent: create on first sync, update/move on subsequent ones.
-    kanboard_task_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-
     # Governance: optional link to the Policy this task is implementing.
     # Lets a Policy page show all tasks contributing to its compliance.
     policy_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -117,6 +132,57 @@ class ProjectTask(Base, TimestampMixin):
 
     __table_args__ = (
         CheckConstraint(f"status IN {TASK_STATUSES!r}", name="ck_project_tasks_status"),
+    )
+
+
+class ResponsibilityArea(Base, TimestampMixin):
+    """Default agent owner for a category of task (`task_type`), optionally
+    scoped to one project -- layered task-execution governance, Fase 2
+    (plan: resilient-twirling-blossom). Deliberately reuses `task_type`
+    (feature|bug|improvement|technical_debt|refactoring|security_fix|
+    research|documentation|other) instead of inventing a parallel taxonomy:
+    that's the axis this table exists to give a default owner for.
+
+    Distinct from `ProjectAgentMembership.role` (developer|data_engineer|
+    release_manager, PM-lifecycle vocabulary set by ROLE_BY_SOLUTION_TYPE) --
+    a different axis (who's responsible for *this kind of work*, not what
+    lifecycle role an agent plays on the project). `_dispatch_task_by_id`
+    (api/routes/task.py) consults this only as a fallback when a task has
+    no explicit target_agent_id and no active TaskAssignment.
+
+    `project_id=NULL` is the global default for that task_type; a row with
+    `project_id` set overrides it for that one project. Resolution order
+    (see core/responsibility.py's resolve_responsibility_owner): exact
+    (task_type, project_id) match first, then (task_type, NULL).
+    """
+
+    __tablename__ = "responsibility_areas"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    task_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.projects.id", ondelete="CASCADE"), nullable=True
+    )
+    owner_agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agents.id"), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "task_type", "project_id", name="uq_responsibility_areas_task_type_project"
+        ),
+        # Postgres treats each NULL as distinct under a plain UniqueConstraint,
+        # so the constraint above alone would let multiple "global default"
+        # rows (project_id IS NULL) coexist for the same task_type. A partial
+        # unique index closes that -- there can be at most one global default
+        # per task_type, same as there's at most one override per project.
+        Index(
+            "uq_responsibility_areas_global_default",
+            "task_type",
+            unique=True,
+            postgresql_where=text("project_id IS NULL"),
+        ),
     )
 
 
@@ -177,6 +243,13 @@ class TaskAssignment(Base, TimestampMixin):
     sub_agent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.sub_agents.id"), nullable=True
     )
+    # Project-scoped authorization. Kept nullable for backward compatibility
+    # with pre-orchestration assignments; automated dispatch requires it.
+    membership_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("company.project_agent_memberships.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     # active | released | revoked
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
@@ -206,10 +279,38 @@ class TaskExecution(Base, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("company.task_assignments.id", ondelete="SET NULL"), nullable=True
     )
 
+    runtime_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("company.agent_runtime_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    loop_policy_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("company.project_loop_policies.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    parent_execution_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("company.task_executions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     # agent | sub_agent | human | system
     executor_type: Mapped[str] = mapped_column(String(20), nullable=False, default="agent")
+
+    # CLI is the execution runtime; the responsible logical Agent/SubAgent
+    # remains traceable through assignment -> project membership.
+    runtime_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    runtime_session_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    work_package_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.execution_work_packages.id", ondelete="SET NULL"), nullable=True
+    )
+    adapter_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    process_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    loop_iteration: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     # pending | running | failed | retried | verified | completed
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
@@ -220,3 +321,14 @@ class TaskExecution(Base, TimestampMixin):
     outcome_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     evidence_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
     actual_cost: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            f"runtime_type IS NULL OR runtime_type IN {TASK_EXECUTION_RUNTIME_TYPES}",
+            name="ck_task_executions_runtime_type",
+        ),
+        CheckConstraint(
+            "loop_iteration >= 1",
+            name="ck_task_executions_loop_iteration",
+        ),
+    )

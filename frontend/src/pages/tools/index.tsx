@@ -1,5 +1,8 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import {
+  ArrowLeft,
   Bot,
   Eye,
   Loader2,
@@ -46,8 +49,9 @@ import {
 } from "@/hooks/useTools";
 import { useAssistantStore } from "@/store/assistantStore";
 
-/** Draft seeded into the responsible agent's workspace chat composer —
- * leads with the file path so the agent has the maintenance context. */
+/** Context attached invisibly to the responsible agent's assistant chat
+ * (assistantStore's pendingHiddenContext) — leads with the file path so
+ * the agent has the maintenance context. */
 function buildMaintenanceMessage(tool: AgentTool): string {
   return [
     `Maintenance for tool "${tool.name}" (category: ${tool.category}).`,
@@ -65,6 +69,7 @@ function ToolFormModal({
   initial: AgentTool | null;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("tools");
   const { data: agents } = useAgents();
   const { data: categories } = useToolCategories();
   const createTool = useCreateTool();
@@ -87,7 +92,7 @@ function ToolFormModal({
   function handleSave() {
     setError(null);
     if (!form.agent_id || !form.name.trim() || !form.description.trim() || !form.file_path.trim()) {
-      setError("Responsible agent, name, file path and description are required.");
+      setError(t("form.requiredFields"));
       return;
     }
     const payload: ToolCreateInput = {
@@ -100,18 +105,18 @@ function ToolFormModal({
     };
     const opts = {
       onSuccess: onClose,
-      onError: (e: Error) => setError(e.message || "Could not save."),
+      onError: (e: Error) => setError(e.message || t("form.couldNotSave")),
     };
     if (initial) updateTool.mutate({ id: initial.id, data: payload }, opts);
     else createTool.mutate(payload, opts);
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex justify-center overflow-y-auto p-4" role="dialog" aria-modal="true">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 my-auto w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold">{initial ? "Edit tool" : "Register tool"}</h2>
+          <h2 className="text-base font-semibold">{initial ? t("form.editTool") : t("form.registerTool")}</h2>
           <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="h-4 w-4" />
           </button>
@@ -119,12 +124,12 @@ function ToolFormModal({
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label>Responsible agent</Label>
+              <Label>{t("form.responsibleAgent")}</Label>
               <Select
                 value={form.agent_id}
                 onChange={(e) => setForm((f) => ({ ...f, agent_id: e.target.value }))}
               >
-                <option value="">Select an agent…</option>
+                <option value="">{t("form.selectAnAgent")}</option>
                 {(agents ?? []).map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
@@ -133,7 +138,7 @@ function ToolFormModal({
               </Select>
             </div>
             <div className="space-y-1">
-              <Label>Tool name</Label>
+              <Label>{t("form.toolName")}</Label>
               <Input
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
@@ -143,11 +148,11 @@ function ToolFormModal({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label>Category</Label>
+              <Label>{t("form.category")}</Label>
               <Input
                 value={form.category}
                 onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                placeholder="network, monitoring, reporting…"
+                placeholder={t("form.categoryPlaceholder")}
                 list="tool-categories"
               />
               <datalist id="tool-categories">
@@ -157,7 +162,7 @@ function ToolFormModal({
               </datalist>
             </div>
             <div className="space-y-1">
-              <Label>Status</Label>
+              <Label>{t("form.status")}</Label>
               <Select
                 value={form.status}
                 onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as AgentToolStatus }))}
@@ -171,7 +176,7 @@ function ToolFormModal({
             </div>
           </div>
           <div className="space-y-1">
-            <Label>File path</Label>
+            <Label>{t("form.filePath")}</Label>
             <Input
               value={form.file_path}
               onChange={(e) => setForm((f) => ({ ...f, file_path: e.target.value }))}
@@ -180,21 +185,21 @@ function ToolFormModal({
             />
           </div>
           <div className="space-y-1">
-            <Label>What it does</Label>
-            <Textarea
+            <Label>{t("form.whatItDoes")}</Label>
+            <Textarea className="resize-none"
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              placeholder="Scans the local network and reports open ports"
+              placeholder={t("form.descriptionPlaceholder")}
             />
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onClose}>
-              Cancel
+              {t("form.cancel")}
             </Button>
             <Button onClick={handleSave} disabled={pending}>
               {pending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-              {initial ? "Save" : "Register"}
+              {initial ? t("form.save") : t("form.register")}
             </Button>
           </div>
         </div>
@@ -215,6 +220,7 @@ function ToolFileModal({
   startEditing: boolean;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("tools");
   const { data, isLoading, isError, error } = useToolContent(tool.id);
   const saveMut = useSaveToolContent();
   const [editing, setEditing] = useState(startEditing);
@@ -232,7 +238,7 @@ function ToolFileModal({
           setDraft(null);
           setEditing(false);
         },
-        onError: (e) => setSaveError(e.message || "Could not save file."),
+        onError: (e) => setSaveError(e.message || t("fileModal.couldNotSaveFile")),
       }
     );
   };
@@ -250,13 +256,13 @@ function ToolFileModal({
           <div className="flex items-center gap-2 shrink-0">
             {!editing && data?.exists && (
               <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-                <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
+                <Pencil className="h-3.5 w-3.5 mr-1" /> {t("fileModal.edit")}
               </Button>
             )}
             {editing && (
               <Button size="sm" onClick={handleSave} disabled={saveMut.isPending}>
                 {saveMut.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
-                Save
+                {t("fileModal.save")}
               </Button>
             )}
             <Button size="sm" variant="ghost" onClick={onClose}>
@@ -267,12 +273,12 @@ function ToolFileModal({
         <div className="flex-1 min-h-0 overflow-auto p-4" style={{ minHeight: "300px" }}>
           {isLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading file...
+              <Loader2 className="h-4 w-4 animate-spin" /> {t("fileModal.loadingFile")}
             </div>
           ) : isError ? (
-            <p className="text-sm text-destructive">{(error as Error)?.message ?? "Could not read file."}</p>
+            <p className="text-sm text-destructive">{(error as Error)?.message ?? t("fileModal.couldNotReadFile")}</p>
           ) : !data?.exists ? (
-            <p className="text-sm text-muted-foreground italic">File not found on disk.</p>
+            <p className="text-sm text-muted-foreground italic">{t("fileModal.fileNotFound")}</p>
           ) : editing ? (
             <Textarea
               value={content}
@@ -295,6 +301,7 @@ function ToolFileModal({
  * to the responsible agent's chat in the Workspace (composer pre-filled
  * with the file path) for maintenance. */
 export default function ToolsPage() {
+  const { t } = useTranslation("tools");
   const [agentFilter, setAgentFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [search, setSearch] = useState("");
@@ -317,30 +324,39 @@ export default function ToolsPage() {
   const scanTools = useScanTools();
   const [scanSummary, setScanSummary] = useState<string | null>(null);
   const setAssistantOpen = useAssistantStore((s) => s.setOpen);
-  const setPendingSeed = useAssistantStore((s) => s.setPendingSeed);
+  const setPendingHiddenContext = useAssistantStore((s) => s.setPendingHiddenContext);
   const setPendingAgentId = useAssistantStore((s) => s.setPendingAgentId);
 
   function handleScan() {
     setScanSummary(null);
     scanTools.mutate(undefined, {
       onSuccess: (r) =>
-        setScanSummary(`Scan: ${r.scanned} files found, ${r.created} registered, ${r.skipped} already known.`),
-      onError: (e) => setScanSummary(e.message || "Scan failed."),
+        setScanSummary(t("page.scanResult", { scanned: r.scanned, created: r.created, skipped: r.skipped })),
+      onError: (e) => setScanSummary(e.message || t("page.scanFailed")),
     });
   }
 
   function openMaintenanceChat(tool: AgentTool) {
-    setPendingSeed(buildMaintenanceMessage(tool));
+    setPendingHiddenContext(buildMaintenanceMessage(tool));
     setPendingAgentId(tool.agent_id);
     setAssistantOpen(true);
   }
 
   return (
     <div className="flex min-h-0 flex-1 w-full flex-col gap-4 p-6">
+      {/* This page has no sidebar entry (2026-07-26) -- it is reached from the
+          Agents header -- so it must carry its own way back. */}
+      <Link
+        to="/agents"
+        className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        {t("page.backToAgents")}
+      </Link>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold flex items-center gap-2">
-          <Wrench className="h-5 w-5" /> Agent Tools
-          {tools && <span className="text-sm font-normal text-muted-foreground">{tools.length} registered</span>}
+          <Wrench className="h-5 w-5" /> {t("page.title")}
+          {tools && <span className="text-sm font-normal text-muted-foreground">{t("page.registeredCount", { count: tools.length })}</span>}
         </h1>
         <div className="flex flex-wrap items-center gap-1.5">
           <Button
@@ -348,11 +364,11 @@ export default function ToolsPage() {
             variant="outline"
             className="gap-1.5"
             disabled={scanTools.isPending}
-            title="Scan every profile's scripts dir and register new tools; unowned files go to Athos"
+            title={t("page.scanTitle")}
             onClick={handleScan}
           >
             {scanTools.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Sync
+            {t("page.sync")}
           </Button>
           <AssistantToggleButton size="sm" />
         </div>
@@ -366,12 +382,12 @@ export default function ToolsPage() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search name, description or path…"
+            placeholder={t("page.searchPlaceholder")}
             className="w-72 pl-8"
           />
         </div>
         <Select value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)} className="w-48">
-          <option value="">All agents</option>
+          <option value="">{t("page.allAgents")}</option>
           {(agents ?? []).map((a) => (
             <option key={a.id} value={a.id}>
               {a.name}
@@ -379,7 +395,7 @@ export default function ToolsPage() {
           ))}
         </Select>
         <Select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="w-48">
-          <option value="">All categories</option>
+          <option value="">{t("page.allCategories")}</option>
           {(categories ?? []).map((c) => (
             <option key={c} value={c}>
               {c}
@@ -397,7 +413,7 @@ export default function ToolsPage() {
       {!isLoading && (tools ?? []).length === 0 && (
         <Card>
           <CardContent className="py-10 text-center text-sm italic text-muted-foreground">
-            No tools registered yet. Use “Register tool” to record a tool an agent has built.
+            {t("page.noToolsRegistered")}
           </CardContent>
         </Card>
       )}
@@ -408,11 +424,11 @@ export default function ToolsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Tool</TableHead>
-                  <TableHead>Agent</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>File</TableHead>
-                  <TableHead className="sticky right-0 w-48 bg-card text-right">Actions</TableHead>
+                  <TableHead>{t("page.tableTool")}</TableHead>
+                  <TableHead>{t("page.tableAgent")}</TableHead>
+                  <TableHead>{t("page.tableCategory")}</TableHead>
+                  <TableHead>{t("page.tableFile")}</TableHead>
+                  <TableHead className="sticky right-0 w-48 bg-card text-right">{t("page.tableActions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -438,8 +454,8 @@ export default function ToolsPage() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          aria-label={`Send ${tool.name} to the assistant`}
-                          title={`Open the assistant with ${tool.agent_name ?? "the responsible agent"} for maintenance`}
+                          aria-label={t("page.sendToAssistant", { name: tool.name })}
+                          title={t("page.openAssistantForMaintenance", { agent: tool.agent_name ?? t("page.theResponsibleAgent") })}
                           onClick={() => openMaintenanceChat(tool)}
                         >
                           <Bot className="h-4 w-4" />
@@ -447,7 +463,7 @@ export default function ToolsPage() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          title="View file"
+                          title={t("page.viewFile")}
                           onClick={() => setFileModal({ tool, editing: false })}
                         >
                           <Eye className="h-4 w-4" />
@@ -455,7 +471,7 @@ export default function ToolsPage() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          title="Edit file"
+                          title={t("page.editFile")}
                           onClick={() => setFileModal({ tool, editing: true })}
                         >
                           <Pencil className="h-4 w-4" />
@@ -463,7 +479,7 @@ export default function ToolsPage() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          title="Edit registration"
+                          title={t("page.editRegistration")}
                           onClick={() => setFormTool(tool)}
                         >
                           <Settings2 className="h-4 w-4" />
@@ -471,7 +487,7 @@ export default function ToolsPage() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          title="Delete file and registration"
+                          title={t("page.deleteFileAndRegistration")}
                           className="text-destructive"
                           onClick={() => setDeleting(tool)}
                         >
@@ -502,9 +518,9 @@ export default function ToolsPage() {
 
       <ConfirmDialog
         open={deleting !== null}
-        title={`Delete "${deleting?.name ?? ""}"`}
-        description={`Removes the registration and deletes the file ${deleting?.file_path ?? ""} from disk. This action cannot be undone.`}
-        confirmLabel="Delete"
+        title={t("page.deleteTitle", { name: deleting?.name ?? "" })}
+        description={t("page.deleteDescription", { path: deleting?.file_path ?? "" })}
+        confirmLabel={t("page.delete")}
         loading={deleteTool.isPending}
         onConfirm={() => {
           if (deleting)

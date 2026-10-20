@@ -1,0 +1,44 @@
+{
+  "title": "Systems Hub",
+  "subtitle": "Servidores MCP y pruebas de aplicaciones, dirigidos a sus sistemas (Project/Product) en lugar de a un agente -- vea /mcp para configurar MCP por agente.",
+  "tabs": {
+    "catalog": "Catálogo",
+    "projectMcp": "Servidores de proyecto MCP",
+    "backgroundTests": "Pruebas de fondo"
+  },
+  "catalog": {
+    "title": "Catálogo MCP",
+    "description": "Registrar un servidor una vez, y luego asignarlo a cualquier número de agentes o proyectos -- incluyendo 'aplicar a todos los agentes, incluyendo los registrados más tarde'."
+  },
+  "projectMcp": {
+    "title": "Servidores de proyecto MCP",
+    "description": "Servidores MCP miraron al propio directorio de trabajo de un proyecto (el .mcp.json de Claude Code hoy). Elija un proyecto para administrar sus servidores.",
+    "pickProject": "Seleccione un proyecto...",
+    "openTerminalHere": "Abrir terminal aquí"
+  },
+  "backgroundTests": {
+    "title": "Pruebas de la aplicación de fondo",
+    "description": "Pida a un agente que pruebe la aplicación en vivo de un producto, en segundo plano o viendo en vivo, sin bloquear el chat.",
+    "pickProduct": "Seleccione un producto...",
+    "routinesTitle": "rutinas",
+    "loading": "Cargando...",
+    "noRoutines": "Este producto todavía no tiene rutinas de automatización -- cree primero una desde el panel de automatización del panel de aplicaciones web, y luego vuelva aquí para habilitarla para la prueba de fondo.",
+    "enableToggle": "Se puede probar el fondo",
+    "runBackground": "Ejecutar en segundo plano",
+    "runVisible": "Ver en vivo",
+    "historyTitle": "Histórico",
+    "noHistory": "Todavía no hay pruebas.",
+    "screenshotCount": "Captura de pantalla de {{count}} capturada",
+    "status": {
+      "queued": "En cola",
+      "running": "Correr",
+      "passed": "Aprobado",
+      "failed": "Falló",
+      "error": "Error"
+    },
+    "mode": {
+      "background": "Antecedentes",
+      "visible": "Visible"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "title": "Notificações",
+  "unreadCount": "{{count}} não lidas",
+  "markAllRead": "Marcar todas como lidas",
+  "cleanup": {
+    "keep30Label": "Manter últimos 30 dias",
+    "keep30Description": "Excluir toda notificação com mais de 30 dias.",
+    "keep15Label": "Manter últimos 15 dias",
+    "keep15Description": "Excluir toda notificação com mais de 15 dias.",
+    "clearAllLabel": "Limpar tudo",
+    "clearAllDescription": "Excluir todo o registro de notificações. Isso não pode ser desfeito.",
+    "confirmLabel": "Excluir"
+  },
+  "filters": {
+    "all": "Todas",
+    "unread": "Não lidas",
+    "error": "Erros"
+  },
+  "totalRecorded": "{{count}} registradas",
+  "empty": "Nenhuma notificação registrada.",
+  "read": "Lida",
+  "errorLabel": "Erro",
+  "runSummary": "Resumo da execução",
+  "noRunOutput": "Nenhuma saída de execução registrada para esta execução."
+}

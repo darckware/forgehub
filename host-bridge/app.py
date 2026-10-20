@@ -30,11 +30,15 @@ import contextlib
 import fcntl
 import io
 import json
+import logging
 import os
 import pty
 import re
+import shlex
 import shutil
 import signal
+import socket
+import sqlite3
 import struct
 import subprocess
 import tarfile
@@ -42,18 +46,30 @@ import tempfile
 import termios
 import threading
 import time
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 import httpx
 import yaml
+import websockets
 
-from fastapi import FastAPI, Header, HTTPException, Query, UploadFile, File, Form, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Query, Request, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from agent_runtime import resolve_runtime_executable, validate_working_directory
+from vpn_control import VpnControl, VpnPolicyError
+from remote_fs import make_remote_fs_router
+from host_exec import AgentCache, make_host_exec_router
+from forgevault_proxy import VaultClient, make_forgevault_router
+from hindsight_retention import read_status as read_hindsight_retention_status
 
 BRIDGE_TOKEN = os.environ["FORGEHUB_BRIDGE_TOKEN"]
 HERMES_PYTHON = "/usr/local/lib/hermes-agent/venv/bin/python"
+# Hermes CLI launcher: always runs the active managed environment (see /v1/messages/send).
+HERMES_BIN = "/usr/local/bin/hermes"
 PROFILES_DIR = Path("/root/.hermes/profiles")
 
 # A profile is chattable if it's a real Hermes profile directory -- matches
@@ -65,12 +81,159 @@ PROFILES_DIR = Path("/root/.hermes/profiles")
 PROFILE_NAME_RE = re.compile(r"^[a-z0-9_-]+$")
 
 CHAT_TIMEOUT_SECONDS = 600
-SESSION_ID_RE = re.compile(r"session_id:\s*(\S+)")
+HERMES_CLI_SESSION_ID_RE = re.compile(r"session_id:\s*(\S+)")
 
 # stream_id (minted by hermes_stream.py per request, see its --stream-id-less
 # self-generated id) -> the live subprocess, so POST /v1/chat/approve can
 # write an approval decision into the right agent's stdin.
 _active_streams: dict[str, "asyncio.subprocess.Process"] = {}
+
+# Governed non-interactive CLI runs. This registry intentionally stores only
+# process state/output, never ForgeRouter credentials or prompts. ForgeHub's DB
+# remains the durable source of task/execution metadata.
+AGENT_RUN_STATE_DIR = Path(os.environ.get("FORGEHUB_RUN_STATE_DIR", "/root/.forgehub/agent-runs"))
+AGENT_RUN_STATE_DIR.mkdir(parents=True, exist_ok=True)
+AGENT_RUN_ADAPTER_VERSION = "forgehub-host-runner/v1"
+_agent_runs: dict[str, dict] = {}
+_agent_runs_lock = threading.Lock()
+
+# Shared Chromium session for ForgeHub's Workspace. Athos attaches to this
+# exact browser over CDP (browser.cdp_url), while the Workspace polls CDP
+# screenshots through the authenticated backend proxy. The browser profile is
+# persistent so cookies/localStorage survive bridge restarts; credentials are
+# never stored here.
+WORKSPACE_BROWSER_PORT = int(os.environ.get("FORGEHUB_BROWSER_CDP_PORT", "9223"))
+WORKSPACE_BROWSER_CDP_URL = f"http://127.0.0.1:{WORKSPACE_BROWSER_PORT}"
+WORKSPACE_BROWSER_PROFILE_DIR = Path(
+    os.environ.get("FORGEHUB_BROWSER_PROFILE_DIR", "/root/.forgehub/browser/athos")
+)
+WORKSPACE_BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+WORKSPACE_BROWSER_BINARY = os.environ.get(
+    "FORGEHUB_BROWSER_BINARY", "/root/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome"
+)
+_workspace_browser_process: subprocess.Popen | None = None
+_workspace_browser_lock = threading.Lock()
+# Last known pointer position in viewport coordinates, set by either a human
+# drag/click (dispatchMouseEvent) or a routine "click"/"type"/"select" step
+# (resolved from the target element's own bounding box, since those steps
+# call el.click()/el.focus() directly rather than dispatching a real mouse
+# event at a coordinate). Surfaced on every /state poll so the frontend can
+# draw a transient cursor marker -- otherwise an agent-driven interaction is
+# invisible in the shared live view.
+_last_pointer: dict | None = None
+# Who is currently driving the browser: "user" (a real human action through
+# this pane's own controls) or "agent" (a routine step, or a click the
+# injected DOM listener saw that this process didn't just dispatch itself --
+# Athos's native browser_* toolset talks to the same CDP target directly,
+# bypassing every endpoint below, so that's the only way to notice it).
+# Cleared back to None after CONTROL_RELEASE_SECONDS of inactivity so the
+# frontend's "agent in control" border goes away once nothing is happening.
+_control_owner: str | None = None
+_control_at: datetime | None = None
+_last_seen_click_ms: float = 0.0
+CONTROL_RELEASE_SECONDS = 2.5
+
+# A native window.alert/confirm/prompt() called by the page being shown.
+# Confirmed by direct reproduction (2026-07-28) that this headless Chrome
+# build does NOT reliably support CDP's Page.javascriptDialogOpening/
+# handleJavaScriptDialog round-trip: an unhandled dialog freezes the
+# renderer's entire CDP command queue indefinitely (Runtime.evaluate,
+# Page.captureScreenshot, Input.dispatchMouseEvent, even a *second*
+# connection's Page.enable -- everything), and Page.handleJavaScriptDialog
+# itself unreliably reports "No dialog is showing" even from a session that
+# had Page enabled before the dialog opened, with no way found to actually
+# resolve one once stuck (recovery required killing and relaunching the
+# whole process, twice, during investigation). Since this is a single
+# shared browser, one page's confirm() would otherwise take the whole
+# Workspace Browser down for every viewer.
+#
+# Given that, this never lets a real native dialog happen at all:
+# _hold_dialog_override_connection (a persistent background task, kept
+# alive for the browser process's lifetime -- see its own docstring for why
+# a persistent connection specifically is required) injects a
+# Page.addScriptToEvaluateOnNewDocument script that replaces
+# window.alert/confirm/prompt before any page script runs, recording the
+# call and resolving it immediately (confirm() -> true, matching "the
+# operator already clicked the button that asked for this confirmation")
+# instead of ever blocking on a native dialog. The frontend surfaces the
+# most recent one as a transient, already-resolved notice
+# (WorkspaceBrowserState.last_dialog) -- there is nothing to answer.
+_workspace_browser_dialog_override_task: "asyncio.Task | None" = None
+
+DIALOG_OVERRIDE_SCRIPT = """
+(() => {
+  const record = (type, message) => { window.__fhLastDialog = { type, message: String(message ?? ''), at: Date.now() }; };
+  window.alert = (message) => { record('alert', message); };
+  window.confirm = (message) => { record('confirm', message); return true; };
+  window.prompt = (message, defaultValue) => { record('prompt', message); return defaultValue ?? ''; };
+})();
+"""
+
+# Last successful screenshot -- re-served whenever a call is made with
+# include_image=False (e.g. the resize endpoint), so that response's
+# image_base64 doesn't clobber the frontend's currently-displayed frame
+# with None.
+_last_workspace_browser_image: str | None = None
+
+
+def _run_state_path(run_id: str) -> Path:
+    return AGENT_RUN_STATE_DIR / f"{run_id}.json"
+
+
+def _safe_run_state(run: dict) -> dict:
+    """Persist process metadata and bounded output, never prompts or credentials."""
+    return {
+        key: value for key, value in run.items()
+        if key != "process" and key not in {"prompt", "api_key", "command", "environment"}
+    }
+
+
+def _persist_agent_run(run_id: str) -> None:
+    run = _agent_runs.get(run_id)
+    if run is None:
+        return
+    target = _run_state_path(run_id)
+    temporary = target.with_suffix(".tmp")
+    temporary.write_text(json.dumps(_safe_run_state(run), sort_keys=True))
+    temporary.replace(target)
+
+
+def _pid_alive(pid: int | None) -> bool:
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+def _redact_run_output(value: str) -> str:
+    value = re.sub(r"(?i)(authorization:\s*bearer\s+)[^\s]+", r"\1[REDACTED]", value)
+    value = re.sub(r"(?i)((?:api[_-]?key|auth[_-]?token)\s*[=:]\s*)[^\s,}\"]+", r"\1[REDACTED]", value)
+    value = re.sub(r"\b(?:sk|key)-[A-Za-z0-9_-]{16,}\b", "[REDACTED]", value)
+    return value
+
+
+def _load_agent_runs() -> None:
+    for state_file in AGENT_RUN_STATE_DIR.glob("*.json"):
+        try:
+            run = json.loads(state_file.read_text())
+            if run.get("status") in {"starting", "running"}:
+                if _pid_alive(run.get("pid")):
+                    run["status"] = "running"
+                    run["reconciled_at"] = datetime.now().isoformat()
+                else:
+                    run["status"] = "stale"
+                    run["error"] = "Runner restarted and the recorded process is no longer alive"
+                    run["finished_at"] = datetime.now().isoformat()
+            _agent_runs[run["run_id"]] = run
+            _persist_agent_run(run["run_id"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+
+
+_load_agent_runs()
 
 
 
@@ -89,11 +252,909 @@ UPLOAD_DIR = Path(tempfile.gettempdir()) / "forgehub-chat-uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="ForgeHub chat bridge")
+_vpn_control = VpnControl()
 
 
 def _check_token(x_bridge_token: str | None) -> None:
     if not x_bridge_token or x_bridge_token != BRIDGE_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid or missing bridge token")
+
+
+def _workspace_browser_running() -> bool:
+    if _workspace_browser_process is not None and _workspace_browser_process.poll() is None:
+        return True
+    try:
+        with socket.create_connection(("127.0.0.1", WORKSPACE_BROWSER_PORT), timeout=0.2):
+            return True
+    except OSError:
+        return False
+
+
+def _launch_workspace_browser() -> None:
+    """Start the one shared CDP browser without accepting shell arguments."""
+    global _workspace_browser_process
+    with _workspace_browser_lock:
+        if not _workspace_browser_running():
+            binary = Path(WORKSPACE_BROWSER_BINARY)
+            if not binary.is_file():
+                raise HTTPException(status_code=503, detail=f"Chromium binary not found: {binary}")
+            _workspace_browser_process = subprocess.Popen(
+                [
+                    str(binary), "--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
+                    "--disable-gpu", "--no-first-run", "--no-default-browser-check",
+                    "--remote-allow-origins=*", "--remote-debugging-address=127.0.0.1",
+                    f"--remote-debugging-port={WORKSPACE_BROWSER_PORT}",
+                    f"--user-data-dir={WORKSPACE_BROWSER_PROFILE_DIR}", "--window-size=1440,900",
+                    "about:blank",
+                ],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+    _ensure_dialog_override_task()
+
+
+def _ensure_dialog_override_task() -> None:
+    global _workspace_browser_dialog_override_task
+    if _workspace_browser_dialog_override_task is None or _workspace_browser_dialog_override_task.done():
+        _workspace_browser_dialog_override_task = asyncio.create_task(_hold_dialog_override_connection())
+
+
+async def _hold_dialog_override_connection() -> None:
+    """Keeps one CDP connection open for the browser process's entire
+    lifetime, solely to keep DIALOG_OVERRIDE_SCRIPT registered via
+    Page.addScriptToEvaluateOnNewDocument -- confirmed by reproduction that
+    this registration is scoped to the session/connection that made it, not
+    the browser process: it's silently dropped the instant that connection
+    closes, so the connect-register-disconnect every other CDP call in this
+    file does (_workspace_browser_cdp) doesn't survive to the next
+    navigation. Page.enable must be called on this SAME connection *before*
+    addScriptToEvaluateOnNewDocument, or the registration silently has no
+    effect on future navigations either -- also confirmed by reproduction
+    (isolated repro: identical calls without a prior Page.enable left the
+    injected marker undefined after navigating; with it, the marker
+    survived). Also applies the override immediately (via Runtime.evaluate)
+    to whatever page happens to be loaded right when this connection is
+    established, since addScriptToEvaluateOnNewDocument only covers *future*
+    navigations. Retries quietly on disconnect (browser not up yet, process
+    killed/relaunched, transient CDP hiccup)."""
+    while True:
+        try:
+            target = await _workspace_browser_target()
+            async with websockets.connect(
+                target["webSocketDebuggerUrl"], open_timeout=5, close_timeout=2, max_size=16 * 1024 * 1024
+            ) as socket:
+                await socket.send(json.dumps({"id": 1, "method": "Page.enable", "params": {}}))
+                await asyncio.wait_for(socket.recv(), timeout=5)
+                await socket.send(
+                    json.dumps({"id": 2, "method": "Page.addScriptToEvaluateOnNewDocument", "params": {"source": DIALOG_OVERRIDE_SCRIPT}})
+                )
+                await asyncio.wait_for(socket.recv(), timeout=5)
+                await socket.send(json.dumps({"id": 3, "method": "Runtime.evaluate", "params": {"expression": DIALOG_OVERRIDE_SCRIPT}}))
+                await asyncio.wait_for(socket.recv(), timeout=5)
+                # Nothing else is ever sent on this connection -- just block
+                # here until the browser process dies/disconnects it, so the
+                # registration (tied to this connection staying open) lasts
+                # exactly as long as the browser does.
+                await socket.wait_closed()
+        except Exception:
+            # Deliberately broad: this task silently dying (an uncaught
+            # exception on an asyncio.create_task is otherwise only ever
+            # logged to stderr, never restarted) would quietly bring back
+            # the exact freeze this whole mechanism exists to prevent, with
+            # no visible symptom until the next confirm() call hangs the
+            # shared browser again. Retrying past anything unexpected here
+            # is strictly safer than that.
+            await asyncio.sleep(1)
+
+
+async def _workspace_browser_target() -> dict:
+    _launch_workspace_browser()
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        for _ in range(30):
+            try:
+                response = await client.get(f"{WORKSPACE_BROWSER_CDP_URL}/json/list")
+                response.raise_for_status()
+                page = next((item for item in response.json() if item.get("type") == "page"), None)
+                if page and page.get("webSocketDebuggerUrl"):
+                    return page
+            except (httpx.HTTPError, ValueError):
+                pass
+            await asyncio.sleep(0.1)
+    raise HTTPException(status_code=503, detail="Workspace browser did not expose a CDP page")
+
+
+async def _workspace_browser_cdp(method: str, params: dict | None = None) -> dict:
+    target = await _workspace_browser_target()
+    async with websockets.connect(
+        target["webSocketDebuggerUrl"], open_timeout=5, close_timeout=2, max_size=16 * 1024 * 1024
+    ) as socket:
+        await socket.send(json.dumps({"id": 1, "method": method, "params": params or {}}))
+        while True:
+            payload = json.loads(await asyncio.wait_for(socket.recv(), timeout=15))
+            if payload.get("id") != 1:
+                continue
+            if "error" in payload:
+                raise HTTPException(status_code=502, detail=f"Browser CDP error: {payload['error']}")
+            return payload.get("result", {})
+
+
+
+async def _workspace_browser_state(include_image: bool = True) -> dict:
+    global _last_seen_click_ms, _last_workspace_browser_image
+    runtime = await _workspace_browser_cdp(
+        "Runtime.evaluate",
+        {
+            # Installs a capturing click listener once per document (wiped by
+            # navigation, so this idempotently reinstalls it every poll) so a
+            # click from ANY CDP client -- including Athos's native browser_*
+            # toolset, which talks to this same target directly and never
+            # touches the endpoints below -- still surfaces here. Also reads
+            # window.__fhLastDialog, set by DIALOG_OVERRIDE_SCRIPT whenever
+            # the page calls alert/confirm/prompt (already auto-resolved by
+            # then -- see that script's own docstring for why).
+            "expression": """(() => {
+              if (!window.__fhClickInstalled) {
+                window.__fhClickInstalled = true;
+                window.addEventListener('click', (e) => { window.__fhLastClick = {x: e.clientX, y: e.clientY, at: Date.now()}; }, true);
+              }
+              return JSON.stringify({url:location.href,title:document.title,readyState:document.readyState,viewportWidth:innerWidth,viewportHeight:innerHeight,click:window.__fhLastClick||null,dialog:window.__fhLastDialog||null});
+            })()""",
+            "returnByValue": True,
+        },
+    )
+    try:
+        metadata = json.loads(runtime.get("result", {}).get("value") or "{}")
+    except ValueError:
+        metadata = {}
+    click = metadata.get("click")
+    if click and click.get("at", 0) > _last_seen_click_ms:
+        _last_seen_click_ms = click["at"]
+        recently_explained = _control_at is not None and (datetime.now() - _control_at).total_seconds() < 1.2
+        _mark_pointer(click["x"], click["y"])
+        _mark_control(_control_owner if recently_explained and _control_owner else "agent")
+    control_owner = _control_owner
+    if _control_at is not None and (datetime.now() - _control_at).total_seconds() > CONTROL_RELEASE_SECONDS:
+        control_owner = None
+    image_base64 = None
+    if include_image:
+        screenshot = await _workspace_browser_cdp(
+            "Page.captureScreenshot", {"format": "jpeg", "quality": 75, "fromSurface": True}
+        )
+        image_base64 = screenshot.get("data")
+        _last_workspace_browser_image = image_base64
+    return {
+        "running": _workspace_browser_running(), "cdp_url": WORKSPACE_BROWSER_CDP_URL,
+        "url": metadata.get("url", "about:blank"), "title": metadata.get("title", ""),
+        "ready_state": metadata.get("readyState", ""),
+        # Never clobber the last real screenshot with None just because
+        # this particular call was include_image=False (e.g. the resize
+        # endpoint) -- only a genuinely fresh capture replaces it.
+        "image_base64": image_base64 if image_base64 is not None else _last_workspace_browser_image,
+        "viewport_width": metadata.get("viewportWidth", 1440),
+        "viewport_height": metadata.get("viewportHeight", 900),
+        "captured_at": datetime.now().isoformat(),
+        "last_pointer": _last_pointer,
+        "control_owner": control_owner,
+        "last_dialog": metadata.get("dialog"),
+    }
+
+
+class WorkspaceBrowserStartRequest(BaseModel):
+    url: str = "about:blank"
+
+
+class WorkspaceBrowserNavigateRequest(BaseModel):
+    url: str
+
+
+class WorkspaceBrowserPointerRequest(BaseModel):
+    x: float
+    y: float
+    end_x: float | None = None
+    end_y: float | None = None
+
+
+class WorkspaceBrowserTextRequest(BaseModel):
+    text: str
+
+
+class WorkspaceBrowserScrollRequest(BaseModel):
+    x: float
+    y: float
+    delta_y: float
+
+
+class WorkspaceBrowserLoginRequest(BaseModel):
+    url: str
+    username: str
+    password: str
+
+
+class WorkspaceBrowserRoutineRequest(BaseModel):
+    start_url: str
+    steps: list[dict]
+
+
+class WorkspaceBrowserResizeRequest(BaseModel):
+    width: int
+    height: int
+
+
+# Guards against a zero/negative size (a pane measured before its first
+# layout pass) and an absurd one (a stray value from a bad ResizeObserver
+# read) -- Chrome's own headless window is comfortable at any size in
+# between.
+_WORKSPACE_BROWSER_MIN_DIMENSION = 400
+_WORKSPACE_BROWSER_MAX_DIMENSION = 4000
+
+
+def _validated_browser_url(value: str) -> str:
+    if value == "about:blank":
+        return value
+    if not re.match(r"^https?://", value, flags=re.IGNORECASE):
+        raise HTTPException(status_code=400, detail="Only HTTP(S) browser URLs are allowed")
+    return value
+
+
+@app.post("/v1/workspace-browser/start")
+async def start_workspace_browser(req: WorkspaceBrowserStartRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    _launch_workspace_browser()
+    _mark_control("user")
+    url = _validated_browser_url(req.url)
+    if url != "about:blank":
+        await _workspace_browser_cdp("Page.navigate", {"url": url})
+        await asyncio.sleep(0.8)
+    return await _workspace_browser_state()
+
+
+@app.get("/v1/workspace-browser/state")
+async def get_workspace_browser_state(x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    return await _workspace_browser_state()
+
+
+@app.post("/v1/workspace-browser/navigate")
+async def navigate_workspace_browser(req: WorkspaceBrowserNavigateRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    _mark_control("user")
+    await _workspace_browser_cdp("Page.navigate", {"url": _validated_browser_url(req.url)})
+    await asyncio.sleep(0.8)
+    return await _workspace_browser_state()
+
+
+@app.post("/v1/workspace-browser/reload")
+async def reload_workspace_browser(x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    _mark_control("user")
+    await _workspace_browser_cdp("Page.reload", {"ignoreCache": True})
+    await asyncio.sleep(0.6)
+    return await _workspace_browser_state()
+
+
+@app.post("/v1/workspace-browser/back")
+async def back_workspace_browser(x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    _mark_control("user")
+    history = await _workspace_browser_cdp("Page.getNavigationHistory")
+    index, entries = history.get("currentIndex", 0), history.get("entries", [])
+    if index > 0:
+        await _workspace_browser_cdp("Page.navigateToHistoryEntry", {"entryId": entries[index - 1]["id"]})
+        await asyncio.sleep(0.6)
+    return await _workspace_browser_state()
+
+
+@app.post("/v1/workspace-browser/resize")
+async def resize_workspace_browser(
+    req: WorkspaceBrowserResizeRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    """Overrides the page's own layout viewport to match the actual on-screen
+    size of whichever WebAppPane is currently showing it (see frontend's
+    ResizeObserver in WebAppPane.tsx) -- without this, the shared headless
+    browser stays at its fixed launch size (_launch_workspace_browser's
+    --window-size=1440,900) regardless of the pane's real aspect ratio,
+    which the frontend's `object-contain` rendering then letterboxes (dead
+    space on two sides) and, more importantly, is exactly the mismatch that
+    made click coordinates in browserCoordinates() land in the wrong place
+    near the letterboxed edges. Uses Emulation.setDeviceMetricsOverride
+    (page-level) rather than Browser.setWindowBounds (the outer OS window)
+    deliberately: the latter's `bounds` is the window's outer rect, which
+    silently loses height to window-chrome overhead the resulting
+    innerHeight/screenshot never gets back -- confirmed requesting height
+    600 landing at innerHeight 457. The device-metrics override instead
+    fixes the *content* viewport at exactly the requested size regardless
+    of any window chrome, which is what actually needs to match the pane."""
+    _check_token(x_bridge_token)
+    width = max(_WORKSPACE_BROWSER_MIN_DIMENSION, min(_WORKSPACE_BROWSER_MAX_DIMENSION, req.width))
+    height = max(_WORKSPACE_BROWSER_MIN_DIMENSION, min(_WORKSPACE_BROWSER_MAX_DIMENSION, req.height))
+    await _workspace_browser_cdp(
+        "Emulation.setDeviceMetricsOverride",
+        {"width": width, "height": height, "deviceScaleFactor": 0, "mobile": False},
+    )
+    return await _workspace_browser_state(include_image=False)
+
+
+@app.post("/v1/workspace-browser/pointer")
+async def pointer_workspace_browser(req: WorkspaceBrowserPointerRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    _mark_control("user")
+    end_x = req.end_x if req.end_x is not None else req.x
+    end_y = req.end_y if req.end_y is not None else req.y
+    if not all(0 <= value <= 10_000 for value in (req.x, req.y, end_x, end_y)):
+        raise HTTPException(status_code=400, detail="Pointer coordinates are outside the browser viewport")
+    await _workspace_browser_cdp(
+        "Input.dispatchMouseEvent",
+        {"type": "mousePressed", "x": req.x, "y": req.y, "button": "left", "buttons": 1, "clickCount": 1},
+    )
+    if end_x != req.x or end_y != req.y:
+        await _workspace_browser_cdp(
+            "Input.dispatchMouseEvent",
+            {"type": "mouseMoved", "x": end_x, "y": end_y, "button": "left", "buttons": 1},
+        )
+    await _workspace_browser_cdp(
+        "Input.dispatchMouseEvent",
+        {"type": "mouseReleased", "x": end_x, "y": end_y, "button": "left", "buttons": 0, "clickCount": 1},
+    )
+    global _last_pointer
+    _last_pointer = {"x": end_x, "y": end_y, "at": datetime.now().isoformat()}
+    await asyncio.sleep(0.25)
+    return await _workspace_browser_state()
+
+
+@app.post("/v1/workspace-browser/text")
+async def text_workspace_browser(req: WorkspaceBrowserTextRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    _mark_control("user")
+    await _workspace_browser_cdp("Input.insertText", {"text": req.text})
+    await asyncio.sleep(0.2)
+    return await _workspace_browser_state()
+
+
+@app.post("/v1/workspace-browser/scroll")
+async def scroll_workspace_browser(
+    req: WorkspaceBrowserScrollRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    _check_token(x_bridge_token)
+    _mark_control("user")
+    if not 0 <= req.x <= 10_000 or not 0 <= req.y <= 10_000:
+        raise HTTPException(status_code=400, detail="Scroll coordinates are outside the browser viewport")
+    delta_y = max(-5_000, min(5_000, req.delta_y))
+    await _workspace_browser_cdp(
+        "Input.dispatchMouseEvent",
+        {
+            "type": "mouseWheel",
+            "x": req.x,
+            "y": req.y,
+            "deltaX": 0,
+            "deltaY": delta_y,
+        },
+    )
+    await asyncio.sleep(0.15)
+    return await _workspace_browser_state()
+
+
+@app.post("/v1/workspace-browser/login-forgehub")
+async def login_workspace_browser(req: WorkspaceBrowserLoginRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    """Login without persisting or returning the supplied credential."""
+    _check_token(x_bridge_token)
+    _mark_control("user")
+    await _workspace_browser_cdp("Page.navigate", {"url": _validated_browser_url(req.url)})
+    await asyncio.sleep(1.0)
+    script = f"""
+      (() => {{
+        const setValue = (element, value) => {{
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+          setter.call(element, value);
+          element.dispatchEvent(new Event('input', {{ bubbles: true }}));
+          element.dispatchEvent(new Event('change', {{ bubbles: true }}));
+        }};
+        const username = document.querySelector('#username');
+        const password = document.querySelector('#password');
+        if (!username || !password) return 'login-fields-not-found';
+        setValue(username, {json.dumps(req.username)});
+        setValue(password, {json.dumps(req.password)});
+        return username.closest('form') ? 'filled' : 'login-form-not-found';
+      }})()
+    """
+    result = await _workspace_browser_cdp(
+        "Runtime.evaluate", {"expression": script, "returnByValue": True, "awaitPromise": True}
+    )
+    outcome = result.get("result", {}).get("value")
+    if outcome != "filled":
+        raise HTTPException(status_code=409, detail=f"ForgeHub login failed: {outcome}")
+    # React applies controlled-input state asynchronously; submitting in the
+    # same JS turn leaves the button disabled and the handler sees old values.
+    await asyncio.sleep(0.2)
+    submit = await _workspace_browser_cdp(
+        "Runtime.evaluate",
+        {
+            "expression": "document.querySelector('#username')?.closest('form')?.querySelector('button[type=submit]')?.click(); 'submitted'",
+            "returnByValue": True,
+        },
+    )
+    if submit.get("result", {}).get("value") != "submitted":
+        raise HTTPException(status_code=409, detail="ForgeHub login submit failed")
+    await asyncio.sleep(1.2)
+    return await _workspace_browser_state()
+
+
+async def _routine_evaluate(expression: str):
+    result = await _workspace_browser_cdp(
+        "Runtime.evaluate",
+        {"expression": expression, "returnByValue": True, "awaitPromise": True},
+    )
+    remote = result.get("result", {})
+    if remote.get("subtype") == "error":
+        raise HTTPException(status_code=409, detail=remote.get("description", "Browser expression failed"))
+    return remote.get("value")
+
+
+def _mark_pointer(x: float, y: float) -> None:
+    """Record where a routine step just interacted, for the /state cursor overlay."""
+    global _last_pointer
+    _last_pointer = {"x": x, "y": y, "at": datetime.now().isoformat()}
+
+
+def _mark_control(owner: str) -> None:
+    """Record who is currently driving the browser (see _control_owner docstring)."""
+    global _control_owner, _control_at
+    _control_owner = owner
+    _control_at = datetime.now()
+
+
+async def _element_center_evaluate(expression_body: str, selector: str) -> str | None:
+    """Run a JS expression that resolves to {outcome, x, y} on the element's center,
+    or null if the element wasn't found. Marks the pointer and returns outcome."""
+    raw = await _routine_evaluate(
+        f"""(() => {{
+          const el=document.querySelector({json.dumps(selector)});
+          if(!el) return null;
+          {expression_body}
+          const rect = el.getBoundingClientRect();
+          return JSON.stringify({{outcome, x: rect.left + rect.width/2, y: rect.top + rect.height/2}});
+        }})()"""
+    )
+    if raw is None:
+        return None
+    result = json.loads(raw)
+    _mark_pointer(result["x"], result["y"])
+    return result["outcome"]
+
+
+async def _run_browser_routine_step(step: dict) -> str:
+    _mark_control("agent")
+    action = step.get("action")
+    selector = step.get("selector")
+    value = step.get("value")
+    if action == "navigate":
+        await _workspace_browser_cdp("Page.navigate", {"url": _validated_browser_url(str(step.get("url", "")))})
+        await asyncio.sleep(0.8)
+        return "navigated"
+    if action == "click":
+        outcome = await _element_center_evaluate(
+            "el.scrollIntoView({block:'center'}); el.click(); const outcome='clicked';", selector
+        )
+        if outcome != "clicked":
+            raise HTTPException(status_code=409, detail=f"Selector not found: {selector}")
+        await asyncio.sleep(0.3)
+        return outcome
+    if action == "type":
+        outcome = await _element_center_evaluate(
+            """el.scrollIntoView({block:'center'}); el.focus();
+              if ('value' in el) {
+                const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+                const setter=Object.getOwnPropertyDescriptor(proto,'value')?.set;
+                setter ? setter.call(el,'') : (el.value='');
+                el.dispatchEvent(new Event('input',{bubbles:true}));
+              } else if (el.isContentEditable) el.textContent='';
+              const outcome='focused';""",
+            selector,
+        )
+        if outcome != "focused":
+            raise HTTPException(status_code=409, detail=f"Selector not found: {selector}")
+        await _workspace_browser_cdp("Input.insertText", {"text": str(value or "")})
+        await asyncio.sleep(0.2)
+        return "typed"
+    if action == "select":
+        outcome = await _element_center_evaluate(
+            f"""if(!(el instanceof HTMLSelectElement)) return null;
+              el.value={json.dumps(value)}; el.dispatchEvent(new Event('input',{{bubbles:true}}));
+              el.dispatchEvent(new Event('change',{{bubbles:true}})); const outcome='selected';""",
+            selector,
+        )
+        if outcome != "selected":
+            raise HTTPException(status_code=409, detail=f"Select not found: {selector}")
+        return outcome
+    if action == "press":
+        key = str(value or "")
+        if key not in {"Enter", "Tab", "Escape", "ArrowUp", "ArrowDown", "Space"}:
+            raise HTTPException(status_code=400, detail=f"Unsupported key: {key}")
+        await _workspace_browser_cdp("Input.dispatchKeyEvent", {"type": "keyDown", "key": key})
+        await _workspace_browser_cdp("Input.dispatchKeyEvent", {"type": "keyUp", "key": key})
+        await asyncio.sleep(0.2)
+        return f"pressed:{key}"
+    if action == "scroll":
+        delta = max(-5000, min(5000, int(step.get("delta_y") or 500)))
+        await _routine_evaluate(f"window.scrollBy({{top:{delta},behavior:'instant'}}); 'scrolled'")
+        await asyncio.sleep(0.15)
+        return "scrolled"
+    if action == "wait":
+        wait_ms = max(0, min(30_000, int(step.get("wait_ms") or 500)))
+        await asyncio.sleep(wait_ms / 1000)
+        return f"waited:{wait_ms}"
+    if action == "assert_text":
+        outcome = await _routine_evaluate(
+            f"(() => {{ const root={json.dumps(selector)} ? document.querySelector({json.dumps(selector)}) : document.body; if(!root) return 'not-found'; return (root.innerText || root.textContent || '').includes({json.dumps(value)}); }})()"
+        )
+        if outcome is not True:
+            raise HTTPException(status_code=409, detail=f"Expected text not found: {value}")
+        return "asserted"
+    raise HTTPException(status_code=400, detail=f"Unsupported routine action: {action}")
+
+
+@app.post("/v1/workspace-browser/run-routine")
+async def run_workspace_browser_routine(
+    req: WorkspaceBrowserRoutineRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    """Execute reviewed structured steps; arbitrary JavaScript is never accepted."""
+    _check_token(x_bridge_token)
+    if not 1 <= len(req.steps) <= 100:
+        raise HTTPException(status_code=400, detail="A routine must contain 1 to 100 steps")
+    _mark_control("agent")
+    # Skip the implicit start_url navigation when the routine's own first
+    # step already navigates -- otherwise every run flashes start_url (the
+    # product's registered application_url, which may not even be the host
+    # currently running it) before immediately navigating away again.
+    if not (req.steps and req.steps[0].get("action") == "navigate"):
+        await _workspace_browser_cdp("Page.navigate", {"url": _validated_browser_url(req.start_url)})
+        await asyncio.sleep(0.8)
+    results: list[dict] = []
+    status_value = "passed"
+    for index, step in enumerate(req.steps, 1):
+        try:
+            outcome = await _run_browser_routine_step(step)
+            results.append({"index": index, "action": step.get("action"), "status": "passed", "outcome": outcome})
+        except HTTPException as exc:
+            status_value = "failed"
+            results.append({"index": index, "action": step.get("action"), "status": "failed", "outcome": str(exc.detail)})
+            break
+    return {"status": status_value, "steps": results, "browser": await _workspace_browser_state()}
+
+
+# ---------------------------------------------------------------------------
+# Isolated background test browser -- a dedicated, throwaway CDP Chromium
+# per test run, deliberately separate from the shared Workspace Browser
+# above (own port, own ephemeral profile dir per run). A background test
+# must never compete with whatever the operator/agent is doing live in the
+# shared instance -- that's the whole reason this isn't a `headless: true`
+# flag on run-routine (which was already headless; isolation, not
+# visibility, is what a background test needs -- see the plan's Fase 3).
+#
+# The step-execution logic here (_run_test_browser_step and its helpers)
+# deliberately duplicates _run_browser_routine_step's ~80 lines rather than
+# refactoring that shared function to take an explicit CDP target: the
+# shared version is called from many other live endpoints above, threading
+# a target through all of them is a large, risky change for a
+# comparatively small amount of duplication.
+# ---------------------------------------------------------------------------
+
+TEST_BROWSER_CDP_PORT_BASE = int(os.environ.get("FORGEHUB_TEST_BROWSER_CDP_PORT_BASE", "9300"))
+TEST_BROWSER_PROFILE_ROOT = Path(
+    os.environ.get("FORGEHUB_TEST_BROWSER_PROFILE_ROOT", "/root/.forgehub/browser/test-runs")
+)
+TEST_BROWSER_PROFILE_ROOT.mkdir(parents=True, exist_ok=True)
+TEST_RUN_STATE_DIR = Path(os.environ.get("FORGEHUB_TEST_RUN_STATE_DIR", "/root/.forgehub/test-runs"))
+TEST_RUN_STATE_DIR.mkdir(parents=True, exist_ok=True)
+TEST_RUN_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+
+_test_runs: dict[str, dict] = {}
+_test_runs_lock = threading.Lock()
+
+
+def _test_run_state_path(test_run_id: str) -> Path:
+    return TEST_RUN_STATE_DIR / f"{test_run_id}.json"
+
+
+def _persist_test_run(test_run_id: str) -> None:
+    run = _test_runs.get(test_run_id)
+    if run is None:
+        return
+    target = _test_run_state_path(test_run_id)
+    tmp = target.with_suffix(".tmp")
+    tmp.write_text(json.dumps(run, sort_keys=True))
+    tmp.replace(target)
+
+
+def _allocate_test_browser_port() -> int:
+    """First port in the range with nothing listening on it. Racy in theory
+    (another process could grab it between the check and Chromium's own
+    bind), but concurrent background test runs are rare enough that a
+    50-port range makes a real collision very unlikely, and Chromium simply
+    fails to start cleanly if one does happen."""
+    for offset in range(50):
+        port = TEST_BROWSER_CDP_PORT_BASE + offset
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.05):
+                continue
+        except OSError:
+            return port
+    raise HTTPException(status_code=503, detail="No free port available for an isolated test browser")
+
+
+def _launch_test_browser(test_run_id: str, port: int) -> subprocess.Popen:
+    binary = Path(WORKSPACE_BROWSER_BINARY)
+    if not binary.is_file():
+        raise HTTPException(status_code=503, detail=f"Chromium binary not found: {binary}")
+    profile_dir = TEST_BROWSER_PROFILE_ROOT / test_run_id
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    return subprocess.Popen(
+        [
+            str(binary), "--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
+            "--disable-gpu", "--no-first-run", "--no-default-browser-check",
+            "--remote-allow-origins=*", "--remote-debugging-address=127.0.0.1",
+            f"--remote-debugging-port={port}",
+            f"--user-data-dir={profile_dir}", "--window-size=1440,900",
+            "about:blank",
+        ],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+async def _test_browser_target(port: int) -> dict:
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        for _ in range(50):
+            try:
+                response = await client.get(f"http://127.0.0.1:{port}/json/list")
+                response.raise_for_status()
+                page = next((item for item in response.json() if item.get("type") == "page"), None)
+                if page and page.get("webSocketDebuggerUrl"):
+                    return page
+            except (httpx.HTTPError, ValueError):
+                pass
+            await asyncio.sleep(0.1)
+    raise HTTPException(status_code=503, detail="Isolated test browser did not expose a CDP page")
+
+
+async def _test_browser_cdp(ws_url: str, method: str, params: dict | None = None) -> dict:
+    async with websockets.connect(
+        ws_url, open_timeout=5, close_timeout=2, max_size=16 * 1024 * 1024
+    ) as socket_conn:
+        await socket_conn.send(json.dumps({"id": 1, "method": method, "params": params or {}}))
+        while True:
+            payload = json.loads(await asyncio.wait_for(socket_conn.recv(), timeout=15))
+            if payload.get("id") != 1:
+                continue
+            if "error" in payload:
+                raise HTTPException(status_code=502, detail=f"Test browser CDP error: {payload['error']}")
+            return payload.get("result", {})
+
+
+async def _test_routine_evaluate(ws_url: str, expression: str):
+    result = await _test_browser_cdp(
+        ws_url, "Runtime.evaluate", {"expression": expression, "returnByValue": True, "awaitPromise": True}
+    )
+    remote = result.get("result", {})
+    if remote.get("subtype") == "error":
+        raise HTTPException(status_code=409, detail=remote.get("description", "Browser expression failed"))
+    return remote.get("value")
+
+
+async def _test_element_center_evaluate(ws_url: str, expression_body: str, selector: str) -> str | None:
+    raw = await _test_routine_evaluate(
+        ws_url,
+        f"""(() => {{
+          const el=document.querySelector({json.dumps(selector)});
+          if(!el) return null;
+          {expression_body}
+          const rect = el.getBoundingClientRect();
+          return JSON.stringify({{outcome, x: rect.left + rect.width/2, y: rect.top + rect.height/2}});
+        }})()""",
+    )
+    if raw is None:
+        return None
+    return json.loads(raw)["outcome"]
+
+
+async def _test_browser_screenshot(ws_url: str) -> str:
+    result = await _test_browser_cdp(ws_url, "Page.captureScreenshot", {"format": "jpeg", "quality": 70, "fromSurface": True})
+    return result.get("data", "")
+
+
+async def _run_test_browser_step(ws_url: str, step: dict) -> str:
+    """Mirrors _run_browser_routine_step exactly (same actions, same
+    outcomes) but against an explicit CDP target and with none of the
+    shared browser's control-owner/pointer-overlay side effects, which are
+    UI feedback for the live shared pane and meaningless for an isolated
+    run nobody is watching."""
+    action = step.get("action")
+    selector = step.get("selector")
+    value = step.get("value")
+    if action == "navigate":
+        await _test_browser_cdp(ws_url, "Page.navigate", {"url": _validated_browser_url(str(step.get("url", "")))})
+        await asyncio.sleep(0.8)
+        return "navigated"
+    if action == "click":
+        outcome = await _test_element_center_evaluate(
+            ws_url, "el.scrollIntoView({block:'center'}); el.click(); const outcome='clicked';", selector
+        )
+        if outcome != "clicked":
+            raise HTTPException(status_code=409, detail=f"Selector not found: {selector}")
+        await asyncio.sleep(0.3)
+        return outcome
+    if action == "type":
+        outcome = await _test_element_center_evaluate(
+            ws_url,
+            """el.scrollIntoView({block:'center'}); el.focus();
+              if ('value' in el) {
+                const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+                const setter=Object.getOwnPropertyDescriptor(proto,'value')?.set;
+                setter ? setter.call(el,'') : (el.value='');
+                el.dispatchEvent(new Event('input',{bubbles:true}));
+              } else if (el.isContentEditable) el.textContent='';
+              const outcome='focused';""",
+            selector,
+        )
+        if outcome != "focused":
+            raise HTTPException(status_code=409, detail=f"Selector not found: {selector}")
+        await _test_browser_cdp(ws_url, "Input.insertText", {"text": str(value or "")})
+        await asyncio.sleep(0.2)
+        return "typed"
+    if action == "select":
+        outcome = await _test_element_center_evaluate(
+            ws_url,
+            f"""if(!(el instanceof HTMLSelectElement)) return null;
+              el.value={json.dumps(value)}; el.dispatchEvent(new Event('input',{{bubbles:true}}));
+              el.dispatchEvent(new Event('change',{{bubbles:true}})); const outcome='selected';""",
+            selector,
+        )
+        if outcome != "selected":
+            raise HTTPException(status_code=409, detail=f"Select not found: {selector}")
+        return outcome
+    if action == "press":
+        key = str(value or "")
+        if key not in {"Enter", "Tab", "Escape", "ArrowUp", "ArrowDown", "Space"}:
+            raise HTTPException(status_code=400, detail=f"Unsupported key: {key}")
+        await _test_browser_cdp(ws_url, "Input.dispatchKeyEvent", {"type": "keyDown", "key": key})
+        await _test_browser_cdp(ws_url, "Input.dispatchKeyEvent", {"type": "keyUp", "key": key})
+        await asyncio.sleep(0.2)
+        return f"pressed:{key}"
+    if action == "scroll":
+        delta = max(-5000, min(5000, int(step.get("delta_y") or 500)))
+        await _test_routine_evaluate(ws_url, f"window.scrollBy({{top:{delta},behavior:'instant'}}); 'scrolled'")
+        await asyncio.sleep(0.15)
+        return "scrolled"
+    if action == "wait":
+        wait_ms = max(0, min(30_000, int(step.get("wait_ms") or 500)))
+        await asyncio.sleep(wait_ms / 1000)
+        return f"waited:{wait_ms}"
+    if action == "assert_text":
+        outcome = await _test_routine_evaluate(
+            ws_url,
+            f"(() => {{ const root={json.dumps(selector)} ? document.querySelector({json.dumps(selector)}) : document.body; if(!root) return 'not-found'; return (root.innerText || root.textContent || '').includes({json.dumps(value)}); }})()",
+        )
+        if outcome is not True:
+            raise HTTPException(status_code=409, detail=f"Expected text not found: {value}")
+        return "asserted"
+    raise HTTPException(status_code=400, detail=f"Unsupported routine action: {action}")
+
+
+async def _execute_test_browser_run(test_run_id: str, start_url: str, steps: list[dict]) -> None:
+    """Runs entirely in the background (kicked off via asyncio.create_task
+    by the endpoint below, which has already returned 202) -- launches the
+    isolated Chromium, runs every step capturing a screenshot after each
+    one (best-effort: a screenshot failure never aborts the test itself),
+    tears the process and its profile dir down unconditionally, and writes
+    the final result to both the in-memory dict and disk (same
+    survives-a-restart pattern as _agent_runs/_persist_agent_run)."""
+    port = _allocate_test_browser_port()
+    proc: subprocess.Popen | None = None
+    screenshot_dir = TEST_RUN_STATE_DIR / test_run_id
+    screenshot_paths: list[str] = []
+    step_results: list[dict] = []
+    status_value = "passed"
+    error_text: str | None = None
+    try:
+        proc = _launch_test_browser(test_run_id, port)
+        page = await _test_browser_target(port)
+        ws_url = page["webSocketDebuggerUrl"]
+
+        if not (steps and steps[0].get("action") == "navigate"):
+            await _test_browser_cdp(ws_url, "Page.navigate", {"url": _validated_browser_url(start_url)})
+            await asyncio.sleep(0.8)
+
+        for index, step in enumerate(steps, 1):
+            try:
+                outcome = await _run_test_browser_step(ws_url, step)
+                step_results.append({"index": index, "action": step.get("action"), "status": "passed", "outcome": outcome})
+            except HTTPException as exc:
+                status_value = "failed"
+                step_results.append(
+                    {"index": index, "action": step.get("action"), "status": "failed", "outcome": str(exc.detail)}
+                )
+                break
+            finally:
+                try:
+                    shot = await _test_browser_screenshot(ws_url)
+                    if shot:
+                        screenshot_dir.mkdir(parents=True, exist_ok=True)
+                        shot_path = screenshot_dir / f"step-{index}.jpg"
+                        shot_path.write_bytes(base64.b64decode(shot))
+                        screenshot_paths.append(str(shot_path))
+                except Exception:
+                    pass
+    except HTTPException as exc:
+        status_value = "error"
+        error_text = str(exc.detail)
+    except Exception as exc:
+        status_value = "error"
+        error_text = str(exc)
+    finally:
+        if proc is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGTERM)
+            with contextlib.suppress(Exception):
+                proc.wait(timeout=5)
+        with contextlib.suppress(OSError):
+            shutil.rmtree(TEST_BROWSER_PROFILE_ROOT / test_run_id, ignore_errors=True)
+
+    report_lines = [f"{'PASSED' if status_value == 'passed' else status_value.upper()} -- {len(step_results)} step(s) executed"]
+    for r in step_results:
+        report_lines.append(f"  [{r['status']}] {r['index']}. {r['action']}: {r['outcome']}")
+    if error_text:
+        report_lines.append(f"Error: {error_text}")
+
+    with _test_runs_lock:
+        _test_runs[test_run_id] = {
+            "test_run_id": test_run_id,
+            "status": status_value,
+            "steps": step_results,
+            "report": "\n".join(report_lines),
+            "screenshot_paths": screenshot_paths,
+            "error": error_text,
+            "finished_at": datetime.now().isoformat(),
+        }
+        _persist_test_run(test_run_id)
+
+
+class TestBrowserRunRequest(BaseModel):
+    test_run_id: str
+    start_url: str
+    steps: list[dict]
+
+
+@app.post("/v1/workspace-browser/test-run", status_code=202)
+async def start_test_browser_run(
+    req: TestBrowserRunRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    """Fire-and-forget: returns as soon as the isolated browser is queued to
+    launch, never waits for the test to finish. Poll GET .../test-run/{id}."""
+    _check_token(x_bridge_token)
+    if not TEST_RUN_ID_RE.match(req.test_run_id):
+        raise HTTPException(status_code=400, detail="Invalid test_run_id")
+    if not 1 <= len(req.steps) <= 100:
+        raise HTTPException(status_code=400, detail="A test run must contain 1 to 100 steps")
+    with _test_runs_lock:
+        _test_runs[req.test_run_id] = {
+            "test_run_id": req.test_run_id, "status": "running", "steps": [], "report": None,
+            "screenshot_paths": [], "error": None, "started_at": datetime.now().isoformat(),
+        }
+        _persist_test_run(req.test_run_id)
+    asyncio.create_task(_execute_test_browser_run(req.test_run_id, req.start_url, req.steps))
+    return {"test_run_id": req.test_run_id, "status": "running"}
+
+
+@app.get("/v1/workspace-browser/test-run/{test_run_id}")
+async def get_test_browser_run(test_run_id: str, x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    with _test_runs_lock:
+        run = _test_runs.get(test_run_id)
+    if run is not None:
+        return run
+    path = _test_run_state_path(test_run_id)
+    if path.exists():
+        return json.loads(path.read_text())
+    raise HTTPException(status_code=404, detail="Test run not found")
 
 
 class ForgeRouterIntegrationRequest(BaseModel):
@@ -126,8 +1187,24 @@ async def set_forgerouter_integration(tool: str, req: ForgeRouterIntegrationRequ
 #               Claude Code reads .claude/settings.local.json from the working
 #               directory hierarchy before falling back to the global one.
 #
-# Codex:        {project}/.codex/config.toml
-#               Codex reads a project-local .codex/config.toml from cwd.
+# Codex:        {project}/.codex/forgerouter.env
+#               Codex CLI >= 0.144 silently ignores `model_provider` and
+#               `model_providers.*` when they come from a project-local
+#               .codex/config.toml -- only `model` is honored from that file
+#               (confirmed 2026-07-18: it logs "Ignored unsupported
+#               project-local config keys ... model_provider, model_providers"
+#               and, since the provider registration never lands, falls back
+#               to the default OpenAI provider, which then rejects
+#               "forgerouter/auto" as an unknown model under ChatGPT auth).
+#               Those two keys only take effect from the user-level
+#               ~/.codex/config.toml or from `-c key=value` CLI overrides --
+#               writing them to the user-level file would violate the
+#               never-global rule above, so every Codex launch instead reads
+#               FORGEROUTER_API_KEY from this project-local env sidecar and
+#               passes the provider registration as `-c` overrides at
+#               invocation time (see FORGEROUTER_CODEX_OVERRIDES below). This
+#               file replaces the old (broken) approach of writing
+#               model_provider/model_providers into .codex/config.toml.
 #
 # Antigravity:  {project}/.forgerouter/antigravity.env
 #               Antigravity CLI doesn't natively support proxy config; this
@@ -145,6 +1222,23 @@ FORGEROUTER_CLAUDE_KEYS = [
     "ANTHROPIC_DEFAULT_HAIKU_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL",
     "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
 ]
+# `-c key=value` overrides Codex trusts at invocation time, unlike the
+# equivalent keys in a project-local config.toml (see comment above). Kept as
+# a single source shared by the interactive terminal launcher and the
+# orchestrated `codex exec` path so both register the provider identically.
+FORGEROUTER_CODEX_OVERRIDES = [
+    'model_provider="forgerouter"',
+    'model_providers.forgerouter.name="ForgeRouter"',
+    f'model_providers.forgerouter.base_url="{FORGEROUTER_OPENAI_BASE_URL}"',
+    'model_providers.forgerouter.env_key="FORGEROUTER_API_KEY"',
+    "model_providers.forgerouter.requires_openai_auth=false",
+    'model_providers.forgerouter.wire_api="responses"',
+    # "forgerouter/auto" isn't a real OpenAI model id, so Codex's built-in
+    # model catalog has no context-window/pricing entry for it and warns
+    # "Model metadata for `forgerouter/auto` not found" on every launch.
+    # Harmless (only affects the TUI's own display), but this silences it.
+    "model_context_window=200000",
+]
 
 
 class ProjectForgeRouterRequest(BaseModel):
@@ -161,6 +1255,351 @@ def _validate_project_path(project_path: str) -> Path:
     if not path.exists():
         raise HTTPException(status_code=400, detail=f"project_path does not exist: {project_path}")
     return path
+
+
+class AgentRunRequest(BaseModel):
+    run_id: str
+    runtime_type: str  # claude | codex | agy (antigravity accepted as legacy alias) | hermes
+    project_path: str
+    prompt: str
+    model_ref: str = "forgerouter/auto"
+    routing_group: str = "auto"
+    api_key: str = ""
+    mode: str = "execute"  # plan | execute
+    max_seconds: int = 1800
+    # Required when runtime_type == "hermes": which /root/.hermes/profiles/<slug>
+    # to run as (Athos, Aegis, ...). Ignored for every other runtime_type.
+    hermes_profile: str | None = None
+    max_budget_usd: float | None = None
+    work_package_hash: str | None = None
+
+
+def _antigravity_env(project_dir: Path) -> dict[str, str]:
+    """Read the project-scoped ForgeRouter env without invoking a shell."""
+    env = os.environ.copy()
+    env_file = project_dir / ".forgerouter" / "antigravity.env"
+    if not env_file.exists():
+        return env
+    for raw_line in env_file.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:]
+        if "=" not in line:
+            continue
+        key, raw_value = line.split("=", 1)
+        if re.fullmatch(r"[A-Z_][A-Z0-9_]*", key):
+            values = shlex.split(raw_value)
+            env[key] = values[0] if values else ""
+    return env
+
+
+def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[str], dict[str, str]]:
+    if req.mode not in {"plan", "execute"}:
+        raise HTTPException(status_code=400, detail="mode must be plan or execute")
+    if req.runtime_type not in {"claude", "codex", "agy", "antigravity", "hermes"}:
+        raise HTTPException(status_code=400, detail="unsupported runtime_type")
+    if not 30 <= req.max_seconds <= 7200:
+        raise HTTPException(status_code=400, detail="max_seconds must be between 30 and 7200")
+    if len(req.prompt) > 100_000:
+        raise HTTPException(status_code=400, detail="prompt is too large")
+
+    if req.runtime_type == "hermes":
+        # Classic Hermes-profile agents (Athos, Aegis, ...) already have
+        # their own model/provider configured per-profile (config.yaml) --
+        # unlike claude/codex/agy they don't take a ForgeRouter credential
+        # from this request, so model_args/agent_env below don't apply.
+        # This is a one-shot CLI invocation scoped to the profile's own
+        # HERMES_HOME; it runs alongside that profile's persistent
+        # `gateway run` daemon (same HERMES_HOME/state.db, SQLite WAL mode
+        # -- verified concurrent-safe 2026-07-25), not a replacement for it.
+        if not req.hermes_profile:
+            raise HTTPException(status_code=400, detail="hermes_profile is required for hermes runtime_type")
+        profile_home = Path("/root/.hermes/profiles") / req.hermes_profile
+        if not profile_home.is_dir():
+            raise HTTPException(status_code=400, detail=f"unknown hermes profile: {req.hermes_profile}")
+        hermes_env = os.environ.copy()
+        hermes_env["HERMES_HOME"] = str(profile_home)
+        return (
+            [
+                "/usr/local/bin/hermes",
+                "chat",
+                "-q",
+                req.prompt,
+                "-Q",
+                "--yolo",
+            ],
+            hermes_env,
+        )
+
+    routing_groups = {"auto", "simple", "standard", "complex", "reasoning", "vision", "audio", "code"}
+    if req.routing_group not in routing_groups:
+        raise HTTPException(status_code=400, detail="unsupported ForgeRouter routing_group")
+    # req.api_key is only set when the Agent row in ForgeHub has a
+    # ForgeRouter credential configured. Porthus/Aramis/Dartan each have
+    # their own native CLI auth already logged in on this host (Claude
+    # Code subscription, Codex's own auth.json, Antigravity's own OAuth
+    # token under ~/.gemini/antigravity-cli/) -- with no ForgeRouter key
+    # on file, dispatch falls back to that native auth instead of forcing
+    # ForgeRouter with an empty/invalid key (which would 401). Same
+    # "agent already has its own credential" pattern as runtime_type ==
+    # "hermes" above.
+    use_forgerouter = bool(req.api_key)
+    effective_model = (
+        f"forgerouter/{req.routing_group}"
+        if req.model_ref == "forgerouter/auto"
+        else req.model_ref
+    )
+    model_args = ["--model", effective_model] if use_forgerouter else []
+    agent_env = os.environ.copy()
+    if use_forgerouter:
+        agent_env.update({
+            "FORGEROUTER_API_KEY": req.api_key,
+            "FORGEROUTER_MODEL": effective_model,
+            "OPENAI_API_KEY": req.api_key,
+            "ANTHROPIC_AUTH_TOKEN": req.api_key,
+            "ANTHROPIC_API_KEY": req.api_key,
+        })
+    if req.runtime_type == "claude":
+        if use_forgerouter:
+            # Without this, ANTHROPIC_API_KEY above still points `claude` at
+            # the real Anthropic API with a ForgeRouter-issued key -> 401
+            # Invalid API key. Same fix
+            # /root/.claude/scripts/claude_fallback.sh already applies, and
+            # the same constant _configure_claude_forgerouter already uses
+            # for the project-settings.json flow -- just never wired into
+            # this ad hoc agent-runs dispatch path before now.
+            agent_env = {**agent_env, "ANTHROPIC_BASE_URL": FORGEROUTER_ANTHROPIC_BASE_URL}
+        command = [
+            resolve_runtime_executable("claude", env=agent_env),
+            "--print",
+            "--output-format",
+            "json",
+            "--permission-mode",
+            "plan" if req.mode == "plan" else "acceptEdits",
+            "--no-session-persistence",
+            *model_args,
+        ]
+        if req.max_budget_usd is not None:
+            command.extend(["--max-budget-usd", str(req.max_budget_usd)])
+        command.append(req.prompt)
+        return command, agent_env
+
+    if req.runtime_type == "codex":
+        codex_overrides: list[str] = []
+        if use_forgerouter and effective_model.startswith("forgerouter/"):
+            # -c overrides, not the project's .codex/config.toml: Codex
+            # ignores model_provider/model_providers from project-local
+            # files (see FORGEROUTER_CODEX_OVERRIDES comment above). Skipped
+            # entirely when running on Codex's own native auth.json login
+            # (use_forgerouter False) -- those overrides would otherwise
+            # force Codex's provider back to ForgeRouter.
+            for override in FORGEROUTER_CODEX_OVERRIDES:
+                codex_overrides += ["-c", override]
+        return (
+            [
+                resolve_runtime_executable("codex", env=agent_env),
+                "exec",
+                "--json",
+                "--sandbox",
+                "read-only" if req.mode == "plan" else "workspace-write",
+                "-C",
+                str(project_dir),
+                *codex_overrides,
+                *model_args,
+                req.prompt,
+            ],
+            agent_env,
+        )
+
+    return (
+        [
+            resolve_runtime_executable("agy", env=agent_env),
+            "--print",
+            req.prompt,
+            "--mode",
+            "plan" if req.mode == "plan" else "accept-edits",
+            "--sandbox",
+            "--print-timeout",
+            f"{req.max_seconds}s",
+
+        ],
+        {**_antigravity_env(project_dir), **agent_env} if use_forgerouter else agent_env,
+    )
+
+
+def _monitor_agent_run(run_id: str, proc: subprocess.Popen, max_seconds: int) -> None:
+    try:
+        stdout, stderr = proc.communicate(timeout=max_seconds)
+        state = "completed" if proc.returncode == 0 else "failed"
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGTERM)
+        try:
+            stdout, stderr = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGKILL)
+            stdout, stderr = proc.communicate()
+        state = "timed_out"
+    except Exception as exc:
+        stdout, stderr, state = "", str(exc), "failed"
+
+    with _agent_runs_lock:
+        run = _agent_runs.get(run_id)
+        if run is None:
+            return
+        run.update(
+            {
+                "status": state,
+                "exit_code": proc.returncode,
+                "output": _redact_run_output((stdout or "")[-200_000:]),
+                "error": _redact_run_output((stderr or "")[-200_000:]),
+                "finished_at": datetime.now().isoformat(),
+                "heartbeat_at": datetime.now().isoformat(),
+            }
+        )
+        run.pop("process", None)
+        _persist_agent_run(run_id)
+
+
+@app.post("/v1/agent-runs", status_code=202)
+async def start_agent_run(
+    req: AgentRunRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    """Start one governed CLI run without accepting an arbitrary shell command."""
+    _check_token(x_bridge_token)
+    try:
+        uuid.UUID(req.run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="run_id must be a UUID") from exc
+    try:
+        project_dir = validate_working_directory(req.project_path)
+        command, env = _agent_run_command(req, project_dir)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    with _agent_runs_lock:
+        if req.run_id in _agent_runs:
+            raise HTTPException(status_code=409, detail="run_id already exists")
+        _agent_runs[req.run_id] = {
+            "run_id": req.run_id,
+            "runtime_type": "agy" if req.runtime_type == "antigravity" else req.runtime_type,
+            "model_ref": req.model_ref,
+            "mode": req.mode,
+            "project_path": str(project_dir),
+            "status": "starting",
+            "started_at": datetime.now().isoformat(),
+            "finished_at": None,
+            "exit_code": None,
+            "output": "",
+            "error": "",
+            "adapter_version": AGENT_RUN_ADAPTER_VERSION,
+            "work_package_hash": req.work_package_hash,
+            "heartbeat_at": datetime.now().isoformat(),
+        }
+        _persist_agent_run(req.run_id)
+
+    try:
+        proc = subprocess.Popen(
+            command,
+            cwd=project_dir,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+    except (FileNotFoundError, OSError) as exc:
+        with _agent_runs_lock:
+            _agent_runs.pop(req.run_id, None)
+        raise HTTPException(status_code=500, detail=f"failed to start {req.runtime_type}: {exc}") from exc
+
+    with _agent_runs_lock:
+        _agent_runs[req.run_id]["status"] = "running"
+        _agent_runs[req.run_id]["process"] = proc
+        _agent_runs[req.run_id]["pid"] = proc.pid
+        _agent_runs[req.run_id]["heartbeat_at"] = datetime.now().isoformat()
+        _persist_agent_run(req.run_id)
+    threading.Thread(
+        target=_monitor_agent_run,
+        args=(req.run_id, proc, req.max_seconds),
+        daemon=True,
+    ).start()
+    return {"run_id": req.run_id, "status": "running", "runtime_type": "agy" if req.runtime_type == "antigravity" else req.runtime_type, "pid": proc.pid, "adapter_version": AGENT_RUN_ADAPTER_VERSION}
+
+
+@app.get("/v1/agent-runs/health")
+async def agent_runner_health(x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    try:
+        resolve_runtime_executable("codex")
+        codex_health = {"available": True}
+    except RuntimeError:
+        codex_health = {"available": False, "reason": "runtime executable unavailable"}
+
+    def _check_available(name: str, fallback_paths: list[str]) -> bool:
+        if shutil.which(name):
+            return True
+        for p in fallback_paths:
+            candidate = Path(p)
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return True
+        return False
+
+    adapters = {
+        "claude": {"available": _check_available("claude", ["/usr/local/bin/claude", "/root/.local/bin/claude"])},
+        "codex": codex_health,
+        "agy": {"available": _check_available("agy", ["/usr/local/bin/agy", "/root/.local/bin/agy"])},
+        "hermes": {"available": _check_available("hermes", ["/usr/local/bin/hermes", "/root/.local/bin/hermes"])},
+    }
+    return {
+        "status": "ok" if any(item["available"] for item in adapters.values()) else "degraded",
+        "adapter_version": AGENT_RUN_ADAPTER_VERSION,
+        "capabilities": {"adapters": adapters, "persistence": True, "cancel": True, "reconcile": True},
+    }
+
+
+@app.get("/v1/agent-runs/{run_id}")
+async def get_agent_run(
+    run_id: str, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    _check_token(x_bridge_token)
+    with _agent_runs_lock:
+        run = _agent_runs.get(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="agent run not found")
+        if run.get("status") == "running" and not _pid_alive(run.get("pid")):
+            run["status"] = "stale"
+            run["error"] = "Recorded process is no longer alive"
+            run["finished_at"] = datetime.now().isoformat()
+        run["heartbeat_at"] = datetime.now().isoformat()
+        _persist_agent_run(run_id)
+        return {key: value for key, value in run.items() if key != "process"}
+
+
+@app.post("/v1/agent-runs/{run_id}/cancel")
+async def cancel_agent_run(
+    run_id: str, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    _check_token(x_bridge_token)
+    with _agent_runs_lock:
+        run = _agent_runs.get(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="agent run not found")
+        proc = run.get("process")
+        pid = proc.pid if proc is not None else run.get("pid")
+        if not pid or run["status"] != "running":
+            return {"run_id": run_id, "status": run["status"]}
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(pid, signal.SIGTERM)
+        run["status"] = "cancelled"
+        run["finished_at"] = datetime.now().isoformat()
+        run["heartbeat_at"] = datetime.now().isoformat()
+        run.pop("process", None)
+        _persist_agent_run(run_id)
+    return {"run_id": run_id, "status": "cancelled"}
 
 
 def _configure_claude_forgerouter(project_dir: Path, enabled: bool, api_key: str) -> str:
@@ -207,32 +1646,30 @@ def _configure_claude_forgerouter(project_dir: Path, enabled: bool, api_key: str
 def _configure_codex_forgerouter(project_dir: Path, enabled: bool, api_key: str) -> str:
     codex_dir = project_dir / ".codex"
     codex_dir.mkdir(parents=True, exist_ok=True)
-    config_path = codex_dir / "config.toml"
+    env_path = codex_dir / "forgerouter.env"
+
+    # Self-heal projects set up by the earlier (broken) approach: Codex
+    # ignores model_provider/model_providers from this file (see
+    # FORGEROUTER_CODEX_OVERRIDES comment above), so a config.toml we wrote
+    # only produces a misleading "model: forgerouter/auto" banner with no
+    # working provider behind it. Restore whatever it backed up, or remove
+    # it if we created it from nothing.
+    legacy_config_path = codex_dir / "config.toml"
+    legacy_backup = codex_dir / "config.toml.forgerouter.bak"
+    if legacy_config_path.exists() and 'model_provider = "forgerouter"' in legacy_config_path.read_text():
+        if legacy_backup.exists():
+            legacy_config_path.write_text(legacy_backup.read_text())
+            legacy_backup.unlink()
+        else:
+            legacy_config_path.unlink()
 
     if enabled:
-        # Backup existing project-level config if present
-        if config_path.exists():
-            backup = codex_dir / "config.toml.forgerouter.bak"
-            backup.write_text(config_path.read_text())
-        config_path.write_text(
-            f'model = "{FORGEROUTER_OPENAI_MODEL}"\n'
-            f'model_provider = "forgerouter"\n'
-            f'[model_providers.forgerouter]\n'
-            f'name = "ForgeRouter"\n'
-            f'base_url = "{FORGEROUTER_OPENAI_BASE_URL}"\n'
-            f'experimental_bearer_token = "{api_key}"\n'
-        )
-        os.chmod(config_path, 0o600)
+        env_path.write_text(f"FORGEROUTER_API_KEY={api_key}\n")
+        os.chmod(env_path, 0o600)
     else:
-        # Restore backup if available, otherwise remove
-        backup = codex_dir / "config.toml.forgerouter.bak"
-        if backup.exists():
-            config_path.write_text(backup.read_text())
-            backup.unlink()
-        else:
-            config_path.unlink(missing_ok=True)
+        env_path.unlink(missing_ok=True)
 
-    return str(config_path)
+    return str(env_path)
 
 
 def _configure_antigravity_forgerouter(project_dir: Path, enabled: bool, api_key: str) -> str:
@@ -309,8 +1746,8 @@ async def get_project_forgerouter_status(
         except (OSError, json.JSONDecodeError):
             pass
 
-    codex_path = project_dir / ".codex" / "config.toml"
-    codex_enabled = codex_path.exists() and "forgerouter" in (codex_path.read_text() if codex_path.exists() else "").lower()
+    codex_path = project_dir / ".codex" / "forgerouter.env"
+    codex_enabled = codex_path.exists()
 
     agy_path = project_dir / ".forgerouter" / "antigravity.env"
     agy_enabled = agy_path.exists()
@@ -323,6 +1760,406 @@ async def get_project_forgerouter_status(
         "claude_config_path": str(claude_path),
         "codex_config_path": str(codex_path),
         "antigravity_env_path": str(agy_path),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Global CLI ForgeRouter configuration (User Home ~/.claude, ~/.codex, ~/.forgerouter)
+# ---------------------------------------------------------------------------
+
+class CliToggleRequest(BaseModel):
+    tool: str
+    enabled: bool
+
+
+def _configure_global_claude_forgerouter(enabled: bool) -> str:
+    claude_dir = Path.home() / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    settings_path = claude_dir / "settings.json"
+    if not settings_path.exists() and (claude_dir / "settings.local.json").exists():
+        target_path = claude_dir / "settings.local.json"
+    else:
+        target_path = settings_path
+
+    if target_path.exists():
+        backup_path = target_path.with_suffix(target_path.suffix + ".forgerouter.bak")
+        backup_path.write_text(target_path.read_text())
+
+    try:
+        current = json.loads(target_path.read_text()) if target_path.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        current = {}
+
+    env = current.setdefault("env", {})
+    if enabled:
+        env["ANTHROPIC_BASE_URL"] = FORGEROUTER_ANTHROPIC_BASE_URL
+        current["model"] = FORGEROUTER_ANTHROPIC_MODEL
+    else:
+        env.pop("ANTHROPIC_BASE_URL", None)
+        if not env:
+            current.pop("env", None)
+        if current.get("model") == FORGEROUTER_ANTHROPIC_MODEL:
+            current.pop("model", None)
+
+    target_path.write_text(json.dumps(current, indent=2) + "\n")
+    os.chmod(target_path, 0o600)
+    return str(target_path)
+
+
+def _configure_global_codex_forgerouter(enabled: bool) -> str:
+    codex_dir = Path.home() / ".codex"
+    codex_dir.mkdir(parents=True, exist_ok=True)
+    config_path = codex_dir / "config.toml"
+
+    if config_path.exists():
+        backup_path = codex_dir / "config.toml.forgerouter.bak"
+        backup_path.write_text(config_path.read_text())
+        content = config_path.read_text()
+    else:
+        content = ""
+
+    lines = content.splitlines(keepends=True)
+    out_lines = []
+    i = 0
+    in_fr_table = False
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        if stripped.startswith("[model_providers.forgerouter"):
+            in_fr_table = True
+            i += 1
+            continue
+
+        if in_fr_table:
+            if stripped.startswith("["):
+                in_fr_table = False
+            else:
+                i += 1
+                continue
+
+        if (stripped.startswith("model_provider =") or stripped.startswith("model_provider=")) and "forgerouter" in stripped:
+            i += 1
+            continue
+
+        out_lines.append(line)
+        i += 1
+
+    cleaned = "".join(out_lines)
+
+    if enabled:
+        cleaned_lines = cleaned.splitlines(keepends=True)
+        first_table_idx = len(cleaned_lines)
+        for idx, l in enumerate(cleaned_lines):
+            if l.strip().startswith("["):
+                first_table_idx = idx
+                break
+
+        top_lines = cleaned_lines[:first_table_idx]
+        table_lines = cleaned_lines[first_table_idx:]
+
+        top_lines.insert(0, 'model_provider = "forgerouter"\n')
+
+        fr_table = (
+            "[model_providers.forgerouter]\n"
+            'name = "ForgeRouter"\n'
+            f'base_url = "{FORGEROUTER_OPENAI_BASE_URL}"\n'
+            'env_key = "FORGEROUTER_API_KEY"\n'
+            "requires_openai_auth = false\n"
+            'wire_api = "responses"\n'
+        )
+
+        top_part = "".join(top_lines).rstrip("\n")
+        table_part = "".join(table_lines).lstrip("\n")
+
+        if table_part:
+            final_content = f"{top_part}\n\n{fr_table}\n{table_part}"
+        else:
+            final_content = f"{top_part}\n\n{fr_table}"
+    else:
+        final_content = cleaned
+
+    config_path.write_text(final_content)
+    os.chmod(config_path, 0o600)
+    return str(config_path)
+
+
+def _configure_global_antigravity_forgerouter(enabled: bool) -> str:
+    fr_dir = Path.home() / ".forgerouter"
+    fr_dir.mkdir(parents=True, exist_ok=True)
+    env_path = fr_dir / "antigravity.env"
+
+    if env_path.exists():
+        backup_path = fr_dir / "antigravity.env.forgerouter.bak"
+        backup_path.write_text(env_path.read_text())
+
+    if enabled:
+        env_path.write_text(
+            "# ForgeRouter configuration for Antigravity CLI\n"
+            "# Source this file before running agy:\n"
+            "#   source ~/.forgerouter/antigravity.env\n"
+            "#\n"
+            f'export FORGEROUTER_BASE_URL="{FORGEROUTER_OPENAI_BASE_URL}"\n'
+            f'export FORGEROUTER_MODEL="{FORGEROUTER_OPENAI_MODEL}"\n'
+        )
+        os.chmod(env_path, 0o600)
+    else:
+        env_path.unlink(missing_ok=True)
+
+    return str(env_path)
+
+
+@app.get("/v1/forgerouter/cli-status")
+async def get_forgerouter_cli_status(
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Return the live global CLI ForgeRouter status across Claude, Codex, and Antigravity."""
+    _check_token(x_bridge_token)
+
+    # Claude check: looks at ~/.claude/settings.json or ~/.claude/settings.local.json
+    claude_enabled = False
+    claude_paths = [Path.home() / ".claude" / "settings.json", Path.home() / ".claude" / "settings.local.json"]
+    for cp in claude_paths:
+        if cp.exists():
+            try:
+                s = json.loads(cp.read_text())
+                env = s.get("env", {})
+                base_url = env.get("ANTHROPIC_BASE_URL", "")
+                if base_url and ("2100" in base_url or "forgerouter" in base_url.lower()):
+                    claude_enabled = True
+                    break
+            except (OSError, json.JSONDecodeError):
+                pass
+
+    # Codex check: looks at ~/.codex/config.toml for model_provider = "forgerouter"
+    codex_enabled = False
+    codex_cfg = Path.home() / ".codex" / "config.toml"
+    if codex_cfg.exists():
+        try:
+            content = codex_cfg.read_text()
+            if 'model_provider = "forgerouter"' in content or 'model_provider="forgerouter"' in content:
+                codex_enabled = True
+        except OSError:
+            pass
+
+    # Antigravity check: looks at ~/.forgerouter/antigravity.env for FORGEROUTER_BASE_URL
+    agy_enabled = False
+    agy_path = Path.home() / ".forgerouter" / "antigravity.env"
+    if agy_path.exists():
+        try:
+            content = agy_path.read_text()
+            if "FORGEROUTER_BASE_URL" in content:
+                agy_enabled = True
+        except OSError:
+            pass
+
+    return {
+        "claude": claude_enabled,
+        "codex": codex_enabled,
+        "antigravity": agy_enabled,
+    }
+
+
+@app.put("/v1/forgerouter/cli-toggle")
+async def set_forgerouter_cli_toggle(
+    req: CliToggleRequest,
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Set or remove global ForgeRouter configuration for a CLI tool."""
+    _check_token(x_bridge_token)
+    tool = req.tool.lower()
+
+    if tool == "claude":
+        config_path = _configure_global_claude_forgerouter(req.enabled)
+    elif tool == "codex":
+        config_path = _configure_global_codex_forgerouter(req.enabled)
+    elif tool == "antigravity":
+        config_path = _configure_global_antigravity_forgerouter(req.enabled)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported tool: {req.tool}")
+
+    status = await get_forgerouter_cli_status(x_bridge_token=x_bridge_token)
+    return {
+        "tool": tool,
+        "enabled": req.enabled,
+        "config_path": config_path,
+        "status": status,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Project-scoped MCP servers -- Claude Code's `.mcp.json` at the project
+# root, ForgeHub's counterpart to per-agent MCP (agent_mcp.py, a different
+# Python process/venv entirely -- this file can't import from it, so the
+# JSON entry upsert is reimplemented here, minimal since .mcp.json is plain
+# JSON with no comments to preserve, unlike Hermes YAML/Codex TOML). Only
+# "claude" is supported today -- confirmed 2026-07-28 that Codex/Hermes/agy
+# have no equivalent project-local MCP mechanism; extend
+# PROJECT_MCP_SUPPORTED_RUNTIMES only after confirming a runtime's own CLI
+# genuinely reads one, never from documentation alone.
+# ---------------------------------------------------------------------------
+
+PROJECT_MCP_SUPPORTED_RUNTIMES = {"claude"}
+# Mirrors app/core/mcp_config_io.py's SERVER_NAME_RE -- a server name lands
+# inside a JSON object key, kept to characters that can't change the file's
+# meaning. Duplicated (not imported) for the same cross-process reason as
+# the rest of this section.
+_MCP_SERVER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+class ProjectMcpServerRequest(BaseModel):
+    project_path: str
+    runtime_type: str
+    name: str
+    transport: str = "stdio"
+    command: str | None = None
+    args: list[str] = []
+    env: dict[str, str] = {}
+    url: str | None = None
+    enabled: bool = True
+
+
+def _project_mcp_config_path(project_dir: Path, runtime_type: str) -> Path:
+    # Only "claude" today -- see PROJECT_MCP_SUPPORTED_RUNTIMES above.
+    return project_dir / ".mcp.json"
+
+
+@app.put("/v1/project-mcp-servers")
+async def set_project_mcp_server(
+    req: ProjectMcpServerRequest,
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Upsert one MCP server entry in a project's `.mcp.json`
+    (`mcpServers[name]`) -- the project-scoped counterpart of
+    PUT /agents/{id}/mcp-servers/{name}, written here (not the backend
+    container) for the same reason every other project-file route in
+    project.py proxies through this bridge: an arbitrary project
+    working_directory_path isn't guaranteed reachable from the backend
+    container."""
+    _check_token(x_bridge_token)
+    if req.runtime_type not in PROJECT_MCP_SUPPORTED_RUNTIMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"runtime_type {req.runtime_type!r} has no project-scoped MCP mechanism.",
+        )
+    if not _MCP_SERVER_NAME_RE.match(req.name):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid MCP server name {req.name!r}: use letters, digits, '.', '_' or '-' (max 64 chars).",
+        )
+    if bool(req.command) == bool(req.url):
+        raise HTTPException(status_code=400, detail="Provide either command or url, not both.")
+
+    project_dir = _validate_project_path(req.project_path)
+    config_path = _project_mcp_config_path(project_dir, req.runtime_type)
+
+    try:
+        document = json.loads(config_path.read_text()) if config_path.exists() else {}
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail=f"{config_path} is not valid JSON: {exc}") from exc
+
+    servers = document.setdefault("mcpServers", {})
+    entry: dict = {}
+    if req.url:
+        entry["url"] = req.url
+    else:
+        entry["command"] = req.command
+        entry["args"] = list(req.args)
+    if req.env:
+        entry["env"] = dict(req.env)
+    if not req.enabled:
+        # Claude Code's .mcp.json has no enable/disable field -- "off" is
+        # removal only, same as the per-agent format (agent_mcp.py's
+        # FORMATS["claude"] has no toggle_field either). The route layer
+        # (backend/app/api/routes/project.py) rejects this before it ever
+        # reaches here; this is a defense-in-depth 400, not the primary gate.
+        raise HTTPException(
+            status_code=400,
+            detail="Claude Code's .mcp.json has no enable/disable flag -- remove the server instead.",
+        )
+    existing = servers.get(req.name) if isinstance(servers.get(req.name), dict) else {}
+    merged = {**{k: v for k, v in existing.items() if k in {"type", "transport"}}, **entry}
+    if "type" not in merged and not entry.get("url"):
+        merged = {"type": "stdio", **merged}
+    servers[req.name] = merged
+
+    config_path.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n")
+    os.chmod(config_path, 0o600)
+    return {"project_path": req.project_path, "config_path": str(config_path), "name": req.name}
+
+
+@app.delete("/v1/project-mcp-servers")
+async def delete_project_mcp_server(
+    project_path: str,
+    runtime_type: str,
+    name: str,
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Remove one MCP server entry from a project's `.mcp.json`."""
+    _check_token(x_bridge_token)
+    if runtime_type not in PROJECT_MCP_SUPPORTED_RUNTIMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"runtime_type {runtime_type!r} has no project-scoped MCP mechanism.",
+        )
+    project_dir = _validate_project_path(project_path)
+    config_path = _project_mcp_config_path(project_dir, runtime_type)
+    if not config_path.exists():
+        return {"project_path": project_path, "config_path": str(config_path), "removed": False}
+
+    try:
+        document = json.loads(config_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail=f"{config_path} is not valid JSON: {exc}") from exc
+    servers = document.get("mcpServers")
+    removed = isinstance(servers, dict) and servers.pop(name, None) is not None
+    if removed:
+        config_path.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n")
+    return {"project_path": project_path, "config_path": str(config_path), "removed": removed}
+
+
+@app.get("/v1/project-mcp-servers/status")
+async def get_project_mcp_servers_status(
+    project_path: str,
+    runtime_type: str,
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Live filesystem read of a project's `.mcp.json` -- the disk-truth
+    counterpart of the DB-stored ProjectMcpServer rows, same role as
+    GET /project-forgerouter/status above."""
+    _check_token(x_bridge_token)
+    if runtime_type not in PROJECT_MCP_SUPPORTED_RUNTIMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"runtime_type {runtime_type!r} has no project-scoped MCP mechanism.",
+        )
+    project_dir = _validate_project_path(project_path)
+    config_path = _project_mcp_config_path(project_dir, runtime_type)
+    if not config_path.exists():
+        return {"project_path": project_path, "config_path": str(config_path), "config_exists": False, "servers": []}
+
+    try:
+        document = json.loads(config_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail=f"{config_path} is not valid JSON: {exc}") from exc
+    servers_raw = document.get("mcpServers") or {}
+    servers = [
+        {
+            "name": name,
+            "command": entry.get("command"),
+            "args": entry.get("args") or [],
+            "env": entry.get("env") or {},
+            "url": entry.get("url"),
+        }
+        for name, entry in servers_raw.items()
+        if isinstance(entry, dict)
+    ]
+    return {
+        "project_path": project_path,
+        "config_path": str(config_path),
+        "config_exists": True,
+        "servers": servers,
     }
 
 
@@ -386,6 +2223,30 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
     image_paths: list[str] | None = None
+    # Optional per-turn toolset allowlist. The Darckware external-channel
+    # adapter uses `no_mcp` until identity and authorization have been proven;
+    # Telegram's internal flow can omit this field.
+    toolsets: list[str] | None = None
+    # Where the conversation comes from when it isn't this host (e.g. "site" for
+    # darckware's Lara chat). The turn runs in <profile>/channels/<channel>, and that cwd
+    # travels in every Hermes activity webhook -- the only field of the hook payload a
+    # caller can set -- so ForgeHub records a site visitor as a site visitor, not as the
+    # operator at a terminal (2026-09-28).
+    channel: str | None = None
+
+
+CHAT_CHANNEL_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+CHAT_TOOLSET_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
+
+
+def _chat_cwd(profile: str, channel: str | None) -> str:
+    if not channel:
+        return str(Path.home())
+    if not CHAT_CHANNEL_RE.match(channel):
+        raise HTTPException(status_code=400, detail=f"Invalid channel: {channel!r}")
+    path = PROFILES_DIR / profile / "channels" / channel
+    path.mkdir(parents=True, exist_ok=True)
+    return str(path)
 
 
 class ChatResponse(BaseModel):
@@ -393,7 +2254,9 @@ class ChatResponse(BaseModel):
     session_id: str | None = None
 
 
-def _run_hermes_chat(req: ChatRequest) -> ChatResponse:
+def _run_hermes_chat(
+    req: ChatRequest, *, autonomous_remediation: bool = False
+) -> ChatResponse:
     if not _is_valid_profile(req.profile):
         raise HTTPException(status_code=400, detail=f"Unknown or disallowed profile: {req.profile}")
 
@@ -403,6 +2266,12 @@ def _run_hermes_chat(req: ChatRequest) -> ChatResponse:
         "hermes_cli.main",
         "-p",
         req.profile,
+    ]
+    if req.toolsets:
+        if not all(CHAT_TOOLSET_RE.fullmatch(toolset) for toolset in req.toolsets):
+            raise HTTPException(status_code=400, detail="Invalid toolset name")
+        args += ["-t", ",".join(req.toolsets)]
+    args += [
         "chat",
         "-q",
         req.message,
@@ -412,6 +2281,11 @@ def _run_hermes_chat(req: ChatRequest) -> ChatResponse:
     ]
     if req.session_id:
         args += ["--resume", req.session_id]
+    if autonomous_remediation:
+        # This mode is exposed only by the dedicated, token-protected Auditor
+        # route below. The administrator has already confirmed the action in
+        # ForgeHub; checkpoints keep file mutations recoverable.
+        args += ["--yolo", "--checkpoints"]
     for image_path in req.image_paths or []:
         args += ["--image", image_path]
 
@@ -421,7 +2295,7 @@ def _run_hermes_chat(req: ChatRequest) -> ChatResponse:
             capture_output=True,
             text=True,
             timeout=CHAT_TIMEOUT_SECONDS,
-            cwd=str(Path.home()),
+            cwd=_chat_cwd(req.profile, req.channel),
         )
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="Agent did not respond in time") from None
@@ -437,7 +2311,7 @@ def _run_hermes_chat(req: ChatRequest) -> ChatResponse:
     ]
     reply = "\n".join(reply_lines).strip()
 
-    session_match = SESSION_ID_RE.search(proc.stderr)
+    session_match = HERMES_CLI_SESSION_ID_RE.search(proc.stderr)
     session_id = session_match.group(1) if session_match else req.session_id
 
     return ChatResponse(reply=reply, session_id=session_id)
@@ -446,7 +2320,21 @@ def _run_hermes_chat(req: ChatRequest) -> ChatResponse:
 @app.post("/v1/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, x_bridge_token: str | None = Header(default=None)) -> ChatResponse:
     _check_token(x_bridge_token)
-    return _run_hermes_chat(req)
+    # A Hermes run can take up to CHAT_TIMEOUT_SECONDS; running it inline
+    # froze the whole event loop (terminal WebSockets, health, every other
+    # route) for that long -- 2026-10-01 a Darckware triage call held it ~7min.
+    return await asyncio.to_thread(_run_hermes_chat, req)
+
+
+@app.post("/v1/audit/remediate", response_model=ChatResponse)
+async def audit_remediate(
+    req: ChatRequest, x_bridge_token: str | None = Header(default=None)
+) -> ChatResponse:
+    """Run an administrator-confirmed ecosystem correction through Athos."""
+    _check_token(x_bridge_token)
+    if req.profile != "athos":
+        raise HTTPException(status_code=400, detail="Audit remediation must use the athos profile")
+    return await asyncio.to_thread(_run_hermes_chat, req, autonomous_remediation=True)
 
 
 class MessageSendRequest(BaseModel):
@@ -454,6 +2342,71 @@ class MessageSendRequest(BaseModel):
     # send_message_tool itself takes.
     target: str
     message: str
+    # Which agent's bot sends it (profile_slug, e.g. "athos"). Every agent
+    # has its own Telegram bot with its own token, so answering a request
+    # that arrived through one agent means sending through that agent's bot
+    # -- otherwise the reply arrives from the wrong sender (2026-08-13).
+    # Omitted, the global install's bot is used, exactly as before.
+    profile: str | None = None
+
+
+@app.get("/v1/telegram/{profile}/messages")
+async def telegram_messages(
+    profile: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    """Read the visible transcript of a profile's latest Telegram chat.
+
+    Hermes' own state database remains authoritative. Only active user and
+    assistant text is exposed; tool calls, reasoning and configuration never
+    cross this boundary.
+    """
+    _check_token(x_bridge_token)
+    if not _is_valid_profile(profile):
+        raise HTTPException(status_code=404, detail=f"No Hermes profile named {profile!r}")
+    state_db = PROFILES_DIR / profile / "state.db"
+    if not state_db.is_file():
+        return {"profile": profile, "session_id": None, "chat_id": None, "messages": []}
+
+    try:
+        with sqlite3.connect(f"file:{state_db}?mode=ro", uri=True, timeout=5) as conn:
+            conn.row_factory = sqlite3.Row
+            session = conn.execute(
+                """
+                SELECT id, chat_id
+                FROM sessions
+                WHERE source = 'telegram' AND chat_id IS NOT NULL
+                ORDER BY COALESCE(last_activity_at, started_at) DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            if session is None:
+                return {"profile": profile, "session_id": None, "chat_id": None, "messages": []}
+            rows = conn.execute(
+                """
+                SELECT id, role, content, timestamp, platform_message_id
+                FROM messages
+                WHERE session_id = ?
+                  AND active = 1
+                  AND role IN ('user', 'assistant')
+                  AND content IS NOT NULL
+                  AND trim(content) != ''
+                ORDER BY timestamp DESC, id DESC
+                LIMIT ?
+                """,
+                (session["id"], limit),
+            ).fetchall()
+    except sqlite3.Error as exc:
+        raise HTTPException(status_code=502, detail=f"Could not read Telegram history: {exc}") from exc
+
+    messages = [dict(row) for row in reversed(rows)]
+    return {
+        "profile": profile,
+        "session_id": session["id"],
+        "chat_id": session["chat_id"],
+        "messages": messages,
+    }
 
 
 @app.post("/v1/messages/send")
@@ -461,25 +2414,40 @@ async def send_message(
     req: MessageSendRequest, x_bridge_token: str | None = Header(default=None)
 ) -> dict:
     """Forward a message through Hermes's cross-channel gateway (Telegram,
-    Discord, Slack, ...) -- shells out to send_message.py (HERMES_PYTHON,
-    same subprocess pattern as _run_hermes_chat / hermes_stream.py) since
-    the gateway's `tools`/`gateway` packages aren't importable from this
-    process directly (see that script's docstring)."""
+    Discord, Slack, ...) with `hermes [-p <profile>] send` -- the gateway's
+    `tools`/`gateway` packages aren't importable from this process directly."""
     _check_token(x_bridge_token)
-    helper = str(Path(__file__).parent / "send_message.py")
+    # `hermes send` is Hermes' own CLI for this (same send_message_tool, the profile's own bot
+    # and credentials). It runs through the launcher, so it always uses the active managed
+    # environment. The old send_message.py ran HERMES_PYTHON (the checkout's legacy 3.11 venv)
+    # against the source tree and broke when that tree started importing packages only the
+    # managed environment has ("import failed: No module named 'ruamel'", 2026-10-07).
+    cmd = [HERMES_BIN]
+    if req.profile:
+        # Resolved here rather than trusting a caller-supplied path: only slugs under the
+        # profiles dir are reachable (_is_valid_profile also checks PROFILE_NAME_RE).
+        if not _is_valid_profile(req.profile):
+            raise HTTPException(
+                status_code=404, detail=f"No Hermes profile named {req.profile!r}"
+            )
+        cmd += ["-p", req.profile]
+    # The body goes on stdin, never argv: it can be long and must not show up in `ps`.
+    cmd += ["send", "--to", req.target, "--json", "--file", "-"]
     try:
-        proc = subprocess.run(
-            [HERMES_PYTHON, "-u", helper, "--target", req.target, "--message", req.message],
+        proc = await asyncio.to_thread(
+            subprocess.run,
+            cmd,
+            input=req.message,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
         )
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="Message send timed out") from None
 
     try:
-        result = json.loads(proc.stdout.strip().splitlines()[-1]) if proc.stdout.strip() else {}
-    except (json.JSONDecodeError, IndexError):
+        result = json.loads(proc.stdout) if proc.stdout.strip() else {}
+    except json.JSONDecodeError:
         result = {}
 
     if proc.returncode != 0 or "error" in result:
@@ -547,12 +2515,301 @@ async def _direct_stream(profile: str, message: str, history: list) -> Streaming
     )
 
 
+# ---------------------------------------------------------------------------
+# Chat for the external CLI runtimes (2026-08-14).
+#
+# /v1/chat/stream only ever spoke Hermes: it validated `profile` against
+# /root/.hermes/profiles and ran hermes_cli. Aramis (codex), Dartan (agy)
+# and Porthus (claude) are not Hermes profiles, so every
+# chat turn addressed to them died on "Unknown profile" -- the Workspace
+# offered a conversation that could never happen.
+#
+# Each CLI already has a one-shot mode with machine-readable output (the same
+# ones /v1/agent-runs dispatches), so the work here is translation, not a new
+# execution path: run it, and map its native events onto the SSE contract
+# hermes_stream.py defines ({stream_id} / {delta} / {tool_start} / {done}).
+# Formats verified by hand against the installed binaries on 2026-08-14:
+#
+#   claude   --output-format stream-json: JSONL, system/init carries
+#            session_id, assistant messages carry content[].text and
+#            tool_use blocks, final {"type":"result","result":...}.
+#   codex    exec --json: JSONL, thread.started carries thread_id,
+#            item.completed/agent_message carries text.
+#   agy      --print: plain text on stdout, no structure at all.
+#
+# Approval prompts have no equivalent here -- these CLIs decide permissions
+# from their own flags, so a turn either runs or does not. The `stream_id`
+# is still emitted and registered, so the Stop button and the reattach-turn
+# machinery work exactly as they do for Hermes.
+# ---------------------------------------------------------------------------
+
+EXTERNAL_CHAT_RUNTIMES = ("claude", "codex", "agy")
+
+# A chat turn is a conversation, not a work package: read-only sandboxes and
+# plan modes would make the agent unable to do what it is being asked in the
+# very screen built to ask it. Matches what /v1/agent-runs uses for
+# mode="execute".
+def _external_chat_command(runtime: str, message: str, cwd: str, session_id: str | None) -> list[str]:
+    if runtime == "claude":
+        cmd = [
+            "/root/.local/bin/claude",
+            "--print",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--permission-mode",
+            "acceptEdits",
+        ]
+        # Claude Code is the only one of the three whose one-shot mode can
+        # resume a previous conversation by id, which is what makes a chat
+        # tab keep its context across turns.
+        if session_id:
+            cmd += ["--resume", session_id]
+        cmd.append(message)
+        return cmd
+    if runtime == "codex":
+        return [
+            "/root/.npm-global/bin/codex",
+            "exec",
+            "--json",
+            "--sandbox",
+            "workspace-write",
+            "--skip-git-repo-check",
+            "-C",
+            cwd,
+            message,
+        ]
+    # agy
+    return [
+        "/root/.local/bin/agy",
+        "--print",
+        message,
+        "--mode",
+        "accept-edits",
+        "--sandbox",
+        "--print-timeout",
+        "1800s",
+    ]
+
+
+# Claude Code's tool for launching a subagent ("Task" in older builds).
+CLAUDE_SUBAGENT_TOOLS = ("Agent", "Task")
+
+
+def _claude_events(data: dict) -> tuple[list[dict], str | None, str | None]:
+    """(events, session_id, final_reply) for one Claude Code stream-json line.
+
+    Subagents (2026-09-26, Marcelo: "preciso visualizar as tarefas dos
+    subagentes ... tem que aparecer as listas dos agentes em execução"):
+    every line a subagent produces carries `parent_tool_use_id` = the id of
+    the Agent tool call that launched it; top-level lines carry null. That
+    marker used to be ignored, so a subagent's text streamed into the main
+    reply as if the parent had said it, and its tool steps mixed into the
+    parent's trail. Now:
+      - the launching tool_start carries `subagent` {description, type};
+      - a subagent's tool_start carries `parent_id`;
+      - a subagent's text is `subagent_delta` {parent_id, text}, never `delta`;
+      - system task_started/progress/notification become `subagent_status`
+        (a backgrounded subagent keeps running after its launch returns);
+      - tool_result blocks become `tool_complete`, which this runtime never
+        sent before -- every step spun until the whole turn ended.
+    Verified against Claude Code 2.1.283; fixture:
+    tests/fixtures/claude_subagent_stream.jsonl.
+    """
+    events: list[dict] = []
+    kind = data.get("type")
+    parent_id = data.get("parent_tool_use_id")
+    if kind == "system":
+        subtype = data.get("subtype")
+        if subtype in ("task_started", "task_progress", "task_notification") and data.get("tool_use_id"):
+            status: dict = {"tool_id": data["tool_use_id"]}
+            if subtype == "task_started":
+                status.update(
+                    status="running",
+                    description=data.get("description") or "",
+                    subagent_type=data.get("subagent_type") or "",
+                    backgrounded=bool(data.get("is_backgrounded")),
+                )
+            elif subtype == "task_progress":
+                status.update(status="running", last_tool=data.get("last_tool_name") or "")
+            else:
+                status.update(status=data.get("status") or "completed", summary=data.get("summary") or "")
+            events.append({"subagent_status": status})
+            return events, None, None
+        # init also carries the tool list, hooks fire their own system lines --
+        # only the session id matters to us, and none of it is worth relaying.
+        return events, data.get("session_id"), None
+    if kind == "assistant":
+        for block in (data.get("message") or {}).get("content") or []:
+            if block.get("type") == "text" and block.get("text"):
+                if parent_id:
+                    events.append({"subagent_delta": {"parent_id": parent_id, "text": block["text"]}})
+                else:
+                    events.append({"delta": block["text"]})
+            elif block.get("type") == "tool_use":
+                tool_input = block.get("input") or {}
+                start: dict = {
+                    "tool_id": block.get("id"),
+                    "name": block.get("name"),
+                    "context": _tool_context(tool_input),
+                }
+                if parent_id:
+                    start["parent_id"] = parent_id
+                if block.get("name") in CLAUDE_SUBAGENT_TOOLS and isinstance(tool_input, dict):
+                    description = str(tool_input.get("description") or "")
+                    start["subagent"] = {
+                        "description": description,
+                        "subagent_type": str(tool_input.get("subagent_type") or "general-purpose"),
+                    }
+                    start["context"] = description[:80] or start["context"]
+                events.append({"tool_start": start})
+        return events, data.get("session_id"), None
+    if kind == "user":
+        content = (data.get("message") or {}).get("content")
+        for block in content if isinstance(content, list) else []:
+            if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("tool_use_id"):
+                done: dict = {"tool_id": block["tool_use_id"], "is_error": bool(block.get("is_error"))}
+                if parent_id:
+                    done["parent_id"] = parent_id
+                events.append({"tool_complete": done})
+        return events, None, None
+    if kind == "result":
+        return events, data.get("session_id"), data.get("result") or ""
+    return events, None, None
+
+
+def _codex_events(data: dict) -> tuple[list[dict], str | None, str | None]:
+    """(events, session_id, final_reply) for one `codex exec --json` line."""
+    kind = data.get("type")
+    if kind == "thread.started":
+        return [], data.get("thread_id"), None
+    if kind == "item.completed":
+        item = data.get("item") or {}
+        if item.get("type") == "agent_message":
+            text = item.get("text") or ""
+            # Codex emits the whole message at once rather than token by
+            # token: one delta, then the same text closes the turn.
+            return ([{"delta": text}] if text else []), None, text
+        if item.get("type") == "command_execution":
+            return [{
+                "tool_start": {
+                    "tool_id": item.get("id"),
+                    "name": "shell",
+                    "context": (item.get("command") or "")[:80],
+                }
+            }], None, None
+    return [], None, None
+
+
+def _tool_context(tool_input) -> str:
+    """80-char label for a tool call, matching what hermes_stream.py sends."""
+    if isinstance(tool_input, dict):
+        for key in ("command", "file_path", "path", "pattern", "query", "url"):
+            if tool_input.get(key):
+                return str(tool_input[key])[:80]
+    return ""
+
+
+async def _external_chat_stream(
+    runtime: str, message: str, cwd: str | None, session_id: str | None
+) -> StreamingResponse:
+    work_dir = cwd if cwd and Path(cwd).is_dir() else "/root"
+    command = _external_chat_command(runtime, message, work_dir, session_id)
+
+    async def event_stream():
+        stream_id = str(uuid.uuid4())
+        yield f'data: {json.dumps({"stream_id": stream_id})}\n\n'
+        proc = await asyncio.create_subprocess_exec(
+            *command,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=work_dir,
+            env=os.environ.copy(),
+        )
+        _active_streams[stream_id] = proc
+        new_session_id: str | None = None
+        final_reply: str | None = None
+        collected: list[str] = []
+        idle_ping = 20
+        idle_budget = 1800
+        idle = 0
+        try:
+            while True:
+                try:
+                    line_bytes = await asyncio.wait_for(proc.stdout.readline(), timeout=idle_ping)
+                except asyncio.TimeoutError:
+                    idle += idle_ping
+                    if idle >= idle_budget:
+                        yield f'data: {json.dumps({"error": f"agent timeout: no output for {idle_budget}s, turn aborted"})}\n\n'
+                        break
+                    yield ": ping\n\n"
+                    continue
+                idle = 0
+                if not line_bytes:
+                    break
+                line = line_bytes.decode(errors="replace").rstrip("\n")
+                if not line.strip():
+                    continue
+                if runtime == "agy":
+                    # No structure to parse: every line the CLI prints is the
+                    # answer itself.
+                    collected.append(line)
+                    yield f'data: {json.dumps({"delta": line + chr(10)})}\n\n'
+                    continue
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                events, sid, reply = (
+                    _claude_events(data) if runtime == "claude" else _codex_events(data)
+                )
+                if sid:
+                    new_session_id = sid
+                for event in events:
+                    if "delta" in event:
+                        collected.append(event["delta"])
+                    yield f"data: {json.dumps(event)}\n\n"
+                if reply is not None:
+                    final_reply = reply
+
+            stderr_bytes = await proc.stderr.read()
+            await proc.wait()
+
+            reply = final_reply if final_reply is not None else "".join(collected).strip()
+            if not reply and proc.returncode not in (0, None):
+                # An empty answer plus a non-zero exit is a failure, not a
+                # silent turn -- surface the CLI's own stderr instead of
+                # persisting an empty assistant message.
+                detail = stderr_bytes.decode(errors="replace").strip()[:400] or f"exit code {proc.returncode}"
+                yield f'data: {json.dumps({"error": f"{runtime}: {detail}"})}\n\n'
+                return
+            done: dict = {"done": True, "reply": reply}
+            if new_session_id:
+                done["session_id"] = new_session_id
+            yield f"data: {json.dumps(done)}\n\n"
+        finally:
+            _active_streams.pop(stream_id, None)
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/v1/chat/stream")
 async def chat_stream(
     profile: str,
     message: str,
     session_id: str | None = None,
     history: str | None = None,  # JSON array of {role,content} — enables direct ForgeRouter path
+    cwd: str | None = None,  # ChatSession.working_directory_path, see chat.py's /stream
+    runtime: str = "hermes",  # Agent.runtime_type; non-hermes takes the external-CLI path
     x_bridge_token: str | None = Header(default=None),
 ) -> StreamingResponse:
     """SSE endpoint — streams token deltas from the agent.
@@ -561,11 +2818,21 @@ async def chat_stream(
     Slow path (text): hermes_stream.py subprocess with full agent capabilities (~16s first token).
     """
     _check_token(x_bridge_token)
-    if not _is_valid_profile(profile):
-        raise HTTPException(status_code=400, detail=f"Unknown profile: {profile}")
 
+    # Voice's direct-ForgeRouter fast path is runtime-agnostic (it never
+    # touches a CLI at all), so it takes precedence over the external-runtime
+    # branch below regardless of which runtime the agent is.
     if history is not None:
         return await _direct_stream(profile, message, json.loads(history))
+
+    if runtime in EXTERNAL_CHAT_RUNTIMES:
+        # `profile` is the agent's profile_slug, not a Hermes profile
+        # directory -- meaningless to _is_valid_profile, which is exactly
+        # the check that used to 400 every external-runtime chat turn.
+        return await _external_chat_stream(runtime, message, cwd, session_id)
+
+    if not _is_valid_profile(profile):
+        raise HTTPException(status_code=400, detail=f"Unknown profile: {profile}")
 
     # Subprocess path (full Hermes agent with tools, memory, etc.)
     profile_home = str(PROFILES_DIR / profile)
@@ -586,6 +2853,8 @@ async def chat_stream(
     cmd = [HERMES_PYTHON, "-u", helper, "--profile-home", profile_home, "--message", message]
     if effective_session_id:
         cmd += ["--session-id", effective_session_id]
+    if cwd:
+        cmd += ["--cwd", cwd]
 
     async def event_stream():
         proc = await asyncio.create_subprocess_exec(
@@ -639,7 +2908,21 @@ async def chat_stream(
                 if data.get("stream_id") and stream_id is None:
                     stream_id = data["stream_id"]
                     _active_streams[stream_id] = proc
-                    continue  # internal bookkeeping line, not relayed to the frontend
+                    # Also relayed below, not just bookkept (2026-08-14): this
+                    # line used to `continue` here, silently swallowed. The
+                    # bridge registering the process for /v1/chat/approve was
+                    # always enough for approvals, but chat.py's ActiveTurn
+                    # (added 2026-08-13, after this) opens a turn keyed off
+                    # exactly this event -- without it reaching the caller,
+                    # `open_turn` never ran for a single Hermes agent turn,
+                    # and a reconnecting client had nothing to find (Marcelo:
+                    # "ao sair do chat... ao retornar não apareceu nenhum
+                    # processo"). The reply still landed once the turn
+                    # finished (persistence never depended on turn_id), which
+                    # is exactly why this went unnoticed -- only the *live*
+                    # reattach view was silently empty the whole time.
+                    yield f"data: {line}\n\n"
+                    continue
                 yield f"data: {line}\n\n"
                 if data.get("done") or data.get("error"):
                     break
@@ -685,9 +2968,43 @@ async def chat_approve(req: ChatApproveRequest, x_bridge_token: str | None = Hea
     return {"status": "ok"}
 
 
+class ChatStopRequest(BaseModel):
+    stream_id: str
+
+
+@app.post("/v1/chat/stop")
+async def chat_stop(req: ChatStopRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    """Kills the subprocess for a running chat turn (2026-08-14) -- the
+    explicit counterpart to the browser simply disconnecting.
+
+    Backend turns no longer die when a browser tab navigates away or closes
+    (see chat.py's `_run_chat_turn`, detached from the request lifecycle),
+    so the Stop button needs its own way to actually end a turn instead of
+    relying on connection-drop-kills-the-process, which used to kill every
+    turn on any disconnect -- Stop and "left the page" were indistinguishable.
+
+    Not finding the process is not an error: it may have already finished, or
+    this bridge may have restarted and lost its in-memory registry -- either
+    way, the caller's goal (nothing runs) is already true.
+    """
+    _check_token(x_bridge_token)
+    proc = _active_streams.get(req.stream_id)
+    if proc is None:
+        return {"status": "not_running"}
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        pass
+    return {"status": "stopping"}
+
+
 class ExecRequest(BaseModel):
     command: str
     cwd: str | None = None
+    # Auditor controls expose at most 600s; five additional seconds let the
+    # inner `timeout` command finish and return exit 124 before the bridge
+    # terminates its subprocess.
+    timeout_seconds: int = Field(default=60, ge=1, le=605)
 
 
 class ExecResponse(BaseModel):
@@ -711,15 +3028,15 @@ async def exec_command(req: ExecRequest, x_bridge_token: str | None = Header(def
             cwd=req.cwd or None,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=req.timeout_seconds,
         )
 
     try:
         proc = await loop.run_in_executor(None, run)
     except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=408, detail="Command timed out after 60s")
+        raise HTTPException(status_code=408, detail=f"Command timed out after {req.timeout_seconds}s") from None
     except FileNotFoundError:
-        raise HTTPException(status_code=400, detail=f"cwd not found: {req.cwd}")
+        raise HTTPException(status_code=400, detail=f"cwd not found: {req.cwd}") from None
     return ExecResponse(stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode)
 
 
@@ -744,7 +3061,8 @@ async def chat_with_image(
         dests.append(dest)
 
     try:
-        return _run_hermes_chat(
+        return await asyncio.to_thread(
+            _run_hermes_chat,
             ChatRequest(
                 profile=profile,
                 message=message,
@@ -963,6 +3281,52 @@ async def remote_access_status(x_bridge_token: str | None = Header(default=None)
 
 
 # ---------------------------------------------------------------------------
+# VPN control -- fixed Tailscale operations only. This deliberately does not
+# reuse /v1/exec: callers choose a logical node/action, never a command line.
+# ---------------------------------------------------------------------------
+
+
+class VpnActionRequest(BaseModel):
+    action: Literal["restart", "test"]
+
+
+@app.get("/v1/vpn/status")
+async def vpn_status(x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    return await asyncio.to_thread(_vpn_control.status)
+
+
+@app.post("/v1/vpn/nodes/{node}/actions")
+async def vpn_action(
+    node: str,
+    req: VpnActionRequest,
+    x_bridge_token: str | None = Header(default=None),
+) -> dict:
+    _check_token(x_bridge_token)
+    try:
+        result = await asyncio.to_thread(_vpn_control.action, node, req.action)
+    except VpnPolicyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result.get("success") is True:
+        return result
+    code = result.get("code")
+    status_code = (
+        409 if code in {"peer_offline", "no_reply", "not_online"}
+        else 404 if code == "peer_not_found"
+        else 504 if code == "timeout"
+        else 502
+    )
+    raise HTTPException(
+        status_code=status_code,
+        detail={
+            "code": code or "command_failed",
+            "summary": result.get("summary", "VPN operation failed."),
+            "target_name": result.get("target_name"),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Server status -- backs the Servers page's status column. A ping/TCP check
 # alone can't tell "server is up" apart from "server is up but our key
 # isn't authorized on it" -- Marcelo's own point when this was designed --
@@ -977,10 +3341,37 @@ class ServerCheckEntry(BaseModel):
     remote_user: str
     ssh_port: int = 22
     ssh_key_path: str | None = None
+    # ForgeVault secret id of the machine's key; preferred over ssh_key_path,
+    # the same order the terminal, executions and Explorer use.
+    ssh_key_ref: str | None = Field(default=None, min_length=36, max_length=36)
+    # Prove that *this* key logs in: no ~/.ssh/config, no default identities,
+    # only the vault key. Used before ForgeHub stops pointing at a key file
+    # (phase 5 of REMOTE_ACCESS_SERVERS_UNIFICATION_PLAN.md) -- a plain probe
+    # could pass on some other key the host happens to have.
+    strict: bool = False
 
 
 class ServerCheckRequest(BaseModel):
     servers: list[ServerCheckEntry]
+
+
+async def _vault_identity_args(key_ref: str) -> list[str]:
+    """ssh options that authenticate with the ForgeVault key alone: its agent
+    socket plus its public half as the only identity (ssh then asks the agent
+    for the matching private key). The .pub sits in the agent's 0700 dir."""
+    sock = await _agent_socket_for(key_ref)
+    proc = await asyncio.create_subprocess_exec(
+        "ssh-add", "-L", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        env={**os.environ, "SSH_AUTH_SOCK": sock},
+    )
+    out, _ = await proc.communicate()
+    public = out.decode().strip().splitlines()
+    if proc.returncode != 0 or not public:
+        raise ValueError("The ForgeVault agent holds no key")
+    pub_path = os.path.join(os.path.dirname(sock), "identity.pub")
+    with open(pub_path, "w") as fh:
+        fh.write(public[0] + "\n")
+    return ["-F", "/dev/null", "-o", f"IdentityAgent={sock}", "-i", pub_path, "-o", "IdentitiesOnly=yes"]
 
 
 async def _check_one_server(entry: ServerCheckEntry) -> str:
@@ -1002,20 +3393,39 @@ async def _check_one_server(entry: ServerCheckEntry) -> str:
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=/dev/null",
     ]
-    if entry.ssh_key_path:
+    if entry.ssh_key_ref:
+        if not re.fullmatch(r"[0-9a-f-]{36}", entry.ssh_key_ref):
+            return "not_installed"
+        try:
+            if entry.strict:
+                ssh_args += await _vault_identity_args(entry.ssh_key_ref)
+            else:
+                ssh_args += ["-o", f"IdentityAgent={await _agent_socket_for(entry.ssh_key_ref)}"]
+        except Exception:
+            # The vault or its agent failed: nothing proves the key works.
+            return "not_installed"
+    elif entry.ssh_key_path:
         ssh_args += ["-i", entry.ssh_key_path]
+        if entry.strict:
+            ssh_args += ["-F", "/dev/null", "-o", "IdentitiesOnly=yes"]
     if entry.ssh_port != 22:
         ssh_args += ["-p", str(entry.ssh_port)]
-    ssh_args += [f"{entry.remote_user}@{entry.ip_address}", "true"]
+    # `exit`, not `true`: it is a builtin of sh, cmd.exe and PowerShell alike,
+    # so a Windows station (whose OpenSSH shell is PowerShell) doesn't read
+    # as "key refused" just because `true` isn't a command there
+    # (2026-10-16). And only ssh's own 255 means "couldn't log in": any other
+    # exit code means the key was accepted and the remote shell ran.
+    ssh_args += [f"{entry.remote_user}@{entry.ip_address}", "exit"]
 
     try:
         proc = await asyncio.create_subprocess_exec(
             *ssh_args, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
         )
-        returncode = await asyncio.wait_for(proc.wait(), timeout=6.0)
+        # PowerShell takes a few seconds to start on a cold station.
+        returncode = await asyncio.wait_for(proc.wait(), timeout=20.0)
     except Exception:
         return "not_installed"
-    return "active" if returncode == 0 else "not_installed"
+    return "not_installed" if returncode == 255 else "active"
 
 
 @app.post("/v1/servers/check-status")
@@ -1024,7 +3434,10 @@ async def check_server_status(
 ) -> dict:
     _check_token(x_bridge_token)
     results = await asyncio.gather(*(_check_one_server(e) for e in req.servers))
-    return {"statuses": {e.id: status for e, status in zip(req.servers, results)}}
+    # "vault_strict": this bridge honours ssh_key_ref/strict. An older one
+    # ignores both fields and would probe with whatever keys the host has --
+    # the backend refuses to trust a strict check without this flag.
+    return {"statuses": {e.id: status for e, status in zip(req.servers, results)}, "vault_strict": True}
 
 
 # ---------------------------------------------------------------------------
@@ -1069,19 +3482,25 @@ def _install_hint(out: str, login_user: str) -> str:
         return f" — hint: '{login_user}' logged in but sudo failed; it needs passwordless sudo (or use 'root')."
     if "could not resolve" in low or "connection refused" in low or "timed out" in low or "no route to host" in low:
         return " — hint: the host is unreachable on this SSH port."
+    if "command not found" in low:
+        return " — hint: a required command (e.g. sshpass, ssh, ssh-copy-id) is not installed on this host."
     return ""
 
 
 async def _run_step(
     args: list[str], timeout: float, env: dict | None = None, input_text: str | None = None
 ) -> tuple[int, str]:
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdin=asyncio.subprocess.PIPE if input_text is not None else None,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        env=env,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdin=asyncio.subprocess.PIPE if input_text is not None else None,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=env,
+        )
+    except FileNotFoundError:
+        cmd_name = args[0] if args else "command"
+        return 127, f"command not found: {cmd_name}"
     try:
         out, _ = await asyncio.wait_for(
             proc.communicate(input_text.encode() if input_text is not None else None), timeout=timeout
@@ -1091,6 +3510,102 @@ async def _run_step(
             proc.kill()
         return 124, "timed out"
     return proc.returncode or 0, out.decode(errors="replace")[-800:]
+
+
+# Identity files may only be read from / written to these roots. The vault
+# endpoints below move private key material, so the path -- which arrives in a
+# request body -- is never trusted on its own: without this, any caller
+# holding the bridge token could name an arbitrary file and have its contents
+# returned. Covers where SSH keys actually live on this host: the shell's own
+# ~/.ssh, the Aegis profile's forgenet/server-management key directories, and
+# whatever SSH_KEYS_DIR is set to.
+PRIVATE_KEY_ROOTS = (
+    "/root/.ssh",
+    "/root/agents",
+    "/root/.hermes/profiles",
+    SSH_KEYS_DIR,
+)
+
+
+def _resolve_key_path(raw: str) -> str:
+    """Validates a private-key path against PRIVATE_KEY_ROOTS. Resolves
+    symlinks first (/root/agents/aegis is one), so `..` or a symlink pointing
+    outside can't smuggle a path past the prefix check."""
+    path = (raw or "").strip()
+    if not path:
+        raise HTTPException(status_code=400, detail="key_path is required")
+    if path.endswith(".pub"):
+        raise HTTPException(status_code=400, detail="key_path must be the private key, not the .pub")
+    resolved = os.path.realpath(path)
+    roots = [os.path.realpath(root) for root in PRIVATE_KEY_ROOTS]
+    if not any(resolved == root or resolved.startswith(root + os.sep) for root in roots):
+        raise HTTPException(status_code=400, detail="key_path is outside the allowed SSH key directories")
+    return resolved
+
+
+class PrivateKeyRequest(BaseModel):
+    key_path: str
+
+
+class WritePrivateKeyRequest(BaseModel):
+    key_path: str
+    private_key: str
+    public_key: str | None = None
+
+
+@app.post("/v1/servers/read-private-key")
+async def read_private_key(
+    req: PrivateKeyRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    """Reads an identity file so ForgeHub can keep an encrypted copy of it
+    (see servers.private_key_encrypted). The material crosses the wire on
+    localhost, token-checked, and is encrypted before it is stored -- the
+    alternative, leaving the only copy on disk, is what lost the 172.15.2.5
+    key when the Aegis profile directory was recreated."""
+    _check_token(x_bridge_token)
+    path = _resolve_key_path(req.key_path)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail=f"No identity file at {path}")
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        private_key = fh.read()
+    if "PRIVATE KEY" not in private_key:
+        raise HTTPException(status_code=400, detail="File does not look like an SSH private key")
+    public_key = None
+    if os.path.isfile(path + ".pub"):
+        with open(path + ".pub", encoding="utf-8", errors="replace") as fh:
+            public_key = fh.read().strip()
+    return {"private_key": private_key, "public_key": public_key, "key_path": path}
+
+
+@app.post("/v1/servers/write-private-key")
+async def write_private_key(
+    req: WritePrivateKeyRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    """Pours a vaulted identity file back onto the host at key_path (0600,
+    parent directory created if needed), so a lost key can be restored without
+    touching the server's authorized_keys. Refuses to overwrite an existing
+    file: restoring is for a key that is *missing*, and silently replacing a
+    working identity would be a much worse failure than reporting the
+    conflict."""
+    _check_token(x_bridge_token)
+    path = _resolve_key_path(req.key_path)
+    if "PRIVATE KEY" not in req.private_key:
+        raise HTTPException(status_code=400, detail="Payload does not look like an SSH private key")
+    if os.path.exists(path):
+        raise HTTPException(status_code=409, detail=f"An identity file already exists at {path}")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    # Create with 0600 from the start -- writing then chmod'ing would leave a
+    # window where the private key is world-readable.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(req.private_key if req.private_key.endswith("\n") else req.private_key + "\n")
+    written = [path]
+    if req.public_key and not os.path.exists(path + ".pub"):
+        with open(path + ".pub", "w", encoding="utf-8") as fh:
+            fh.write(req.public_key.strip() + "\n")
+        os.chmod(path + ".pub", 0o644)
+        written.append(path + ".pub")
+    return {"ok": True, "written": written}
 
 
 class ReadPubKeyRequest(BaseModel):
@@ -1116,6 +3631,51 @@ async def read_public_key(req: ReadPubKeyRequest, x_bridge_token: str | None = H
     if not content.startswith("ssh-") and "ssh-" not in content.split(" ", 1)[0]:
         raise HTTPException(status_code=400, detail="File does not look like an SSH public key")
     return {"public_key": content, "pub_path": pub_path}
+
+
+class EnsureKeyRequest(BaseModel):
+    # One of the two names the key file: the IP (install-key's convention) or,
+    # for a station that hasn't joined the tailnet yet and so has no IP, an
+    # explicit key_name ("ws_<uuid>").
+    ip_address: str | None = None
+    key_name: str | None = None
+    comment: str | None = None
+
+
+@app.post("/v1/servers/ensure-key")
+async def ensure_server_key(req: EnsureKeyRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    """Creates (or reuses) the ed25519 pair a machine's preparation script
+    authorizes -- same file naming as install-key, so both flows meet on the
+    same identity. Used by Remote Access's "Prepare" for stations where the
+    key is authorized by a script run on the station (RustDesk), not pushed
+    with a password from here. Returns only the public half and the path."""
+    _check_token(x_bridge_token)
+    if req.key_name:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", req.key_name):
+            raise HTTPException(status_code=400, detail="Invalid key_name")
+        base = req.key_name
+    elif req.ip_address and re.fullmatch(r"[\w.:-]+", req.ip_address):
+        base = re.sub(r"[.:]", "_", req.ip_address)
+    else:
+        raise HTTPException(status_code=400, detail="Invalid ip_address")
+    comment = req.comment or f"forgehub@{base}"
+    if not re.fullmatch(r"[\w.@:-]+", comment):
+        raise HTTPException(status_code=400, detail="Invalid comment")
+    key_path = os.path.join(SSH_KEYS_DIR, base + "_key")
+    pub_path = key_path + ".pub"
+    os.makedirs(SSH_KEYS_DIR, exist_ok=True)
+    created = False
+    if not (os.path.exists(key_path) and os.path.exists(pub_path)):
+        code, out = await _run_step(
+            ["ssh-keygen", "-q", "-t", "ed25519", "-f", key_path, "-N", "", "-C", comment], timeout=30
+        )
+        if code != 0:
+            raise HTTPException(status_code=500, detail=f"ssh-keygen failed: {out[-300:]}")
+        created = True
+    os.chmod(key_path, 0o600)
+    with open(pub_path, encoding="utf-8") as fh:
+        public_key = fh.read().strip()
+    return {"key_path": key_path, "public_key": public_key, "created": created}
 
 
 @app.post("/v1/servers/install-key")
@@ -1349,10 +3909,8 @@ async def get_system_stats(x_bridge_token: str | None = Header(default=None)) ->
 # probe, so we diff the installed version against the npm registry; agy has
 # no check-only mode at all -- `agy update` itself checks-and-applies in one
 # step, same as its own background auto-updater which already does this
-# every ~15 min regardless of this endpoint; kanboard isn't a CLI at all but
-# a Docker container whose pinned image tag is diffed against the latest
-# GitHub release) -- so each check is tool-specific rather than a single
-# generic path.
+# every ~15 min regardless of this endpoint) -- so each check is tool-specific
+# rather than a single generic path.
 # ---------------------------------------------------------------------------
 
 
@@ -1365,10 +3923,22 @@ class ToolVersionResult(BaseModel):
 
 def _run(cmd: list[str], timeout: int = 30) -> tuple[int, str, str]:
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        run_env = os.environ.copy()
+        run_env.setdefault("HERMES_HOME", "/root/.hermes")
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=run_env)
         return proc.returncode, proc.stdout, proc.stderr
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
         return 1, "", str(exc)
+
+
+def _find_tool_binary(name: str, candidates: list[str]) -> str | None:
+    found = shutil.which(name)
+    if found and os.path.isfile(found) and os.access(found, os.X_OK):
+        return found
+    for cand in candidates:
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    return None
 
 
 # npm registry lookups are a real network call; the installed CLI's "latest
@@ -1390,7 +3960,10 @@ def _npm_latest_version(package: str) -> str | None:
 
 
 def _check_hermes() -> ToolVersionResult:
-    code, out, err = _run(["/root/.local/bin/hermes", "--version"])
+    bin_path = _find_tool_binary("hermes", ["/root/.local/bin/hermes", "/usr/local/lib/hermes-agent/venv/bin/hermes", "/usr/local/bin/hermes"])
+    if not bin_path:
+        return ToolVersionResult(installed_version=None, latest_version=None, update_available=False, error=None)
+    code, out, err = _run([bin_path, "--version"])
     if code != 0:
         return ToolVersionResult(installed_version=None, latest_version=None, update_available=False, error=err.strip()[:500])
     installed_m = re.search(r"Hermes Agent v(\S+)", out)
@@ -1403,7 +3976,7 @@ def _check_hermes() -> ToolVersionResult:
     # update is available without installing anything") whose own output
     # keeps the actionable status on its own line, so the same capture regex
     # against it yields a clean, bounded value instead.
-    check_code, check_out, check_err = _run(["/root/.local/bin/hermes", "update", "--check"], timeout=30)
+    check_code, check_out, check_err = _run([bin_path, "update", "--check"], timeout=30)
     if check_code != 0:
         return ToolVersionResult(
             installed_version=installed, latest_version=None, update_available=False, error=check_err.strip()[:500] or None
@@ -1416,101 +3989,26 @@ def _check_hermes() -> ToolVersionResult:
     )
 
 
-def _check_npm_backed(binary: str, version_pattern: str, npm_package: str) -> ToolVersionResult:
-    code, out, err = _run([binary, "--version"])
+def _check_npm_backed(tool_name: str, candidates: list[str], version_pattern: str, npm_package: str) -> ToolVersionResult:
+    bin_path = _find_tool_binary(tool_name, candidates)
+    latest = _npm_latest_version(npm_package)
+    if not bin_path:
+        return ToolVersionResult(
+            installed_version=None,
+            latest_version=latest,
+            update_available=False,
+            error=None,
+        )
+    code, out, err = _run([bin_path, "--version"])
     if code != 0:
-        return ToolVersionResult(installed_version=None, latest_version=None, update_available=False, error=err.strip()[:500])
+        return ToolVersionResult(installed_version=None, latest_version=latest, update_available=False, error=err.strip()[:500])
     installed_m = re.search(version_pattern, out)
     installed = installed_m.group(1) if installed_m else out.strip() or None
-    latest = _npm_latest_version(npm_package)
     return ToolVersionResult(
         installed_version=installed,
         latest_version=latest,
         update_available=bool(installed and latest and installed != latest),
     )
-
-
-# Same brief-cache reasoning as the npm lookups above, for the GitHub
-# "latest release" lookup the Kanboard check needs (unauthenticated GitHub
-# API is rate-limited to 60 req/h -- the 900s poll alone stays under that,
-# but there is no reason to spend it).
-_GITHUB_RELEASE_CACHE_TTL_SECONDS = 3600
-_github_release_cache: dict[str, tuple[float, str | None]] = {}
-
-
-def _github_latest_release_tag(repo: str) -> str | None:
-    now = time.monotonic()
-    cached = _github_release_cache.get(repo)
-    if cached is not None and now - cached[0] < _GITHUB_RELEASE_CACHE_TTL_SECONDS:
-        return cached[1]
-    tag: str | None = None
-    try:
-        resp = httpx.get(
-            f"https://api.github.com/repos/{repo}/releases/latest",
-            headers={"Accept": "application/vnd.github+json"},
-            timeout=20.0,
-            follow_redirects=True,
-        )
-        if resp.status_code == 200:
-            tag = resp.json().get("tag_name") or None
-    except httpx.HTTPError:
-        tag = None
-    _github_release_cache[repo] = (now, tag)
-    return tag
-
-
-# Kanboard isn't a host CLI like the other monitored tools -- it's the Docker
-# container defined by this compose file, with the image pinned to a release
-# tag (kanboard/kanboard:vX.Y.Z). "Installed" is the running container's
-# image tag; "latest" is the newest GitHub release. Updating rewrites the
-# pinned tag in the compose file and recreates the container (its data lives
-# in named volumes, so recreation is safe).
-KANBOARD_COMPOSE_FILE = Path("/root/.hermes/kanboard/docker-compose.yml")
-
-
-def _kanboard_installed_tag() -> tuple[str | None, str | None]:
-    """(image tag, error) for the kanboard container, e.g. ("v1.2.52", None)."""
-    code, out, err = _run(["docker", "inspect", "kanboard", "--format", "{{.Config.Image}}"])
-    if code != 0:
-        return None, (err.strip() or out.strip())[:500] or "docker inspect kanboard failed"
-    image = out.strip()
-    if ":" not in image:
-        return None, f"kanboard container image has no pinned tag: {image}"
-    return image.rsplit(":", 1)[1], None
-
-
-def _check_kanboard() -> ToolVersionResult:
-    tag, error = _kanboard_installed_tag()
-    if tag is None:
-        return ToolVersionResult(installed_version=None, latest_version=None, update_available=False, error=error)
-    latest_tag = _github_latest_release_tag("kanboard/kanboard")
-    installed = tag.lstrip("v")
-    latest = latest_tag.lstrip("v") if latest_tag else None
-    return ToolVersionResult(
-        installed_version=installed,
-        latest_version=latest,
-        update_available=bool(latest and installed != latest),
-    )
-
-
-def _update_kanboard() -> tuple[int, str, str]:
-    """Pin the compose file to the latest GitHub release tag and recreate the
-    container -- the kanboard entry's counterpart to TOOL_UPDATE_COMMANDS."""
-    latest_tag = _github_latest_release_tag("kanboard/kanboard")
-    if latest_tag is None:
-        return 1, "", "Could not resolve the latest Kanboard release from the GitHub API"
-    try:
-        text = KANBOARD_COMPOSE_FILE.read_text()
-    except OSError as exc:
-        return 1, "", str(exc)
-    new_text, replaced = re.subn(r"(image:\s*kanboard/kanboard):\S+", rf"\1:{latest_tag}", text)
-    if replaced == 0:
-        return 1, "", f"No 'image: kanboard/kanboard:<tag>' line found in {KANBOARD_COMPOSE_FILE}"
-    KANBOARD_COMPOSE_FILE.write_text(new_text)
-    code, out, err = _run(
-        ["docker", "compose", "-f", str(KANBOARD_COMPOSE_FILE), "up", "-d"], timeout=600
-    )
-    return code, f"Pinned kanboard/kanboard:{latest_tag}\n{out}", err
 
 
 def _check_antigravity(run_update: bool = True) -> ToolVersionResult:
@@ -1519,11 +4017,14 @@ def _check_antigravity(run_update: bool = True) -> ToolVersionResult:
     no separate --check/--dry-run flag). `run_update=False` skips re-running
     it and only reports the installed version, for callers that already just
     ran a real update themselves and don't want to trigger a second one."""
+    bin_path = _find_tool_binary("agy", ["/usr/local/bin/agy", "/root/.local/bin/agy"])
+    if not bin_path:
+        return ToolVersionResult(installed_version=None, latest_version=None, update_available=False, error=None)
     if run_update:
-        code, out, err = _run(["/root/.local/bin/agy", "update"], timeout=180)
+        code, out, err = _run([bin_path, "update"], timeout=180)
     else:
         code, out, err = 0, "", ""
-    version_code, version_out, _ = _run(["/root/.local/bin/agy", "--version"])
+    version_code, version_out, _ = _run([bin_path, "--version"])
     installed = version_out.strip() if version_code == 0 else None
     if run_update and code != 0:
         return ToolVersionResult(installed_version=installed, latest_version=None, update_available=False, error=err.strip()[:500])
@@ -1537,28 +4038,27 @@ def _check_antigravity(run_update: bool = True) -> ToolVersionResult:
 
 TOOL_CHECKS = {
     "hermes": _check_hermes,
-    "claude": lambda: _check_npm_backed("/root/.local/bin/claude", r"^(\S+)\s*\(Claude Code\)", "@anthropic-ai/claude-code"),
-    "codex": lambda: _check_npm_backed("/root/.npm-global/bin/codex", r"codex-cli (\S+)", "@openai/codex"),
+    "claude": lambda: _check_npm_backed("claude", ["/usr/local/bin/claude", "/root/.local/bin/claude"], r"^(\S+)\s*\(Claude Code\)", "@anthropic-ai/claude-code"),
+    "codex": lambda: _check_npm_backed("codex", ["/usr/local/bin/codex", "/root/.npm-global/bin/codex"], r"codex-cli (\S+)", "@openai/codex"),
     "antigravity": _check_antigravity,
-    # pi and opencode both print a bare version string ("0.80.2") with no
-    # surrounding label, and both are also published to the npm registry
-    # under a different name than their binary (pi: @earendil-works/
-    # pi-coding-agent; opencode: opencode-ai) -- same npm-diff strategy as
-    # claude/codex above, just with a simpler capture pattern.
-    "pi": lambda: _check_npm_backed("/root/.npm-global/bin/pi", r"(\d+\.\d+\.\d+)", "@earendil-works/pi-coding-agent"),
-    "opencode": lambda: _check_npm_backed("/root/.opencode/bin/opencode", r"(\d+\.\d+\.\d+)", "opencode-ai"),
-    "kanboard": _check_kanboard,
+    "pi": lambda: _check_npm_backed("pi", ["/usr/local/bin/pi", "/root/.npm-global/bin/pi"], r"(\d+\.\d+\.\d+)", "@earendil-works/pi-coding-agent"),
+    "opencode": lambda: _check_npm_backed("opencode", ["/usr/local/bin/opencode", "/root/.opencode/bin/opencode"], r"(\d+\.\d+\.\d+)", "opencode-ai"),
 }
 
 TOOL_UPDATE_COMMANDS = {
     "hermes": ["/root/.local/bin/hermes", "update", "--yes"],
-    "claude": ["/root/.local/bin/claude", "update"],
-    "codex": ["/root/.npm-global/bin/codex", "update"],
-    "antigravity": ["/root/.local/bin/agy", "update"],
-    # Both have a built-in self-update subcommand that no-ops cleanly (exit
-    # 0, no prompt) when already current.
-    "pi": ["/root/.npm-global/bin/pi", "update"],
-    "opencode": ["/root/.opencode/bin/opencode", "upgrade"],
+    "claude": ["claude", "update"],
+    "codex": ["codex", "update"],
+    "antigravity": ["agy", "update"],
+    "pi": ["npm", "install", "-g", "@earendil-works/pi-coding-agent@latest"],
+    "opencode": ["npm", "install", "-g", "opencode-ai@latest"],
+}
+
+TOOL_INSTALL_COMMANDS = {
+    "claude": ["npm", "install", "-g", "@anthropic-ai/claude-code"],
+    "codex": ["npm", "install", "-g", "@openai/codex"],
+    "pi": ["npm", "install", "-g", "@earendil-works/pi-coding-agent"],
+    "opencode": ["npm", "install", "-g", "opencode-ai"],
 }
 
 
@@ -1612,16 +4112,36 @@ async def update_tool(req: ToolUpdateRequest, x_bridge_token: str | None = Heade
     """Run the tool's real update command -- triggered only by an explicit
     user click on the Dashboard, not by the periodic sync poll above."""
     _check_token(x_bridge_token)
-    if req.tool == "kanboard":
-        runner = _update_kanboard
-    else:
-        cmd = TOOL_UPDATE_COMMANDS.get(req.tool)
-        if cmd is None:
-            raise HTTPException(status_code=400, detail=f"Unknown tool: {req.tool}")
-        runner = lambda: _run(cmd, timeout=600)  # noqa: E731
+    cmd = TOOL_UPDATE_COMMANDS.get(req.tool)
+    if cmd is None:
+        raise HTTPException(status_code=400, detail=f"Unknown tool: {req.tool}")
+    runner = lambda: _run(cmd, timeout=600)  # noqa: E731
     loop = asyncio.get_event_loop()
     code, out, err = await loop.run_in_executor(None, runner)
     return ToolUpdateResponse(success=code == 0, output=out[-4000:], error=(err[-2000:] or None) if code != 0 else None)
+
+
+class ToolInstallRequest(BaseModel):
+    tool: str
+
+
+class ToolInstallResponse(BaseModel):
+    success: bool
+    output: str
+    error: str | None = None
+
+
+@app.post("/v1/tool-versions/install", response_model=ToolInstallResponse)
+async def install_tool(req: ToolInstallRequest, x_bridge_token: str | None = Header(default=None)) -> ToolInstallResponse:
+    """Run the tool's installation command on the host."""
+    _check_token(x_bridge_token)
+    cmd = TOOL_INSTALL_COMMANDS.get(req.tool)
+    if cmd is None:
+        raise HTTPException(status_code=400, detail=f"No install command for tool: {req.tool}")
+    runner = lambda: _run(cmd, timeout=600)  # noqa: E731
+    loop = asyncio.get_event_loop()
+    code, out, err = await loop.run_in_executor(None, runner)
+    return ToolInstallResponse(success=code == 0, output=out[-4000:], error=(err[-2000:] or None) if code != 0 else None)
 
 
 # ---------------------------------------------------------------------------
@@ -1634,7 +4154,7 @@ async def update_tool(req: ToolUpdateRequest, x_bridge_token: str | None = Heade
 # terminal instead of needing special-cased error handling here.
 # ---------------------------------------------------------------------------
 
-LAUNCHER_COMMANDS = {"hermes", "claude", "codex", "agy", "pi", "opencode"}
+LAUNCHER_COMMANDS = {"hermes --tui", "claude", "codex", "agy", "pi", "opencode"}
 
 # The Servers domain's "SSH" launcher (ForgeHub frontend's buildSshCommand)
 # sends a per-server command that can't be a fixed whitelist entry like the
@@ -1717,8 +4237,137 @@ def _tmux(*args: str, timeout: int = 10) -> subprocess.CompletedProcess:
     return subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=timeout)
 
 
+def _tmux_new_session(*args: str) -> subprocess.CompletedProcess:
+    """`tmux new-session` wrapped in its own transient systemd scope.
+
+    Whichever tmux command first finds no server running forks the server,
+    and that server inherits the caller's cgroup. This service runs with
+    KillMode=control-group, so a server started from here used to die on
+    every bridge restart, killing every terminal session (and the CLI
+    agents running inside them) along with it. Run inside a scope, the
+    server lives outside the service's cgroup and survives restarts. If a
+    server is already running, the client just exits and systemd collects
+    the empty scope. If systemd-run fails, fall back to plain tmux so a
+    terminal still opens.
+    """
+    result = subprocess.run(
+        ["systemd-run", "--scope", "--quiet", "--collect",
+         "--description=ForgeHub terminal tmux server", "tmux", "new-session", *args],
+        capture_output=True, text=True, timeout=10,
+    )
+    if result.returncode != 0:
+        logging.warning("terminal systemd-run failed: %s", result.stderr.strip())
+    if result.returncode != 0 and not _tmux_session_exists(args[args.index("-s") + 1]):
+        fallback = _tmux("new-session", *args)
+        if fallback.returncode != 0:
+            logging.warning("terminal tmux fallback failed: %s", fallback.stderr.strip())
+        return fallback
+    return result
+
+
+def _tmux_window_rows(session_name: str, client_rows: int) -> int:
+    """Rows the tmux *window* gets out of the client's `client_rows`.
+
+    The window is resized by hand (window-size manual), and the client also
+    draws the status bar -- ~/.tmux.conf turns it on for every session, and
+    `status` may be "on" or a line count ("2"). Resizing the window to the
+    full client height left it one row taller than what the client can show,
+    so tmux scrolled the viewport to the cursor and hid the pane's last row:
+    Claude Code's mode line ("⏵⏵ accept edits on (shift+tab to cycle)"),
+    which made Shift+Tab look like it did nothing (2026-10-03).
+    """
+    status = _tmux("display-message", "-p", "-t", session_name, "#{status}").stdout.strip()
+    if status in ("", "off"):
+        lines = 0
+    elif status == "on":
+        lines = 1
+    else:
+        try:
+            lines = int(status)
+        except ValueError:
+            lines = 1
+    return max(2, client_rows - lines)
+
+
 def _tmux_session_exists(name: str) -> bool:
     return _tmux("has-session", "-t", name).returncode == 0
+
+
+def _list_forgehub_tmux_sessions() -> list[dict]:
+    """Shared by the `/v1/terminal/sessions` listing endpoint (Fase 6.2)
+    and the inactivity sweep below (Fase 6.4) -- one source of truth for
+    parsing tmux's own session table, so the two never drift out of sync
+    on what counts as a "forgehub" session."""
+    result = _tmux(
+        "list-sessions",
+        "-F",
+        "#{session_name}\t#{session_created}\t#{session_activity}\t#{session_attached}",
+    )
+    sessions = []
+    for line in result.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 4 or not parts[0].startswith("forgehub-"):
+            continue
+        name, created, activity, attached = parts
+        sessions.append(
+            {
+                "session_id": name[len("forgehub-") :],
+                "created_at": int(created),
+                "last_activity_at": int(activity),
+                "attached": attached == "1",
+            }
+        )
+    return sessions
+
+
+@app.get("/v1/terminal/sessions")
+async def list_terminal_sessions(x_bridge_token: str | None = Header(default=None)) -> dict:
+    """Lists every live `forgehub-*` tmux session on the host (Fase 6.2,
+    2026-07-28) -- a tab closed without going through the UI's own close
+    button (browser crash, F5 outside the Workspace flow) leaves its tmux
+    session running forever with nothing in ForgeHub aware it exists. This
+    is the disk-truth read the System Control screen's cleanup card uses
+    to surface and kill those orphans, same reasoning as
+    `_list_scripts`/`_audit_check_script_refs` elsewhere in this file."""
+    _check_token(x_bridge_token)
+    return {"sessions": _list_forgehub_tmux_sessions()}
+
+
+# Fase 6.4 (2026-07-28): a tmux session never expires on its own -- an
+# orphan (see Fase 6.2 above) sits there forever, invisible unless someone
+# happens to open System Control. This sweep kills only what tmux's own
+# `session_activity` (real last input/output, not creation time) proves
+# has been quiet past the timeout -- never a young session, only a
+# genuinely forgotten one. Both knobs are env-configurable since "how long
+# is too long" is an operational judgment call, not a constant worth
+# hardcoding.
+TERMINAL_INACTIVITY_TIMEOUT_SECONDS = int(os.environ.get("FORGEHUB_TERMINAL_INACTIVITY_TIMEOUT_HOURS", "24")) * 3600
+TERMINAL_INACTIVITY_SWEEP_INTERVAL_SECONDS = int(os.environ.get("FORGEHUB_TERMINAL_SWEEP_INTERVAL_SECONDS", "1800"))
+_terminal_inactivity_sweep_task: asyncio.Task | None = None
+
+
+async def _terminal_inactivity_sweep_loop() -> None:
+    while True:
+        try:
+            now = int(time.time())
+            for session in _list_forgehub_tmux_sessions():
+                if now - session["last_activity_at"] >= TERMINAL_INACTIVITY_TIMEOUT_SECONDS:
+                    _tmux("kill-session", "-t", f"forgehub-{session['session_id']}")
+        except Exception:
+            pass
+        await asyncio.sleep(TERMINAL_INACTIVITY_SWEEP_INTERVAL_SECONDS)
+
+
+@app.on_event("startup")
+async def _start_terminal_inactivity_sweep() -> None:
+    global _terminal_inactivity_sweep_task
+    _terminal_inactivity_sweep_task = asyncio.create_task(_terminal_inactivity_sweep_loop())
+
+
+@app.on_event("shutdown")
+async def _stop_terminal_inactivity_sweep() -> None:
+    if _terminal_inactivity_sweep_task:
+        _terminal_inactivity_sweep_task.cancel()
 
 
 @app.post("/v1/terminal/sessions/{session_id}/kill")
@@ -1733,6 +4382,83 @@ async def kill_terminal_session(session_id: str, x_bridge_token: str | None = He
     return {"status": "ok"}
 
 
+class HermesSessionCheckItem(BaseModel):
+    profile: str
+    session_id: str
+
+
+class HermesSessionCheckRequest(BaseModel):
+    sessions: list[HermesSessionCheckItem]
+
+
+@app.post("/v1/hermes/sessions/check")
+async def check_hermes_sessions(
+    req: HermesSessionCheckRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    """Batch liveness check for Hermes CLI sessions, one profile's `state.db`
+    at a time -- backs the Workspace's "Chat Sessions" card (System Control,
+    2026-08-24), same disk-truth idea as `/v1/terminal/sessions` above but
+    for a `ChatSession.hermes_session_id` instead of a tmux pane. Unlike a
+    tmux session, a Hermes session row never disappears on its own (no
+    auto_prune by default -- see hermes_cli/config_defaults.py); it going
+    missing means it was pruned, the profile's state.db was rebuilt, or
+    similar host-side housekeeping outside ForgeHub's control. That's
+    exactly the failure this card exists to surface (Athos Workspace chat
+    stuck resuming a session ten days gone, root-caused 2026-08-24) --
+    `_init_agent()` (hermes_cli/cli_agent_setup_mixin.py) just returns False
+    with no detail reaching the caller, so this is the only way to tell
+    "stale" apart from "credentials broken" ahead of the next message
+    failing.
+
+    Grouped by profile so N sessions in the same profile cost one query,
+    not N -- callers are expected to batch every ChatSession/
+    ChatSessionParticipant row across every agent in one request.
+    """
+    _check_token(x_bridge_token)
+    by_profile: dict[str, list[str]] = {}
+    for item in req.sessions:
+        if not _is_valid_profile(item.profile) or not SESSION_ID_RE.match(item.session_id):
+            continue
+        by_profile.setdefault(item.profile, []).append(item.session_id)
+
+    results: list[dict] = []
+    for profile, session_ids in by_profile.items():
+        state_db = PROFILES_DIR / profile / "state.db"
+        found: dict[str, sqlite3.Row] = {}
+        if state_db.is_file():
+            try:
+                with sqlite3.connect(f"file:{state_db}?mode=ro", uri=True, timeout=5) as conn:
+                    conn.row_factory = sqlite3.Row
+                    placeholders = ",".join("?" for _ in session_ids)
+                    rows = conn.execute(
+                        f"""
+                        SELECT id, title, started_at, last_activity_at, ended_at, message_count
+                        FROM sessions
+                        WHERE id IN ({placeholders})
+                        """,
+                        session_ids,
+                    ).fetchall()
+                    found = {row["id"]: row for row in rows}
+            except sqlite3.Error:
+                found = {}
+        for sid in session_ids:
+            row = found.get(sid)
+            if row is None:
+                results.append({"profile": profile, "session_id": sid, "exists": False})
+            else:
+                results.append({
+                    "profile": profile,
+                    "session_id": sid,
+                    "exists": True,
+                    "title": row["title"],
+                    "started_at": row["started_at"],
+                    "last_activity_at": row["last_activity_at"] or row["started_at"],
+                    "ended_at": row["ended_at"],
+                    "message_count": row["message_count"],
+                })
+    return {"sessions": results}
+
+
 @app.websocket("/v1/terminal/ws")
 async def terminal_ws(
     websocket: WebSocket,
@@ -1740,6 +4466,8 @@ async def terminal_ws(
     session: str = Query(...),
     command: str | None = Query(default=None),
     cwd: str | None = Query(default=None),
+    cols: int = Query(default=80),
+    rows: int = Query(default=24),
 ) -> None:
     if token != BRIDGE_TOKEN or not SESSION_ID_RE.match(session):
         await websocket.close(code=4401)
@@ -1747,6 +4475,8 @@ async def terminal_ws(
     await websocket.accept()
 
     home = str(Path.home())
+    initial_cols = max(10, min(int(cols), 500))
+    initial_rows = max(2, min(int(rows), 200))
     # Each terminal tab maps 1:1 to a tmux session named after the tab's id,
     # namespaced so it can't collide with unrelated tmux sessions on the
     # host. Reusing an existing session (rather than always spawning a fresh
@@ -1758,22 +4488,46 @@ async def terminal_ws(
     if is_new:
         # -c sets the pane's starting directory directly (no typed `cd`
         # needed, so no risk of it ever flashing on screen on first attach).
-        _tmux("new-session", "-d", "-s", session_name, "-x", "80", "-y", "24", "-c", cwd or home)
+        _tmux_new_session("-d", "-s", session_name, "-x", str(initial_cols), "-y", str(initial_rows), "-c", cwd or home)
         # Without this, the mouse wheel/scrollbar over the pane does nothing --
         # tmux owns the pane's scrollback itself (it's not exposed through
         # xterm.js's native viewport), and only enters copy-mode to scroll it
         # when the client has mouse reporting on. Session-scoped (no -g) so it
         # doesn't change behavior for unrelated sessions on the shared host.
         _tmux("set-option", "-t", session_name, "mouse", "on")
+        _tmux("set-window-option", "-t", session_name, "window-size", "manual")
+        _tmux(
+            "resize-window", "-t", session_name,
+            "-x", str(initial_cols), "-y", str(_tmux_window_rows(session_name, initial_rows)),
+        )
         if _is_allowed_launcher_command(command):
             # Only on creation -- reattaching to an existing session must
             # never re-type the launcher, or every reconnect would relaunch
             # claude/codex/agy on top of whatever's already running.
+            #
+            # Bare `command` is intentional even for a ForgeRouter-enabled
+            # Codex project: this pane runs an interactive bash that sources
+            # ~/.bashrc, whose `codex()` function already routes through
+            # /root/.local/bin/codex -- a wrapper that detects the project's
+            # .codex/forgerouter.env itself and injects the same -c overrides
+            # (see FORGEROUTER_CODEX_OVERRIDES comment above). Injecting them
+            # here too double-registers `-m`, which Codex's arg parser
+            # rejects ("the argument '--model <MODEL>' cannot be used
+            # multiple times"). The orchestrated codex-exec path in
+            # _agent_run_command has no such shell/wrapper in its execution
+            # chain, so it still builds the overrides itself.
             _tmux("send-keys", "-t", session_name, "-l", command)
             _tmux("send-keys", "-t", session_name, "Enter")
+    else:
+        _tmux("set-window-option", "-t", session_name, "window-size", "manual")
+        _tmux(
+            "resize-window", "-t", session_name,
+            "-x", str(initial_cols), "-y", str(_tmux_window_rows(session_name, initial_rows)),
+        )
 
     master_fd, slave_fd = pty.openpty()
-    _set_winsize(master_fd, 24, 80)
+    slave_tty = os.ttyname(slave_fd)
+    _set_winsize(master_fd, initial_rows, initial_cols)
 
     proc = subprocess.Popen(
         ["tmux", "attach-session", "-t", session_name],
@@ -1825,20 +4579,26 @@ async def terminal_ws(
             if payload.get("type") == "input":
                 os.write(fd, payload.get("data", "").encode())
             elif payload.get("type") == "resize":
-                _set_winsize(fd, int(payload.get("rows", 24)), int(payload.get("cols", 80)))
-                # Unlike a plain bash PTY, the tmux client here doesn't have
-                # this PTY as its controlling terminal (it was never set up
-                # via setsid + TIOCSCTTY, which is what makes the kernel
-                # deliver SIGWINCH automatically on TIOCSWINSZ) -- so the
-                # resize above is invisible to it until nudged explicitly,
-                # leaving the tmux window stuck at its creation size while
-                # xterm.js on the browser side resizes freely. Confirmed via
-                # direct testing: tmux only picks up the new size once it
-                # actually receives SIGWINCH itself.
+                new_rows = max(2, min(int(payload.get("rows", 24)), 200))
+                new_cols = max(10, min(int(payload.get("cols", 80)), 500))
+                _set_winsize(fd, new_rows, new_cols)
+                # In tmux 3.4, sending SIGWINCH to a tmux attach client does NOT
+                # automatically resize the underlying tmux window or update the
+                # status line position -- calling resize-window explicitly ensures
+                # the tmux window matches xterm.js dimensions exactly, avoiding
+                # status bar displacement and orphan-line ghosting.
+                _tmux("set-window-option", "-t", session_name, "window-size", "manual")
+                _tmux(
+                    "resize-window", "-t", session_name,
+                    "-x", str(new_cols), "-y", str(_tmux_window_rows(session_name, new_rows)),
+                )
                 try:
                     os.kill(proc.pid, signal.SIGWINCH)
                 except ProcessLookupError:
                     pass
+                _tmux("refresh-client", "-t", slave_tty)
+            elif payload.get("type") == "ping":
+                await websocket.send_text(json.dumps({"type": "pong"}))
     except WebSocketDisconnect:
         pass
     finally:
@@ -1885,6 +4645,10 @@ class FsEntry(BaseModel):
     path: str
     type: str  # "file" | "dir"
     size: int | None = None
+    # Added for the Workspace Explorer (date column / symlink badge); both
+    # optional so the older callers (project file browser) are unaffected.
+    modified: float | None = None
+    is_symlink: bool = False
 
 
 class FsListResponse(BaseModel):
@@ -1908,12 +4672,15 @@ async def fs_list(path: str | None = Query(default=None), x_bridge_token: str | 
     for entry in children:
         try:
             is_dir = entry.is_dir()
+            st = entry.stat()
             entries.append(
                 FsEntry(
                     name=entry.name,
                     path=str(entry),
                     type="dir" if is_dir else "file",
-                    size=None if is_dir else entry.stat().st_size,
+                    size=None if is_dir else st.st_size,
+                    modified=st.st_mtime,
+                    is_symlink=entry.is_symlink(),
                 )
             )
         except OSError:
@@ -2072,6 +4839,296 @@ async def fs_chmod(req: FsChmodRequest, x_bridge_token: str | None = Header(defa
 
 
 # ---------------------------------------------------------------------------
+# Workspace Explorer -- search / copy / binary download / streamed upload.
+# Same trust model as the /v1/fs/* routes above (bridge token is the
+# boundary; forgehub-backend's file_explorer.py is admin-only and decides
+# which paths may be touched). Kept separate from fs_read/fs_write because
+# those are text-only and capped at 2 MiB -- a file manager has to move
+# arbitrary bytes, so these never decode and never buffer a whole file.
+# ---------------------------------------------------------------------------
+
+# Directories a name search never descends into: they are huge, machine-
+# generated, and a hit inside them is almost never what "find my file"
+# means. Pseudo-filesystems are skipped for the same reason plus the risk
+# of blocking on a /proc entry.
+_SEARCH_SKIP_DIRS = {
+    ".git", "node_modules", ".venv", "venv", "__pycache__", ".mypy_cache",
+    ".pytest_cache", ".next", ".nuxt", ".turbo", ".parcel-cache", ".cache",
+}
+_SEARCH_SKIP_ROOTS = {"/proc", "/sys", "/dev", "/run", "/snap"}
+
+
+class FsSearchResponse(BaseModel):
+    path: str
+    query: str
+    entries: list[FsEntry]
+    truncated: bool
+
+
+def _fs_search_sync(root: Path, query: str, limit: int, deadline: float) -> tuple[list[FsEntry], bool]:
+    import fnmatch
+
+    q = query.lower()
+    use_glob = any(ch in q for ch in "*?[")
+    results: list[FsEntry] = []
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in _SEARCH_SKIP_DIRS and os.path.join(dirpath, d) not in _SEARCH_SKIP_ROOTS
+        ]
+        for name, is_dir in [*((d, True) for d in dirnames), *((f, False) for f in filenames)]:
+            lowered = name.lower()
+            if not (fnmatch.fnmatch(lowered, q) if use_glob else q in lowered):
+                continue
+            full = os.path.join(dirpath, name)
+            try:
+                st = os.stat(full)
+            except OSError:
+                continue
+            results.append(
+                FsEntry(
+                    name=name,
+                    path=full,
+                    type="dir" if is_dir else "file",
+                    size=None if is_dir else st.st_size,
+                    modified=st.st_mtime,
+                    is_symlink=os.path.islink(full),
+                )
+            )
+            if len(results) >= limit:
+                return results, True
+        if time.monotonic() > deadline:
+            return results, True
+    return results, False
+
+
+@app.get("/v1/fs/search", response_model=FsSearchResponse)
+async def fs_search(
+    path: str = Query(...),
+    q: str = Query(..., min_length=1),
+    limit: int = Query(default=500, ge=1, le=5000),
+    x_bridge_token: str | None = Header(default=None),
+) -> FsSearchResponse:
+    """Recursive, case-insensitive name search under `path`. A query with
+    `*`/`?`/`[` is a glob matched against the whole name ("*.pdf"),
+    otherwise a substring. Bounded by `limit` hits and ~10s of walking --
+    `truncated` says either bound was hit, so the UI can tell "no more
+    matches" from "stopped looking"."""
+    _check_token(x_bridge_token)
+    root = Path(path)
+    if not root.is_dir():
+        raise HTTPException(status_code=404, detail="Not a directory")
+    entries, truncated = await asyncio.to_thread(
+        _fs_search_sync, root, q.strip(), limit, time.monotonic() + 10.0
+    )
+    return FsSearchResponse(path=str(root), query=q, entries=entries, truncated=truncated)
+
+
+class FsCopyRequest(BaseModel):
+    path: str
+    new_path: str
+
+
+@app.post("/v1/fs/copy", response_model=FsEntry)
+async def fs_copy(req: FsCopyRequest, x_bridge_token: str | None = Header(default=None)) -> FsEntry:
+    """Copy a file or a whole directory tree (symlinks copied as links, not
+    followed). Never overwrites: 409 if new_path exists -- the Explorer
+    picks a free "name (copy)" name itself before calling."""
+    _check_token(x_bridge_token)
+    source = Path(req.path)
+    dest = Path(req.new_path)
+    if not source.exists():
+        raise HTTPException(status_code=404, detail="Source not found")
+    if dest.exists():
+        raise HTTPException(status_code=409, detail="Destination already exists")
+    if source.is_dir() and (dest == source or source in dest.parents):
+        raise HTTPException(status_code=400, detail="Cannot copy a folder into itself")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if source.is_dir():
+        await asyncio.to_thread(shutil.copytree, source, dest, symlinks=True)
+    else:
+        await asyncio.to_thread(shutil.copy2, source, dest)
+    st = dest.stat()
+    return FsEntry(
+        name=dest.name,
+        path=str(dest),
+        type="dir" if dest.is_dir() else "file",
+        size=None if dest.is_dir() else st.st_size,
+        modified=st.st_mtime,
+    )
+
+
+def _iter_file(path: Path, cleanup: bool = False, chunk_size: int = 1024 * 1024):
+    try:
+        with open(path, "rb") as fh:
+            while chunk := fh.read(chunk_size):
+                yield chunk
+    finally:
+        if cleanup:
+            with contextlib.suppress(OSError):
+                path.unlink()
+
+
+def _zip_paths_sync(sources: list[Path]) -> Path:
+    """One .zip holding every source (files and whole folder trees), each
+    stored under its own name at the archive root -- what "Send to >
+    Compressed folder" produces for a multi-selection."""
+    import zipfile
+
+    fd, tmp_name = tempfile.mkstemp(prefix="fh-explorer-", suffix=".zip")
+    os.close(fd)
+    tmp = Path(tmp_name)
+    with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+        for source in sources:
+            if source.is_file():
+                with contextlib.suppress(OSError):
+                    zf.write(source, arcname=source.name)
+                continue
+            for dirpath, dirnames, filenames in os.walk(source, followlinks=False):
+                rel_dir = Path(dirpath).relative_to(source.parent)
+                if not filenames and not dirnames:
+                    zf.write(dirpath, arcname=str(rel_dir) + "/")
+                for name in filenames:
+                    full = Path(dirpath) / name
+                    if full.is_symlink() and not full.exists():
+                        continue
+                    try:
+                        zf.write(full, arcname=str(rel_dir / name))
+                    except OSError:
+                        continue
+    return tmp
+
+
+def _download_response(body, filename: str, size: int, media_type: str) -> StreamingResponse:
+    from urllib.parse import quote as _quote
+
+    return StreamingResponse(
+        body,
+        media_type=media_type,
+        headers={
+            # Plain filename= first (ASCII fallback, what api.ts's parser
+            # reads), filename*= second for non-ASCII names.
+            "Content-Disposition": (
+                f"attachment; filename=\"{filename.encode('ascii', 'replace').decode().replace(chr(34), '_')}\"; "
+                f"filename*=UTF-8''{_quote(filename)}"
+            ),
+            "Content-Length": str(size),
+        },
+    )
+
+
+@app.get("/v1/fs/download")
+async def fs_download(path: str = Query(...), x_bridge_token: str | None = Header(default=None)):
+    """Stream a file's raw bytes, or a directory as a .zip built in a temp
+    file (removed once streamed). Content-Disposition carries the name."""
+    _check_token(x_bridge_token)
+    target = Path(path)
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    if target.is_dir():
+        archive = await asyncio.to_thread(_zip_paths_sync, [target])
+        return _download_response(
+            _iter_file(archive, cleanup=True), f"{target.name or 'root'}.zip", archive.stat().st_size, "application/zip"
+        )
+    return _download_response(_iter_file(target), target.name, target.stat().st_size, "application/octet-stream")
+
+
+class FsZipRequest(BaseModel):
+    paths: list[str] = Field(min_length=1, max_length=1000)
+    name: str = "download.zip"
+
+
+@app.post("/v1/fs/download-zip")
+async def fs_download_zip(req: FsZipRequest, x_bridge_token: str | None = Header(default=None)):
+    """Multi-selection download: every path (files and folders) in one .zip."""
+    _check_token(x_bridge_token)
+    sources = [Path(p) for p in req.paths]
+    missing = [str(p) for p in sources if not p.exists()]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Not found: {', '.join(missing[:5])}")
+    names = [p.name for p in sources]
+    if len(set(names)) != len(names):
+        raise HTTPException(status_code=400, detail="Selected items share a name; download them separately")
+    archive = await asyncio.to_thread(_zip_paths_sync, sources)
+    name = Path(req.name).name or "download.zip"
+    return _download_response(_iter_file(archive, cleanup=True), name, archive.stat().st_size, "application/zip")
+
+
+@app.put("/v1/fs/upload", response_model=FsEntry)
+async def fs_upload(
+    request: Request,
+    path: str = Query(...),
+    overwrite: bool = Query(default=False),
+    x_bridge_token: str | None = Header(default=None),
+) -> FsEntry:
+    """Write the raw request body to `path`, streamed to a sibling temp file
+    and renamed into place only once complete -- an interrupted upload never
+    leaves a truncated file under the real name. 409 when the file exists
+    and overwrite is false (the UI asks the user first)."""
+    _check_token(x_bridge_token)
+    target = Path(path)
+    # Parents are created on demand: a folder upload sends each file with
+    # its relative path ("site/css/app.css"), so the tree is recreated by
+    # the files themselves rather than a separate mkdir round trip each.
+    if target.parent.exists() and not target.parent.is_dir():
+        raise HTTPException(status_code=409, detail="Destination parent is a file")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.is_dir():
+        raise HTTPException(status_code=409, detail="A folder with this name already exists")
+    if target.exists() and not overwrite:
+        raise HTTPException(status_code=409, detail="File already exists")
+    tmp = target.parent / f".{target.name}.{uuid.uuid4().hex[:8]}.part"
+    try:
+        with open(tmp, "wb") as fh:
+            async for chunk in request.stream():
+                fh.write(chunk)
+        os.replace(tmp, target)
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+    st = target.stat()
+    return FsEntry(name=target.name, path=str(target), type="file", size=st.st_size, modified=st.st_mtime)
+
+
+# Workspace Explorer on a remote server (an SSH tab's server): the same
+# routes as above under /v1/remote-fs/*, run through this host's `ssh`.
+# See remote_fs.py.
+# Interactive SSH (Workspace terminal/Explorer) with keys kept in ForgeVault:
+# one in-memory ssh-agent per key, killed after 30 min idle (host_exec.AgentCache).
+_agent_cache = None
+
+
+async def _agent_socket_for(key_ref: str) -> str:
+    return await _agent_cache.socket_for(key_ref)
+
+
+app.include_router(make_remote_fs_router(_check_token, _resolve_key_path, _agent_socket_for))
+# See host_exec.py (Remote Access phase 4: one script on one machine).
+_vault_client = VaultClient()
+_agent_cache = AgentCache(_vault_client.reveal)
+app.include_router(make_host_exec_router(_check_token, _resolve_key_path, _vault_client.reveal))
+
+
+class TerminalAgentRequest(BaseModel):
+    key_ref: str = Field(min_length=36, max_length=36)
+
+
+@app.post("/v1/servers/agent:open")
+async def open_terminal_agent(req: TerminalAgentRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    """Socket of the in-memory agent holding a machine's ForgeVault key, for
+    the Workspace SSH terminal's `ssh -o IdentityAgent=<socket>`."""
+    _check_token(x_bridge_token)
+    if not re.fullmatch(r"[0-9a-f-]{36}", req.key_ref):
+        raise HTTPException(status_code=400, detail="Invalid key_ref")
+    try:
+        return {"socket": await _agent_cache.socket_for(req.key_ref)}
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+# See forgevault_proxy.py (Remote Access secrets in ForgeVault, infra/Production only).
+app.include_router(make_forgevault_router(_check_token))
+
+
+# ---------------------------------------------------------------------------
 # Filesystem tar/untar  (used by the product backup/restore endpoints)
 # ---------------------------------------------------------------------------
 
@@ -2153,9 +5210,14 @@ async def create_hermes_backup(
         raise HTTPException(status_code=404, detail=f"Source not found: {req.source_path}")
     backup_dir = Path(req.backup_dir)
     backup_dir.mkdir(parents=True, exist_ok=True)
-    archive_name = req.archive_name or f"hermes-backup-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.tar.gz"
+    # Local time, not UTC -- the filename timestamp is meant to read as the
+    # wall-clock moment the backup was taken, not an absolute instant (the
+    # only caller passing archive_name explicitly, ForgeHub's System
+    # Control, applies the same rule -- see its own comment).
+    archive_name = req.archive_name or f"hermes-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
     archive_path = backup_dir / archive_name
-    result = subprocess.run(
+    result = await asyncio.to_thread(
+        subprocess.run,
         ["tar", "-czf", str(archive_path), "-C", str(source.parent), source.name],
         capture_output=True,
         text=True,
@@ -2391,6 +5453,8 @@ async def docker_volumes(x_bridge_token: str | None = Header(default=None)) -> d
             "containers": vol_containers.get(vname, []),
         })
     for source in sorted(bind_mounts):
+        # The bridge runs on the host, so it can tell a shared folder from a single shared file.
+        source_type = "dir" if os.path.isdir(source) else "file" if os.path.exists(source) else "missing"
         result.append({
             "name": source,
             "driver": "bind",
@@ -2398,6 +5462,7 @@ async def docker_volumes(x_bridge_token: str | None = Header(default=None)) -> d
             "scope": "local",
             "labels": {},
             "containers": bind_mounts[source],
+            "source_type": source_type,
         })
     return {"volumes": result}
 
@@ -2597,6 +5662,27 @@ HERMES_HOME_DIR = Path.home() / ".hermes"
 HERMES_PROFILES_DIR = HERMES_HOME_DIR / "profiles"
 
 
+def _hindsight_container_env() -> dict[str, str] | None:
+    """Read the running daemon's env without returning it through the API."""
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "--format", "{{json .Config.Env}}", "hindsight"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        variables = json.loads(result.stdout)
+        if not isinstance(variables, list):
+            return None
+        return {
+            key: value
+            for item in variables if isinstance(item, str) and "=" in item
+            for key, _, value in [item.partition("=")]
+        }
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+
+
 def _read_json_file(path: Path) -> dict:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -2750,16 +5836,25 @@ async def hindsight_status(x_bridge_token: str | None = Header(default=None)) ->
     env_path = HINDSIGHT_PROFILE_DIR / f"{primary_profile}.env" if primary_profile else None
     env = _read_env_file(env_path) if env_path else {}
 
-    llm = {
-        "provider": config.get("llm_provider") or env.get("HINDSIGHT_API_LLM_PROVIDER"),
-        "model": config.get("llm_model") or env.get("HINDSIGHT_API_LLM_MODEL"),
-        "base_url": config.get("llm_base_url") or env.get("HINDSIGHT_API_LLM_BASE_URL"),
-        "api_key_present": bool(
-            config.get("llm_api_key")
-            or env.get("HINDSIGHT_API_LLM_API_KEY")
-            or os.environ.get("HINDSIGHT_LLM_API_KEY")
-        ),
-    }
+    runtime_env = _hindsight_container_env()
+    if runtime_env is not None:
+        llm = {
+            "provider": runtime_env.get("HINDSIGHT_API_LLM_PROVIDER"),
+            "model": runtime_env.get("HINDSIGHT_API_LLM_MODEL"),
+            "base_url": runtime_env.get("HINDSIGHT_API_LLM_BASE_URL"),
+            "api_key_present": bool(runtime_env.get("HINDSIGHT_API_LLM_API_KEY")),
+        }
+    else:
+        llm = {
+            "provider": config.get("llm_provider") or env.get("HINDSIGHT_API_LLM_PROVIDER"),
+            "model": config.get("llm_model") or env.get("HINDSIGHT_API_LLM_MODEL"),
+            "base_url": config.get("llm_base_url") or env.get("HINDSIGHT_API_LLM_BASE_URL"),
+            "api_key_present": bool(
+                config.get("llm_api_key")
+                or env.get("HINDSIGHT_API_LLM_API_KEY")
+                or os.environ.get("HINDSIGHT_LLM_API_KEY")
+            ),
+        }
 
     connection = {
         "mode": config.get("mode") or os.environ.get("HINDSIGHT_MODE") or "cloud",
@@ -2797,6 +5892,7 @@ async def hindsight_status(x_bridge_token: str | None = Header(default=None)) ->
 
     recording_configured = bool(active_profiles) and memory_flow["auto_retain"] is not False
     return {
+        "retention": read_hindsight_retention_status(),
         "summary": {
             "configured": bool(active_profiles),
             "daemon_active": bool(probe.get("ok")),
@@ -2819,7 +5915,7 @@ async def hindsight_status(x_bridge_token: str | None = Header(default=None)) ->
             "latest_errors": latest_errors[-12:] if latest_errors else [],
         },
         "analysis": {
-            "storage_source": "Active memory lives in foundation_postgres schema hindsight; ForgeHub should only mirror operational metadata and control state.",
+            "storage_source": "Active memory lives in hindsight_postgres database foundation, schema hindsight; ForgeHub only mirrors operational metadata and control state.",
             "database_control_recommendation": "Track daemon health, schema growth, async job status, profile coverage, and policy drift in ForgeHub. Keep raw memory content inside Hindsight unless you need export or indexing.",
             "current_risk": "Profiles without profile-scoped hindsight/config.json inherit defaults or environment and can silently drift from athos.",
         },

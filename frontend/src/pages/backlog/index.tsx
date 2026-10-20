@@ -1,5 +1,6 @@
 import { Fragment, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -15,6 +16,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
+import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -107,6 +109,7 @@ function TaskRow({
   planningItemId: string;
   projectId: string | null | undefined;
 }) {
+  const { t } = useTranslation("backlog");
   const updateTask = useUpdateTask(task.id);
   const deleteTask = useDeleteTask();
   const [editing, setEditing] = useState(false);
@@ -119,7 +122,7 @@ function TaskRow({
         description: values.description || undefined,
         change_request_id: values.change_request_id || undefined,
         parent_task_id: values.parent_task_id || undefined,
-        due_date: values.due_date || undefined,
+        planned_end_date: values.planned_end_date || undefined,
       },
       { onSuccess: () => setEditing(false) }
     );
@@ -128,21 +131,21 @@ function TaskRow({
   if (editing) {
     return (
       <li className="rounded-md border bg-card p-4">
-        <p className="mb-3 text-sm font-medium">Editing task</p>
+        <p className="mb-3 text-sm font-medium">{t("list.taskRow.editingTask")}</p>
         <TaskForm
           defaultValues={{
             title: task.title,
             description: task.description ?? "",
             status: task.status,
             priority: task.priority,
-            project_id: task.project_id ?? projectId ?? "",
             planning_item_id: planningItemId,
-            due_date: task.due_date ?? "",
+            planned_end_date: task.planned_end_date ?? "",
           }}
+          projectId={task.project_id ?? projectId ?? undefined}
           onSubmit={handleUpdate}
           onCancel={() => setEditing(false)}
           isSubmitting={updateTask.isPending}
-          submitLabel="Save task"
+          submitLabel={t("list.taskRow.saveTask")}
         />
         {updateTask.isError && (
           <p className="mt-2 text-sm text-destructive">
@@ -157,21 +160,26 @@ function TaskRow({
     <>
       <li className="flex items-center justify-between gap-3 text-sm">
         <Link to={`/tasks/${task.id}`} className="min-w-0 flex-1 hover:underline truncate">
-          {task.title}
+          <span className="text-muted-foreground">#{task.number}</span> {task.title}
           {task.parent_task_id && (
-            <span className="ml-2 text-xs text-muted-foreground">(subtask)</span>
+            <span className="ml-2 text-xs text-muted-foreground">{t("list.taskRow.subtaskLabel")}</span>
           )}
         </Link>
         <div className="flex shrink-0 items-center gap-1.5">
+          {task.health !== "ok" && (
+            <span title={t(`list.taskRow.health.${task.health}`, task.health)}>
+              <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+            </span>
+          )}
           <Badge variant={TASK_STATUS_VARIANT[task.status] ?? "outline"}>
-            {task.status.replace("_", " ")}
+            {t(`enums.taskStatuses.${task.status}`, { defaultValue: task.status.replace("_", " ") })}
           </Badge>
           <Button
             variant="ghost"
             size="sm"
             className="h-6 w-6 p-0"
             onClick={() => setEditing(true)}
-            title="Edit task"
+            title={t("list.taskRow.editTooltip")}
           >
             <Pencil className="h-3 w-3" />
           </Button>
@@ -181,17 +189,22 @@ function TaskRow({
             className="h-6 w-6 p-0"
             onClick={() => setPendingDelete(true)}
             disabled={deleteTask.isPending}
-            title="Delete task"
+            title={t("list.taskRow.deleteTooltip")}
           >
             <Trash2 className="h-3 w-3 text-destructive" />
           </Button>
         </div>
       </li>
+      {deleteTask.isError && (
+        <li className="text-sm text-destructive">
+          {(deleteTask.error as Error)?.message}
+        </li>
+      )}
       <ConfirmDialog
         open={pendingDelete}
-        title="Delete task?"
-        description={`"${task.title}" will be permanently deleted.`}
-        confirmLabel="Delete"
+        title={t("list.taskRow.deleteDialog.title")}
+        description={t("list.taskRow.deleteDialog.description", { title: task.title })}
+        confirmLabel={t("list.taskRow.deleteDialog.confirm")}
         onConfirm={() => {
           deleteTask.mutate(task.id);
           setPendingDelete(false);
@@ -211,6 +224,7 @@ function PlanningItemTasksRow({
   projectId: string | null | undefined;
   autoOpenForm?: boolean;
 }) {
+  const { t } = useTranslation("backlog");
   const { data: tasks, isLoading } = useTasks(planningItemId);
   const createTask = useCreateTask();
   const [showTaskForm, setShowTaskForm] = useState(autoOpenForm);
@@ -220,11 +234,10 @@ function PlanningItemTasksRow({
       {
         ...values,
         planning_item_id: planningItemId,
-        project_id: values.project_id || projectId || undefined,
         description: values.description || undefined,
         change_request_id: values.change_request_id || undefined,
         parent_task_id: values.parent_task_id || undefined,
-        due_date: values.due_date || undefined,
+        planned_end_date: values.planned_end_date || undefined,
       },
       { onSuccess: () => setShowTaskForm(false) }
     );
@@ -235,7 +248,7 @@ function PlanningItemTasksRow({
       {isLoading && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading tasks…
+          {t("list.tasksRow.loading")}
         </div>
       )}
 
@@ -253,21 +266,21 @@ function PlanningItemTasksRow({
       )}
 
       {!isLoading && (!tasks || tasks.length === 0) && !showTaskForm && (
-        <p className="text-sm text-muted-foreground">No tasks yet for this planning item.</p>
+        <p className="text-sm text-muted-foreground">{t("list.tasksRow.empty")}</p>
       )}
 
       {showTaskForm ? (
         <div className="rounded-md border bg-card p-4">
-          <p className="mb-3 text-sm font-medium">New task</p>
+          <p className="mb-3 text-sm font-medium">{t("list.tasksRow.newTaskHeading")}</p>
           <TaskForm
             onSubmit={handleCreateTask}
             onCancel={() => setShowTaskForm(false)}
             isSubmitting={createTask.isPending}
-            submitLabel="Add task"
+            submitLabel={t("list.tasksRow.addTaskSubmit")}
             defaultValues={{
               planning_item_id: planningItemId,
-              project_id: projectId ?? "",
             }}
+            projectId={projectId ?? undefined}
           />
           {createTask.isError && (
             <p className="mt-2 text-sm text-destructive">
@@ -283,7 +296,7 @@ function PlanningItemTasksRow({
           onClick={() => setShowTaskForm(true)}
         >
           <Plus className="mr-1.5 h-3.5 w-3.5" />
-          Add task
+          {t("list.tasksRow.addTaskButton")}
         </Button>
       )}
     </div>
@@ -301,6 +314,7 @@ function EditItemRow({
   item: PlanningItem;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("backlog");
   const updateItem = useUpdatePlanningItem(item.id);
 
   function handleSubmit(values: PlanningItemUpdateInput) {
@@ -321,7 +335,7 @@ function EditItemRow({
     <TableRow>
       <TableCell />
       <TableCell colSpan={6} className="bg-muted/20 py-4">
-        <p className="mb-3 text-sm font-medium">Editing: {item.title}</p>
+        <p className="mb-3 text-sm font-medium">{t("list.editRow.editing", { title: item.title })}</p>
         <PlanningItemForm
           defaultValues={{
             title: item.title,
@@ -336,7 +350,7 @@ function EditItemRow({
           onSubmit={handleSubmit}
           onCancel={onClose}
           isSubmitting={updateItem.isPending}
-          submitLabel="Save changes"
+          submitLabel={t("list.editRow.saveButton")}
         />
         {updateItem.isError && (
           <p className="mt-2 text-sm text-destructive">
@@ -366,7 +380,7 @@ type ExportItem = {
     description: string | null | undefined;
     status: string;
     priority: string;
-    due_date: string | null | undefined;
+    planned_end_date: string | null | undefined;
     estimated_cost: number | null | undefined;
   }>;
 };
@@ -386,6 +400,7 @@ function downloadJson(data: unknown, filename: string) {
 // ---------------------------------------------------------------------------
 
 export default function BacklogPage() {
+  const { t } = useTranslation("backlog");
   const { data: planningItems, isLoading, isError, error } = usePlanningItems();
   const { data: projects } = useProjects();
   const createPlanningItem = useCreatePlanningItem();
@@ -393,7 +408,7 @@ export default function BacklogPage() {
   const queryClient = useQueryClient();
 
   const [showForm, setShowForm] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [addingTaskForId, setAddingTaskForId] = useState<string | null>(null);
   const [filterProjectId, setFilterProjectId] = useState("");
@@ -427,13 +442,13 @@ export default function BacklogPage() {
       items.map(async (item) => {
         let tasks: ExportItem["tasks"] = [];
         try {
-          const t = await apiClient.get<Array<{ title: string; description?: string | null; status: string; priority: string; due_date?: string | null; estimated_cost?: number | null }>>(`/api/v1/tasks?planning_item_id=${item.id}`);
+          const t = await apiClient.get<Array<{ title: string; description?: string | null; status: string; priority: string; planned_end_date?: string | null; estimated_cost?: number | null }>>(`/api/v1/tasks?planning_item_id=${item.id}`);
           tasks = t.map((task) => ({
             title: task.title,
             description: task.description,
             status: task.status,
             priority: task.priority,
-            due_date: task.due_date,
+            planned_end_date: task.planned_end_date,
             estimated_cost: task.estimated_cost,
           }));
         } catch {
@@ -492,10 +507,9 @@ export default function BacklogPage() {
             description: task.description || undefined,
             status: task.status || "planned",
             priority: task.priority || "medium",
-            due_date: task.due_date || undefined,
+            planned_end_date: task.planned_end_date || undefined,
             estimated_cost: task.estimated_cost ?? undefined,
             planning_item_id: created.id,
-            project_id: item.project_id || undefined,
           });
         }
       }
@@ -513,22 +527,19 @@ export default function BacklogPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Planning</h1>
-          <p className="text-muted-foreground">
-            Planning items entering version scope: features, bugs, hotfixes, improvements,
-            technical debt, and more.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        align="center"
+        title={t("list.title")}
+        description={<p>{t("list.subtitle")}</p>}
+        actions={
+          <>
           <Filter className="h-4 w-4 text-muted-foreground" />
           <select
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm sm:flex-none"
             value={filterProjectId}
             onChange={(e) => setFilterProjectId(e.target.value)}
           >
-            <option value="">All projects</option>
+            <option value="">{t("list.filterAllProjects")}</option>
             {projects?.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -536,16 +547,40 @@ export default function BacklogPage() {
             ))}
           </select>
 
+          {/* Expand / Collapse All Tasks */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const allExpanded = visibleItems.length > 0 && expandedIds.size === visibleItems.length;
+              if (allExpanded) {
+                setExpandedIds(new Set());
+              } else {
+                setExpandedIds(new Set(visibleItems.map((i) => i.id)));
+              }
+            }}
+            title={
+              visibleItems.length > 0 && expandedIds.size === visibleItems.length
+                ? t("list.collapseAllTooltip")
+                : t("list.expandAllTooltip")
+            }
+          >
+            <ChevronDown className={`mr-1 h-4 w-4 transition-transform ${visibleItems.length > 0 && expandedIds.size === visibleItems.length ? "rotate-180" : ""}`} />
+            {visibleItems.length > 0 && expandedIds.size === visibleItems.length
+              ? t("list.collapseAllButton")
+              : t("list.expandAllButton")}
+          </Button>
+
           {/* Export */}
           <Button
             variant="outline"
             size="sm"
             onClick={handleExport}
             disabled={visibleItems.length === 0}
-            title="Export visible items + their tasks as JSON"
+            title={t("list.exportTooltip")}
           >
             <Download className="mr-2 h-4 w-4" />
-            Export JSON
+            {t("list.exportButton")}
           </Button>
 
           {/* Import */}
@@ -554,14 +589,14 @@ export default function BacklogPage() {
             size="sm"
             onClick={() => fileInputRef.current?.click()}
             disabled={importing}
-            title="Import planning items from a previously exported JSON file"
+            title={t("list.importTooltip")}
           >
             {importing ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <Upload className="mr-2 h-4 w-4" />
             )}
-            Import JSON
+            {t("list.importButton")}
           </Button>
           <input
             ref={fileInputRef}
@@ -573,35 +608,34 @@ export default function BacklogPage() {
 
           <Button onClick={() => { setShowForm((v) => !v); setEditingId(null); }}>
             <Plus className="mr-2 h-4 w-4" />
-            New planning item
+            {t("list.newButton")}
           </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {importError && (
         <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          Import failed: {importError}
+          {t("list.importFailed", { error: importError })}
         </div>
       )}
 
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle>Create planning item</CardTitle>
-            <CardDescription>
-              Capture a feature, bug, or other planning item before it enters triage and version
-              scope.
-            </CardDescription>
+            <CardTitle>{t("list.createCard.title")}</CardTitle>
+            <CardDescription>{t("list.createCard.description")}</CardDescription>
           </CardHeader>
           <CardContent>
             <PlanningItemForm
+              defaultValues={{ project_id: filterProjectId || (projects?.[0]?.id ?? "") }}
               onSubmit={handleCreate}
               onCancel={() => setShowForm(false)}
               isSubmitting={createPlanningItem.isPending}
             />
             {createPlanningItem.isError && (
               <p className="mt-3 text-sm text-destructive">
-                Failed to create planning item: {(createPlanningItem.error as Error)?.message}
+                {t("list.createError", { error: (createPlanningItem.error as Error)?.message })}
               </p>
             )}
           </CardContent>
@@ -611,7 +645,7 @@ export default function BacklogPage() {
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
-          Loading planning items…
+          {t("list.loading")}
         </div>
       )}
 
@@ -619,7 +653,7 @@ export default function BacklogPage() {
         <Card className="border-destructive/50">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
             <AlertCircle className="h-5 w-5" />
-            <span>Failed to load planning items: {(error as Error)?.message}</span>
+            <span>{t("list.loadError", { error: (error as Error)?.message })}</span>
           </CardContent>
         </Card>
       )}
@@ -629,14 +663,12 @@ export default function BacklogPage() {
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
             <ClipboardList className="h-10 w-10 text-muted-foreground" />
             <div>
-              <p className="font-medium">No planning items yet</p>
-              <p className="text-sm text-muted-foreground">
-                Create your first feature request or bug report to start building the backlog.
-              </p>
+              <p className="font-medium">{t("list.emptyState.title")}</p>
+              <p className="text-sm text-muted-foreground">{t("list.emptyState.description")}</p>
             </div>
             <Button onClick={() => setShowForm(true)}>
               <Plus className="mr-2 h-4 w-4" />
-              New planning item
+              {t("list.newButton")}
             </Button>
           </CardContent>
         </Card>
@@ -649,17 +681,17 @@ export default function BacklogPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-8" />
-                  <TableHead>Title</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Priority</TableHead>
-                  <TableHead>Version scope</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t("list.columns.title")}</TableHead>
+                  <TableHead>{t("list.columns.type")}</TableHead>
+                  <TableHead>{t("list.columns.status")}</TableHead>
+                  <TableHead>{t("list.columns.priority")}</TableHead>
+                  <TableHead>{t("list.columns.versionScope")}</TableHead>
+                  <TableHead className="text-right">{t("list.columns.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {visibleItems.map((item) => {
-                  const isExpanded = expandedId === item.id;
+                  const isExpanded = expandedIds.has(item.id);
                   const isEditing = editingId === item.id;
                   return (
                     <Fragment key={item.id}>
@@ -669,9 +701,17 @@ export default function BacklogPage() {
                             variant="ghost"
                             size="sm"
                             className="h-6 w-6 p-0"
-                            aria-label={isExpanded ? "Collapse tasks" : "Expand tasks"}
+                            aria-label={isExpanded ? t("list.collapseTasks") : t("list.expandTasks")}
                             onClick={() => {
-                              setExpandedId(isExpanded ? null : item.id);
+                              setExpandedIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(item.id)) {
+                                  next.delete(item.id);
+                                } else {
+                                  next.add(item.id);
+                                }
+                                return next;
+                              });
                               if (isEditing) setEditingId(null);
                             }}
                           >
@@ -696,22 +736,26 @@ export default function BacklogPage() {
                           )}
                         </TableCell>
                         <TableCell className="capitalize">
-                          {item.item_type.replace("_", " ")}
+                          {t(`enums.itemTypes.${item.item_type}`, {
+                            defaultValue: item.item_type.replace("_", " "),
+                          })}
                         </TableCell>
                         <TableCell>
                           <Badge variant={STATUS_VARIANT[item.status] ?? "outline"}>
-                            {item.status.replace("_", " ")}
+                            {t(`enums.statuses.${item.status}`, {
+                              defaultValue: item.status.replace("_", " "),
+                            })}
                           </Badge>
                         </TableCell>
                         <TableCell>
                           <Badge variant={PRIORITY_VARIANT[item.priority] ?? "outline"}>
-                            {item.priority}
+                            {t(`enums.priorities.${item.priority}`, { defaultValue: item.priority })}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {item.version_scope_items && item.version_scope_items.length > 0
-                            ? `${item.version_scope_items.length} version(s)`
-                            : "Unscoped"}
+                            ? t("list.columns.versionCount", { count: item.version_scope_items.length })
+                            : t("list.columns.unscoped")}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
@@ -719,13 +763,13 @@ export default function BacklogPage() {
                               variant="ghost"
                               size="sm"
                               className="h-8 w-8 p-0"
-                              aria-label={`Edit ${item.title}`}
+                              aria-label={t("list.editAria", { title: item.title })}
                               onClick={() => {
                                 setEditingId(isEditing ? null : item.id);
-                                setExpandedId(null);
+                                setEditingId(isEditing ? null : item.id);
                                 setAddingTaskForId(null);
                               }}
-                              title="Edit planning item"
+                              title={t("list.editTooltip")}
                             >
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
@@ -733,13 +777,13 @@ export default function BacklogPage() {
                               variant="ghost"
                               size="sm"
                               className="h-8 w-8 p-0"
-                              aria-label={`Add task to ${item.title}`}
+                              aria-label={t("list.addTaskAria", { title: item.title })}
                               onClick={() => {
-                                setExpandedId(item.id);
+                                setExpandedIds((prev) => new Set(prev).add(item.id));
                                 setEditingId(null);
                                 setAddingTaskForId(item.id);
                               }}
-                              title="Add task"
+                              title={t("list.addTaskTooltip")}
                             >
                               <ListPlus className="h-3.5 w-3.5" />
                             </Button>
@@ -749,7 +793,7 @@ export default function BacklogPage() {
                               className="h-8 w-8 p-0"
                               onClick={() => setPendingDeleteId(item.id)}
                               disabled={deletePlanningItem.isPending}
-                              aria-label={`Delete ${item.title}`}
+                              aria-label={t("list.deleteAria", { title: item.title })}
                             >
                               <Trash2 className="h-3.5 w-3.5 text-destructive" />
                             </Button>
@@ -786,9 +830,9 @@ export default function BacklogPage() {
 
       <ConfirmDialog
         open={pendingDeleteId !== null}
-        title="Delete planning item?"
-        description="This will permanently delete the planning item and all related tasks. This cannot be undone."
-        confirmLabel="Delete"
+        title={t("list.deleteDialog.title")}
+        description={t("list.deleteDialog.description")}
+        confirmLabel={t("list.deleteDialog.confirm")}
         onConfirm={() => {
           if (pendingDeleteId) deletePlanningItem.mutate({ id: pendingDeleteId });
           setPendingDeleteId(null);

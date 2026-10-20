@@ -1,140 +1,189 @@
-import type React from "react";
 import {
+  Activity,
   Bell,
-  LayoutDashboard,
-  LayoutPanelLeft,
-  Package,
-  FolderKanban,
-  GitBranch,
-  ClipboardList,
-  CheckSquare,
-  Bot,
-  FileBox,
-  Gavel,
-  Gem,
-  Brain,
-  Kanban,
-  Landmark,
-  Route,
-  Clock,
-  Server,
-  Network,
-  Database,
-  LayoutList,
-  Share2,
-  Code2,
   BookOpen,
-  Inbox,
+  Bot,
+  Brain,
+  CheckCircle2,
   ClipboardCheck,
-  Users,
+  Clock,
+  Code2,
+  Command,
+  Database,
+  FolderKanban,
+  Gauge,
+  Gem,
+  Handshake,
+  GitBranch,
+  Landmark,
+  Layout,
+  LayoutDashboard,
+  LayoutList,
+  LayoutPanelLeft,
+  Lightbulb,
+  Boxes,
+  Briefcase,
+  Mail,
+  MailCheck,
+  Plug,
+  Server,
+  Share2,
   ShieldCheck,
   Sparkles,
+  Users,
   Wrench,
-  Command,
+  ShieldEllipsis,
+  UserRound,
 } from "lucide-react";
 
 export interface NavLinkEntry {
   type: "link";
   to: string;
-  label: string;
+  labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
-  module?: string; // if set, check can_view; undefined = always visible
+  module?: string;
+  hiddenInSidebar?: boolean;
+  adminOnly?: boolean;
 }
 
 export interface NavGroupEntry {
   type: "group";
-  label: string;
+  labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
   items: (Omit<NavLinkEntry, "type"> & { module?: string })[];
 }
 
 export interface NavSectionEntry {
   type: "section";
-  label: string;
+  labelKey: string;
   entries: (NavLinkEntry | NavGroupEntry)[];
+}
+
+export function isNavEntryVisible(entry: { adminOnly?: boolean }, isAdmin: boolean): boolean {
+  return !entry.adminOnly || isAdmin;
 }
 
 export const NAV_SECTIONS: NavSectionEntry[] = [
   {
     type: "section",
-    label: "General",
+    labelKey: "nav.section.general",
     entries: [
-      { type: "link", to: "/", label: "Dashboard", icon: LayoutDashboard },
-      { type: "link", to: "/workspace", label: "Workspace", icon: LayoutPanelLeft },
-      { type: "link", to: "/notifications", label: "Notifications", icon: Bell },
-      // Inbox de demandas de agentes ("como um e-mail"), conversível em
-      // Task/Doc/Artefato/Knowledge Base (core/conversions.py).
-      { type: "link", to: "/demands", label: "Inbox", icon: Inbox, module: "demands" },
-      // Área de criação: markdown editável em /root/docs, cruzado com
-      // produtos/projetos/tasks (doc_links, fase 3).
-      { type: "link", to: "/docs", label: "Docs", icon: BookOpen, module: "docs" },
+      { type: "link", to: "/", labelKey: "nav.dashboard", icon: LayoutDashboard },
+      { type: "link", to: "/workspace", labelKey: "nav.workspace", icon: LayoutPanelLeft },
+      { type: "link", to: "/notifications", labelKey: "nav.notifications", icon: Bell },
+      { type: "link", to: "/demands", labelKey: "nav.inbox", icon: Mail, module: "demands" },
+      { type: "link", to: "/docs", labelKey: "nav.docs", icon: BookOpen, module: "docs" },
     ],
   },
   {
     type: "section",
-    label: "Planning",
+    labelKey: "nav.section.factory2",
     entries: [
-      { type: "link", to: "/product", label: "Products", icon: Package, module: "product" },
-      { type: "link", to: "/projects", label: "Projects", icon: FolderKanban, module: "projects" },
-      { type: "link", to: "/pipeline", label: "Pipelines", icon: GitBranch, module: "pipeline" },
-      { type: "link", to: "/pipeline-templates", label: "Templates", icon: GitBranch, module: "pipeline" },
-      { type: "link", to: "/backlog", label: "Planning", icon: ClipboardList, module: "backlog" },
-      { type: "link", to: "/tasks", label: "Execution", icon: CheckSquare, module: "tasks" },
-      { type: "link", to: "/artifact", label: "Artifacts", icon: FileBox, module: "artifacts" },
-      { type: "link", to: "/governance", label: "Governance", icon: Gavel, module: "governance" },
-      { type: "link", to: "/governance/policies", label: "Policies", icon: ShieldCheck, module: "governance" },
+      // Monitoramento da Software Factory:
+      // 0. Cockpit de Execução
+      // Pipeline Sequencial da Software Factory (1 a 6):
+      // 1. Concepção & Contexto
+      // 2. Telas & Regras de Negócio
+      // 3. Banco de Dados & ERD
+      // 4. Central de Projetos & Backlog
+      // 5. Gate de Governança
+      // 6. Fechamento de Versão
+      { type: "link", to: "/cockpit", labelKey: "nav.cockpit", icon: Gauge, module: "product" },
+      { type: "link", to: "/conception", labelKey: "nav.conception", icon: Lightbulb, module: "product" },
+      { type: "link", to: "/screen-inspector", labelKey: "nav.screenInspector", icon: Layout, module: "product" },
+      { type: "link", to: "/concept-erd", labelKey: "nav.conceptDatabaseDiagram", icon: Share2, module: "database" },
+      { type: "link", to: "/projects", labelKey: "nav.projectCenter", icon: FolderKanban, module: "projects" },
+      { type: "link", to: "/governance", labelKey: "nav.governance", icon: ShieldCheck, module: "governance" },
+      { type: "link", to: "/version-closure", labelKey: "nav.versionClosure", icon: CheckCircle2, module: "product" },
     ],
   },
   {
     type: "section",
-    label: "Agents & AI",
+    labelKey: "nav.section.agentsAi",
     entries: [
-      { type: "link", to: "/agents", label: "Agents", icon: Bot, module: "agents" },
-      { type: "link", to: "/tools", label: "Agent Tools", icon: Wrench, module: "agents" },
-      { type: "link", to: "/prompt-commands", label: "Chat Commands", icon: Command, module: "agents" },
-      { type: "link", to: "/skills", label: "Skills", icon: Sparkles, module: "agents" },
-      { type: "link", to: "/crons", label: "Crons", icon: Clock, module: "crons" },
-      { type: "link", to: "/foundation", label: "Foundation", icon: Landmark, module: "foundation" },
-      { type: "link", to: "/forgerouter", label: "ForgeRouter", icon: Route, module: "forgerouter" },
+      { type: "link", to: "/agents", labelKey: "nav.agents", icon: Bot, module: "agents" },
+      // Agent Tools is reached from the button in the Agents page header, not
+      // from the sidebar (2026-07-26) -- the tools registry is scoped to the
+      // agent roster rather than being a peer destination of it, and its page
+      // carries a back link to /agents. Still listed here so Cmd/Ctrl+K finds
+      // it; only the sidebar hides it.
+      {
+        type: "link",
+        to: "/tools",
+        labelKey: "nav.agentTools",
+        icon: Wrench,
+        module: "agents",
+        hiddenInSidebar: true,
+      },
+      // MCP servers are agent configuration, not a tool registry: the same
+      // server is installed per agent, in each runtime's own config file, so
+      // the roster-wide view belongs next to Agents rather than under Tools.
+      { type: "link", to: "/mcp", labelKey: "nav.mcp", icon: Plug, module: "agents" },
+      { type: "link", to: "/prompt-commands", labelKey: "nav.chatCommands", icon: Command, module: "agents" },
+      { type: "link", to: "/prompt-techniques", labelKey: "nav.promptTechniques", icon: Sparkles, module: "agents" },
+      { type: "link", to: "/skills", labelKey: "nav.skills", icon: Sparkles, module: "agents" },
+      { type: "link", to: "/crons", labelKey: "nav.crons", icon: Clock, module: "crons" },
+      { type: "link", to: "/systems-hub", labelKey: "nav.systemsHub", icon: Boxes, module: "agents" },
+      { type: "link", to: "/foundation", labelKey: "nav.foundation", icon: Landmark, module: "foundation" },
+      { type: "link", to: "/obsidian", labelKey: "nav.knowledgeBase", icon: Gem, module: "obsidian" },
+    ],
+  },
+  {
+    // Marcelo's own tasks, agenda and notes (2026-10-07) -- Maia, his personal assistant, reads and
+    // writes the same data. Personal, so it is its own admin-only section, not part of any workspace.
+    type: "section",
+    labelKey: "nav.section.personal",
+    entries: [{ type: "link", to: "/personal", labelKey: "nav.personal", icon: UserRound, adminOnly: true }],
+  },
+  {
+    // Client demands console (2026-10-04): Darckware stores clients, tickets,
+    // demands and e-mails; these screens operate them. Its own section, not
+    // Operations -- that one is infra/ops tooling.
+    type: "section",
+    labelKey: "nav.section.clientOps",
+    entries: [
+      { type: "link", to: "/client-demands", labelKey: "nav.clientDemands", icon: Briefcase, adminOnly: true },
+      { type: "link", to: "/client-emails", labelKey: "nav.clientEmails", icon: MailCheck, adminOnly: true },
+      { type: "link", to: "/client-accounts", labelKey: "nav.clientAccounts", icon: Handshake, adminOnly: true },
     ],
   },
   {
     type: "section",
-    label: "Integrations",
+    labelKey: "nav.section.operations",
     entries: [
-      { type: "link", to: "/kanboard", label: "Kanboard", icon: Kanban, module: "kanboard" },
-      { type: "link", to: "/obsidian", label: "Knowledge Base", icon: Gem, module: "obsidian" },
-    ],
-  },
-  {
-    type: "section",
-    label: "Operations",
-    entries: [
-      { type: "link", to: "/system-control", label: "System Control", icon: GitBranch, module: "system_control" },
-      { type: "link", to: "/hindsight", label: "Hindsight", icon: Brain, module: "foundation" },
+      { type: "link", to: "/system-control", labelKey: "nav.systemControl", icon: GitBranch, module: "system_control" },
+      // Live board over the same data the Messages page's overview tab
+      // aggregates -- gated on the same "demands" module rather than a new
+      // one, since it's a different view of identical rows/permissions.
+      { type: "link", to: "/agent-activity", labelKey: "nav.agentActivity", icon: Activity, module: "demands" },
+      { type: "link", to: "/operations", labelKey: "nav.agentOperations", icon: Bot, module: "agents" },
+      { type: "link", to: "/hindsight", labelKey: "nav.hindsight", icon: Brain, module: "foundation" },
       // Ecosystem checkpoints (audit_checks) -- admins always see it; grant
       // the "auditor" module in Access Profiles for non-admin visibility.
-      { type: "link", to: "/auditor", label: "Auditor", icon: ClipboardCheck, module: "auditor" },
-      { type: "link", to: "/deploy", label: "Deploy Control", icon: Server, module: "deploy" },
-      { type: "link", to: "/servers", label: "Servers", icon: Network, module: "servers" },
+      { type: "link", to: "/auditor", labelKey: "nav.auditor", icon: ClipboardCheck, module: "auditor" },
+      { type: "link", to: "/deploy", labelKey: "nav.deployControl", icon: Server, module: "deploy" },
+      // Servers and Remote Access are one screen since 2026-10-17
+      // (REMOTE_ACCESS_SERVERS_UNIFICATION_PLAN.md): gated on the "servers"
+      // module; the admin-only parts (scripts, network, passwords) gate inside.
+      { type: "link", to: "/remote-access", labelKey: "nav.remoteAccess", icon: ShieldEllipsis, module: "servers" },
       {
         type: "group",
-        label: "Database",
+        labelKey: "nav.database",
         icon: Database,
         items: [
-          { to: "/database/schema", label: "Schema", icon: LayoutList, module: "database" },
-          { to: "/database/diagram", label: "Diagram", icon: Share2, module: "database" },
-          { to: "/database/query", label: "Query", icon: Code2, module: "database" },
+          { to: "/database/schema", labelKey: "nav.databaseSchema", icon: LayoutList, module: "database" },
+          { to: "/database/diagram", labelKey: "nav.databaseDiagram", icon: Share2, module: "database" },
+          { to: "/database/query", labelKey: "nav.databaseQuery", icon: Code2, module: "database" },
         ],
       },
     ],
   },
   {
     type: "section",
-    label: "Administration",
+    labelKey: "nav.section.administration",
     entries: [
-      { type: "link", to: "/users", label: "Users", icon: Users, module: "users" },
-      { type: "link", to: "/profiles", label: "Access Profiles", icon: ShieldCheck, module: "profiles" },
+      { type: "link", to: "/users", labelKey: "nav.users", icon: Users, module: "users" },
+      { type: "link", to: "/profiles", labelKey: "nav.accessProfiles", icon: ShieldCheck, module: "profiles" },
     ],
   },
 ];

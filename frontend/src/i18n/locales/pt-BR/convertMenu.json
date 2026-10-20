@@ -1,0 +1,31 @@
+{
+  "targets": {
+    "task": "Tarefa (item existente)",
+    "doc": "Documento",
+    "artifact": "Artefato",
+    "knowledge_base": "Base de Conhecimento",
+    "project_doc": "Projeto específico (doc)",
+    "quick_task": "Tarefa avulsa (novo item)",
+    "planning_item": "Planejamento do projeto"
+  },
+  "loading": "Carregando…",
+  "selectPlanningItem": "Selecionar item de planejamento…",
+  "selectProject": "Selecionar projeto…",
+  "creationArea": "Área de criação…",
+  "folderPlaceholder": "pasta (ex.: notes/procedures)",
+  "documentNamePlaceholder": "nome do documento",
+  "vaultPathPlaceholder": "caminho no vault (obrigatório).md",
+  "pathOptionalPlaceholder": "caminho (opcional).md",
+  "titlePlaceholder": "Título",
+  "forward": "Encaminhar",
+  "willBeSavedTo": "Será salvo em:",
+  "results": {
+    "task": "Tarefa criada com sucesso.",
+    "doc": "Documento salvo em {{reference}}.",
+    "artifact": "Artefato criado com sucesso.",
+    "knowledge_base": "Nota salva na Base de Conhecimento em {{reference}}.",
+    "planning_item": "Item adicionado ao planejamento do projeto.",
+    "project_doc": "Documento vinculado ao projeto em {{reference}}.",
+    "quick_task": "Tarefa avulsa criada (com seu próprio item de planejamento)."
+  }
+}

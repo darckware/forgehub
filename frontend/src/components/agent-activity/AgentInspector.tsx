@@ -1,0 +1,296 @@
+import { ArrowUpRight, Bot, HeartPulse, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { Badge } from "@/components/ui/badge";
+import type { ActivityAgent } from "@/hooks/useAgentActivity";
+import { LIVE_STATE_TONE, describeLiveState, formatElapsed, isLiveStateActive } from "./liveState";
+import { cn } from "@/lib/utils";
+
+interface AgentInspectorProps {
+  agent: ActivityAgent | null;
+  agents?: ActivityAgent[];
+  onSelectAgent?: (agentId: string) => void;
+  onClearSelection?: () => void;
+  onOpenRecord: (canonicalPath: string) => void;
+}
+
+function RecordButton({ path, label, onOpen }: { path: string; label: string; onOpen: (path: string) => void }) {
+  const handleClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (
+      event.defaultPrevented
+      || event.button !== 0
+      || event.metaKey
+      || event.ctrlKey
+      || event.shiftKey
+      || event.altKey
+    ) return;
+    event.preventDefault();
+    onOpen(path);
+  };
+
+  return (
+    <a
+      href={path}
+      onClick={handleClick}
+      className="inline-flex cursor-pointer items-center gap-1 rounded-sm font-mono text-[10px] text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {label}
+      <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+    </a>
+  );
+}
+
+function LiveNow({ agent }: { agent: ActivityAgent }) {
+  const { t } = useTranslation("agentActivity");
+  const live = agent.live;
+  if (!live) {
+    return (
+      <div className="px-3 py-2 text-muted-foreground" data-testid="agent-live-now">
+        <span className="font-medium text-foreground">{t("live.section")}</span> · {t("live.noSignal")}
+      </div>
+    );
+  }
+  const { headline, context } = describeLiveState(live, t);
+  const lastSeen = formatElapsed(live.last_event_at);
+  const counters: Array<[string, number, boolean]> = [
+    [t("live.turnsHour"), live.turns_last_hour, false],
+    [t("live.toolsHour"), live.tools_last_hour, false],
+    [t("live.failuresHour"), live.failures_last_hour, live.failures_last_hour > 0],
+    [t("live.pending"), live.pending_count, false],
+  ];
+  return (
+    <div className="space-y-2 px-3 py-2.5" data-testid="agent-live-now">
+      <div className="flex items-start gap-2">
+        <span
+          className={cn(
+            "mt-1 h-2 w-2 shrink-0 rounded-full ring-4",
+            LIVE_STATE_TONE[live.state],
+            isLiveStateActive(live) && "motion-safe:animate-pulse",
+          )}
+          aria-hidden="true"
+        />
+        <div className="min-w-0">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t("live.section")}</p>
+          <p className="break-words text-xs font-semibold text-foreground">{headline}</p>
+          {context && <p className="break-words text-muted-foreground">{context}</p>}
+          <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+            {live.model ? `${live.model} · ` : ""}
+            {t("live.lastSeen")}: {lastSeen ?? t("live.never")}
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-4 gap-1.5">
+        {counters.map(([label, value, alert]) => (
+          <div key={label} className="rounded-md border border-border bg-muted/30 px-1.5 py-1 text-center">
+            <p className={cn("text-sm font-semibold tabular-nums", alert && "text-destructive")}>{value}</p>
+            <p className="truncate text-[9px] text-muted-foreground">{label}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function AgentInspector({
+  agent,
+  agents,
+  onSelectAgent,
+  onClearSelection,
+  onOpenRecord,
+}: AgentInspectorProps) {
+  const { t } = useTranslation("agentActivity");
+
+  return (
+    <section aria-labelledby="agent-inspector-title" className="min-h-[19rem] overflow-hidden rounded-lg border border-border bg-card">
+      <div className="flex min-h-11 items-center justify-between gap-2 border-b border-border px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-muted">
+            <Bot className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <h2 id="agent-inspector-title" className="truncate text-xs font-medium">
+              {agent?.name ?? t("inspector.title")}
+            </h2>
+            <p className="truncate font-mono text-[9px] text-muted-foreground">
+              {agent ? `${agent.runtime_type} / ${agent.profile_slug ?? t("inspector.noProfile")}` : t("inspector.selectAgent")}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {agent && (
+            <Badge variant="outline" className="shrink-0 gap-1 text-[9px]">
+              <HeartPulse className="h-3 w-3" aria-hidden="true" />
+              {t(`availability.${agent.availability}`)}
+            </Badge>
+          )}
+          {agent && onClearSelection && (
+            <button
+              type="button"
+              onClick={onClearSelection}
+              title={t("inspector.deselectAgent")}
+              aria-label={t("inspector.deselectAgent")}
+              className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {!agent ? (
+        <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
+          <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-muted/60">
+            <Bot className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          </span>
+          <p className="text-xs font-medium text-foreground">{t("inspector.selectAgent")}</p>
+          <p className="mt-1 max-w-xs text-[11px] text-muted-foreground">{t("inspector.selectAgentHint")}</p>
+          {agents && agents.length > 0 && onSelectAgent && (
+            <div className="mt-3 w-full max-w-xs">
+              <select
+                aria-label={t("inspector.switchAgent")}
+                className="w-full cursor-pointer rounded-md border border-input bg-background px-2.5 py-1.5 text-xs text-foreground ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+                onChange={(e) => e.target.value && onSelectAgent(e.target.value)}
+                defaultValue=""
+              >
+                <option value="" disabled>
+                  {t("inspector.switchAgent")}...
+                </option>
+                {agents.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} ({item.runtime_type})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      ) : (
+        <dl className="divide-y divide-border text-[11px]">
+          <LiveNow agent={agent} />
+          <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2 px-3 py-2">
+            <dt className="text-muted-foreground">{t("inspector.runtimeHealth")}</dt>
+            <dd>
+              <span className="font-medium">{t(`profileStatus.${agent.profile_summary.status}`)}</span>
+              {agent.profile_summary.issues.map((issue) => (
+                <span key={issue} className="mt-0.5 block text-destructive">{issue}</span>
+              ))}
+            </dd>
+          </div>
+
+          <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2 px-3 py-2">
+            <dt className="text-muted-foreground">{t("inspector.currentAction")}</dt>
+            <dd>{agent.current_work?.action ?? t("inspector.noActiveWork")}</dd>
+          </div>
+
+          <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2 px-3 py-2">
+            <dt className="text-muted-foreground">{t("inspector.project")}</dt>
+            <dd className="min-w-0">
+              {agent.current_work?.project_path && agent.current_work.project_name ? (
+                <RecordButton
+                  path={agent.current_work.project_path}
+                  label={agent.current_work.project_name}
+                  onOpen={onOpenRecord}
+                />
+              ) : (
+                t("inspector.notRecorded")
+              )}
+            </dd>
+          </div>
+
+          <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2 px-3 py-2">
+            <dt className="text-muted-foreground">{t("inspector.execution")}</dt>
+            <dd className="min-w-0 break-all">
+              {agent.current_work?.execution_path && agent.current_work.execution_id ? (
+                <RecordButton
+                  path={agent.current_work.execution_path}
+                  label={agent.current_work.execution_id}
+                  onOpen={onOpenRecord}
+                />
+              ) : (
+                t("inspector.notRecorded")
+              )}
+            </dd>
+          </div>
+
+          <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2 px-3 py-2">
+            <dt className="text-muted-foreground">{t("inspector.branch")}</dt>
+            <dd className="break-all font-mono">{agent.current_work?.branch ?? t("inspector.notRecorded")}</dd>
+          </div>
+
+          <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2 px-3 py-2">
+            <dt className="text-muted-foreground">{t("inspector.workingDirectory")}</dt>
+            <dd className="break-all font-mono">{agent.current_work?.working_directory_path ?? t("inspector.notRecorded")}</dd>
+          </div>
+
+          <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2 px-3 py-2">
+            <dt className="text-muted-foreground">{t("inspector.sourceTask")}</dt>
+            <dd className="min-w-0">
+              {agent.current_work?.task_path && agent.current_work.task_title ? (
+                <RecordButton path={agent.current_work.task_path} label={agent.current_work.task_title} onOpen={onOpenRecord} />
+              ) : (
+                t("inspector.notRecorded")
+              )}
+              {agent.current_work?.source_message_path && (
+                <span className="mt-1 block">
+                  <RecordButton path={agent.current_work.source_message_path} label={t("inspector.sourceMessage")} onOpen={onOpenRecord} />
+                </span>
+              )}
+            </dd>
+          </div>
+
+          <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2 px-3 py-2">
+            <dt className="text-muted-foreground">{t("inspector.waits")}</dt>
+            <dd className="text-amber-700 dark:text-amber-400">
+              {agent.availability_reason ?? t("inspector.noWaits")}
+            </dd>
+          </div>
+
+          <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2 px-3 py-2">
+            <dt className="text-muted-foreground">{t("inspector.checkpoint")}</dt>
+            <dd>
+              {agent.latest_checkpoint ? (
+                <>
+                  <RecordButton
+                    path={agent.latest_checkpoint.canonical_path}
+                    label={agent.latest_checkpoint.summary ?? agent.latest_checkpoint.id}
+                    onOpen={onOpenRecord}
+                  />
+                  {agent.latest_checkpoint.verification_summary && (
+                    <span className="mt-0.5 block text-muted-foreground">{agent.latest_checkpoint.verification_summary}</span>
+                  )}
+                </>
+              ) : (
+                t("inspector.notRecorded")
+              )}
+            </dd>
+          </div>
+
+          <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2 px-3 py-2">
+            <dt className="text-muted-foreground">{t("inspector.resumeFrom")}</dt>
+            <dd className="font-mono">{agent.latest_checkpoint?.resume_from_step_key ?? t("inspector.notRecorded")}</dd>
+          </div>
+
+          {agent.latest_checkpoint?.error_code && (
+            <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2 bg-destructive/5 px-3 py-2">
+              <dt className="text-muted-foreground">{t("inspector.error")}</dt>
+              <dd className="font-mono text-destructive">{agent.latest_checkpoint.error_code}</dd>
+            </div>
+          )}
+
+          {(agent.latest_checkpoint?.evidence_summary || agent.latest_checkpoint?.blocker_code) && (
+            <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2 bg-amber-500/5 px-3 py-2">
+              <dt className="text-muted-foreground">{t("inspector.authorization")}</dt>
+              <dd>
+                <span className="font-medium text-amber-700 dark:text-amber-400">
+                  {agent.latest_checkpoint.evidence_summary ?? t("inspector.pendingAuthorization")}
+                </span>
+                {agent.latest_checkpoint.blocker_code && (
+                  <span className="mt-0.5 block font-mono text-muted-foreground">{agent.latest_checkpoint.blocker_code}</span>
+                )}
+              </dd>
+            </div>
+          )}
+        </dl>
+      )}
+    </section>
+  );
+}

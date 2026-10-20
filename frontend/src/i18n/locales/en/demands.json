@@ -1,0 +1,234 @@
+{
+  "inboxTitle": "Messages",
+  "incomingFolder": "Incoming",
+  "outgoingFolder": "Outgoing",
+  "systemLabel": "System",
+  "archivedFolder": "Archived",
+  "expandAllGroups": "Expand all groups",
+  "collapseAllGroups": "Collapse all groups",
+  "backlogFolder": "Incubation",
+  "runningFolder": "Running",
+  "failedFolder": "Failed",
+  "emptyBacklogMessage": "No thoughts incubating right now.",
+  "emptyRunningMessage": "Nothing dispatched/running right now.",
+  "emptyFailedMessage": "No dispatch has failed so far.",
+  "newNoteButton": "New message",
+  "emptyArchivedFolderMessage": "",
+  "emptyInboxMessage": "",
+  "selectMessagePrompt": "Select a message to read.",
+  "backToFolders": "Folders",
+  "newNoteTitle": "New message",
+  "editTitle": "Edit message",
+  "newNoteDescription": "Lets you file your own inbox item (not just agents via /submit), per the 'console de desenvolvimento' use case: day-to-day notes/procedures land here first, get triaged later. Files as `from_agent = username` so the inbox shows a real sender either way.",
+  "subjectPlaceholder": "Subject",
+  "bodyPlaceholder": "Note/Prompt",
+  "attachFileButton": "Attach file",
+  "attachmentDescriptionPlaceholder": "Description (optional)",
+  "send": "Send",
+  "cancel": "Cancel",
+  "new": "New",
+  "editButton": "Edit",
+  "tabs": {
+    "messages": "Messages",
+    "overview": "Overview",
+    "stats": "Statistics",
+    "control": "Control"
+  },
+  "form": {
+    "scheduledAt": "Send at",
+    "fromAgent": "From (agent)",
+    "noFromAgent": "Pick an agent",
+    "toAgent": "To (agent)",
+    "noAgent": "No agent",
+    "project": "Project",
+    "noProject": "No project",
+    "developmentRequest": "Conception request",
+    "noDevelopmentRequest": "No linked conception",
+    "originId": "ID",
+    "type": "Type",
+    "typeTaskOutgoing": "Task",
+    "typeTaskIncoming": "Task",
+    "taskExecutionAt": "Executed at",
+    "dispatchResult": "Result",
+    "requiresResponse": "Return",
+    "requiresResponseYes": "Yes",
+    "requiresResponseNo": "No",
+    "agentRequiredForTask": "Pick a target agent when linking to a Task",
+    "agentRequiredForSchedule": "Pick a target agent to schedule a send",
+    "typeBacklog": "Incubation",
+    "status": "Status",
+    "statusDispatched": "Processed",
+    "statusRunning": "Running",
+    "statusFailed": "Failed",
+    "statusCompleted": "Completed",
+    "fromAgentRequired": "Pick the From agent — every message belongs to one.",
+    "toAgentSelf": "Itself (same as From)"
+  },
+  "pending": {
+    "sigla": "AR",
+    "tooltip": "Awaiting Reply -- this message asked for a response and none has arrived yet"
+  },
+  "dispatch": {
+    "replyArrived": "reply arrived",
+    "status": {
+      "pending": "Queued for dispatch...",
+      "dispatched": "Dispatched, waiting for the agent to start...",
+      "running": "Agent is running...",
+      "completed": "Completed",
+      "failed": "Failed"
+    }
+  },
+  "sendToOutgoing": {
+    "button": "Send to Outgoing",
+    "loading": "Loading agents...",
+    "selectAgent": "Select agent...",
+    "instructionsPlaceholder": "Instructions for the agent (sent together with this message's content)",
+    "submit": "Send",
+    "backlogNeedsSender": "An incubating thought needs a sender (From) before it can be dispatched — set From to an agent, or promote it to Task."
+  },
+  "attachment": {
+    "download": "Download",
+    "remove": "Remove attachment"
+  },
+  "reading": {
+    "deleteTitle": "Delete \"{{subject}}\"",
+    "deleteDescription": "Permanently removes the message from the inbox.",
+    "archive": "Archive",
+    "delete": "Delete",
+    "attachments": "Attachments",
+    "convertedTo": "Done — converted to",
+    "refreshInbox": "Refresh inbox",
+    "loadInboxFailed": "Failed to load the inbox: {{error}}",
+    "status": {
+      "new": "New",
+      "read": "Read",
+      "converted": "Converted",
+      "archived": "Archived"
+    },
+    "convertTargets": {
+      "task": "Task",
+      "doc": "Document",
+      "artifact": "Artifact",
+      "knowledge_base": "Knowledge Base",
+      "planning_item": "Planning Item",
+      "project_doc": "Project Document",
+      "quick_task": "Quick Task"
+    }
+  },
+  "cleanup": {
+    "daysShort": "{{count}}d",
+    "keep30": "Keep last 30 days",
+    "keep15": "Keep last 15 days",
+    "clearAll": "Clear all",
+    "confirmTitle": "Clean up messages",
+    "confirmKeepDescription": "Permanently deletes every completed, failed, or already-archived message older than {{days}} days. Active mail (Incoming, Outgoing, Running, Incubation) is never affected. This cannot be undone.",
+    "confirmClearAllDescription": "Permanently deletes every completed, failed, or already-archived message. Active mail (Incoming, Outgoing, Running, Incubation) is never affected. This cannot be undone.",
+    "confirmGroupDescription": "Permanently deletes every message in {{group}}. This cannot be undone.",
+    "cleanupGroupLabel": "Clean up {{group}}"
+  },
+  "overview": {
+    "title": "Agent communications map",
+    "subtitle": "Who's exchanging messages with whom, with volume and dispatch status.",
+    "emptyState": "Not enough traffic between agents yet to show this view.",
+    "tableToggleShow": "View as table",
+    "tableToggleHide": "View as graph",
+    "tooltip": "{{from}} → {{to}}: {{count}} messages",
+    "hoverHint": "Hover or click an agent/line to see details.",
+    "legend": {
+      "completed": "Completed",
+      "inFlight": "In progress / queued",
+      "failed": "Failed",
+      "plain": "No dispatch",
+      "thickness": "Line thickness = message volume"
+    },
+    "table": {
+      "from": "From",
+      "to": "To",
+      "total": "Total",
+      "completed": "Completed",
+      "failed": "Failed",
+      "inFlight": "In progress",
+      "plain": "No dispatch"
+    },
+    "nodeSummary": {
+      "sent": "Sent",
+      "received": "Received",
+      "failed": "Failed",
+      "pending": "Pending"
+    }
+  },
+  "stats": {
+    "totalMessages": "Total messages",
+    "activeAgents": "Agents with traffic",
+    "awaitingReply": "Awaiting reply",
+    "dispatchSuccessRate": "Dispatch success rate",
+    "noDispatchData": "Not enough dispatches yet to calculate.",
+    "volumeByAgent": "Volume by agent",
+    "statusBreakdown": "Dispatch status",
+    "messagesOverTime": "Messages in the last 14 days",
+    "status": {
+      "completed": "Completed",
+      "inFlight": "In progress",
+      "failed": "Failed"
+    }
+  },
+  "control": {
+    "title": "Demand control",
+    "subtitle": "Classify messages by project, agent, or login to track work in progress.",
+    "loading": "Loading...",
+    "noProject": "No project",
+    "agentsBucket": "Agents",
+    "dimension": {
+      "project": "Project",
+      "agent": "Agent",
+      "login": "Login"
+    },
+    "table": {
+      "subject": "Subject",
+      "from": "From",
+      "status": "Status",
+      "date": "Date"
+    }
+  },
+  "filter": {
+    "typeLabel": "Filter by type",
+    "typeAll": "All types",
+    "typeTask": "Task",
+    "searchPlaceholder": "Search by #number, subject, body or sender",
+    "clearSearch": "Clear search",
+    "typeBacklog": "Incubation"
+  },
+  "promoteToTask": "Promote to Task",
+  "completedFolder": "Completed",
+  "emptyCompletedMessage": "Nothing has finished running yet.",
+  "promoteToTaskNeedsAgent": "Set a sender (From) first — a Task always needs an agent to run it.",
+  "archive": {
+    "confirmTitle": "Archive all messages?",
+    "confirmGroupDescription": "Every message currently in {{group}} will be filed under Arquivadas. Nothing is deleted -- this only moves them out of this group.",
+    "confirmButton": "Archive all"
+  },
+  "inbox": {
+    "folderName": "Folder name"
+  },
+  "reprocess": {
+    "confirmTitle": "Reprocess failures?",
+    "confirmDescription": "{{count}} failed message(s) will be put back in the dispatch queue. They start as slots free up, not all at once.",
+    "confirmButton": "Reprocess",
+    "itemButton": "Reprocess",
+    "itemTitle": "Attempt {{attempts}} of {{max}} — puts this back in the dispatch queue"
+  },
+  "workflow": {
+    "context": "Project or area",
+    "allContexts": "All projects and areas",
+    "unclassified": "No project or area",
+    "summaries": "Context summaries",
+    "pending": "Awaiting your decision.",
+    "approved": "Content approved.",
+    "rejected": "Rejected; awaiting revision.",
+    "deliberate": "Decide in Personal",
+    "openSummary": "Open summary #{{number}}",
+    "sourceCount": "{{count}} archived source records",
+    "uncertain": "Reconciliation pending",
+    "requireApproval": "Require Marcelo's approval before execution"
+  }
+}

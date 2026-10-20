@@ -1,0 +1,31 @@
+{
+  "targets": {
+    "task": "Task (existing item)",
+    "doc": "Document",
+    "artifact": "Artifact",
+    "knowledge_base": "Knowledge Base",
+    "project_doc": "Specific project (doc)",
+    "quick_task": "Standalone task (new item)",
+    "planning_item": "Project planning"
+  },
+  "loading": "Loading…",
+  "selectPlanningItem": "Select planning item…",
+  "selectProject": "Select project…",
+  "creationArea": "Creation area…",
+  "folderPlaceholder": "folder (e.g. notes/procedures)",
+  "documentNamePlaceholder": "document name",
+  "vaultPathPlaceholder": "vault path (required).md",
+  "pathOptionalPlaceholder": "path (optional).md",
+  "titlePlaceholder": "Title",
+  "forward": "Forward",
+  "willBeSavedTo": "Will be saved to:",
+  "results": {
+    "task": "Task created successfully.",
+    "doc": "Document saved to {{reference}}.",
+    "artifact": "Artifact created successfully.",
+    "knowledge_base": "Note saved to the Knowledge Base at {{reference}}.",
+    "planning_item": "Item added to the project's planning.",
+    "project_doc": "Document linked to the project at {{reference}}.",
+    "quick_task": "Standalone task created (with its own planning item)."
+  }
+}

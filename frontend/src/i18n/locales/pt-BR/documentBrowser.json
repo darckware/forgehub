@@ -1,0 +1,14 @@
+{
+  "note": "Nota",
+  "mindMap": "Mapa mental",
+  "graph": "Grafo",
+  "galaxy": "Galáxia da memória",
+  "viewFile": "Visualizar arquivo",
+  "workingFolder": "Pasta de trabalho",
+  "useRoot": "usar raiz",
+  "hideTree": "Ocultar diretório",
+  "showTree": "Mostrar diretório",
+  "expandAll": "Expandir todas as pastas",
+  "collapseAll": "Recolher todas as pastas",
+  "backToTree": "Arquivos"
+}

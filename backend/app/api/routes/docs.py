@@ -16,14 +16,14 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.demand import ConvertIn, ConvertOut
 from app.core import conversions
-from app.core.markdown_docs import DocNode, build_tree, resolve_doc_path
+from app.core.markdown_docs import DocGraph, DocNode, build_graph, build_tree, resolve_doc_path
 from app.db.base import get_db
 from app.db.models.doc_link import DOC_LINK_ENTITY_TYPES, DocLink
 from app.db.models.docs_area import DocsArea
@@ -90,8 +90,7 @@ def _require_editable(target: Path) -> None:
 
 
 class DocsAreaOut(BaseModel):
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     name: str
@@ -180,6 +179,18 @@ async def docs_tree(area_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> l
     if not root.is_dir():
         return []
     return build_tree(root, include_all_files=True, keep_empty_dirs=True)
+
+
+@router.get("/graph", response_model=DocGraph)
+async def docs_graph(area_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> DocGraph:
+    """[[wikilink]] graph across the area's markdown files, same shape as
+    vault.py's /graph (build_graph is root-agnostic) -- backs the Docs
+    page's "Grafo" view mode alongside "Nota"/"Mapa mental"."""
+    area = await _get_area_or_404(db, area_id)
+    root = _area_root(area)
+    if not root.is_dir():
+        return DocGraph(nodes=[], edges=[])
+    return build_graph(root)
 
 
 @router.get("/file", response_model=DocFileOut)

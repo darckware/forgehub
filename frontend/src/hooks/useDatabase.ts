@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api";
 
 export const DEFAULT_SCHEMA = "company";
-export const DEFAULT_INSTANCE = "company_postgres";
+export const DEFAULT_INSTANCE = "forgehub_postgres";
 export const DEFAULT_DB = "forgehub";
 
 // ---------------------------------------------------------------------------

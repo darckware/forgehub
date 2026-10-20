@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.toolversions import (
+    ToolInstallResult,
     ToolSyncSettingOut,
     ToolSyncSettingUpdate,
     ToolUpdateResult,
@@ -37,12 +38,13 @@ class ForgeRouterConfigUpdate(BaseModel):
     enabled: bool
     api_key: str = ""
 
-# Excluded from the unattended periodic poll (see app/main.py) -- antigravity
-# has no check-only mode, so "checking" it means running a real `agy update`,
-# and it already has its own ~15min auto-updater independent of this loop.
-# It's still checked/updated on any explicit user action (manual "Check now"
-# or "Update" click), which requests MONITORED_TOOLS (the default) below.
-POLL_TOOLS = tuple(tool for tool in MONITORED_TOOLS if tool != "antigravity")
+# Periodic background poll checks all monitored tools, passing POLL_NO_MUTATE
+# so antigravity's installed version (`agy --version`) stays up-to-date in the
+# DB without running a mutating `agy update` (antigravity already has its own
+# ~15min auto-updater on the host; explicit user "Check now" or "Update" clicks
+# still run the full check/update).
+POLL_TOOLS = MONITORED_TOOLS
+POLL_NO_MUTATE = ("antigravity",)
 
 
 def _bridge_headers() -> dict[str, str]:
@@ -94,13 +96,14 @@ async def refresh_all_tool_versions(
     db: AsyncSession, tools: tuple[str, ...] = MONITORED_TOOLS, no_mutate: tuple[str, ...] = ()
 ) -> list[ToolVersionStatus]:
     """Call the host bridge for the given tools and persist the results.
-    Shared by the manual POST /check route, the post-update refresh, and the
-    periodic background poll in app/main.py (which passes a `tools` subset
-    that excludes antigravity -- see POLL_TOOLS above).
+    Shared by the manual POST /check route, the post-update/install refresh,
+    and the periodic background poll in app/main.py (which passes
+    `no_mutate=POLL_NO_MUTATE` so antigravity is checked via `agy --version`
+    without running `agy update`).
 
-    `no_mutate`: passed through to the host bridge so it can skip re-running
-    a real `agy update` for a tool whose update was just explicitly run by
-    the caller (see the /update route below)."""
+    `no_mutate`: passed through to the host bridge so it can skip running
+    a real `agy update` for antigravity during periodic polls or right after
+    an explicit update/install."""
     params: dict[str, str] = {"tools": ",".join(tools)}
     if no_mutate:
         params["no_mutate"] = ",".join(no_mutate)
@@ -117,11 +120,12 @@ async def refresh_all_tool_versions(
     rows = []
     for tool in tools:
         row = await _get_or_create_status_row(db, tool)
-        data = results.get(tool, {})
-        row.installed_version = data.get("installed_version")
-        row.latest_version = data.get("latest_version")
-        row.update_available = bool(data.get("update_available"))
-        row.last_error = data.get("error")
+        if tool in results:
+            data = results[tool]
+            row.installed_version = data.get("installed_version")
+            row.latest_version = data.get("latest_version")
+            row.update_available = bool(data.get("update_available"))
+            row.last_error = data.get("error")
         rows.append(row)
     await db.commit()
     for row in rows:
@@ -162,16 +166,43 @@ async def update_tool(tool: str, db: AsyncSession = Depends(get_db)) -> ToolUpda
         )
     update_result = resp.json()
 
-    # no_mutate=(tool,): the update above already ran the real update
-    # command for `tool` -- for antigravity specifically, re-checking it the
-    # normal way would run `agy update` a second time. Other tools' checks
-    # are already non-mutating, so this only changes antigravity's behavior.
-    rows = await refresh_all_tool_versions(db, no_mutate=(tool,))
+    # tools=(tool,), no_mutate=(tool,): refresh only the updated tool and skip
+    # running `agy update` a second time for antigravity.
+    rows = await refresh_all_tool_versions(db, tools=(tool,), no_mutate=(tool,))
     row = next(r for r in rows if r.tool == tool)
     return ToolUpdateResult(
         success=update_result["success"],
         output=update_result["output"],
         error=update_result.get("error"),
+        status=ToolVersionOut.model_validate(row),
+    )
+
+
+@router.post("/{tool}/install", response_model=ToolInstallResult)
+async def install_tool(tool: str, db: AsyncSession = Depends(get_db)) -> ToolInstallResult:
+    """Run the tool's installation command on the host, then refresh and
+    return its status row."""
+    if tool not in MONITORED_TOOLS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown tool: {tool}")
+
+    async with httpx.AsyncClient(timeout=650.0) as client:
+        resp = await client.post(
+            f"{settings.CHAT_BRIDGE_URL}/v1/tool-versions/install",
+            json={"tool": tool},
+            headers=_bridge_headers(),
+        )
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Chat bridge error: {resp.text[:500]}"
+        )
+    install_result = resp.json()
+
+    rows = await refresh_all_tool_versions(db, tools=(tool,), no_mutate=(tool,))
+    row = next(r for r in rows if r.tool == tool)
+    return ToolInstallResult(
+        success=install_result["success"],
+        output=install_result["output"],
+        error=install_result.get("error"),
         status=ToolVersionOut.model_validate(row),
     )
 

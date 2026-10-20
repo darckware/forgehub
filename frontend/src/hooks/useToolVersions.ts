@@ -6,11 +6,11 @@ import { useToolUpdateStore } from "@/store/toolUpdate";
 
 /**
  * Tool-versions domain -- backs the Dashboard's tool-version card
- * (Hermes/Claude/Codex/Antigravity/PI/Opencode CLIs plus the Kanboard
- * container). See backend/app/api/routes/toolversions.py.
+ * (Hermes/Claude/Codex/Antigravity/PI/Opencode CLIs). See
+ * backend/app/api/routes/toolversions.py.
  */
 
-export const monitoredToolSchema = z.enum(["hermes", "claude", "codex", "antigravity", "pi", "opencode", "kanboard"]);
+export const monitoredToolSchema = z.enum(["hermes", "claude", "codex", "antigravity", "pi", "opencode"]);
 export type MonitoredTool = z.infer<typeof monitoredToolSchema>;
 
 export const toolVersionSchema = z.object({
@@ -80,6 +80,25 @@ export function useRunToolUpdate() {
       }
     },
     [queryClient, startUpdate, finishUpdate, failUpdate],
+  );
+}
+
+export function useRunToolInstall() {
+  const queryClient = useQueryClient();
+  const { startInstall, finishInstall, failInstall } = useToolUpdateStore();
+
+  return useCallback(
+    async (tool: MonitoredTool) => {
+      startInstall(tool);
+      try {
+        const result = await apiClient.post<ToolUpdateResult>(`${RESOURCE}/${tool}/install`);
+        finishInstall({ tool, output: result.output, error: result.error ?? null });
+        queryClient.invalidateQueries({ queryKey: toolVersionKeys.list });
+      } catch (err) {
+        failInstall(tool, String(err));
+      }
+    },
+    [queryClient, startInstall, finishInstall, failInstall],
   );
 }
 

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api";
 
 export interface SystemControlStatus {
@@ -17,7 +17,11 @@ export interface SystemControlStatus {
       subject: string | null;
     };
   };
-  available_repos: { key: string; path: string }[];
+  /** "hermes" (fixed system entry) or every registered Project with a
+   * working_directory_path set -- there is no separate ad-hoc registry
+   * anymore, Project registration is the one source of truth (see
+   * backend/app/api/routes/system_control.py's module-level comment). */
+  available_repos: { key: string; path: string; removable: boolean; label: string; kind: "system" | "project" }[];
   backups: {
     path: string;
     count: number;
@@ -25,23 +29,92 @@ export interface SystemControlStatus {
   };
 }
 
-/** `repo` is the KNOWN_REPOS key from a previous call's `available_repos`
- * (see backend/app/api/routes/system_control.py) -- omitted/unknown falls
- * back to the backend's default repo rather than erroring. */
+/** `repo` is an available_repos key from a previous call ("hermes" or
+ * "project:<uuid>") -- omitted/unknown falls back to the backend's default
+ * repo rather than erroring. */
 export function useSystemControlStatus(repo?: string) {
   return useQuery<SystemControlStatus>({
     queryKey: ["system-control", "status", repo ?? "default"],
     queryFn: () => apiClient.get("/api/v1/system-control/status", { params: repo ? { repo } : undefined }),
     refetchInterval: 30_000,
     retry: false,
+    // Keeps showing the previously-selected repo's numbers (branch,
+    // working tree, last commit) while the new one loads, instead of the
+    // whole page (including the picker itself) blanking to a spinner on
+    // every dropdown change -- see SystemControlPage's `isLoading` guard.
+    placeholderData: keepPreviousData,
   });
 }
 
-export function useHermesBackup() {
+export interface BackupTarget {
+  key: string; // "hermes" | "project:<uuid>"
+  label: string;
+  kind: "system" | "project";
+  /** false when a project has backup_enabled but no working_directory_path
+   * yet -- selectable but running a backup on it will fail. */
+  ready: boolean;
+  /** What gets archived -- always "/root/.hermes" for the "hermes" target;
+   * a project's working_directory_path (null if not set yet). */
+  source: string | null;
+  /** Where archives for this target land -- Project.backup_location if
+   * set, else BACKUP_DIR/<slug-of-name> (e.g. "/root/backup/forgehub"). */
+  location: string;
+}
+
+/** "hermes" (always present) plus every Project with backup_enabled=true
+ * -- what POST /backups/run's `target` (or its "all" pseudo-target) can
+ * act on, and what GET /backups can list. */
+export function useBackupTargets() {
+  return useQuery<{ targets: BackupTarget[] }>({
+    queryKey: ["system-control", "backup-targets"],
+    queryFn: () => apiClient.get("/api/v1/system-control/backup-targets"),
+    retry: false,
+  });
+}
+
+export interface BackupListing {
+  target: string;
+  path: string;
+  count: number;
+  entries: { name: string; path: string; size: number | null; type: string }[];
+}
+
+/** Archives for ONE target only -- Hermes and each project's backups are
+ * stored in separate directories and never listed together (see the
+ * module docstring in backend/app/api/routes/system_control.py). */
+export function useBackupListing(target: string) {
+  return useQuery<BackupListing>({
+    queryKey: ["system-control", "backups", target],
+    queryFn: () => apiClient.get("/api/v1/system-control/backups", { params: { target } }),
+    retry: false,
+    // Same reasoning as useSystemControlStatus -- avoid blanking the table
+    // to a spinner every time the backup target dropdown changes.
+    placeholderData: keepPreviousData,
+  });
+}
+
+export interface BackupRunResult {
+  target: string;
+  label: string;
+  status: string;
+  archive_path: string;
+  size_bytes: number;
+}
+
+export interface BackupRunResponse {
+  results: BackupRunResult[];
+  errors: { target: string; detail: string }[];
+}
+
+/** target = "hermes" | "project:<uuid>" | "all" (fans out to Hermes + every
+ * ready backup_enabled project, each still landing in its own directory --
+ * see POST /backups/run's docstring). */
+export function useRunBackup() {
   const queryClient = useQueryClient();
-  return useMutation<{ status: string; archive_path: string; size_bytes: number }, Error>({
-    mutationFn: () => apiClient.post("/api/v1/system-control/backup-hermes", {}),
+  return useMutation<BackupRunResponse, Error, { target: string }>({
+    mutationFn: (payload) => apiClient.post("/api/v1/system-control/backups/run", payload),
     onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["system-control", "backups"] });
       await queryClient.invalidateQueries({ queryKey: ["system-control", "status"] });
     },
   });
@@ -49,9 +122,13 @@ export function useHermesBackup() {
 
 export function useDeleteBackup() {
   const queryClient = useQueryClient();
-  return useMutation<void, Error, string>({
-    mutationFn: (filename) => apiClient.delete(`/api/v1/system-control/backup/${encodeURIComponent(filename)}`),
+  return useMutation<void, Error, { target: string; filename: string }>({
+    mutationFn: ({ target, filename }) =>
+      apiClient.delete(
+        `/api/v1/system-control/backups/${encodeURIComponent(target)}/${encodeURIComponent(filename)}`
+      ),
     onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["system-control", "backups"] });
       await queryClient.invalidateQueries({ queryKey: ["system-control", "status"] });
     },
   });
@@ -112,25 +189,198 @@ export function useCleanupScan() {
 }
 
 export interface CleanupRunResult {
-  swept_count: number;
-  swept: string[];
-  sweep_errors: string[];
+  trash_root: string;
+  backup_root: string;
+  script: string;
   output: string;
+  policy: "no-docker-volume-prune";
 }
 
-/** Two-step cleanup (see POST /cleanup-run's docstring):
- * 1. Sweeps eligible files into /root/trash -- only ROTATED logs (never
- *    the live agent.log/errors.log/gateway.log a running agent has open),
- *    only files older than 1 day (cron output/rotated logs) or 30 days
- *    (backups). Never touches scripts.
- * 2. Runs the same script the "foundation-clear" cron runs weekly --
- *    empties /root/trash (including what step 1 just swept into it). */
+/** Runs the authoritative Athos weekly cleanup policy immediately. The
+ * foundation-clear cron invokes this same script; the UI does not maintain
+ * a second set of deletion rules. Docker volumes/database data are excluded. */
 export function useRunCleanup() {
   const queryClient = useQueryClient();
   return useMutation<CleanupRunResult, Error>({
     mutationFn: () => apiClient.post("/api/v1/system-control/cleanup-run", {}),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["system-control", "cleanup-scan"] });
+    // Not awaited: cleanup-scan re-scans the whole host filesystem (10s+,
+    // longer under load) -- awaiting it here would keep this mutation (and
+    // any UI bound to its pending state) stuck "loading" for the length of
+    // that rescan even though the run itself already finished. The query
+    // still refetches and the UI still updates once it resolves.
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["system-control", "cleanup-scan"] });
+    },
+  });
+}
+
+export interface CleanupDeleteResult {
+  category: string;
+  count: number;
+  total_size: number;
+  trash_path: string;
+}
+
+/** Clears one cleanup-scan category card on demand (2026-08-24) -- moves
+ * every file currently in that category to TRASH_ROOT (never a hard
+ * delete, same recoverable-by-default philosophy as useRunCleanup) without
+ * waiting for or triggering the full weekly policy. `category` goes as a
+ * query param, not a path segment -- some category names contain "/". */
+export function useDeleteCleanupCategory() {
+  const queryClient = useQueryClient();
+  return useMutation<CleanupDeleteResult, Error, string>({
+    mutationFn: (category: string) =>
+      apiClient.post("/api/v1/system-control/cleanup-scan/delete", undefined, { params: { category } }),
+    // Not awaited -- see useRunCleanup's comment: cleanup-scan's own rescan
+    // (not this delete) was what made the confirm dialog's spinner sit for
+    // 10s+ looking like the click had done nothing.
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["system-control", "cleanup-scan"] });
+    },
+  });
+}
+
+export interface TrashStatus {
+  trash_root: string;
+  total_size: number;
+  item_count: number;
+}
+
+/** Size/count of everything currently sitting in TRASH_ROOT -- every
+ * cleanup-scan/delete click and the weekly policy's own files land here
+ * first (recoverable), so this is what "Empty trash" removes for good. */
+export function useTrashStatus() {
+  return useQuery<TrashStatus>({
+    queryKey: ["system-control", "trash-status"],
+    queryFn: () => apiClient.get("/api/v1/system-control/trash-status"),
+    retry: false,
+  });
+}
+
+/** Permanently deletes everything under TRASH_ROOT -- a hard delete, unlike
+ * every other action on this page (cleanup-scan/delete and Run Cleanup only
+ * ever move things here). Separate from Run Cleanup so clearing trash
+ * doesn't also trigger Docker/journal/backup-expiry pruning. */
+export function useEmptyTrash() {
+  const queryClient = useQueryClient();
+  return useMutation<{ trash_root: string }, Error>({
+    mutationFn: () => apiClient.post("/api/v1/system-control/trash:empty", undefined),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["system-control", "trash-status"] });
+      void queryClient.invalidateQueries({ queryKey: ["system-control", "cleanup-scan"] });
+    },
+  });
+}
+
+export interface DockerUsageType {
+  /** Docker's own label: "Images" | "Containers" | "Local Volumes" | "Build Cache". */
+  type: string;
+  total_count: number;
+  active: number;
+  size: number;
+  reclaimable: number;
+}
+
+export interface DockerUnusedImage {
+  id: string;
+  /** "repo:tag", or "<none>" for a dangling image. */
+  name: string;
+  size: number;
+  created_at: string;
+  created_since: string;
+}
+
+export interface DockerUsage {
+  /** Root filesystem, bytes -- null if `df` output couldn't be parsed. */
+  disk: { total: number; used: number; available: number } | null;
+  types: DockerUsageType[];
+  /** Images no container (running or stopped) points at -- exactly what
+   * "Remove unused images" deletes. Largest first. */
+  unused_images: DockerUnusedImage[];
+}
+
+/** Docker's share of the host disk (2026-09-27) -- where the space actually
+ * goes on this VPS, mostly BuildKit cache. Read-only. Admin-only on the
+ * backend, so callers outside System Control pass `enabled` from the user's
+ * role; one read is ~10s of `docker` on the host, so a poller should stay in
+ * minutes, not seconds. Shares its key with System Control's card, so a
+ * prune there refreshes every consumer. */
+export function useDockerUsage(options: { enabled?: boolean; refetchInterval?: number } = {}) {
+  return useQuery<DockerUsage>({
+    queryKey: ["system-control", "docker-usage"],
+    queryFn: () => apiClient.get("/api/v1/system-control/docker-usage"),
+    retry: false,
+    enabled: options.enabled ?? true,
+    refetchInterval: options.refetchInterval,
+  });
+}
+
+export interface DockerPruneRequest {
+  build_cache?: boolean;
+  unused_images?: boolean;
+}
+
+export interface DockerPruneResult {
+  /** Last line of each prune's output (Docker's own "Total ..." summary). */
+  results: Partial<Record<"build_cache" | "unused_images", string>>;
+  policy: "no-docker-volume-prune";
+}
+
+/** Hard delete of reproducible Docker artifacts -- never volumes. */
+export function useDockerPrune() {
+  const queryClient = useQueryClient();
+  return useMutation<DockerPruneResult, Error, DockerPruneRequest>({
+    mutationFn: (body) => apiClient.post("/api/v1/system-control/docker:prune", body),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["system-control", "docker-usage"] });
+    },
+  });
+}
+
+export interface BackupFileItem {
+  path: string;
+  group: string;
+  size: number;
+  mtime: string;
+  is_dir: boolean;
+  /** Reason it can't be removed (e.g. the current weekly Hermes backup), or null. */
+  protected: string | null;
+}
+
+export interface BackupFileGroup {
+  group: string;
+  label: string;
+  count: number;
+  total_size: number;
+  items: BackupFileItem[];
+}
+
+export interface BackupFiles {
+  total_count: number;
+  total_size: number;
+  reclaimable_size: number;
+  groups: BackupFileGroup[];
+}
+
+/** Backup files on the host (2026-09-28): /root/backup, the weekly Hermes archive, rollback
+ * snapshots and dumps in /tmp. Read-only; one host scan per call, so no polling. */
+export function useBackupFiles() {
+  return useQuery<BackupFiles>({
+    queryKey: ["system-control", "backup-files"],
+    queryFn: () => apiClient.get("/api/v1/system-control/backup-files"),
+    retry: false,
+  });
+}
+
+/** Moves the selected backup items to TRASH_ROOT (recoverable until "Empty trash"). The
+ * backend re-scans and refuses unknown or protected paths. */
+export function useDeleteBackupFiles() {
+  const queryClient = useQueryClient();
+  return useMutation<{ count: number; total_size: number; trash_path: string }, Error, string[]>({
+    mutationFn: (paths) => apiClient.post("/api/v1/system-control/backup-files/delete", { paths }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["system-control", "backup-files"] });
+      void queryClient.invalidateQueries({ queryKey: ["system-control", "trash-status"] });
     },
   });
 }

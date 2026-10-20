@@ -26,3 +26,11 @@ export function usePermission(module: string): ModulePermission {
   if (user.is_admin) return FULL_ACCESS;
   return permissions[module] ?? NO_ACCESS;
 }
+
+export function useActionPermission(action: string): boolean {
+  const user = useAuthStore((s) => s.user);
+  const actions = useAuthStore((s) => s.actions);
+  if (!user) return false;
+  if (user.is_admin) return true;
+  return actions[action] ?? false;
+}

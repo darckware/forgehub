@@ -1,17 +1,18 @@
-import { ChevronDown, ChevronRight, Feather, Loader2, RefreshCw, BellRing, BellOff } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { BellOff, BellRing, ChevronDown, ChevronRight, Feather, Loader2, RefreshCw, X } from "lucide-react";
 import hermesIcon from "@lobehub/icons-static-png/light/hermesagent.png";
 import claudeIcon from "@lobehub/icons-static-png/dark/claude-color.png";
 import codexIcon from "@lobehub/icons-static-png/dark/codex-color.png";
 import antigravityIcon from "@lobehub/icons-static-png/dark/antigravity-color.png";
 import opencodeIcon from "@lobehub/icons-static-png/light/opencode.png";
 import piIcon from "@/assets/icons/pi.svg";
-import kanboardIcon from "@/assets/icons/kanboard.svg";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   type MonitoredTool,
   useCheckToolVersions,
+  useRunToolInstall,
   useRunToolUpdate,
   useSetToolSyncSetting,
   useToolSyncSetting,
@@ -19,29 +20,42 @@ import {
 } from "@/hooks/useToolVersions";
 import { useToolUpdateStore } from "@/store/toolUpdate";
 
-// pi's mark is a plain white glyph with no built-in background, so it needs
-// a dark backing square to read against this card's light background --
-// unlike the other PNGs below, which are already self-contained color icons.
-const TOOL_META: Record<MonitoredTool, { label: string; icon?: string; iconBg?: string }> = {
-  hermes: { label: "Hermes", icon: hermesIcon },
-  claude: { label: "Claude Code", icon: claudeIcon },
-  codex: { label: "Codex", icon: codexIcon },
+// pi's mark is a plain white glyph, and hermes/opencode's are plain black
+// glyphs -- none has a built-in background, unlike the other PNGs below,
+// which are already self-contained color icons that read fine on both a
+// light and a dark page theme on their own. Each gets a fixed backing chip
+// (rather than a page-theme-reactive one) so it doesn't wash out into
+// whichever theme is active -- a black glyph directly on this card's dark
+// mode is otherwise invisible.
+const TOOL_META: Record<MonitoredTool, { label: string; icon?: string; iconBg?: string; canInstall?: boolean }> = {
+  hermes: { label: "Hermes", icon: hermesIcon, iconBg: "bg-white" },
+  claude: { label: "Claude Code", icon: claudeIcon, canInstall: true },
+  codex: { label: "Codex", icon: codexIcon, canInstall: true },
   antigravity: { label: "Antigravity", icon: antigravityIcon },
-  pi: { label: "PI", icon: piIcon, iconBg: "bg-black" },
-  opencode: { label: "Opencode", icon: opencodeIcon },
-  kanboard: { label: "Kanboard", icon: kanboardIcon },
+  pi: { label: "PI", icon: piIcon, iconBg: "bg-black", canInstall: true },
+  opencode: { label: "Opencode", icon: opencodeIcon, iconBg: "bg-white", canInstall: true },
 };
 
-const TOOL_ORDER: MonitoredTool[] = ["hermes", "claude", "codex", "antigravity", "pi", "opencode", "kanboard"];
+const TOOL_ORDER: MonitoredTool[] = ["hermes", "claude", "codex", "antigravity", "pi", "opencode"];
 
 
 export function ToolVersionsCard() {
+  const { t } = useTranslation("dashboard");
   const { data: versions, isLoading } = useToolVersions();
   const { data: syncSetting } = useToolSyncSetting();
   const checkVersions = useCheckToolVersions();
   const setSyncSetting = useSetToolSyncSetting();
   const runToolUpdate = useRunToolUpdate();
-  const { updatingTools, expandedTool, updateOutputs, setExpandedTool } = useToolUpdateStore();
+  const runToolInstall = useRunToolInstall();
+  const {
+    updatingTools,
+    installingTools,
+    expandedTool,
+    updateOutputs,
+    setExpandedTool,
+    dismissUpdate,
+    clearUpdateDetails,
+  } = useToolUpdateStore();
 
   const syncEnabled = syncSetting?.enabled ?? true;
 
@@ -49,18 +63,25 @@ export function ToolVersionsCard() {
     void runToolUpdate(tool);
   };
 
+  const handleInstall = (tool: MonitoredTool) => {
+    void runToolInstall(tool);
+  };
+
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-        <CardTitle>Tool Versions</CardTitle>
-        <div className="flex items-center gap-1">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
+        <CardTitle className="min-w-0 text-xl md:text-2xl">{t("toolVersions.title")}</CardTitle>
+        <div className="flex shrink-0 items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            title="Check now"
-            aria-label="Check versions now"
-            onClick={() => checkVersions.mutate()}
+            title={t("toolVersions.checkNow")}
+            aria-label={t("toolVersions.checkVersionsNowAria")}
+            onClick={() => {
+              clearUpdateDetails();
+              checkVersions.mutate();
+            }}
             disabled={checkVersions.isPending}
           >
             {checkVersions.isPending ? (
@@ -73,8 +94,8 @@ export function ToolVersionsCard() {
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            title={syncEnabled ? "Disable automatic sync" : "Enable automatic sync"}
-            aria-label="Toggle automatic version sync"
+            title={syncEnabled ? t("toolVersions.disableSync") : t("toolVersions.enableSync")}
+            aria-label={t("toolVersions.toggleSyncAria")}
             onClick={() => setSyncSetting.mutate(!syncEnabled)}
             disabled={setSyncSetting.isPending}
           >
@@ -89,13 +110,13 @@ export function ToolVersionsCard() {
       <CardContent className="space-y-1">
         {checkVersions.isError && (
           <p className="px-2 pb-1 text-xs text-destructive">
-            Failed to reach the host bridge — is forgehub-chat-bridge running?
+            {t("toolVersions.hostBridgeError")}
           </p>
         )}
         {isLoading && (
           <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading...
+            {t("toolVersions.loading")}
           </div>
         )}
         {!isLoading &&
@@ -105,11 +126,13 @@ export function ToolVersionsCard() {
             const isExpanded = expandedTool === tool;
             const updateOut = updateOutputs[tool] ?? null;
             const isUpdating = updatingTools.has(tool);
+            const isInstalling = installingTools.has(tool);
+            const isBusy = isUpdating || isInstalling;
             const errorText = version?.last_error;
             return (
               <div key={tool} className="rounded-md">
                 <div className="flex items-center justify-between gap-3 px-2 py-1.5 hover:bg-accent/50">
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
                     {meta.icon ? (
                       meta.iconBg ? (
                         <span className={`flex h-6 w-6 items-center justify-center rounded ${meta.iconBg}`}>
@@ -121,18 +144,18 @@ export function ToolVersionsCard() {
                     ) : (
                       <Feather className="h-6 w-6 text-muted-foreground" />
                     )}
-                    <div>
-                      <div className="text-sm font-medium">{meta.label}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {version?.installed_version ?? (errorText ? "Error" : "Unknown")}
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{meta.label}</div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {version?.installed_version ?? (errorText ? t("toolVersions.error") : version ? t("toolVersions.notInstalled") : t("toolVersions.unknown"))}
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-2">
                     {version?.update_available ? (
-                      <Badge variant="warning">{version.latest_version ?? "Update available"}</Badge>
+                      <Badge variant="warning">{version.latest_version ?? t("toolVersions.updateAvailable")}</Badge>
                     ) : version?.installed_version ? (
-                      <Badge variant="success">Up to date</Badge>
+                      <Badge variant="success">{t("toolVersions.upToDate")}</Badge>
                     ) : errorText ? (
                       <button
                         className="flex items-center gap-1 rounded"
@@ -140,23 +163,45 @@ export function ToolVersionsCard() {
                       >
                         <Badge variant="destructive" className="gap-1">
                           {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                          Check failed
+                          {t("toolVersions.checkFailed")}
                         </Badge>
                       </button>
+                    ) : version ? (
+                      <Badge variant="secondary">{t("toolVersions.notInstalled")}</Badge>
                     ) : (
-                      <Badge variant="outline">Not checked</Badge>
+                      <Badge variant="outline">{t("toolVersions.notChecked")}</Badge>
                     )}
                     {version?.update_available && (
                       <Button
+                        id={`tool-update-${tool}`}
+                        data-testid={`tool-update-${tool}`}
                         size="sm"
                         variant="outline"
+                        aria-label={t("toolVersions.updateAria", { tool: meta.label })}
                         onClick={() => handleUpdate(tool)}
-                        disabled={isUpdating}
+                        disabled={isBusy}
                       >
                         {isUpdating ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
-                          "Update"
+                          t("toolVersions.update")
+                        )}
+                      </Button>
+                    )}
+                    {meta.canInstall && version && !version.installed_version && !errorText && (
+                      <Button
+                        id={`tool-install-${tool}`}
+                        data-testid={`tool-install-${tool}`}
+                        size="sm"
+                        variant="outline"
+                        aria-label={t("toolVersions.installAria", { tool: meta.label })}
+                        onClick={() => handleInstall(tool)}
+                        disabled={isBusy}
+                      >
+                        {isInstalling ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          t("toolVersions.install")
                         )}
                       </Button>
                     )}
@@ -166,6 +211,22 @@ export function ToolVersionsCard() {
               {/* Inline error / update output panel */}
               {isExpanded && (errorText || updateOut) && (
                 <div className="mx-2 mb-2 max-h-64 overflow-y-auto rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {t("toolVersions.details")}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0"
+                      title={t("toolVersions.closeDetails")}
+                      aria-label={t("toolVersions.closeDetailsAria", { tool: meta.label })}
+                      onClick={() => dismissUpdate(tool)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                   {updateOut && (
                     <>
                       {updateOut.output && (

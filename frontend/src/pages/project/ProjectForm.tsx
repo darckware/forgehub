@@ -1,19 +1,13 @@
-import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
-import {
-  PROJECT_STATUSES,
-  projectCreateSchema,
-  type ProjectCreateInput,
-} from "@/hooks/useProject";
-import { useProducts, useProductVersion, useProductVersions } from "@/hooks/useProduct";
+import { PROJECT_STATUSES, type ProjectCreateInput } from "@/hooks/useProject";
 import { WorkingDirPicker } from "@/components/WorkingDirPicker";
+import { useProjectFormViewModel } from "@/hooks/useProjectFormViewModel";
 
 interface ProjectFormProps {
   defaultValues?: Partial<ProjectCreateInput>;
@@ -28,60 +22,40 @@ export function ProjectForm({
   onSubmit,
   onCancel,
   isSubmitting,
-  submitLabel = "Create project",
+  submitLabel: submitLabelProp,
 }: ProjectFormProps) {
-  const { data: products, isLoading: isLoadingProducts } = useProducts();
+  const { t } = useTranslation("project");
+  const submitLabel = submitLabelProp ?? t("form.submitLabelDefault");
   const {
     register,
     handleSubmit,
     setValue,
     watch,
     formState: { errors },
-  } = useForm<ProjectCreateInput>({
-    resolver: zodResolver(projectCreateSchema),
-    defaultValues: {
-      name: "",
-      description: "",
-      product_version_id: "",
-      status: "planned",
-      working_directory_path: "",
-      ...defaultValues,
-    },
-  });
-
-  const productVersionId = watch("product_version_id");
-  const [selectedProductId, setSelectedProductId] = useState("");
-
-  // Resolve which product owns the current product_version_id -- needed
-  // when editing an existing project, which only carries the version id,
-  // not which product it belongs to. Fetched directly (GET
-  // /products/versions/{id}) rather than searched for in `products`,
-  // because the plain products LIST endpoint doesn't return nested
-  // versions (only GET /products/{id} does).
-  const { data: currentVersion } = useProductVersion(productVersionId || undefined);
-  useEffect(() => {
-    if (currentVersion && !selectedProductId) {
-      setSelectedProductId(currentVersion.product_id);
-    }
-  }, [currentVersion, selectedProductId]);
-
-  const { data: versions, isLoading: isLoadingVersions } = useProductVersions(
-    selectedProductId || undefined
-  );
+    products,
+    isLoadingProducts,
+    selectedProductId,
+    handleProductChange,
+    versions,
+    isLoadingVersions,
+    productVersionId,
+    backupEnabled,
+    defaultBackupLocation,
+  } = useProjectFormViewModel(defaultValues);
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="name">Name</Label>
-        <Input id="name" placeholder="ForgeHub — Foundation MVP" {...register("name")} />
+        <Label htmlFor="name">{t("form.nameLabel")}</Label>
+        <Input id="name" placeholder={t("form.namePlaceholder")} {...register("name")} />
         {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="description">Description</Label>
-        <Textarea
+        <Label htmlFor="description">{t("form.descriptionLabel")}</Label>
+        <Textarea className="resize-none"
           id="description"
-          placeholder="Bounded initiative associated with a product version"
+          placeholder={t("form.descriptionPlaceholder")}
           {...register("description")}
         />
         {errors.description && (
@@ -91,18 +65,15 @@ export function ProjectForm({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="product_id">Product</Label>
+          <Label htmlFor="product_id">{t("form.productLabel")}</Label>
           <Select
             id="product_id"
             value={selectedProductId}
             disabled={isLoadingProducts}
-            onChange={(e) => {
-              setSelectedProductId(e.target.value);
-              setValue("product_version_id", "");
-            }}
+            onChange={(e) => handleProductChange(e.target.value)}
           >
             <option value="">
-              {isLoadingProducts ? "Loading products…" : "Select a product"}
+              {isLoadingProducts ? t("form.loadingProducts") : t("form.selectProduct")}
             </option>
             {products?.map((product) => (
               <option key={product.id} value={product.id}>
@@ -113,7 +84,7 @@ export function ProjectForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="product_version_id">Version</Label>
+          <Label htmlFor="product_version_id">{t("form.versionLabel")}</Label>
           <Select
             id="product_version_id"
             disabled={!selectedProductId}
@@ -130,14 +101,14 @@ export function ProjectForm({
           >
             <option value="">
               {!selectedProductId
-                ? "Select a product first"
+                ? t("form.selectProductFirst")
                 : isLoadingVersions
-                  ? "Loading versions…"
-                  : "Select a version"}
+                  ? t("form.loadingVersions")
+                  : t("form.selectVersion")}
             </option>
             {versions?.map((version) => (
               <option key={version.id} value={version.id}>
-                {version.version} ({version.status.replace(/_/g, " ")})
+                {version.version} ({t(`enums.productVersionStatus.${version.status}`, version.status)})
               </option>
             ))}
           </Select>
@@ -148,11 +119,11 @@ export function ProjectForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="status">Status</Label>
+        <Label htmlFor="status">{t("form.statusLabel")}</Label>
         <Select id="status" {...register("status")}>
           {PROJECT_STATUSES.map((status) => (
             <option key={status} value={status}>
-              {status.replace("_", " ")}
+              {t(`enums.projectStatus.${status}`, status)}
             </option>
           ))}
         </Select>
@@ -160,11 +131,11 @@ export function ProjectForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="working_directory_path">Working directory path</Label>
+        <Label htmlFor="working_directory_path">{t("form.workingDirectoryLabel")}</Label>
         <div className="flex items-center gap-2">
           <Input
             id="working_directory_path"
-            placeholder="/root/project/forgehub"
+            placeholder={t("form.workingDirectoryPlaceholder")}
             {...register("working_directory_path")}
           />
           <WorkingDirPicker
@@ -177,10 +148,48 @@ export function ProjectForm({
         )}
       </div>
 
+      <div className="space-y-2">
+        <Label htmlFor="github_repo_url">{t("form.githubUrlLabel")}</Label>
+        <Input
+          id="github_repo_url"
+          placeholder={t("form.githubUrlPlaceholder")}
+          {...register("github_repo_url")}
+        />
+        {errors.github_repo_url && (
+          <p className="text-sm text-destructive">{errors.github_repo_url.message}</p>
+        )}
+        <p className="text-xs text-muted-foreground">{t("form.githubUrlHelp")}</p>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <input
+          id="backup_enabled"
+          type="checkbox"
+          className="h-4 w-4 rounded border-input"
+          {...register("backup_enabled")}
+        />
+        <Label htmlFor="backup_enabled" className="cursor-pointer">
+          {t("form.backupEnabledLabel")}
+        </Label>
+      </div>
+
+      {backupEnabled && (
+        <div className="space-y-2">
+          <Label htmlFor="backup_location">{t("form.backupLocationLabel")}</Label>
+          <Input id="backup_location" placeholder={defaultBackupLocation} {...register("backup_location")} />
+          {errors.backup_location && (
+            <p className="text-sm text-destructive">{errors.backup_location.message}</p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            {t("form.backupLocationHelp", { location: defaultBackupLocation })}
+          </p>
+        </div>
+      )}
+
       <div className="flex justify-end gap-2 pt-2">
         {onCancel && (
           <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
-            Cancel
+            {t("shared.cancel")}
           </Button>
         )}
         <Button type="submit" disabled={isSubmitting}>

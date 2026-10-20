@@ -1,0 +1,489 @@
+"""Authenticated Agent Activity read model and Athos monitoring command."""
+
+import asyncio
+import json
+import logging
+import uuid
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
+from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.routes.demand import create_demand_and_notify
+from app.api.schemas.agent_activity import (
+    AgentActivityOut,
+    AgentActivityTimelineOut,
+    AgentLiveSnapshotOut,
+    RequestAthosMonitoringIn,
+    RequestAthosMonitoringOut,
+)
+from app.api.schemas.demand import DemandSubmitIn
+from app.core.agent_activity import build_agent_activity
+from app.core.agent_activity_stream import (
+    EVENT_DEBOUNCE_SECONDS,
+    STREAM_REFRESH_SECONDS,
+    broadcaster,
+    build_live_snapshot,
+)
+from app.core.agent_activity_timeline import MAX_WINDOW, build_timeline
+from app.core.agent_live_state import normalize_hermes_hook, verify_signature
+from app.core.agent_telegram import read_profile_home_chat
+from app.core.config import settings
+from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
+from app.db.base import AsyncSessionLocal, get_db
+from app.db.models.agent import Agent
+from app.db.models.agent_activity_event import AGENT_ACTIVITY_RETENTION_DAYS, AgentActivityEvent
+from app.db.models.backlog import PlanningItem
+from app.db.models.demand import AgentDemand
+from app.db.models.notification import Notification
+from app.db.models.project import ChangeRequest
+from app.db.models.task import ProjectTask, TaskExecution
+
+router = APIRouter(prefix="/api/v1/agent-activity", tags=["agent-activity"])
+logger = logging.getLogger(__name__)
+
+
+async def _find_athos(db: AsyncSession) -> Agent | None:
+    return (
+        await db.execute(select(Agent).where(Agent.profile_slug == "athos"))
+    ).scalar_one_or_none()
+
+
+async def _task_project_id(db: AsyncSession, task: ProjectTask) -> uuid.UUID:
+    if task.planning_item_id is not None:
+        item = await db.get(PlanningItem, task.planning_item_id)
+        if item is not None and item.project_id is not None:
+            return item.project_id
+    if task.change_request_id is not None:
+        change_request = await db.get(ChangeRequest, task.change_request_id)
+        if change_request is not None:
+            return change_request.project_id
+    raise HTTPException(status_code=409, detail="Task cannot be resolved to a project")
+
+
+def _monitoring_body(
+    *,
+    incident_key: str,
+    execution_id: uuid.UUID,
+    task_id: uuid.UUID,
+    requested_by: str,
+) -> str:
+    return json.dumps(
+        {
+            "contract_version": "forge-agent-incident-monitor/v1",
+            "incident_key": incident_key,
+            "execution_id": str(execution_id),
+            "task_id": str(task_id),
+            "requested_by": requested_by,
+        },
+        sort_keys=True,
+    )
+
+
+def _monitoring_notification_title(subject: str) -> str:
+    return f"Athos monitoring requested: {subject}"
+
+
+def _is_matching_monitoring_demand(
+    demand: AgentDemand,
+    *,
+    channel_ref: str,
+    athos_id: uuid.UUID,
+    project_id: uuid.UUID,
+    subject: str,
+    body: str,
+    requested_by: str,
+) -> bool:
+    """Keys only identify a pair after its complete structured contract matches."""
+    return (
+        demand.from_agent == requested_by
+        and demand.target_agent_id == athos_id
+        and demand.project_id == project_id
+        and demand.subject == subject
+        and demand.body == body
+        and demand.channel == "agent"
+        and demand.channel_ref == channel_ref
+        and demand.requires_response is True
+        and demand.scheduled_at is None
+        and demand.dispatch_status is None
+        and demand.task_execution_id is None
+        and demand.reply_to_id is None
+    )
+
+
+def _is_matching_monitoring_notification(
+    notification: Notification,
+    *,
+    event_key: str,
+    subject: str,
+    body: str,
+) -> bool:
+    return (
+        notification.source == "system"
+        and notification.severity == "warning"
+        and notification.title == _monitoring_notification_title(subject)
+        and notification.message == body
+        and notification.event_key == event_key
+    )
+
+
+async def _lock_monitoring_idempotency_key(
+    db: AsyncSession,
+    channel_ref: str,
+) -> None:
+    """Serialize all command writers for one deterministic idempotency key.
+
+    `channel_ref` has no unique database constraint, so locking a missing row
+    cannot protect the first insert. PostgreSQL transaction advisory locks do
+    not need a row or migration and are released by the command's single
+    commit/rollback.
+    """
+    await db.execute(select(func.pg_advisory_xact_lock(func.hashtext(channel_ref))))
+
+
+async def _commit_monitoring_pair(db: AsyncSession) -> None:
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Monitoring idempotency key conflicts with an existing record",
+        ) from exc
+
+
+async def _create_monitoring_notification(
+    db: AsyncSession,
+    *,
+    subject: str,
+    body: str,
+    event_key: str,
+) -> Notification:
+    notification = Notification(
+        source="system",
+        severity="warning",
+        title=_monitoring_notification_title(subject),
+        message=body,
+        event_key=event_key,
+        occurred_at=datetime.now(timezone.utc),
+    )
+    db.add(notification)
+    await db.flush()
+    return notification
+
+
+@router.get("", response_model=AgentActivityOut)
+async def get_agent_activity(
+    project_id: uuid.UUID | None = None,
+    window_minutes: int = Query(default=60, ge=1, le=24 * 60),
+    db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+) -> AgentActivityOut:
+    await authorize_action(db, principal, "demands.view", project_id=project_id)
+    return await build_agent_activity(
+        db,
+        project_id=project_id,
+        window_minutes=window_minutes,
+    )
+
+
+async def run_agent_activity_retention(db: AsyncSession) -> int:
+    """Deletes runtime events past ``AGENT_ACTIVITY_RETENTION_DAYS``. Hard delete: they
+    are telemetry, rebuilt by the runtimes every turn, not records anyone decides on."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=AGENT_ACTIVITY_RETENTION_DAYS)
+    result = await db.execute(delete(AgentActivityEvent).where(AgentActivityEvent.occurred_at < cutoff))
+    await db.commit()
+    return result.rowcount or 0
+
+
+@router.post("/events", status_code=status.HTTP_202_ACCEPTED)
+async def ingest_runtime_event(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
+    """Receives one Hermes outbound-webhook delivery (``hooks.outbound`` -> this URL).
+
+    Public in ``RequireAuthMiddleware`` because the gateway has no JWT: the HMAC
+    signature over the raw body (``X-Hermes-Signature-256``, secret
+    ``AGENT_ACTIVITY_WEBHOOK_SECRET``) is the authentication, and an unset secret
+    refuses everything. Only metadata is stored -- see ``normalize_hermes_hook``.
+    Unknown events and webhook retries (same ``delivery_id``) are accepted and dropped,
+    so the sender never retries into an error loop.
+    """
+    body = await request.body()
+    if not verify_signature(
+        settings.AGENT_ACTIVITY_WEBHOOK_SECRET, body, request.headers.get("x-hermes-signature-256")
+    ):
+        raise HTTPException(status_code=401, detail="Invalid signature")
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Body is not JSON") from None
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Body must be an object")
+
+    profile = str(payload.get("profile") or "default")
+    agent = (
+        await db.execute(select(Agent).where(func.lower(Agent.profile_slug) == profile.lower()))
+    ).scalars().first()
+    home_chat = (
+        read_profile_home_chat(agent.home_path, agent.runtime_type, agent.profile_slug)
+        if agent is not None
+        else None
+    )
+    values = normalize_hermes_hook(payload, home_chat=home_chat)
+    if values is None or not values["delivery_id"]:
+        return {"recorded": False}
+    values["agent_id"] = agent.id if agent is not None else None
+    result = await db.execute(
+        pg_insert(AgentActivityEvent)
+        .values(id=uuid.uuid4(), **values)
+        .on_conflict_do_nothing(index_elements=["delivery_id"])
+    )
+    await db.commit()
+    if result.rowcount:
+        broadcaster.publish()
+    return {"recorded": bool(result.rowcount)}
+
+
+@router.get("/stream")
+async def stream_live_activity(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+) -> StreamingResponse:
+    """SSE of live snapshots (``event: snapshot``) -- see core/agent_activity_stream.py.
+
+    Each frame opens its own short DB session: holding the request's session for a
+    connection that lives for hours would pin a pool connection per open tab.
+    """
+    await authorize_action(db, principal, "demands.view", project_id=None)
+
+    async def frames():
+        with broadcaster.subscribe() as queue:
+            while True:
+                if await request.is_disconnected():
+                    return
+                try:
+                    async with AsyncSessionLocal() as frame_db:
+                        snapshot = await build_live_snapshot(frame_db)
+                    yield f"event: snapshot\ndata: {snapshot.model_dump_json()}\n\n"
+                except Exception:
+                    logger.exception("agent activity snapshot failed")
+                    yield 'event: error\ndata: {"detail": "snapshot failed"}\n\n'
+                try:
+                    await asyncio.wait_for(queue.get(), timeout=STREAM_REFRESH_SECONDS)
+                    # Coalesce a burst (a turn fires several hooks within a second) into one frame.
+                    await asyncio.sleep(EVENT_DEBOUNCE_SECONDS)
+                    while not queue.empty():
+                        queue.get_nowait()
+                except asyncio.TimeoutError:
+                    pass
+
+    return StreamingResponse(
+        frames(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+def _aware(moment: datetime) -> datetime:
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=timezone.utc)
+
+
+@router.get("/timeline", response_model=AgentActivityTimelineOut)
+async def get_activity_timeline(
+    start: datetime | None = None,
+    end: datetime | None = None,
+    agent_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+) -> AgentActivityTimelineOut:
+    """Lanes, agent-to-agent messages and the event table for a window (phase 4).
+
+    Defaults to the last 2 hours; at most ``MAX_WINDOW`` (24 h), and never older than the
+    events' own retention -- asking for more is refused rather than silently cut.
+    """
+    await authorize_action(db, principal, "demands.view", project_id=None)
+    now = datetime.now(timezone.utc)
+    end = min(_aware(end), now) if end is not None else now
+    start = _aware(start) if start is not None else end - timedelta(hours=2)
+    if start >= end:
+        raise HTTPException(status_code=422, detail="start must be before end")
+    if end - start > MAX_WINDOW:
+        raise HTTPException(status_code=422, detail="window is limited to 24 hours")
+    if start < now - timedelta(days=AGENT_ACTIVITY_RETENTION_DAYS):
+        raise HTTPException(
+            status_code=422,
+            detail=f"activity is kept for {AGENT_ACTIVITY_RETENTION_DAYS} days",
+        )
+    return await build_timeline(db, start=start, end=end, now=now, agent_id=agent_id)
+
+
+@router.get("/snapshot", response_model=AgentLiveSnapshotOut)
+async def get_activity_snapshot(
+    at: datetime | None = None,
+    db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+) -> AgentLiveSnapshotOut:
+    """One live frame -- the same shape the stream sends -- as it stood at ``at`` (replay).
+
+    Without ``at`` it is simply the current frame.
+    """
+    await authorize_action(db, principal, "demands.view", project_id=None)
+    now = datetime.now(timezone.utc)
+    if at is None:
+        return await build_live_snapshot(db, now=now)
+    moment = _aware(at)
+    if moment > now:
+        raise HTTPException(status_code=422, detail="at must not be in the future")
+    if moment < now - timedelta(days=AGENT_ACTIVITY_RETENTION_DAYS):
+        raise HTTPException(
+            status_code=422,
+            detail=f"activity is kept for {AGENT_ACTIVITY_RETENTION_DAYS} days",
+        )
+    return await build_live_snapshot(db, now=moment, historical=True)
+
+
+@router.post(
+    "/incidents/{incident_key}:request-athos-monitoring",
+    response_model=RequestAthosMonitoringOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def request_athos_monitoring(
+    incident_key: str,
+    payload: RequestAthosMonitoringIn,
+    db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+) -> RequestAthosMonitoringOut:
+    view = await build_agent_activity(db, project_id=None, window_minutes=24 * 60)
+    incident = next((item for item in view.incidents if item.key == incident_key), None)
+    if incident is None or incident.execution_id != payload.execution_id:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    execution = await db.get(TaskExecution, payload.execution_id)
+    if execution is None:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    task = await db.get(ProjectTask, execution.task_id)
+    if task is None:
+        raise HTTPException(status_code=409, detail="Execution task is missing")
+    project_id = await _task_project_id(db, task)
+    await authorize_action(db, principal, "planning.execution.manage", project_id=project_id)
+
+    channel_ref = f"agent-activity:{payload.idempotency_key}"
+    event_key = f"agent-activity:athos-monitor:{payload.idempotency_key}"
+    subject = f"Monitor incident {incident_key}"
+    body = _monitoring_body(
+        incident_key=incident_key,
+        execution_id=execution.id,
+        task_id=task.id,
+        requested_by=principal.display_name,
+    )
+    athos = await _find_athos(db)
+    if athos is None:
+        raise HTTPException(status_code=404, detail="Athos agent not found")
+
+    await _lock_monitoring_idempotency_key(db, channel_ref)
+    existing_demands = list(
+        (
+            await db.execute(
+                select(AgentDemand).where(AgentDemand.channel_ref == channel_ref)
+            )
+        ).scalars()
+    )
+    existing_notification = (
+        await db.execute(select(Notification).where(Notification.event_key == event_key))
+    ).scalar_one_or_none()
+
+    if len(existing_demands) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Monitoring idempotency key maps to multiple demands",
+        )
+    existing_demand = existing_demands[0] if existing_demands else None
+    if existing_demand is None and existing_notification is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Monitoring notification exists without its demand",
+        )
+    if existing_demand is not None:
+        if not _is_matching_monitoring_demand(
+            existing_demand,
+            channel_ref=channel_ref,
+            athos_id=athos.id,
+            project_id=project_id,
+            subject=subject,
+            body=body,
+            requested_by=principal.display_name,
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Monitoring demand does not match this command",
+            )
+        if existing_notification is not None and not _is_matching_monitoring_notification(
+            existing_notification,
+            event_key=event_key,
+            subject=subject,
+            body=body,
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Monitoring notification does not match this command",
+            )
+        notification = existing_notification
+        if notification is None:
+            notification = await _create_monitoring_notification(
+                db,
+                subject=subject,
+                body=body,
+                event_key=event_key,
+            )
+            await _commit_monitoring_pair(db)
+            await db.refresh(notification)
+        return RequestAthosMonitoringOut(
+            message_id=existing_demand.id,
+            message_number=existing_demand.number,
+            notification_id=notification.id,
+            created=False,
+        )
+
+    demand = await create_demand_and_notify(
+        db,
+        DemandSubmitIn(
+            from_agent=principal.display_name,
+            target_agent_id=athos.id,
+            project_id=project_id,
+            subject=subject,
+            body=body,
+            channel="agent",
+            channel_ref=channel_ref,
+            requires_response=True,
+        ),
+        commit=False,
+    )
+    helper_notification = (
+        await db.execute(
+            select(Notification).where(Notification.event_key == f"demand:{demand.id}")
+        )
+    ).scalar_one_or_none()
+    if helper_notification is None:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Monitoring demand helper did not create its notification",
+        )
+    helper_notification.source = "system"
+    helper_notification.severity = "warning"
+    helper_notification.title = _monitoring_notification_title(subject)
+    helper_notification.message = body
+    helper_notification.event_key = event_key
+    await _commit_monitoring_pair(db)
+    await db.refresh(demand)
+    await db.refresh(helper_notification)
+    return RequestAthosMonitoringOut(
+        message_id=demand.id,
+        message_number=demand.number,
+        notification_id=helper_notification.id,
+        created=True,
+    )

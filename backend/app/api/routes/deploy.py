@@ -17,6 +17,7 @@ Endpoints:
   PUT  /api/v1/deploy/groups/{id}                     – rename (propagates to installations)
   DELETE /api/v1/deploy/groups/{id}                   – delete (installations become ungrouped)
 """
+import shlex
 import uuid
 from typing import Any
 
@@ -406,7 +407,16 @@ async def sync_from_docker(db: AsyncSession = Depends(get_db)):
     Also updates the `ports` field on existing installations whose container
     is currently live and whose registered ports list is empty.
 
-    Returns { created: int, updated: int, skipped: int, ignored: int, names_created: [...] }
+    Fills `compose_file` from the container's Compose label
+    (com.docker.compose.project.config_files) for new installations and for
+    existing ones that have none, and reports -- never deletes -- registry
+    entries that point at nothing: `stale` (container no longer exists, e.g.
+    the company_postgres/foundation_postgres pair retired on 2026-09-04) and
+    `invalid_compose` (compose file missing on the host). 2026-09-28,
+    Marcelo: "tem container com pastas inválidas".
+
+    Returns { created, updated, skipped, ignored, names_created, names_updated,
+              stale: [{name, container_name}], invalid_compose: [{name, compose_file}] }
     """
     # Fetch live containers (may raise 502 if host-bridge is down).
     data = await _bridge("POST", "/v1/docker/ps")
@@ -432,6 +442,7 @@ async def sync_from_docker(db: AsyncSession = Depends(get_db)):
             ignored += 1
             continue
 
+        compose_file = _compose_file_from_labels(c.get("Labels", "") or "")
         raw_ports: str = c.get("Ports", "") or ""
         # Parse "0.0.0.0:8000->8000/tcp, ..." into ["8000:8000", ...]
         port_list: list[str] = []
@@ -448,9 +459,15 @@ async def sync_from_docker(db: AsyncSession = Depends(get_db)):
 
         if cname in existing:
             inst = existing[cname]
+            changed = False
             # Update ports if previously empty and now we have data.
             if port_list and not inst.ports:
                 inst.ports = port_list
+                changed = True
+            if compose_file and not inst.compose_file:
+                inst.compose_file = compose_file
+                changed = True
+            if changed:
                 updated_names.append(cname)
             else:
                 skipped += 1
@@ -461,12 +478,23 @@ async def sync_from_docker(db: AsyncSession = Depends(get_db)):
                 container_name=cname,
                 restart_command=f"docker restart {cname}",
                 ports=port_list or None,
+                compose_file=compose_file or None,
             )
             db.add(new_inst)
             created_names.append(cname)
 
     if created_names or updated_names:
         await db.commit()
+
+    live_names = {(c.get("Names", "") or "").strip() for c in live_containers}
+    stale = [
+        {"name": inst.name, "container_name": inst.container_name}
+        for inst in existing.values()
+        if inst.container_name not in live_names
+    ]
+    invalid_compose = await _missing_compose_files(
+        [inst for inst in existing.values() if inst.compose_file]
+    )
 
     return {
         "created": len(created_names),
@@ -475,4 +503,35 @@ async def sync_from_docker(db: AsyncSession = Depends(get_db)):
         "ignored": ignored,
         "names_created": created_names,
         "names_updated": updated_names,
+        "stale": stale,
+        "invalid_compose": invalid_compose,
     }
+
+
+def _compose_file_from_labels(labels: str) -> str:
+    """First path of `com.docker.compose.project.config_files` from `docker ps`'s
+    comma-separated Labels string ("" when the container isn't Compose-managed)."""
+    for item in labels.split(","):
+        key, _, value = item.partition("=")
+        if key.strip() == "com.docker.compose.project.config_files":
+            return value.strip()
+    return ""
+
+
+async def _missing_compose_files(installations: list) -> list[dict]:
+    """Compose files that don't exist on the host, checked in one host-bridge call
+    (the backend container can't see host paths). Bridge failure -> [] (unknown)."""
+    if not installations:
+        return []
+    paths = sorted({inst.compose_file for inst in installations})
+    command = "for f in " + " ".join(shlex.quote(p) for p in paths) + '; do [ -f "$f" ] || echo "$f"; done'
+    try:
+        data = await _bridge("POST", "/v1/exec", json={"command": command})
+    except HTTPException:
+        return []
+    missing = {line.strip() for line in (data.get("stdout") or "").splitlines() if line.strip()}
+    return [
+        {"name": inst.name, "compose_file": inst.compose_file}
+        for inst in installations
+        if inst.compose_file in missing
+    ]

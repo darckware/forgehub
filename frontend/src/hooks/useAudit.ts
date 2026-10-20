@@ -21,12 +21,23 @@ export const auditRunSchema = z.object({
 
 export type AuditRun = z.infer<typeof auditRunSchema>;
 
+const auditRemediationSchema = z.object({
+  remediation_run: auditRunSchema,
+  verification_run: auditRunSchema,
+  escalated_to_inbox: z.boolean(),
+  inbox_demand_id: z.string().nullable(),
+});
+
+export type AuditRemediation = z.infer<typeof auditRemediationSchema>;
+
 export const auditCheckSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().nullable(),
   category: z.string().nullable(),
   command: z.string(),
+  remediation_description: z.string().nullable(),
+  remediation_command: z.string().nullable(),
   workdir: z.string().nullable(),
   agent_profile: z.string(),
   enabled: z.boolean(),
@@ -38,6 +49,21 @@ export const auditCheckSchema = z.object({
 
 export type AuditCheck = z.infer<typeof auditCheckSchema>;
 
+export const athosAuditMonitorSchema = z.object({
+  state: z.enum(["healthy", "degraded", "failed", "not_configured"]),
+  job_id: z.string().nullable(),
+  job_name: z.string().nullable(),
+  script: z.string().nullable(),
+  schedule: z.string().nullable(),
+  enabled: z.boolean().nullable(),
+  health: z.string().nullable(),
+  last_run_at: z.string().nullable(),
+  last_status: z.string().nullable(),
+  next_run_at: z.string().nullable(),
+  last_cron_run_at: z.string().nullable(),
+  issues: z.array(z.string()),
+});
+
 const auditStatusSchema = z.object({
   total: z.number(),
   enabled: z.number(),
@@ -45,6 +71,7 @@ const auditStatusSchema = z.object({
   fail: z.number(),
   never_ran: z.number(),
   last_run_at: z.string().nullable(),
+  athos_monitor: athosAuditMonitorSchema.nullish(),
 });
 
 export type AuditStatus = z.infer<typeof auditStatusSchema>;
@@ -54,6 +81,8 @@ export interface AuditCheckInput {
   description?: string | null;
   category?: string | null;
   command: string;
+  remediation_description?: string | null;
+  remediation_command?: string | null;
   workdir?: string | null;
   agent_profile?: string;
   enabled?: boolean;
@@ -141,6 +170,18 @@ export function useRunAllAuditChecks() {
   const invalidate = useInvalidateAudit();
   return useMutation({
     mutationFn: () => apiClient.post<unknown>(`${RESOURCE}/run`),
+    onSuccess: invalidate,
+  });
+}
+
+/** Delegate the approved correction to Athos, recheck, and escalate if needed. */
+export function useRemediateAuditCheck() {
+  const invalidate = useInvalidateAudit();
+  return useMutation({
+    mutationFn: async (checkId: string) =>
+      auditRemediationSchema.parse(
+        await apiClient.post<unknown>(`${RESOURCE}/checks/${checkId}/remediate`),
+      ),
     onSuccess: invalidate,
   });
 }

@@ -1,0 +1,14 @@
+{
+  "note": "Note",
+  "mindMap": "Mind map",
+  "graph": "Graph",
+  "galaxy": "Memory galaxy",
+  "viewFile": "View file",
+  "workingFolder": "Working folder",
+  "useRoot": "use root",
+  "hideTree": "Hide directory",
+  "showTree": "Show directory",
+  "expandAll": "Expand all folders",
+  "collapseAll": "Collapse all folders",
+  "backToTree": "Files"
+}

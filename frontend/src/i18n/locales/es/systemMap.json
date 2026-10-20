@@ -1,0 +1,110 @@
+{
+  "page": {
+    "title": "Mapa del sistema",
+    "description": "Trace el sistema desde la intención de negocio a través de pantallas, reglas, código, datos, despliegue y pruebas."
+  },
+  "productSelect": {
+    "label": "Producto",
+    "placeholder": "Seleccionar un producto"
+  },
+  "addElement": {
+    "title": "Añadir elemento de sistema",
+    "fields": {
+      "stableKey": "Clave estable",
+      "name": "Nombre",
+      "layer": "Capa",
+      "type": "Tipo"
+    },
+    "stableKeyPlaceholder": "screen.login",
+    "button": "Añadir"
+  },
+  "connectElements": {
+    "title": "Conectar elementos",
+    "from": "Desde",
+    "relationType": "Tipo de relación",
+    "to": "A",
+    "button": "Conectar"
+  },
+  "scopeGraph": {
+    "title": "Gráfico de alcance",
+    "description": "Arrastre un chip de capa en el lienzo para añadir un elemento, arrastre entre elementos para conectarlos.",
+    "validateButton": "Validar",
+    "validating": "Validando...",
+    "valid": "El mapa es estructuralmente válido",
+    "invalid": "El mapa tiene problemas de bloqueo",
+    "empty": "Arrastre un chip de capa de la barra de herramientas para añadir el primer elemento."
+  },
+  "canvas": {
+    "paletteHint": "Arrastre una capa al mapa:",
+    "readOnlyHint": "Esta revisión no es un borrador -- el mapa es de sólo lectura.",
+    "assistantHelp": "Pregunte al asistente",
+    "copyPasteHint": "Seleccione un elemento y pulse Ctrl+C/Ctrl+V para duplicarlo, o pegue (Ctrl+V) un flujo que el asistente escribió para crearlo todo de una vez. Haga clic en un elemento para editarlo en el panel derecho.",
+    "pasteSuccess": "Creado {{elements}} elemento(s) y {{relations}} relación(s).",
+    "pasteInvalid": "Nada válido encontrado en el texto pegado.",
+    "editTitle": "Editar elemento",
+    "save": "Guardar",
+    "removeElement": "Eliminar el elemento",
+    "autoArrange": "Auto-arreglar",
+    "presetsHint": "O arrastre un componente ya hecho:",
+    "views": {
+      "all": "Todas las capas",
+      "entities": "Entidades",
+      "functionality": "Funcionalidad",
+      "screens": "Pantallas y navegación"
+    },
+    "panel": {
+      "platformHint": "Plataforma (vacío = web + móvil)",
+      "descriptionLabel": "Descripción",
+      "relationsTitle": "Relaciones",
+      "noRelations": "Aún no hay relaciones.",
+      "toWord": "a",
+      "fromWord": "desde",
+      "addRelationTitle": "Añadir relación",
+      "directionOutgoing": "Este elemento → otro",
+      "directionIncoming": "Otros → este elemento",
+      "relateToPlaceholder": "Seleccione un elemento",
+      "addRelationButton": "Añadir relación",
+      "newRelatedEntity": "Nuevo elemento conexo",
+      "screenSpecTitle": "Reglas de la pantalla",
+      "screenSpecFields": {
+        "objective": "Objetivo",
+        "authorized_users": "Usuarios autorizados",
+        "required_data": "Datos exigidos",
+        "actions": "Medidas",
+        "validation_rules": "Normas de validación",
+        "states": "Estado requerido (carga, vacío, error...)"
+      },
+      "fieldSpecTitle": "Columna",
+      "fieldSpecFields": {
+        "sqlType": "Tipo SQL",
+        "isPk": "Clave principal",
+        "isFk": "Clave extranjera",
+        "fkTablePlaceholder": "Tabla de referencias..."
+      }
+    },
+    "dataSpecPreview": {
+      "toggle": "Vista previa de DATA-SPEC",
+      "title": "Vista previa de DATA-SPEC",
+      "help": "Generado a partir de los elementos table/field de esta vista -- una tabla \"contiene\" sus columnas, y una relación directamente entre dos tablas se convierte en una clave extranjera. Borra sólo; revisar el nombre antes de que se convierta en una migración real.",
+      "empty": "Aún no hay elementos de tabla modelados en esta vista -- arrastre un chip de capa \"data\" y seleccione el tipo \"table\" para comenzar."
+    }
+  },
+  "presets": {
+    "loginScreen": "Pantalla de acceso",
+    "loginScreenObjective": "Autenticar al usuario antes de que pueda acceder al sistema.",
+    "loginScreenActions": "Inicia sesión; recuperar contraseña.",
+    "appShell": "Concha de aplicación",
+    "appShellObjective": "Diseño de base cada pantalla autenticada renderiza dentro (encabezado, navegación, área de contenido).",
+    "sidebar": "Barra lateral (menú)",
+    "sidebarObjective": "Navegación primaria entre los módulos del sistema/screens.",
+    "genericScreen": "Pantalla del sistema",
+    "database": "Base de datos"
+  },
+  "detailCards": {
+    "coverageCounts": "{{elements}} elementos · {{links}} vínculos",
+    "map": "Mapa",
+    "revision": "Revisión",
+    "coverage": "Cobertura",
+    "newRevision": "Nueva revisión"
+  }
+}

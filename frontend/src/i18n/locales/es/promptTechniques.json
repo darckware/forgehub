@@ -1,0 +1,42 @@
+{
+  "title": "Catálogo rápido de técnicas",
+  "description": "Busque, busque y entienda cuándo usar cada estrategia de mejora.",
+  "search": "Búsqueda por técnica, propósito o contexto...",
+  "allCategories": "Todas las clasificaciones",
+  "loading": "Cargando catálogo...",
+  "error": "No se pudo cargar el catálogo.",
+  "empty": "No se encontraron técnicas.",
+  "resultCount": "Técnica(s) {{count}}",
+  "whenToUse": "Cuándo usar",
+  "whenToAvoid": "Cuándo evitar",
+  "selectionMode": "Uso del selector",
+  "version": "Plantilla v{{version}}",
+  "categories": {
+    "text": "Texto",
+    "structure": "Estructura",
+    "reasoning": "Razonamiento",
+    "software": "Programas informáticos",
+    "agentic": "Agentes",
+    "research": "Investigación",
+    "content": "Contenido",
+    "marketing": "Comercialización",
+    "social_media": "Redes sociales",
+    "soft_skills": "Competencias interpersonales",
+    "agent_skills": "Agent Skills",
+    "design": "Diseño del producto",
+    "automation": "Automatización",
+    "image": "Imagen",
+    "video": "Vídeo"
+  },
+  "effort": {
+    "low": "Bajo esfuerzo",
+    "medium": "Esfuerzo medio",
+    "high": "Alto esfuerzo",
+    "very_high": "Esfuerzo muy alto"
+  },
+  "selection": {
+    "primary": "Primaria",
+    "addon": "Complemento",
+    "both": "Primario o complementario"
+  }
+}

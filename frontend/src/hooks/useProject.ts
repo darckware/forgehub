@@ -28,6 +28,44 @@ export const PROJECT_STATUSES = [
 
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
+// What kind of application this Project delivers -- see backend/app/db/
+// models/project.py's PROJECT_SOLUTION_TYPES docstring for the 2026-08-01
+// "one Project per type" decision. automation/data_migration/data_analysis/
+// reporting added 2026-08-16 (Marcelo: "não vou fazer somente produto ou
+// manutenção... automação, migração, análise de dados, criação de
+// relatório") for engagements that aren't "building an application".
+export const PROJECT_SOLUTION_TYPES = [
+  "web_app",
+  "mobile_app",
+  "api_service",
+  "database",
+  "deploy",
+  "automation",
+  "data_migration",
+  "data_analysis",
+  "reporting",
+] as const;
+
+export type ProjectSolutionType = (typeof PROJECT_SOLUTION_TYPES)[number];
+
+// Human-readable label per solution type -- the Conception "Project(s) to
+// build" picker used to render the raw slug (e.g. "web_app") directly; kept
+// here rather than i18n since it's a short, stable technical vocabulary
+// shared by every screen that renders a ProjectSolutionType (matches how
+// PROJECT_TYPES' "Criação"/"Manutenção" labels are inlined at their call
+// site rather than round-tripped through translation keys).
+export const PROJECT_SOLUTION_TYPE_LABELS: Record<ProjectSolutionType, string> = {
+  web_app: "Aplicação web",
+  mobile_app: "Aplicativo mobile",
+  api_service: "Serviço de API",
+  database: "Banco de dados",
+  deploy: "Deploy/infraestrutura",
+  automation: "Automação",
+  data_migration: "Migração de dados",
+  data_analysis: "Análise de dados",
+  reporting: "Geração de relatórios",
+};
+
 // ---------------------------------------------------------------------------
 // Schemas
 // ---------------------------------------------------------------------------
@@ -178,8 +216,16 @@ export const projectSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().nullable().optional(),
   product_version_id: z.string().nullable().optional(),
+  solution_type: z.enum(PROJECT_SOLUTION_TYPES).nullable().optional(),
   status: z.enum(PROJECT_STATUSES).default("planned"),
   working_directory_path: z.string().nullable().optional(),
+  // Both consumed by System Control's Git Control/Backup cards (see
+  // backend/app/api/routes/system_control.py) -- registering a project
+  // here is the one place these get set, there's no separate "add repo"
+  // flow anymore.
+  github_repo_url: z.string().nullable().optional(),
+  backup_enabled: z.boolean().default(false),
+  backup_location: z.string().nullable().optional(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
 });
@@ -191,8 +237,12 @@ export const projectCreateSchema = z.object({
   name: z.string().min(1, "Name is required").max(200, "Name is too long"),
   description: z.string().max(2000, "Description is too long").optional().or(z.literal("")),
   product_version_id: z.string().min(1, "Product version is required"),
+  solution_type: z.enum(PROJECT_SOLUTION_TYPES).nullable().optional(),
   status: z.enum(PROJECT_STATUSES).default("planned"),
   working_directory_path: z.string().max(1024, "Path is too long").optional().or(z.literal("")),
+  github_repo_url: z.string().max(500, "URL is too long").optional().or(z.literal("")),
+  backup_enabled: z.boolean().default(false),
+  backup_location: z.string().max(1024, "Path is too long").optional().or(z.literal("")),
 });
 
 export type ProjectCreateInput = z.infer<typeof projectCreateSchema>;

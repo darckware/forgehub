@@ -1,0 +1,316 @@
+{
+  "telegram": {
+    "paneFor": "Telegram de {{agent}}",
+    "agent": "agente",
+    "thisAgent": "este agente",
+    "historyError": "Não foi possível carregar o histórico do Telegram.",
+    "noConversation": "Nenhuma conversa do Telegram encontrada para {{agent}}.",
+    "startChannel": "Envie primeiro uma mensagem ao bot desse agente para estabelecer o canal.",
+    "deliveryWarning": "A resposta foi gravada, mas não pôde ser entregue ao Telegram. Atualize o canal antes de tentar novamente.",
+    "improvePrompt": "Melhorar prompt",
+    "stopRecording": "Parar gravação",
+    "dictate": "Ditar mensagem por voz",
+    "disableAutoSync": "Desativar atualização automática",
+    "enableAutoSync": "Ativar atualização automática",
+    "autoSyncOn": "Sincronização automática ativa — clique para desativar",
+    "autoSyncOff": "Sincronização automática desativada — clique para ativar",
+    "sending": "Enviando",
+    "waitingForFirstMessage": "A interação fica disponível depois que o bot receber a primeira mensagem no Telegram.",
+    "removeFile": "Remover {{name}}",
+    "composerPlaceholder": "Conversar com {{agent}} neste canal…",
+    "theAgent": "o agente",
+    "channelActive": "canal ativo",
+    "gatewayStopped": "gateway parado",
+    "notConfigured": "não configurado"
+  },
+  "secret": {
+    "hide": "Ocultar segredo",
+    "reveal": "Revelar segredo",
+    "copy": "Copiar segredo"
+  },
+  "assistantDrawer": {
+    "title": "Assistente",
+    "contextTooltip": "Inicia uma nova conversa com o contexto desta tela, enviado ao agente de forma invisível junto com sua primeira mensagem",
+    "close": "Fechar assistente",
+    "noAgent": "Nenhum agente com perfil disponível."
+  },
+  "slashCommands": {
+    "model": "Trocar de modelo (persiste por padrão)",
+    "status": "Mostrar sessão, modelo, tokens e contexto",
+    "help": "Mostrar comandos disponíveis",
+    "version": "Mostrar a versão do Hermes Agent",
+    "title": "Definir um título para a sessão atual",
+    "profile": "Mostrar perfil ativo e diretório inicial",
+    "config": "Mostrar configuração atual",
+    "toolsets": "Listar toolsets disponíveis",
+    "platforms": "Mostrar status da plataforma de gateway/mensagens",
+    "plugins": "Listar plugins instalados; adicione um nome de agente (ex.: /plugins athos) para verificar outro perfil",
+    "new": "Iniciar uma nova conversa",
+    "testar": "Testar uma aplicação em segundo plano ou ao vivo",
+    "kindLocal": "Local",
+    "kindHermes": "Hermes",
+    "kindPrompt": "Prompt"
+  },
+  "testDialog": {
+    "title": "Testar aplicação",
+    "description": "Escolha o produto e a rotina de automação, e se quer acompanhar ao vivo ou rodar em segundo plano.",
+    "loading": "Carregando…",
+    "noRoutines": "Este produto ainda não tem rotinas de automação testáveis -- crie uma na Central de Sistemas primeiro.",
+    "fields": {
+      "product": "Produto",
+      "pickProduct": "Selecione um produto…",
+      "routine": "Rotina",
+      "pickRoutine": "Selecione uma rotina…",
+      "mode": "Modo"
+    },
+    "modeBackground": "Segundo plano",
+    "modeVisible": "Acompanhar ao vivo",
+    "dispatchedBackground": "Teste disparado em segundo plano. Acompanhe o resultado na Central de Sistemas, aba \"Testes em Background\".",
+    "dispatchedVisible": "Teste concluído -- veja o resultado na Central de Sistemas, aba \"Testes em Background\".",
+    "buttons": {
+      "cancel": "Cancelar",
+      "close": "Fechar",
+      "run": "Rodar teste"
+    }
+  },
+  "attachMenu": {
+    "addAttachment": "Adicionar anexo",
+    "sendFile": "Enviar arquivo",
+    "hermesCommand": "Comando",
+    "directoryFiles": "Diretório/Arquivos",
+    "agents": "Agentes",
+    "artifacts": "Artefatos",
+    "directBashCommand": "Comando bash direto"
+  },
+  "itemMenu": {
+    "chatOptions": "Opções da conversa",
+    "rename": "Renomear",
+    "pin": "Fixar",
+    "unpin": "Desafixar",
+    "delete": "Excluir",
+    "moveToProject": "Mover para projeto",
+    "moveToGroup": "Mover para grupo",
+    "back": "Voltar",
+    "confirmDelete": "Excluir a conversa \"{{title}}\"? Essa ação não pode ser desfeita."
+  },
+  "groups": {
+    "projectsRoot": "Projetos",
+    "groupsRoot": "Grupos",
+    "generalRoot": "Geral",
+    "noProjectChats": "Nenhuma conversa vinculada a um projeto.",
+    "noGroupsYet": "Nenhum grupo criado ainda.",
+    "noGroup": "Sem grupo",
+    "newGroup": "Novo grupo",
+    "newGroupPlaceholder": "Nome do grupo",
+    "renamePrompt": "Novo nome do grupo",
+    "clearProjectChats": "Limpar conversas deste projeto",
+    "clearGroupChats": "Limpar conversas deste grupo",
+    "clearGeneralChats": "Limpar conversas gerais (sem projeto/grupo)",
+    "confirmClearProject": "Excluir permanentemente {{count}} conversa(s) do projeto \"{{name}}\"? Essa ação não pode ser desfeita.",
+    "confirmClearGroup": "Excluir permanentemente {{count}} conversa(s) do grupo \"{{name}}\"? Essa ação não pode ser desfeita.",
+    "confirmClearGeneral": "Excluir permanentemente {{count}} conversa(s) sem projeto/grupo? Essa ação não pode ser desfeita.",
+    "confirmDeleteGroup": "Excluir o grupo \"{{name}}\"? As conversas nele voltam para a lista geral (não são apagadas)."
+  },
+  "agentPicker": {
+    "agentLabel": "Agente: {{name}}",
+    "selectAgent": "Selecionar agente",
+    "agentFallback": "Agente"
+  },
+  "mcpInfo": {
+    "viewMcps": "Ver MCPs disponíveis",
+    "title": "MCPs do agente",
+    "loading": "Carregando MCPs...",
+    "error": "Não foi possível carregar os MCPs.",
+    "empty": "Nenhum servidor MCP configurado.",
+    "enabled": "Ativado",
+    "disabled": "Desativado"
+  },
+  "mentionFilePicker": {
+    "useFolder": "Usar pasta",
+    "parentFolder": "Pasta pai",
+    "loading": "Carregando…",
+    "emptyFolder": "Pasta vazia"
+  },
+  "agentMentionPicker": {
+    "noAgentsFound": "Nenhum agente encontrado"
+  },
+  "artifactMentionPicker": {
+    "loading": "Carregando…",
+    "noArtifactsFound": "Nenhum artefato encontrado"
+  },
+  "messageBubble": {
+    "thoughtFor": "Pensou por {{duration}}",
+    "copyMessage": "Copiar mensagem",
+    "regenerateReply": "Gerar resposta novamente",
+    "cancel": "Cancelar",
+    "saveAndResend": "Salvar e reenviar",
+    "editMessage": "Editar mensagem"
+  },
+  "thinking": {
+    "working": "⏳ Trabalhando — {{duration}}"
+  },
+  "composer": {
+    "improvePrompt": "Melhorar o prompt com {{agent}}",
+    "improvePromptTitle": "Melhorar o prompt com {{subject}}",
+    "improvePromptDraftLabel": "Prompt",
+    "improvePromptInstructionLabel": "Instrução de melhoria",
+    "improvePromptInstructionPlaceholder": "ex.: deixe mais formal, adicione mais contexto sobre...",
+    "improvePromptConfirm": "Reescrever",
+    "improvePromptApply": "OK",
+    "improvePromptShortcutHint": "Ctrl+Enter para reescrever · Alt+Enter para usar como está",
+    "promptTechniqueLabel": "Estratégia de melhoria",
+    "promptTechniqueRecommend": "Escolher a técnica mais adequada ao contexto digitado",
+    "promptTechniqueRecommended": "Técnica recomendada e selecionada para o contexto atual",
+    "promptTechniqueWhen": "Use quando",
+    "promptTechniqueAvoid": "Evite quando",
+    "promptTechniqueCategories": {
+      "text": "Texto",
+      "structure": "Estrutura",
+      "reasoning": "Raciocínio",
+      "software": "Software",
+      "agentic": "Agentic",
+      "research": "Pesquisa",
+      "content": "Conteúdo",
+      "design": "Design de Produto",
+      "automation": "Automação",
+      "image": "Imagem",
+      "video": "Vídeo"
+    },
+    "promptTechniqueEffort": {
+      "low": "esforço baixo",
+      "medium": "esforço médio",
+      "high": "esforço alto",
+      "very_high": "esforço muito alto"
+    },
+    "typeMessageFirst": "Digite uma mensagem antes de enviar.",
+    "selectAgentFirst": "Selecione um agente antes de enviar.",
+    "selfRestartWarning": "Isso pode derrubar esta própria conversa por um instante -- o histórico fica salvo, mas o turno em andamento pode precisar ser reenviado.",
+    "couldNotAttach": "Não foi possível anexar {{name}}.",
+    "suggestedReplyYes": "Sim",
+    "completeHint": "{{text}} (→ para completar)",
+    "dropIntoAssistant": "Solte para enviar ao assistente",
+    "viewAttachedImage": "Ver imagem anexada",
+    "removeAttachment": "Remover anexo",
+    "remove": "Remover",
+    "close": "Fechar",
+    "stopRecording": "Parar gravação",
+    "recordVoiceMessage": "Gravar mensagem de voz"
+  },
+  "voice": {
+    "micBlocked": "Microfone bloqueado. Permita nas configurações do seu navegador.",
+    "transcribing": "Transcrevendo…",
+    "recording": "🔴 Gravando…",
+    "failedResponse": "Falha ao obter uma resposta: {{error}}",
+    "checklist": {
+      "audioRecording": "Gravação de áudio",
+      "audioRecordingOk": "Suportado",
+      "audioRecordingFail": "O navegador não suporta MediaRecorder — use Chrome ou Edge.",
+      "tts": "Síntese de voz (TTS)",
+      "ttsNotSupported": "Não suportado",
+      "ttsNoVoices": "Nenhuma voz — respostas serão mostradas sem áudio",
+      "ttsVoiceCount": "{{count}} voz(es)",
+      "microphone": "Microfone",
+      "microphoneOk": "Autorizado",
+      "microphoneFail": "Negado — clique no cadeado na barra de endereço e permita o microfone."
+    },
+    "greeting": {
+      "goodMorning": "Bom dia",
+      "goodAfternoon": "Boa tarde",
+      "goodEvening": "Boa noite",
+      "text": "{{period}}! Eu sou {{name}}. Como posso ajudar agora?",
+      "agentFallback": "Assistente"
+    },
+    "conversationWith": "Conversa por voz · {{name}}",
+    "starting": "Iniciando…",
+    "couldNotStart": "Não foi possível iniciar a conversa por voz.",
+    "waitingFor": "Aguardando {{name}}…",
+    "listening": "Ouvindo…",
+    "thinking": "{{name}}\nestá pensando…",
+    "replying": "{{name}}\nestá respondendo…",
+    "micActive": "Mic ativo",
+    "agentSpeaking": "Agente falando",
+    "waiting": "Aguardando…",
+    "endConversation": "Encerrar conversa por voz",
+    "conversationWithAgent": "Conversa por voz com {{name}}"
+  },
+  "sidebar": {
+    "chats": "Conversas",
+    "newChat": "Nova conversa",
+    "searchConversations": "Buscar conversas…",
+    "searching": "Buscando…",
+    "noConversationsFound": "Nenhuma conversa encontrada.",
+    "noConversationsYet": "Nenhuma conversa ainda."
+  },
+  "sessionFolder": {
+    "pickProject": "Vincular esta conversa a um projeto",
+    "noProject": "Sem projeto",
+    "noProjectsRegistered": "Nenhum projeto com pasta de trabalho cadastrada."
+  },
+  "queue": {
+    "queued": "📥 Na fila…",
+    "cancel": "Cancelar",
+    "cancelPrompt": "Cancelar este prompt da fila",
+    "stop": "Parar",
+    "runningCommand": "Executando comando",
+    "agentIsTyping": "{{name}} está digitando",
+    "agentFallback": "O agente",
+    "approvalRequest": "🔐 {{name}} solicita autorização para executar uma ação privilegiada",
+    "approveOnce": "✅ Aprovar uma vez",
+    "approveSessionTitle": "Não perguntar novamente para este mesmo tipo de comando nesta sessão",
+    "approveSession": "☑️ Aprovar para esta sessão",
+    "deny": "🚫 Negar",
+    "failed": "❌ Falhou: {{error}}",
+    "dismiss": "Descartar",
+    "subagentLoading": "Carregando status da delegação…",
+    "subagentDelegatedTo": "Delegou #{{number}} para {{agent}}",
+    "internalContext": "Contexto interno",
+    "processDetails": "Detalhes do processamento"
+  },
+  "artifactsPanel": {
+    "title": "Artefatos",
+    "searchArtifacts": "Buscar artefatos…",
+    "dragToReference": "Arraste para o campo de mensagem para referenciar {{path}}",
+    "download": "Baixar {{name}}",
+    "downloadTitle": "Baixar",
+    "removeFromList": "Remover {{name}} da lista",
+    "removeFromListTitle": "Remover da lista (não exclui o arquivo real)",
+    "noArtifactsYet": "Nenhum artefato criado nesta conversa ainda.",
+    "noArtifactsFound": "Nenhum artefato encontrado."
+  },
+  "secretInput": {
+    "agentInstruction": "Por favor, grave com segurança esta credencial no ForgeVault:",
+    "open": "Inserir senha ou token secreto (ForgeVault)",
+    "dialog": "Inserir senha ou token no ForgeVault",
+    "title": "Gravar segredo no ForgeVault",
+    "close": "Fechar",
+    "keyName": "Nome da chave / identificador",
+    "keyExample": "Ex.: TYPESAFE_API_KEY",
+    "environment": "Ambiente",
+    "production": "Produção",
+    "staging": "Homologação",
+    "development": "Desenvolvimento",
+    "encryption": "Criptografia AES",
+    "secretValue": "Senha ou token secreto",
+    "valuePlaceholder": "Cole o valor da chave secreta…",
+    "nameRequired": "Informe o nome do segredo (ex.: TYPESAFE_API_KEY)",
+    "valueRequired": "Informe a senha ou o token secreto",
+    "insert": "Inserir no ForgeVault"
+  },
+  "running": {
+    "title": "Em execução",
+    "main": "Principal",
+    "subagentFallback": "Subagente",
+    "lastTool": "último passo: {{tool}}",
+    "delegation": "#{{number}} → {{agent}}",
+    "noOutput": "Sem saída ainda.",
+    "noneRunning": "Nada em execução agora.",
+    "finished_one": "Concluído ({{count}})",
+    "finished_other": "Concluídos ({{count}})",
+    "status": {
+      "running": "em execução",
+      "completed": "concluído",
+      "failed": "falhou",
+      "stopped": "encerrado"
+    }
+  }
+}

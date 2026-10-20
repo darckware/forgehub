@@ -4,7 +4,6 @@ import { ExternalLink, Link2, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import {
-  DOC_LINK_ENTITY_LABELS,
   DOC_LINK_ENTITY_TYPES,
   useCreateDocLink,
   useDeleteDocLink,
@@ -17,6 +16,7 @@ import { usePipelines } from "@/hooks/usePipeline";
 import { usePlanningItems } from "@/hooks/useBacklog";
 import { useTasks } from "@/hooks/useTask";
 import { useArtifacts } from "@/hooks/useArtifact";
+import { useTranslation } from "react-i18next";
 
 const ENTITY_ROUTE: Record<DocLinkEntityType, string> = {
   product: "/product",
@@ -74,6 +74,7 @@ function useEntityOptions(type: DocLinkEntityType) {
  * one. This is the one place doc_links are created (entity detail screens
  * only display/unlink via EntityDocsCard). */
 export function DocLinkPanel({ docPath }: { docPath: string }) {
+  const { t } = useTranslation("docs");
   const { data: links, isLoading } = useDocLinks(docPath);
   const createLink = useCreateDocLink();
   const deleteLink = useDeleteDocLink();
@@ -92,18 +93,18 @@ export function DocLinkPanel({ docPath }: { docPath: string }) {
   return (
     <div className="space-y-2 rounded-md border border-border bg-muted/20 p-3">
       <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-        <Link2 className="h-3.5 w-3.5" /> Planning links
+        <Link2 className="h-3.5 w-3.5" /> {t("linkPanel.title")}
       </p>
 
       {isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
       {links && links.length === 0 && (
-        <p className="text-xs italic text-muted-foreground">No links yet.</p>
+        <p className="text-xs italic text-muted-foreground">{t("linkPanel.empty")}</p>
       )}
       {links?.map((link) => (
         <div key={link.id} className="flex items-center justify-between gap-2 text-sm">
           <span className="flex items-center gap-1.5 truncate">
             <span className="rounded bg-accent px-1.5 py-0.5 text-[10px] font-medium">
-              {DOC_LINK_ENTITY_LABELS[link.entity_type]}
+              {t(`linkPanel.entity.${link.entity_type}`)}
             </span>
             <Link
               to={`${ENTITY_ROUTE[link.entity_type]}/${link.entity_id}`}
@@ -117,7 +118,7 @@ export function DocLinkPanel({ docPath }: { docPath: string }) {
             variant="ghost"
             size="icon"
             className="h-6 w-6 shrink-0"
-            aria-label="Remove link"
+            aria-label={t("linkPanel.remove")}
             onClick={() => deleteLink.mutate(link.id)}
           >
             <X className="h-3 w-3" />
@@ -134,9 +135,9 @@ export function DocLinkPanel({ docPath }: { docPath: string }) {
             setEntityId("");
           }}
         >
-          {DOC_LINK_ENTITY_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {DOC_LINK_ENTITY_LABELS[t]}
+          {DOC_LINK_ENTITY_TYPES.map((entity) => (
+            <option key={entity} value={entity}>
+              {t(`linkPanel.entity.${entity}`)}
             </option>
           ))}
         </Select>
@@ -146,7 +147,7 @@ export function DocLinkPanel({ docPath }: { docPath: string }) {
           disabled={optionsLoading}
           onChange={(e) => setEntityId(e.target.value)}
         >
-          <option value="">{optionsLoading ? "Loading…" : "Select…"}</option>
+          <option value="">{optionsLoading ? t("linkPanel.loading") : t("linkPanel.select")}</option>
           {options.map((o) => (
             <option key={o.id} value={o.id}>
               {o.label}
@@ -154,7 +155,7 @@ export function DocLinkPanel({ docPath }: { docPath: string }) {
           ))}
         </Select>
         <Button size="sm" disabled={!entityId || createLink.isPending} onClick={handleLink}>
-          {createLink.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Link"}
+          {createLink.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t("linkPanel.link")}
         </Button>
       </div>
       {createLink.isError && (

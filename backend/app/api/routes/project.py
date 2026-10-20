@@ -42,8 +42,15 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.models.backlog import PlanningItem
+from app.db.models.product import Product, ProductVersion
+from app.db.models.task import ProjectTask, TaskExecution
+from app.db.models.execution import ExecutionWave, ExecutionWorkPackage
+from app.db.models.orchestration import ProjectLoopPolicy, TaskExecutionReview
+from app.db.models.system_scope import ProjectScope, ProjectScopeItem
 
 from app.api.schemas.project import (
     ChangeRequestCreate,
@@ -71,6 +78,11 @@ from app.api.schemas.project import (
     ProjectStructureNodeUpdate,
     ProjectUpdate,
 )
+from app.api.schemas.project_mcp import (
+    ProjectMcpServerIn,
+    ProjectMcpServerOut,
+    ProjectMcpServersLiveOut,
+)
 from app.core.config import settings
 from app.db.base import get_db
 from app.db.models.project import (
@@ -81,6 +93,7 @@ from app.db.models.project import (
     ProjectPlan,
     ProjectStructureNode,
 )
+from app.db.models.project_mcp import PROJECT_MCP_RUNTIME_TYPES, ProjectMcpServer
 
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 
@@ -129,6 +142,16 @@ def _assert_node_not_locked(node: ProjectStructureNode) -> None:
 @router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
 async def create_project(payload: ProjectCreate, db: AsyncSession = Depends(get_db)) -> Project:
     project = Project(**payload.model_dump())
+    if project.darckware_client_id is None:
+        # A project is for the same client as its product unless told otherwise
+        # (client demands Onda 3, 2026-10-04).
+        project.darckware_client_id = (
+            await db.execute(
+                select(Product.darckware_client_id)
+                .join(ProductVersion, ProductVersion.product_id == Product.id)
+                .where(ProductVersion.id == payload.product_version_id)
+            )
+        ).scalar_one_or_none()
     db.add(project)
     await db.commit()
     await db.refresh(project)
@@ -158,9 +181,34 @@ async def update_project(
     return project
 
 
+async def _clear_project_dependencies(db: AsyncSession, project_id: uuid.UUID) -> None:
+    task_ids_subq = select(ProjectTask.id).where(or_(
+        ProjectTask.planning_item_id.in_(select(PlanningItem.id).where(PlanningItem.project_id == project_id)),
+        ProjectTask.change_request_id.in_(select(ChangeRequest.id).where(ChangeRequest.project_id == project_id)),
+    ))
+
+    # execution_work_packages RESTRICTs execution_waves/plan_baselines/task_assignments.
+    await db.execute(delete(ExecutionWorkPackage).where(ExecutionWorkPackage.execution_wave_id.in_(
+        select(ExecutionWave.id).where(ExecutionWave.project_id == project_id)
+    )))
+    # task_execution_reviews RESTRICTs project_agent_memberships.
+    await db.execute(delete(TaskExecutionReview).where(TaskExecutionReview.execution_id.in_(
+        select(TaskExecution.id).where(TaskExecution.task_id.in_(task_ids_subq))
+    )))
+    # project_loop_policies RESTRICTs project_agent_memberships.
+    await db.execute(delete(ProjectLoopPolicy).where(ProjectLoopPolicy.project_id == project_id))
+    # project_scope_items RESTRICTs system_elements; project_scopes itself
+    # RESTRICTs system_blueprint_revisions.
+    await db.execute(delete(ProjectScopeItem).where(ProjectScopeItem.project_scope_id.in_(
+        select(ProjectScope.id).where(ProjectScope.project_id == project_id)
+    )))
+    await db.execute(delete(ProjectScope).where(ProjectScope.project_id == project_id))
+
+
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
     project = await _get_project_or_404(db, project_id)
+    await _clear_project_dependencies(db, project_id)
     await db.delete(project)
     await db.commit()
 
@@ -217,7 +265,7 @@ async def update_project_plan(
         )
         if existing_baseline.scalars().first() is not None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     "This plan has already been baselined; register a "
                     "ChangeRequest instead of editing it directly."
@@ -268,7 +316,7 @@ async def create_plan_baseline(
 
     if plan.project_id != project_id:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="project_plan_id does not belong to this project",
         )
 
@@ -276,7 +324,7 @@ async def create_plan_baseline(
     # must be approved before it can be frozen into a baseline.
     if plan.status != "approved":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Only an approved plan can be baselined (current status: "
             f"'{plan.status}')",
         )
@@ -337,7 +385,7 @@ async def create_change_request(
         baseline = await db.get(PlanBaseline, payload.plan_baseline_id)
         if baseline is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="plan_baseline_id does not reference an existing baseline",
             )
 
@@ -358,7 +406,7 @@ async def create_change_request(
     )
     if not any(impact_flags):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 "A ChangeRequest must declare at least one impact flag "
                 "(scope, schedule, cost, features, bug fix, agents, "
@@ -427,7 +475,7 @@ async def update_change_request(
     # allowed (that's how a decision gets made in the first place).
     if update_data and cr.status != "pending":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"This change request has already been '{cr.status}'; its "
                 "content can no longer be edited. Only a pending change "
@@ -439,7 +487,7 @@ async def update_change_request(
         baseline = await db.get(PlanBaseline, update_data["plan_baseline_id"])
         if baseline is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="plan_baseline_id does not reference an existing baseline",
             )
 
@@ -450,7 +498,7 @@ async def update_change_request(
         merged_flags = {field: update_data.get(field, getattr(cr, field)) for field in _CHANGE_REQUEST_IMPACT_FIELDS}
         if not any(merged_flags.values()):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     "A ChangeRequest must declare at least one impact flag "
                     "(scope, schedule, cost, features, bug fix, agents, "
@@ -838,7 +886,15 @@ async def toggle_project_forgerouter(
     payload: ProjectForgeRouterToggle,
     db: AsyncSession = Depends(get_db),
 ) -> ProjectForgeRouterConfig:
-    """Enable or disable ForgeRouter for this project.
+    """Enable or disable ForgeRouter per tool for this project.
+
+    `claude`/`codex`/`antigravity` describe the DESIRED end-state for each
+    tool independently — a caller can flip just one (e.g. turn Codex off
+    while leaving Claude on). Only tools whose desired state differs from
+    the stored config are sent to the host bridge, so an untouched tool's
+    config file on disk is never rewritten or removed. `enabled` is kept
+    for API compatibility (true when any tool is desired on) but no longer
+    drives which tools get applied — the per-tool booleans do.
 
     When enabled, config files are written inside the project's
     working_directory_path — never in global user directories.
@@ -847,42 +903,69 @@ async def toggle_project_forgerouter(
     project = await _get_project_or_404(db, project_id)
     if not project.working_directory_path:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Project has no working_directory_path — set it before configuring ForgeRouter.",
         )
 
-    tools_to_apply = []
-    if payload.enabled:
-        if payload.claude:
-            tools_to_apply.append("claude")
-        if payload.codex:
-            tools_to_apply.append("codex")
-        if payload.antigravity:
-            tools_to_apply.append("antigravity")
-    else:
-        tools_to_apply = ["claude", "codex", "antigravity"]
-
-    await _bridge_request(
-        "PUT",
-        "/v1/project-forgerouter",
-        json={
-            "project_path": project.working_directory_path,
-            "tools": tools_to_apply,
-            "enabled": payload.enabled,
-            "api_key": payload.api_key,
-        },
-    )
-
     cfg = await _get_or_create_fr_config(db, project_id)
-    if payload.enabled:
-        cfg.api_key = payload.api_key or cfg.api_key
-        cfg.claude_enabled = payload.claude
-        cfg.codex_enabled = payload.codex
-        cfg.antigravity_enabled = payload.antigravity
-    else:
-        cfg.claude_enabled = False
-        cfg.codex_enabled = False
-        cfg.antigravity_enabled = False
+    current = {
+        "claude": cfg.claude_enabled,
+        "codex": cfg.codex_enabled,
+        "antigravity": cfg.antigravity_enabled,
+    }
+    desired = {
+        "claude": payload.claude,
+        "codex": payload.codex,
+        "antigravity": payload.antigravity,
+    }
+    to_enable = [tool for tool, want in desired.items() if want and not current[tool]]
+    to_disable = [tool for tool, want in desired.items() if not want and current[tool]]
+
+    # Each tool is its own product with its own credential -- Claude/Codex/
+    # Antigravity keys must never be conflated, so each gets its own bridge
+    # call with only its own key (never another tool's).
+    payload_keys = {
+        "claude": payload.claude_api_key,
+        "codex": payload.codex_api_key,
+        "antigravity": payload.antigravity_api_key,
+    }
+    stored_keys = {
+        "claude": cfg.claude_api_key,
+        "codex": cfg.codex_api_key,
+        "antigravity": cfg.antigravity_api_key,
+    }
+    for tool in to_enable:
+        await _bridge_request(
+            "PUT",
+            "/v1/project-forgerouter",
+            json={
+                "project_path": project.working_directory_path,
+                "tools": [tool],
+                "enabled": True,
+                "api_key": payload_keys[tool] or stored_keys[tool] or "",
+            },
+        )
+    if to_disable:
+        await _bridge_request(
+            "PUT",
+            "/v1/project-forgerouter",
+            json={
+                "project_path": project.working_directory_path,
+                "tools": to_disable,
+                "enabled": False,
+                "api_key": "",
+            },
+        )
+
+    if payload.claude_api_key:
+        cfg.claude_api_key = payload.claude_api_key
+    if payload.codex_api_key:
+        cfg.codex_api_key = payload.codex_api_key
+    if payload.antigravity_api_key:
+        cfg.antigravity_api_key = payload.antigravity_api_key
+    cfg.claude_enabled = desired["claude"]
+    cfg.codex_enabled = desired["codex"]
+    cfg.antigravity_enabled = desired["antigravity"]
     cfg.configured_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(cfg)
@@ -898,7 +981,7 @@ async def get_project_forgerouter_live(
     project = await _get_project_or_404(db, project_id)
     if not project.working_directory_path:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Project has no working_directory_path.",
         )
     data = await _bridge_request(
@@ -907,3 +990,172 @@ async def get_project_forgerouter_live(
         params={"project_path": project.working_directory_path},
     )
     return ProjectForgeRouterStatusOut(**data)
+
+
+# ---------------------------------------------------------------------------
+# Project-scoped MCP servers
+# Routes: GET/PUT/DELETE /{project_id}/mcp-servers[/{name}]
+#         GET /{project_id}/mcp-servers/live
+#
+# Claude Code only today (confirmed 2026-07-28 -- see
+# db/models/project_mcp.py's module docstring for why Codex/Hermes/agy
+# aren't supported yet). Unlike per-agent MCP (core/agent_mcp.py,
+# no ForgeHub-side table at all), these rows ARE a DB-stored desired state --
+# same hybrid shape as ProjectForgeRouterConfig above: the DB is the source
+# of truth for "what should be installed", the host-bridge write is the
+# source of truth for "what actually is" (see /live below), and
+# last_synced_at/last_sync_error record the last attempt to reconcile them.
+# ---------------------------------------------------------------------------
+
+
+def _require_project_mcp_runtime(runtime_type: str) -> None:
+    if runtime_type not in PROJECT_MCP_RUNTIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"runtime_type {runtime_type!r} has no project-scoped MCP mechanism yet "
+                f"(supported: {', '.join(PROJECT_MCP_RUNTIME_TYPES)})."
+            ),
+        )
+
+
+@router.get("/{project_id}/mcp-servers", response_model=list[ProjectMcpServerOut])
+async def list_project_mcp_servers(
+    project_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> list[ProjectMcpServer]:
+    await _get_project_or_404(db, project_id)
+    result = await db.execute(
+        select(ProjectMcpServer)
+        .where(ProjectMcpServer.project_id == project_id)
+        .order_by(ProjectMcpServer.name)
+    )
+    return list(result.scalars().all())
+
+
+@router.put("/{project_id}/mcp-servers/{name}", response_model=ProjectMcpServerOut)
+async def upsert_project_mcp_server(
+    project_id: uuid.UUID,
+    name: str,
+    payload: ProjectMcpServerIn,
+    db: AsyncSession = Depends(get_db),
+) -> ProjectMcpServer:
+    """Add or update one MCP server in the project's `.mcp.json`. 422 without
+    a working_directory_path (mirrors toggle_project_forgerouter's guard) --
+    there is nowhere to write the file without one."""
+    project = await _get_project_or_404(db, project_id)
+    working_dir = project.working_directory_path
+    if not working_dir:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Project has no working_directory_path — set it before configuring MCP servers.",
+        )
+    _require_project_mcp_runtime(payload.runtime_type)
+    if bool(payload.command) == bool(payload.url):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide either a command (stdio server) or a url (HTTP server), not both.",
+        )
+    if not payload.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Claude Code's .mcp.json has no enable/disable flag — remove the server instead.",
+        )
+
+    result = await db.execute(
+        select(ProjectMcpServer).where(
+            ProjectMcpServer.project_id == project_id,
+            ProjectMcpServer.runtime_type == payload.runtime_type,
+            ProjectMcpServer.name == name,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        row = ProjectMcpServer(project_id=project_id, runtime_type=payload.runtime_type, name=name)
+        db.add(row)
+
+    try:
+        await _bridge_request(
+            "PUT",
+            "/v1/project-mcp-servers",
+            json={
+                "project_path": working_dir,
+                "runtime_type": payload.runtime_type,
+                "name": name,
+                "transport": payload.transport,
+                "command": payload.command,
+                "args": payload.args,
+                "env": payload.env,
+                "url": payload.url,
+                "enabled": payload.enabled,
+            },
+        )
+    except HTTPException as exc:
+        row.last_sync_error = str(exc.detail)[:2000]
+        await db.commit()
+        raise
+
+    row.transport = payload.transport
+    row.command = payload.command
+    row.args = payload.args
+    row.env = payload.env
+    row.url = payload.url
+    row.enabled = payload.enabled
+    row.last_synced_at = datetime.now(timezone.utc)
+    row.last_sync_error = None
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.delete("/{project_id}/mcp-servers/{name}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project_mcp_server(
+    project_id: uuid.UUID,
+    name: str,
+    runtime_type: str = "claude",
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    project = await _get_project_or_404(db, project_id)
+    working_dir = project.working_directory_path
+    if not working_dir:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Project has no working_directory_path.",
+        )
+    _require_project_mcp_runtime(runtime_type)
+    await _bridge_request(
+        "DELETE",
+        "/v1/project-mcp-servers",
+        params={"project_path": working_dir, "runtime_type": runtime_type, "name": name},
+    )
+    result = await db.execute(
+        select(ProjectMcpServer).where(
+            ProjectMcpServer.project_id == project_id,
+            ProjectMcpServer.runtime_type == runtime_type,
+            ProjectMcpServer.name == name,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is not None:
+        await db.delete(row)
+        await db.commit()
+
+
+@router.get("/{project_id}/mcp-servers/live", response_model=ProjectMcpServersLiveOut)
+async def get_project_mcp_servers_live(
+    project_id: uuid.UUID, runtime_type: str = "claude", db: AsyncSession = Depends(get_db)
+) -> ProjectMcpServersLiveOut:
+    """Live filesystem read of the project's `.mcp.json`, independent of the
+    DB-stored rows -- same disk-truth role as /forgerouter/live above."""
+    project = await _get_project_or_404(db, project_id)
+    if not project.working_directory_path:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Project has no working_directory_path.",
+        )
+    _require_project_mcp_runtime(runtime_type)
+    data = await _bridge_request(
+        "GET",
+        "/v1/project-mcp-servers/status",
+        params={"project_path": project.working_directory_path, "runtime_type": runtime_type},
+    )
+    return ProjectMcpServersLiveOut(**data)

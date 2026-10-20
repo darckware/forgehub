@@ -16,11 +16,28 @@ export const chatSessionSchema = z.object({
   title: z.string(),
   pinned: z.boolean(),
   hermes_session_id: z.string().nullable().optional(),
+  // When set, this session's agent terminal runs from this folder instead
+  // of the agent's own profile home (see backend chat.py's /stream +
+  // host-bridge/hermes_stream.py's --cwd). Plain path, not tied to a
+  // registered Project -- same as the Workspace toolbar's WorkingDirPicker.
+  working_directory_path: z.string().nullable().optional(),
+  // Exclusive with working_directory_path above -- a session sits in
+  // Project XOR Group XOR neither (loose list). See ChatGroup below.
+  group_id: z.string().nullable().optional(),
   created_at: z.string(),
   updated_at: z.string(),
 });
 
 export type ChatSession = z.infer<typeof chatSessionSchema>;
+
+export const chatGroupSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export type ChatGroup = z.infer<typeof chatGroupSchema>;
 
 export const chatMessageSchema = z.object({
   id: z.string(),
@@ -28,6 +45,7 @@ export const chatMessageSchema = z.object({
   role: chatMessageRoleSchema,
   content: z.string(),
   attachment_names: z.string().nullable().optional(),
+  attachment_data_urls: z.string().nullable().optional(),
   responding_agent_id: z.string().nullable().optional(),
   thinking_seconds: z.number().nullable().optional(),
   created_at: z.string(),
@@ -59,7 +77,98 @@ export const chatKeys = {
   sessions: (agentId?: string) => ["chat-sessions", agentId ?? "all"] as const,
   messages: (sessionId: string) => ["chat-messages", sessionId] as const,
   artifacts: (sessionId: string) => ["chat-artifacts", sessionId] as const,
+  groups: ["chat-groups"] as const,
 };
+
+/** One ChatSession's (or ChatSessionParticipant's) Hermes-side liveness --
+ * backs System Control's "Chat Sessions" card (2026-08-24), mirroring
+ * useTerminalSessions' tmux liveness check but for a resumed Hermes
+ * conversation instead of a pane. See get_chat_sessions_host_status. */
+export const chatSessionHostStatusSchema = z.object({
+  session_id: z.string(),
+  participant_id: z.string().nullable(),
+  session_title: z.string(),
+  agent_id: z.string(),
+  agent_name: z.string(),
+  hermes_session_id: z.string(),
+  exists: z.boolean(),
+  hermes_title: z.string().nullable(),
+  last_activity_at: z.number().nullable(),
+  message_count: z.number().nullable(),
+  running: z.boolean(),
+});
+
+export type ChatSessionHostStatus = z.infer<typeof chatSessionHostStatusSchema>;
+
+export const chatSessionsHostStatusKey = ["chat-sessions-host-status"] as const;
+
+export function useChatSessionsHostStatus(enabled = true) {
+  return useQuery({
+    queryKey: chatSessionsHostStatusKey,
+    queryFn: () => apiClient.get<ChatSessionHostStatus[]>(`${RESOURCE}/sessions/host-status`),
+    enabled,
+  });
+}
+
+/** Forgets the stored hermes_session_id (session's own, or one
+ * participant's) so the next message opens a fresh Hermes session instead
+ * of repeating a resume known to fail -- never touches Hermes' own
+ * history, see reset_chat_session_hermes_link's docstring. */
+export function useResetChatSessionHermesLink() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId, participantId }: { sessionId: string; participantId?: string | null }) =>
+      apiClient.post<ChatSession>(`${RESOURCE}/sessions/${sessionId}:reset-hermes-session`, undefined, {
+        params: participantId ? { participant_id: participantId } : undefined,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: chatSessionsHostStatusKey }),
+  });
+}
+
+/** Bulk form of the reset above for the System Control "Reset all stale"
+ * button -- resets every currently-Stale session in one confirm instead of
+ * one row at a time. Same non-destructive semantics per session (keeps
+ * ForgeHub history, only forgets the Hermes resume link); requests run
+ * concurrently and a single failure doesn't stop the rest. */
+export function useResetAllStaleChatSessions() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessions: { sessionId: string; participantId: string | null }[]) => {
+      const results = await Promise.allSettled(
+        sessions.map(({ sessionId, participantId }) =>
+          apiClient.post<ChatSession>(`${RESOURCE}/sessions/${sessionId}:reset-hermes-session`, undefined, {
+            params: participantId ? { participant_id: participantId } : undefined,
+          })
+        )
+      );
+      const failed = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (failed.length > 0) {
+        throw new Error(`${failed.length} of ${sessions.length} session(s) failed to reset`);
+      }
+    },
+    // onSettled (not onSuccess): a partial failure still throws above, but
+    // whichever sessions did succeed should still refresh out of the list.
+    // Not awaited -- same reasoning as useDeleteCleanupCategory: the refetch
+    // shouldn't hold this mutation (and the confirm dialog's spinner) open.
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: chatSessionsHostStatusKey });
+    },
+  });
+}
+
+/** Permanently deletes a chat session (and its messages) -- the "delete"
+ * icon on System Control's Chat Sessions card, mirroring Terminal
+ * Sessions' kill button. Distinct from useDeleteChatSession below only in
+ * which cache it invalidates: this card lists sessions across every agent
+ * (chatSessionsHostStatusKey), not one agent's own list
+ * (chatKeys.sessions(agentId)). */
+export function useDeleteChatSessionHostStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: string) => apiClient.delete<void>(`${RESOURCE}/sessions/${sessionId}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: chatSessionsHostStatusKey }),
+  });
+}
 
 export function useChatSessions(agentId: string | undefined) {
   return useQuery({
@@ -85,7 +194,7 @@ export function useSearchChatSessions(query: string, agentId: string | undefined
 export function useCreateChatSession() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { agent_id: string; title?: string }) =>
+    mutationFn: (payload: { agent_id: string; title?: string; working_directory_path?: string | null }) =>
       apiClient.post<ChatSession>(`${RESOURCE}/sessions`, payload),
     onSuccess: (session) => {
       queryClient.invalidateQueries({ queryKey: chatKeys.sessions(session.agent_id) });
@@ -103,6 +212,12 @@ export function useUpdateChatSession(agentId: string | undefined) {
       sessionId: string;
       title?: string;
       pinned?: boolean;
+      /** Also doubles as "move this chat to a different folder/project"
+       * after creation -- same PATCH, no special-cased endpoint. */
+      working_directory_path?: string | null;
+      /** Moves this chat to a Group -- exclusive with
+       * working_directory_path above, enforced backend-side. */
+      group_id?: string | null;
     }) => apiClient.patch<ChatSession>(`${RESOURCE}/sessions/${sessionId}`, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: chatKeys.sessions(agentId) });
@@ -116,6 +231,54 @@ export function useDeleteChatSession(agentId: string | undefined) {
     mutationFn: (sessionId: string) => apiClient.delete<void>(`${RESOURCE}/sessions/${sessionId}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: chatKeys.sessions(agentId) });
+    },
+  });
+}
+
+// --------------------------------------------------------------------------
+// ChatGroup -- user-created named folders for the Workspace sidebar (see
+// backend db/models/chat.py's ChatGroup docstring). Not scoped to an
+// agent, unlike sessions -- one flat roster shared across every tab.
+// --------------------------------------------------------------------------
+
+export function useChatGroups() {
+  return useQuery({
+    queryKey: chatKeys.groups,
+    queryFn: () => apiClient.get<ChatGroup[]>(`${RESOURCE}/groups`),
+  });
+}
+
+export function useCreateChatGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => apiClient.post<ChatGroup>(`${RESOURCE}/groups`, { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: chatKeys.groups });
+    },
+  });
+}
+
+export function useUpdateChatGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, name }: { groupId: string; name: string }) =>
+      apiClient.patch<ChatGroup>(`${RESOURCE}/groups/${groupId}`, { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: chatKeys.groups });
+    },
+  });
+}
+
+export function useDeleteChatGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (groupId: string) => apiClient.delete<void>(`${RESOURCE}/groups/${groupId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: chatKeys.groups });
+      // A deleted group's sessions return to the loose list (backend's
+      // ON DELETE SET NULL) -- every agent's session list may now show
+      // one differently, so invalidate broadly rather than guessing which.
+      queryClient.invalidateQueries({ queryKey: ["chat-sessions"] });
     },
   });
 }
@@ -224,13 +387,53 @@ export function useDeleteChatMessage(sessionId: string | undefined) {
 
 export type ChatStreamEvent =
   | { type: "delta"; text: string }
-  | { type: "tool_start"; toolId: string; name: string; context?: string; detail?: string }
-  | { type: "tool_complete"; toolId: string; name: string; summary?: string }
+  | {
+      type: "tool_start";
+      toolId: string;
+      name: string;
+      context?: string;
+      detail?: string;
+      /** Set on a step a subagent ran: the launching Agent tool call's id. */
+      parentId?: string;
+      /** Set when this tool call launched a subagent (Claude Code's Agent). */
+      subagent?: { description: string; subagentType: string };
+    }
+  | {
+      type: "tool_complete";
+      toolId: string;
+      name: string;
+      summary?: string;
+      parentId?: string;
+      isError?: boolean;
+      /** Set only for mcp__forgehub_messages__send_agent_message -- the
+       * #number of the message it just created (2026-07-28). Lets the UI
+       * render a live status card for a mid-conversation delegation
+       * instead of just a "done" checkmark -- see FORGEHUB_MESSAGE.md's
+       * "Delegating to another agent mid-conversation". */
+      demandNumber?: number;
+    }
   | { type: "approval_request"; streamId: string; command?: string; description?: string; patternKeys?: string[] }
+  /** The backend's ActiveTurn id for this turn (2026-08-14) -- the one thing
+   * a live tab needs from the stream to target Stop at this specific turn,
+   * since the turn itself now runs detached from this connection (see
+   * chat.py's `_run_chat_turn`). Previously unparsed/dropped entirely. */
+  | { type: "turn_started"; turnId: string }
+  /** A subagent's own output -- never part of the main reply. */
+  | { type: "subagent_delta"; parentId: string; text: string }
+  | {
+      type: "subagent_status";
+      toolId: string;
+      status?: string;
+      description?: string;
+      subagentType?: string;
+      lastTool?: string;
+      summary?: string;
+      backgrounded?: boolean;
+    }
   | { type: "done"; reply: string }
   | { type: "error"; message: string };
 
-function parseChatStreamLine(raw: string): ChatStreamEvent | null {
+export function parseChatStreamLine(raw: string): ChatStreamEvent | null {
   let data: any;
   try {
     data = JSON.parse(raw);
@@ -239,6 +442,7 @@ function parseChatStreamLine(raw: string): ChatStreamEvent | null {
   }
   if (data.error) return { type: "error", message: String(data.error) };
   if (data.done) return { type: "done", reply: data.reply ?? "" };
+  if (typeof data.turn_id === "string") return { type: "turn_started", turnId: data.turn_id };
   if (data.tool_start) {
     return {
       type: "tool_start",
@@ -248,6 +452,13 @@ function parseChatStreamLine(raw: string): ChatStreamEvent | null {
       // Exact primary argument (full command/path/query) -- `context` is an
       // 80-char label; the UI shows this verbatim in the shell block.
       detail: data.tool_start.detail,
+      parentId: data.tool_start.parent_id ?? undefined,
+      subagent: data.tool_start.subagent
+        ? {
+            description: String(data.tool_start.subagent.description ?? ""),
+            subagentType: String(data.tool_start.subagent.subagent_type ?? ""),
+          }
+        : undefined,
     };
   }
   if (data.tool_complete) {
@@ -256,6 +467,25 @@ function parseChatStreamLine(raw: string): ChatStreamEvent | null {
       toolId: data.tool_complete.tool_id,
       name: data.tool_complete.name,
       summary: data.tool_complete.summary,
+      demandNumber: data.tool_complete.demand_number,
+      parentId: data.tool_complete.parent_id ?? undefined,
+      isError: Boolean(data.tool_complete.is_error),
+    };
+  }
+  if (data.subagent_delta && typeof data.subagent_delta.text === "string") {
+    return { type: "subagent_delta", parentId: String(data.subagent_delta.parent_id ?? ""), text: data.subagent_delta.text };
+  }
+  if (data.subagent_status && data.subagent_status.tool_id) {
+    const st = data.subagent_status;
+    return {
+      type: "subagent_status",
+      toolId: String(st.tool_id),
+      status: st.status,
+      description: st.description,
+      subagentType: st.subagent_type,
+      lastTool: st.last_tool,
+      summary: st.summary,
+      backgrounded: typeof st.backgrounded === "boolean" ? st.backgrounded : undefined,
     };
   }
   if (data.approval_request) {
@@ -280,7 +510,7 @@ export function useStreamChatMessage(agentId: string | undefined) {
     message: string,
     onEvent: (event: ChatStreamEvent) => void,
     signal?: AbortSignal,
-    options?: { regenerate?: boolean; targetAgentId?: string; skipUserMessage?: boolean }
+    options?: { regenerate?: boolean; targetAgentId?: string; skipUserMessage?: boolean; hidden?: boolean }
   ): Promise<void> {
     const token = getToken() ?? "";
     // Same-origin by default (nginx proxies /api/ to the backend) -- a
@@ -290,8 +520,33 @@ export function useStreamChatMessage(agentId: string | undefined) {
     let extraParams = options?.regenerate ? "&regenerate=true" : "";
     if (options?.targetAgentId) extraParams += `&target_agent_id=${options.targetAgentId}`;
     if (options?.skipUserMessage) extraParams += "&skip_user_message=true";
+    // Internal priming turn (see ChatPane's primingMessage): persisted
+    // wrapped in hidden markers on both sides, dropped from the transcript.
+    if (options?.hidden) extraParams += "&hidden=true";
     const url = `${apiBase}${RESOURCE}/sessions/${sessionId}/messages/stream?message=${encodeURIComponent(message)}${extraParams}`;
-    const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal });
+
+    // Connection resilience (2026-07-28, see the plan's Fase 5 item 5):
+    // a self-maintenance turn against ForgeHub's own repo can trigger a
+    // backend restart (uvicorn --reload) at the exact moment this fetch
+    // opens -- a brief window where the connection is flat-out refused,
+    // not a mid-stream drop. Retry ONLY the initial connect (nothing
+    // received yet, so the server has almost certainly not persisted the
+    // user message yet either -- safe to resend as-is). Once any SSE
+    // bytes have arrived, the server-side persistence may already have
+    // happened; no retry from here on -- the existing "connection
+    // interrupted mid-response" handling below already covers that
+    // without risking a duplicated user turn.
+    const CONNECT_RETRY_DELAYS_MS = [1000, 2000];
+    let resp: Response | undefined;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal });
+        break;
+      } catch (err) {
+        if (signal?.aborted || attempt >= CONNECT_RETRY_DELAYS_MS.length) throw err;
+        await new Promise((r) => setTimeout(r, CONNECT_RETRY_DELAYS_MS[attempt]));
+      }
+    }
     if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
 
     const reader = resp.body.getReader();
@@ -333,6 +588,85 @@ export function useStreamChatMessage(agentId: string | undefined) {
   };
 }
 
+/** Asks this session's own agent to rewrite a draft per an improvement
+ * instruction -- a private utility call, never a real turn (see backend
+ * chat.py's stream_improve_prompt docstring). Ported from useChannel.ts's
+ * useStreamImprovePrompt, which shipped first for the Channels room
+ * (2026-08-06). Resolves to the improved text; the caller decides what to
+ * do with it (replace the compose draft, never auto-sent). */
+export function useStreamImprovePrompt(sessionId: string) {
+  return async function improvePrompt(
+    draft: string,
+    instruction: string,
+    techniqueCode: string,
+    signal?: AbortSignal
+  ): Promise<string> {
+    const token = getToken() ?? "";
+    const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
+    const url = `${apiBase}${RESOURCE}/sessions/${sessionId}/improve-prompt/stream`;
+
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ draft, instruction, technique_code: techniqueCode }),
+      signal,
+    });
+    if (!resp.ok) {
+      // The session-agent lookup fails before any streaming starts -- a
+      // plain JSON error, not SSE framing.
+      let detail = `HTTP ${resp.status}`;
+      try {
+        detail = (await resp.json()).detail ?? detail;
+      } catch {
+        // Body wasn't JSON -- keep the generic HTTP status message.
+      }
+      throw new Error(detail);
+    }
+    if (!resp.body) throw new Error("Empty response body");
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let currentEvent = "message";
+    let improvedText: string | null = null;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (line.startsWith("event:")) {
+            currentEvent = line.slice(6).trim();
+            continue;
+          }
+          if (!line.startsWith("data:")) continue;
+          const raw = line.slice(5).trim();
+          if (currentEvent === "error") {
+            const parsed = JSON.parse(raw || "{}");
+            throw new Error(parsed.detail ?? "improve-prompt stream error");
+          }
+          if (currentEvent === "done") {
+            currentEvent = "message";
+            continue;
+          }
+          const parsed = JSON.parse(raw || "{}");
+          if (typeof parsed.improved_text === "string") improvedText = parsed.improved_text;
+          currentEvent = "message";
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    if (improvedText === null) throw new Error("The agent didn't return any text.");
+    return improvedText;
+  };
+}
+
 /** choice values match Hermes's own tools/approval.py vocabulary directly
  * (resolve_gateway_approval): "once" allows just this command, "session"
  * also remembers the pattern for the rest of this Hermes session (skips
@@ -344,6 +678,19 @@ export function useApproveChat() {
   return useMutation({
     mutationFn: ({ streamId, choice }: { streamId: string; choice: "once" | "session" | "deny" }) =>
       apiClient.post<{ status: string }>(`${RESOURCE}/approve`, { stream_id: streamId, choice }),
+  });
+}
+
+/** Ends a running turn on purpose (2026-08-14) -- the Stop button's actual
+ * mechanism now that a turn survives the browser disconnecting on its own
+ * (see the backend's `_run_chat_turn`). Aborting the fetch alone no longer
+ * stops anything server-side; this is what does. Needs the ActiveTurn id,
+ * which arrives as a `turn_started` stream event once the turn has one --
+ * before that point there is nothing running yet to stop. */
+export function useStopChatTurn() {
+  return useMutation({
+    mutationFn: ({ sessionId, turnId }: { sessionId: string; turnId: string }) =>
+      apiClient.post<{ status: string }>(`${RESOURCE}/sessions/${sessionId}/turns/${turnId}/stop`),
   });
 }
 

@@ -1,16 +1,20 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   AlertCircle,
   Bot,
+  CheckCircle2,
   Eye,
   Loader2,
   Pencil,
   RefreshCw,
   Search,
   Settings2,
+  ShieldCheck,
   Sparkles,
   Trash2,
   X,
+  XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,8 +45,9 @@ import { apiClient } from "@/lib/api";
 import { useAssistantStore } from "@/store/assistantStore";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 
-/** Draft seeded into the workspace chat composer, mirroring Agent Tools'
- * maintenance message: skill metadata first, then the SKILL.md source. */
+/** Context attached invisibly to the assistant chat (assistantStore's
+ * pendingHiddenContext), mirroring Agent Tools' maintenance message:
+ * skill metadata first, then the SKILL.md source. */
 function buildSkillChatMessage(skill: Skill, fileContent: string | null, filePath: string | null): string {
   const lines: string[] = [
     "I need help with this Hermes skill. Please review it and suggest improvements.",
@@ -75,6 +80,7 @@ function SkillViewerOverlay({
   startEditing: boolean;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("skills");
   const { data, isLoading, isError, error } = useSkillFileContent(skill.name);
   const updateContent = useUpdateSkillFileContent(skill.name);
   const [draft, setDraft] = useState<string | null>(null); // null = not editing
@@ -106,7 +112,7 @@ function SkillViewerOverlay({
           <div className="min-w-0">
             <h3 className="truncate font-semibold">{skill.name}</h3>
             <p className="truncate text-xs text-muted-foreground">
-              {data?.path ?? `v${skill.version} · ${skill.origin} · risk ${skill.risk_level}`}
+              {data?.path ?? `v${skill.version} · ${t(`origin.${skill.origin}`, skill.origin)} · ${t("riskLabel")} ${t(`risk.${skill.risk_level}`)}`}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -117,7 +123,7 @@ function SkillViewerOverlay({
                 onClick={() => setDraft(data.content)}
               >
                 <Pencil className="mr-2 h-3.5 w-3.5" />
-                Edit
+                {t("actions.edit")}
               </Button>
             )}
             {draft != null && (
@@ -128,15 +134,15 @@ function SkillViewerOverlay({
                   disabled={updateContent.isPending}
                   onClick={() => setDraft(null)}
                 >
-                  Cancel
+                  {t("actions.cancel")}
                 </Button>
                 <Button size="sm" disabled={updateContent.isPending} onClick={handleSave}>
                   {updateContent.isPending && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
-                  Save
+                  {t("actions.save")}
                 </Button>
               </>
             )}
-            <Button variant="ghost" size="icon" aria-label="Close" onClick={onClose}>
+            <Button variant="ghost" size="icon" aria-label={t("actions.close")} onClick={onClose}>
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -147,18 +153,18 @@ function SkillViewerOverlay({
           )}
           {updateContent.isError && (
             <p className="shrink-0 text-sm text-destructive">
-              Save failed: {(updateContent.error as Error)?.message}
+              {t("errors.saveFailed", { error: (updateContent.error as Error)?.message })}
             </p>
           )}
           {isLoading && (
             <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
-              Loading SKILL.md…
+              {t("loadingFile")}
             </div>
           )}
           {isError && (
             <p className="text-sm text-destructive">
-              {(error as Error)?.message ?? "Could not load the SKILL.md file."}
+              {(error as Error)?.message ?? t("errors.loadFile")}
             </p>
           )}
           {data && draft == null && (
@@ -171,7 +177,7 @@ function SkillViewerOverlay({
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               spellCheck={false}
-              className="min-h-[45vh] flex-1 font-mono text-xs"
+              className="resize-none min-h-[45vh] flex-1 font-mono text-xs"
             />
           )}
         </div>
@@ -183,6 +189,7 @@ function SkillViewerOverlay({
 /** Modal editing the skill's registry metadata (DB row, not the file).
  * The backend rejects edits on already-approved skills. */
 function SkillFormModal({ skill, onClose }: { skill: Skill; onClose: () => void }) {
+  const { t } = useTranslation("skills");
   const updateSkill = useUpdateSkill();
   const [form, setForm] = useState({
     name: skill.name,
@@ -210,16 +217,16 @@ function SkillFormModal({ skill, onClose }: { skill: Skill; onClose: () => void 
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex justify-center overflow-y-auto bg-black/50 p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-lg border border-border bg-card"
+        className="my-auto w-full max-w-lg rounded-lg border border-border bg-card"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h3 className="font-semibold">Edit skill: {skill.name}</h3>
-          <Button variant="ghost" size="icon" aria-label="Close" onClick={onClose}>
+          <h3 className="font-semibold">{t("form.editTitle", { name: skill.name })}</h3>
+          <Button variant="ghost" size="icon" aria-label={t("actions.close")} onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -229,34 +236,34 @@ function SkillFormModal({ skill, onClose }: { skill: Skill; onClose: () => void 
           )}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Name</label>
+              <label className="text-xs font-medium text-muted-foreground">{t("form.name")}</label>
               <Input
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Version</label>
+              <label className="text-xs font-medium text-muted-foreground">{t("form.version")}</label>
               <Input
                 value={form.version}
                 onChange={(e) => setForm((f) => ({ ...f, version: e.target.value }))}
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Origin</label>
+              <label className="text-xs font-medium text-muted-foreground">{t("form.origin")}</label>
               <Select
                 value={form.origin}
                 onChange={(e) => setForm((f) => ({ ...f, origin: e.target.value as Skill["origin"] }))}
               >
                 {SKILL_ORIGINS.map((o) => (
                   <option key={o} value={o}>
-                    {o}
+                    {t(`origin.${o}`, o)}
                   </option>
                 ))}
               </Select>
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Risk level</label>
+              <label className="text-xs font-medium text-muted-foreground">{t("form.riskLevel")}</label>
               <Select
                 value={form.risk_level}
                 onChange={(e) =>
@@ -265,15 +272,15 @@ function SkillFormModal({ skill, onClose }: { skill: Skill; onClose: () => void 
               >
                 {SKILL_RISK_LEVELS.map((r) => (
                   <option key={r} value={r}>
-                    {r}
+                    {t(`risk.${r}`, r)}
                   </option>
                 ))}
               </Select>
             </div>
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">Description</label>
-            <Textarea
+            <label className="text-xs font-medium text-muted-foreground">{t("form.description")}</label>
+            <Textarea className="resize-none"
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               rows={3}
@@ -281,11 +288,11 @@ function SkillFormModal({ skill, onClose }: { skill: Skill; onClose: () => void 
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onClose}>
-              Cancel
+              {t("actions.cancel")}
             </Button>
             <Button onClick={handleSave} disabled={updateSkill.isPending}>
               {updateSkill.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save
+              {t("actions.save")}
             </Button>
           </div>
         </div>
@@ -308,17 +315,71 @@ const RISK_VARIANT: Record<
 const MAX_AGENT_BADGES = 5;
 
 export default function SkillsPage() {
+  const { t } = useTranslation("skills");
   const { data: skills, isLoading, isError, error } = useSkills();
   const syncHermes = useSyncHermesAgents();
   const deleteSkill = useDeleteSkill();
+  const updateSkill = useUpdateSkill();
   const setAssistantOpen = useAssistantStore((s) => s.setOpen);
-  const setPendingSeed = useAssistantStore((s) => s.setPendingSeed);
+  const setPendingHiddenContext = useAssistantStore((s) => s.setPendingHiddenContext);
   const [search, setSearch] = useState("");
   const [agentFilter, setAgentFilter] = useState("");
+  const [approvalFilter, setApprovalFilter] = useState<"" | "approved" | "unapproved">("");
   const [viewing, setViewing] = useState<{ skill: Skill; editing: boolean } | null>(null);
   const [formSkill, setFormSkill] = useState<Skill | null>(null);
   const [deleting, setDeleting] = useState<Skill | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [approvalErrors, setApprovalErrors] = useState<Record<string, string>>({});
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmingBulkApprove, setConfirmingBulkApprove] = useState(false);
+  const [bulkApproving, setBulkApproving] = useState(false);
+
+  function toggleApproval(skill: Skill) {
+    setApprovingId(skill.id);
+    setApprovalErrors((prev) => {
+      const next = { ...prev };
+      delete next[skill.id];
+      return next;
+    });
+    updateSkill.mutate(
+      { skillId: skill.id, updates: { is_approved: !skill.is_approved } },
+      {
+        onSettled: () => setApprovingId(null),
+        onError: (err) =>
+          setApprovalErrors((prev) => ({ ...prev, [skill.id]: (err as Error)?.message ?? t("errors.approvalFailed") })),
+      }
+    );
+  }
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleBulkApprove(targets: Skill[]) {
+    setBulkApproving(true);
+    setConfirmingBulkApprove(false);
+    const failures: string[] = [];
+    for (const skill of targets) {
+      if (skill.is_approved) continue;
+      try {
+        await updateSkill.mutateAsync({ skillId: skill.id, updates: { is_approved: true } });
+      } catch (err) {
+        failures.push(skill.name);
+        setApprovalErrors((prev) => ({ ...prev, [skill.id]: (err as Error)?.message ?? t("errors.approvalFailed") }));
+      }
+    }
+    setBulkApproving(false);
+    setSelected(new Set());
+    if (failures.length > 0) {
+      window.alert(t("errors.bulkApprovalFailed", { count: failures.length, names: failures.join(", ") }));
+    }
+  }
 
   async function handleSendToAssistant(skill: Skill) {
     setSendingId(skill.id);
@@ -334,7 +395,7 @@ export default function SkillsPage() {
       } catch {
         // no SKILL.md found -- send the metadata anyway
       }
-      setPendingSeed(buildSkillChatMessage(skill, content, path));
+      setPendingHiddenContext(buildSkillChatMessage(skill, content, path));
       setAssistantOpen(true);
     } finally {
       setSendingId(null);
@@ -351,8 +412,12 @@ export default function SkillsPage() {
       (!term ||
         s.name.toLowerCase().includes(term) ||
         (s.description ?? "").toLowerCase().includes(term)) &&
-      (!agentFilter || (s.agents ?? []).some((a) => a.agent_name === agentFilter))
+      (!agentFilter || (s.agents ?? []).some((a) => a.agent_name === agentFilter)) &&
+      (!approvalFilter || (approvalFilter === "approved" ? s.is_approved : !s.is_approved))
   );
+  const selectedSkills = filtered.filter((s) => selected.has(s.id));
+  const unapprovedSelected = selectedSkills.filter((s) => !s.is_approved);
+  const allFilteredSelected = filtered.length > 0 && filtered.every((s) => selected.has(s.id));
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4 p-6">
@@ -367,29 +432,56 @@ export default function SkillsPage() {
       {formSkill && <SkillFormModal skill={formSkill} onClose={() => setFormSkill(null)} />}
       <ConfirmDialog
         open={deleting !== null}
-        title={`Delete "${deleting?.name ?? ""}"`}
-        description="Removes the skill from the registry (agent grants included). The SKILL.md file in the profile is untouched, so a later Sync re-imports it."
+        title={t("delete.title", { name: deleting?.name ?? "" })}
+        description={t("delete.description")}
         loading={deleteSkill.isPending}
         onConfirm={() => {
           if (deleting) deleteSkill.mutate(deleting.id, { onSuccess: () => setDeleting(null) });
         }}
         onCancel={() => setDeleting(null)}
       />
+      <ConfirmDialog
+        open={confirmingBulkApprove}
+        variant="default"
+        icon="warning"
+        title={t("approval.bulkTitle", { count: unapprovedSelected.length })}
+        description={t("approval.bulkDescription")}
+        confirmLabel={t("approval.approve")}
+        loading={bulkApproving}
+        onConfirm={() => handleBulkApprove(unapprovedSelected)}
+        onCancel={() => setConfirmingBulkApprove(false)}
+      />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="flex items-center gap-2 text-xl font-semibold">
-          <Sparkles className="h-5 w-5" /> Skills
+          <Sparkles className="h-5 w-5" /> {t("title")}
           {skills && (
             <span className="text-sm font-normal text-muted-foreground">
-              {skills.length} registered
+              {t("registered", { count: skills.length })}
             </span>
           )}
         </h1>
         <div className="flex flex-wrap items-center gap-1.5">
+          {unapprovedSelected.length > 0 && (
+            <Button
+              size="sm"
+              className="gap-1.5"
+              title={t("approval.bulkActionTitle")}
+              disabled={bulkApproving}
+              onClick={() => setConfirmingBulkApprove(true)}
+            >
+              {bulkApproving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4" />
+              )}
+              {t("approval.bulkAction", { count: unapprovedSelected.length })}
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"
             className="gap-1.5"
-            title="Sync skills and grants from Hermes Foundation"
+            title={t("sync.title")}
             disabled={syncHermes.isPending}
             onClick={() => syncHermes.mutate()}
           >
@@ -398,7 +490,7 @@ export default function SkillsPage() {
             ) : (
               <RefreshCw className="h-4 w-4" />
             )}
-            Sync
+            {t("sync.action")}
           </Button>
           <AssistantToggleButton size="sm" />
         </div>
@@ -406,13 +498,12 @@ export default function SkillsPage() {
 
       {syncHermes.isError && (
         <p className="text-sm text-destructive">
-          Hermes sync failed: {(syncHermes.error as Error)?.message}
+          {t("sync.failed", { error: (syncHermes.error as Error)?.message })}
         </p>
       )}
       {syncHermes.isSuccess && syncHermes.data && (
         <p className="text-xs text-muted-foreground">
-          Sync: {syncHermes.data.skills.created} skills created, {syncHermes.data.skills.updated}{" "}
-          updated, {syncHermes.data.agent_skills.created} grants created.
+          {t("sync.success", { created: syncHermes.data.skills.created, updated: syncHermes.data.skills.updated, grants: syncHermes.data.agent_skills.created })}
           {syncHermes.data.warnings.length > 0 && (
             <span className="text-destructive"> {syncHermes.data.warnings.join("; ")}</span>
           )}
@@ -425,7 +516,7 @@ export default function SkillsPage() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search name or description…"
+            placeholder={t("filters.search")}
             className="w-72 pl-8"
           />
         </div>
@@ -433,14 +524,24 @@ export default function SkillsPage() {
           value={agentFilter}
           onChange={(e) => setAgentFilter(e.target.value)}
           className="w-48"
-          aria-label="Filter by agent"
+          aria-label={t("filters.byAgent")}
         >
-          <option value="">All agents</option>
+          <option value="">{t("filters.allAgents")}</option>
           {agentOptions.map((name) => (
             <option key={name} value={name}>
               {name}
             </option>
           ))}
+        </Select>
+        <Select
+          value={approvalFilter}
+          onChange={(e) => setApprovalFilter(e.target.value as typeof approvalFilter)}
+          className="w-44"
+          aria-label={t("filters.byApproval")}
+        >
+          <option value="">{t("filters.allApprovalStates")}</option>
+          <option value="approved">{t("filters.approvedOnly")}</option>
+          <option value="unapproved">{t("filters.notApprovedOnly")}</option>
         </Select>
       </div>
 
@@ -454,7 +555,7 @@ export default function SkillsPage() {
         <Card className="border-destructive/50">
           <CardContent className="flex items-center gap-3 py-6 text-destructive">
             <AlertCircle className="h-5 w-5" />
-            <span>Failed to load skills: {(error as Error)?.message}</span>
+            <span>{t("errors.loadSkills", { error: (error as Error)?.message })}</span>
           </CardContent>
         </Card>
       )}
@@ -462,7 +563,7 @@ export default function SkillsPage() {
       {!isLoading && !isError && (skills ?? []).length === 0 && (
         <Card>
           <CardContent className="py-10 text-center text-sm italic text-muted-foreground">
-            No skills registered yet. Use “Sync from Hermes Foundation” to import the catalog.
+            {t("empty.noSkills")}
           </CardContent>
         </Card>
       )}
@@ -470,7 +571,7 @@ export default function SkillsPage() {
       {!isLoading && !isError && (skills ?? []).length > 0 && filtered.length === 0 && (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            No skills match the selected filters.
+            {t("empty.noMatches")}
           </CardContent>
         </Card>
       )}
@@ -481,11 +582,22 @@ export default function SkillsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Skill</TableHead>
-                  <TableHead>Version</TableHead>
-                  <TableHead>Risk</TableHead>
-                  <TableHead>Agents</TableHead>
-                  <TableHead className="w-16 text-right">Actions</TableHead>
+                  <TableHead className="w-8">
+                    <input
+                      type="checkbox"
+                      aria-label={t("table.selectAll")}
+                      checked={allFilteredSelected}
+                      onChange={(e) =>
+                        setSelected(e.target.checked ? new Set(filtered.map((s) => s.id)) : new Set())
+                      }
+                    />
+                  </TableHead>
+                  <TableHead>{t("table.skill")}</TableHead>
+                  <TableHead>{t("table.version")}</TableHead>
+                  <TableHead>{t("table.risk")}</TableHead>
+                  <TableHead>{t("table.agents")}</TableHead>
+                  <TableHead>{t("table.approval")}</TableHead>
+                  <TableHead className="w-16 text-right">{t("table.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -496,6 +608,14 @@ export default function SkillsPage() {
                   return (
                     <TableRow key={skill.id}>
                       <TableCell>
+                        <input
+                          type="checkbox"
+                          aria-label={t("table.selectSkill", { name: skill.name })}
+                          checked={selected.has(skill.id)}
+                          onChange={() => toggleSelected(skill.id)}
+                        />
+                      </TableCell>
+                      <TableCell>
                         <p className="font-medium">{skill.name}</p>
                         {skill.description ? (
                           <p
@@ -505,7 +625,7 @@ export default function SkillsPage() {
                             {skill.description}
                           </p>
                         ) : (
-                          <p className="text-xs italic text-muted-foreground">No description.</p>
+                          <p className="text-xs italic text-muted-foreground">{t("table.noDescription")}</p>
                         )}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
@@ -513,7 +633,7 @@ export default function SkillsPage() {
                       </TableCell>
                       <TableCell>
                         <Badge variant={RISK_VARIANT[skill.risk_level] ?? "outline"}>
-                          {skill.risk_level}
+                          {t(`risk.${skill.risk_level}`)}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -538,13 +658,52 @@ export default function SkillsPage() {
                           </div>
                         )}
                       </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col items-start gap-1">
+                          <Button
+                            variant={skill.is_approved ? "outline" : "secondary"}
+                            size="sm"
+                            className="h-7 gap-1.5"
+                            disabled={approvingId === skill.id}
+                            title={
+                              skill.is_approved
+                                ? t("approval.revoke")
+                                : skill.origin === "third_party" && !skill.security_reviewed
+                                  ? t("approval.reviewRequired")
+                                  : t("approval.markApproved")
+                            }
+                            onClick={() => toggleApproval(skill)}
+                          >
+                            {approvingId === skill.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : skill.is_approved ? (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                            ) : (
+                              <XCircle className="h-3.5 w-3.5" />
+                            )}
+                            {skill.is_approved ? t("approval.approved") : t("approval.notApproved")}
+                          </Button>
+                          {skill.origin === "third_party" && (
+                            <span
+                              className="flex items-center gap-1 text-xs text-muted-foreground"
+                              title={t("approval.reviewRequiredTitle")}
+                            >
+                              <ShieldCheck className="h-3 w-3" />
+                              {skill.security_reviewed ? t("approval.reviewed") : t("approval.notReviewed")}
+                            </span>
+                          )}
+                          {approvalErrors[skill.id] && (
+                            <span className="text-xs text-destructive">{approvalErrors[skill.id]}</span>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-0.5">
                           <Button
                             variant="ghost"
                             size="icon"
-                            aria-label={`Send ${skill.name} to the assistant`}
-                            title="Open the assistant with this skill's data and SKILL.md as context"
+                            aria-label={t("table.sendToAssistant", { name: skill.name })}
+                            title={t("table.sendToAssistantTitle")}
                             disabled={sendingId === skill.id}
                             onClick={() => handleSendToAssistant(skill)}
                           >
@@ -557,8 +716,8 @@ export default function SkillsPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            aria-label={`View ${skill.name}`}
-                            title="View description and SKILL.md"
+                            aria-label={t("table.viewSkill", { name: skill.name })}
+                            title={t("table.viewSkillTitle")}
                             onClick={() => setViewing({ skill, editing: false })}
                           >
                             <Eye className="h-4 w-4" />
@@ -566,8 +725,8 @@ export default function SkillsPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            aria-label={`Edit ${skill.name} file`}
-                            title="Edit SKILL.md"
+                            aria-label={t("table.editSkillFile", { name: skill.name })}
+                            title={t("table.editSkillFileTitle")}
                             onClick={() => setViewing({ skill, editing: true })}
                           >
                             <Pencil className="h-4 w-4" />
@@ -575,8 +734,8 @@ export default function SkillsPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            aria-label={`Edit ${skill.name} registry entry`}
-                            title="Edit registry entry"
+                            aria-label={t("table.editRegistry", { name: skill.name })}
+                            title={t("table.editRegistryTitle")}
                             onClick={() => setFormSkill(skill)}
                           >
                             <Settings2 className="h-4 w-4" />
@@ -584,8 +743,8 @@ export default function SkillsPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            aria-label={`Delete ${skill.name}`}
-                            title="Delete registry entry"
+                            aria-label={t("table.deleteRegistry", { name: skill.name })}
+                            title={t("table.deleteRegistryTitle")}
                             className="text-destructive"
                             onClick={() => setDeleting(skill)}
                           >

@@ -1,0 +1,121 @@
+{
+  "page": {
+    "title": "2. Screens and Business Rules",
+    "description": "System specification area. Screens, mockups, and business rules are optional and describe visual and behavioral requirements for AI agents.",
+    "deriveDatabase": "Derive Database (ERD)",
+    "viewErd": "View ERD Diagram",
+    "deriveSuccess": "Model derived: {{created}} table(s) created, {{updated}} updated, {{fields}} field(s) recorded.",
+    "openErd": "Open ERD Diagram →"
+  },
+  "selectors": {
+    "project": "Project",
+    "selectProject": "Select a project...",
+    "scope": "Project Scope",
+    "selectScope": "Select a scope...",
+    "revision": "Revision {{revision}} · {{status}}"
+  },
+  "empty": {
+    "selectProject": "Select a project above to view and manage screens and business rules.",
+    "noScopeTitle": "No initial scope found for this project",
+    "noScopeDescription": "Initialize the project scope to add screens, mockups, and business rules.",
+    "initializeScope": "Initialize Scope and Start",
+    "selectScreen": "Select or create a screen in the sidebar to view and edit it."
+  },
+  "sidebar": {
+    "title": "Scope Screens",
+    "registered": "{{count}} registered",
+    "collapse": "Collapse sidebar",
+    "expand": "Expand screen sidebar",
+    "newScreen": "New screen name",
+    "filter": "Filter screens...",
+    "noScreens": "No screens found.",
+    "fields": "{{count}} field(s)",
+    "images": "{{count}} img"
+  },
+  "common": {
+    "loading": "Loading...",
+    "project": "project"
+  },
+  "workspace": {
+    "mdFile": "MD file:",
+    "exitFullscreen": "Exit full view",
+    "enterFullscreen": "Expand to full view",
+    "reduce": "Reduce",
+    "fullscreen": "Full View",
+    "removeScreen": "Remove screen from scope"
+  },
+  "tabs": {
+    "visual": "Screen Visual",
+    "rules": "Business Rules (.md)",
+    "attributes": "Attributes and Data"
+  },
+  "prompt": {
+    "required": "required",
+    "noAttributes": "(no attributes registered)",
+    "template": "Please read the specification and business rules for the screen \"{{name}}\" in the file:\n`{{path}}`\n\nExpected attributes:\n{{attributes}}"
+  },
+  "preview": {
+    "noHtml": "No HTML content defined for this screen. Enter HTML in the editor to preview it here.",
+    "mode": "Prototype mode:",
+    "renderedHtml": "Rendered HTML",
+    "imagesAndMockups": "Images and Mockups",
+    "plainCss": "Plain CSS",
+    "htmlCode": "Prototype HTML Code",
+    "autosave": "Automatically saves on blur",
+    "htmlPlaceholder": "<div><h1>Screen Title</h1><p>Content...</p></div>",
+    "renderedPreview": "Rendered Preview",
+    "imageUrlPlaceholder": "Add an image or online mockup URL...",
+    "addUrl": "Add URL",
+    "uploadImage": "Upload Image",
+    "referenceTemplate": "Reference Template / UI File:",
+    "templatePlaceholder": "E.g. templates/dashboard-v2.tsx or a Figma link",
+    "noImages": "No images attached. Add URLs or upload screenshots to illustrate the mockup.",
+    "mockupAlt": "Mockup {{number}}",
+    "imageNumber": "Image #{{number}}",
+    "openImage": "Open full-size image",
+    "removeImage": "Remove image",
+    "sandboxIframe": "Sandboxed iframe",
+    "screenPreviewTitle": "Screen preview"
+  },
+  "rules": {
+    "fileLocation": "MD File Location:",
+    "fileDescription": "Rules saved in this file are available to agents through MCP and the messaging channel.",
+    "pathCopied": "Path Copied!",
+    "copyPath": "Copy Path",
+    "promptCopied": "Prompt Copied!",
+    "copyPrompt": "Copy Agent Prompt",
+    "view": "View:",
+    "edit": "Edit (.md)",
+    "rendered": "Rendered",
+    "sideBySide": "Side by Side",
+    "savedAt": "Saved at: {{date}}",
+    "save": "Save Rules (.md)",
+    "loading": "Loading business rules...",
+    "editorPlaceholder": "# Screen Business Rules\n\n1. Validation rules...\n2. Access permissions...\n3. Backend integrations...",
+    "noContent": "No business rule content registered yet.",
+    "markdownEditor": "Markdown Editor (.md)",
+    "shortPlaceholder": "# Business Rules...",
+    "renderedPreview": "Rendered Preview",
+    "nothingToRender": "Nothing to render."
+  },
+  "attributes": {
+    "title": "Screen Attributes and Fields",
+    "description": "Data handled on this screen, used to derive the database (ERD).",
+    "add": "Add Attribute",
+    "empty": "No attributes registered. Add fields to document and derive the database.",
+    "fieldName": "Field Name",
+    "type": "Type",
+    "required": "Required",
+    "descriptionRule": "Description / Rule",
+    "namePlaceholder": "e.g. email, amount, status",
+    "yes": "Yes",
+    "purposePlaceholder": "Field purpose...",
+    "types": {
+      "string": "Text",
+      "number": "Number",
+      "boolean": "Boolean",
+      "date": "Date",
+      "relation": "Relation"
+    }
+  }
+}

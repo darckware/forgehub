@@ -1,0 +1,124 @@
+{
+  "list": {
+    "title": "Productos",
+    "subtitle": "Productos en continuo desarrollo, cada uno con una o más versiones.",
+    "restoreButtonTitle": "Restaurar producto de una copia de seguridad JSON",
+    "restoreButton": "Restaurar",
+    "newButton": "Nuevo producto",
+    "backToList": "Volver a los productos",
+    "status": {
+      "concept": "Concepto",
+      "active": "Activo",
+      "inactive": "Inactivo",
+      "archived": "Archivado"
+    },
+    "createForm": {
+      "title": "Crear producto",
+      "description": "Registrar un nuevo producto. El nombre debe ser único.",
+      "nameLabel": "Nombre",
+      "namePlaceholder": "Por ejemplo, ForgeHub",
+      "descriptionLabel": "Descripción",
+      "descriptionPlaceholder": "Descripción facultativa del producto",
+      "urlLabel": "Producción URL",
+      "urlPlaceholder": "https://app.example.com",
+      "urlHint": "La producción URL es la que se abre cuando este producto se selecciona en Workspace > Web App.",
+      "statusLabel": "Situación",
+      "error": "Falló al crear el producto. Por favor, inténtelo de nuevo.",
+      "save": "Guardar",
+      "cancel": "Cancelar",
+      "urlDevLabel": "Desarrollo URL",
+      "urlDevPlaceholder": "http://localhost:4173"
+    },
+    "loading": "Cargando productos...",
+    "loadError": "Fallo al cargar los productos.",
+    "retry": "Reintentar",
+    "emptyTitle": "Aún no hay productos",
+    "emptyDescription": "Crea tu primer producto para empezar.",
+    "columns": {
+      "name": "Nombre",
+      "status": "Situación",
+      "versions": "Versiones",
+      "actions": "Medidas"
+    },
+    "actions": {
+      "edit": "Editar producto",
+      "backup": "Copia de seguridad (exportación JSON)",
+      "delete": "Borrar el producto"
+    },
+    "deleteDialog": {
+      "title": "Suprímase \"{{name}}\"",
+      "defaultName": "producto",
+      "description": "Esta acción es irreversible. Todos los proyectos, oleoductos, elementos de planificación, tareas, ejecuciones, artefactos y registros de gobernanza vinculados a este producto serán eliminados en cascada.",
+      "confirmLabel": "Borrar todo"
+    },
+    "alerts": {
+      "backupFailed": "No se pudo generar copia de seguridad.",
+      "restoreSuccess": "Respaldo restaurado con éxito.",
+      "restoreFailed": "Falló al restaurar: {{message}}",
+      "unknownError": "Error desconocido."
+    }
+  },
+  "editRow": {
+    "title": "Editar producto",
+    "description": "Actualizar los datos de registro de \"{{name}}\".",
+    "nameLabel": "Nombre",
+    "descriptionLabel": "Descripción",
+    "urlLabel": "Producción URL",
+    "urlPlaceholder": "https://app.example.com",
+    "statusLabel": "Situación",
+    "error": "Falló al guardar. Por favor, inténtelo de nuevo.",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "urlDevLabel": "Desarrollo URL",
+    "urlDevPlaceholder": "http://localhost:4173"
+  },
+  "restoreModal": {
+    "title": "Restaurar copia de seguridad",
+    "description": "Seleccione lo que se restaurará desde el archivo ZIP.",
+    "dbLabel": "Datos de la base de datos",
+    "dbDescription": "Productos, versiones, proyectos, tareas, tuberías y elementos de planificación",
+    "filesLabel": "Carpeta del proyecto",
+    "filesDescription": "Archivos y carpetas del working_directory_path de cada proyecto.",
+    "cancel": "Cancelar",
+    "confirm": "Restaurar"
+  },
+  "detail": {
+    "loading": "Cargando producto...",
+    "backToProducts": "Volver a los productos",
+    "loadError": "Fallo al cargar el producto.",
+    "retry": "Reintentar",
+    "versionsTitle": "Versiones",
+    "newVersionButton": "Nueva versión",
+    "statusOptions": {
+      "planned": "Previsto",
+      "in_development": "En el desarrollo",
+      "in_test": "En prueba",
+      "published": "Publicado",
+      "deprecated": "Depreciados"
+    },
+    "createForm": {
+      "title": "Crear versión de producto",
+      "description": "Registrar una nueva versión planeada, en desarrollo, en prueba o publicada.",
+      "versionLabel": "Versión",
+      "versionPlaceholder": "Por ejemplo, 0.1.0",
+      "statusLabel": "Situación",
+      "releaseNotesLabel": "Notas de publicación",
+      "releaseNotesPlaceholder": "Notas de liberación opcional",
+      "error": "Falló al crear la versión. Pruebe de nuevo.",
+      "save": "Guardar",
+      "cancel": "Cancelar",
+      "validation": {
+        "versionRequired": "Se requiere la versión",
+        "versionFormat": "Utilizar la versión semántica, por ejemplo 0.1.0"
+      }
+    },
+    "emptyTitle": "Aún no hay versiones",
+    "emptyDescription": "Crea la primera versión para este producto.",
+    "columns": {
+      "version": "Versión",
+      "status": "Situación",
+      "releaseNotes": "Notas de publicación"
+    },
+    "noReleaseNotes": "—"
+  }
+}

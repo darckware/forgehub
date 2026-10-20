@@ -1,7 +1,12 @@
 services:
   forgehub-backend:
+    image: forgehub-backend:latest
     build:
       context: ./backend
+      args:
+        FORGEHUB_VERSION: ${FORGEHUB_VERSION:-unknown}
+        FORGEHUB_GIT_SHA: ${FORGEHUB_GIT_SHA:-unknown}
+        FORGEHUB_BUILD_DATE: ${FORGEHUB_BUILD_DATE:-unknown}
     container_name: forgehub-backend
     restart: unless-stopped
     env_file:
@@ -13,11 +18,18 @@ services:
       # via its container name on the shared foundation_network, on its
       # internal port. These override the env_file values
       # (docker-compose `environment:` wins over `env_file:`).
-      POSTGRES_HOST: company_postgres
+      POSTGRES_HOST: forgehub_postgres
       POSTGRES_PORT: "5432"
+      # .env carries the host path (/root/messages) so ./dev.sh and pytest
+      # write somewhere real; inside the container that same directory is
+      # bind-mounted at /messages.
+      MESSAGE_ATTACHMENTS_ROOT: /messages
       # Same host-vs-container-network split as above, for the other
       # Postgres instance (Hindsight/Foundation data, port 5433->5432).
-      FOUNDATION_POSTGRES_HOST: foundation_postgres
+      FOUNDATION_POSTGRES_HOST: hindsight_postgres
+      FORGEROUTER_POSTGRES_HOST: forgerouter_postgres
+      FORGEROUTER_POSTGRES_PORT: "5432"
+      FORGEROUTER_POSTGRES_USER: proxyrouter_user
       # The real Hermes agents (Athos, Atlas, ...) only exist as host
       # processes -- this container reaches them through the chat bridge
       # (host-bridge/app.py) running directly on the host, via the
@@ -25,16 +37,27 @@ services:
       CHAT_BRIDGE_URL: http://host.docker.internal:8910
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Localhost only (2026-09-27): the public IP reaches no system -- web
+    # traffic arrives through the Cloudflare Tunnel (ingress
+    # http://localhost:<port>, and it resolves localhost to ::1, hence both
+    # families), admin through Tailscale. Host clients (the forgehub MCP,
+    # host-bridge) already call localhost:8000.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
+      - "[::1]:8000:8000"
     volumes:
-      # Read-write: backs the Obsidian vault browser/editor
-      # (api/routes/vault.py). Writes go straight to the same files the
-      # desktop Obsidian app reads -- see that router's docstring.
+      # Read-write: backs ForgeHub's collective Knowledge Base interface
+      # (api/routes/vault.py), including per-agent inboxes and shared review.
+      # Obsidian may edit the same host Markdown as a complementary client.
       - /root/.hermes/knowledge_base:/vault
       - /root/.hermes/profiles:/profiles
-      - /root/.hermes/foundation/governance:/governance:ro
-      - /root/.hermes/foundation/agents:/foundation-agents:ro
+      # Governance docs now live under the canonical foundation root.
+      # Keep /governance as a compatibility mount only if older code still
+      # needs it; otherwise prefer /foundation-root everywhere.
+      - /root/.hermes/foundation:/governance:ro
+      # 14_agents/ is the canonical registry. The unnumbered agents/ copy was
+      # a stale duplicate (wrong MCP name) and left Foundation on 2026-09-27.
+      - /root/.hermes/foundation/14_agents:/foundation-agents:ro
       # Read-write: backs the Foundation rules browser/editor
       # (api/routes/foundation_docs.py) -- this is the actual rule set the
       # Hermes agents operate under, so every read/write there resolves
@@ -44,6 +67,10 @@ services:
       # personal markdown docs, uploads and whiteboard assets, cross-linked
       # to Planning entities from the Docs page.
       - /root/docs:/docs
+      # Read-write: files attached to a message (api/routes/demand.py's
+      # upload handler). Kept out of /docs on purpose -- these are message
+      # payloads, not documents in the browsable Docs tree.
+      - /root/messages:/messages
       # Read-write: the WHOLE host filesystem, backing multiple
       # user-configurable "áreas de criação" (docs_creation_areas table,
       # api/routes/docs.py's /areas endpoints) -- any absolute host path
@@ -71,12 +98,19 @@ services:
       - foundation_network
 
   forgehub-frontend:
+    image: forgehub-frontend:latest
     build:
       context: ./frontend
+      args:
+        # Public reCAPTCHA v2 site key -- empty until the key pair is
+        # provisioned for forgehub.darckware.net (see CLAUDE.md); the login
+        # screen keeps working unchanged until then.
+        VITE_RECAPTCHA_SITE_KEY: ${RECAPTCHA_SITE_KEY:-}
     container_name: forgehub-frontend
     restart: unless-stopped
     ports:
-      - "4173:4173"
+      - "127.0.0.1:4173:4173"
+      - "[::1]:4173:4173"
     depends_on:
       forgehub-backend:
         condition: service_healthy
@@ -85,37 +119,13 @@ services:
       # http://forgehub-backend:8000 by container name, so both must share it.
       - foundation_network
 
-  hindsight:
-    image: ghcr.io/vectorize-io/hindsight:latest
-    container_name: hindsight
-    restart: unless-stopped
-    env_file:
-      - ./.env
-    environment:
-      HINDSIGHT_API_DATABASE_BACKEND: postgresql
-      HINDSIGHT_API_DATABASE_URL: postgresql://foundation:${POSTGRES_PASSWORD}@foundation_postgres:5432/foundation
-      HINDSIGHT_API_READ_DATABASE_URL: postgresql://foundation:${POSTGRES_PASSWORD}@foundation_postgres:5432/foundation
-      HINDSIGHT_API_MIGRATION_DATABASE_URL: postgresql://foundation:${POSTGRES_PASSWORD}@foundation_postgres:5432/foundation
-      HINDSIGHT_API_DATABASE_SCHEMA: hindsight
-      HINDSIGHT_API_HOST: 0.0.0.0
-      HINDSIGHT_API_PORT: "8888"
-      HINDSIGHT_API_LLM_PROVIDER: openai
-      HINDSIGHT_API_LLM_API_KEY: ${HINDSIGHT_API_LLM_API_KEY}
-      HINDSIGHT_API_LLM_BASE_URL: http://host.docker.internal:2100/v1
-      HINDSIGHT_API_LLM_MODEL: forgerouter/auto
-      HINDSIGHT_API_LOG_LEVEL: info
-      HINDSIGHT_WAIT_FOR_DEPS: "false"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    ports:
-      - "8888:8888"
-    networks:
-      - foundation_network
-
 networks:
   # Single shared network with the Postgres instances / Kanboard / Hindsight.
   # Renamed from hermes_foundation_pg_default on 2026-07-03; created manually
   # (docker network create foundation_network) and external in every project.
   # ForgeHub deliberately has no project-default network (removed 2026-07-03).
+  # Criada à mão: docker network create --subnet 172.19.0.0/16 foundation_network
+  # A faixa importa: é a única liberada no UFW para a host-bridge (:8910) — terminal do
+  # Workspace e chat da Lara (2026-10-06).
   foundation_network:
     external: true

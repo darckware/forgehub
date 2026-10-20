@@ -4,7 +4,7 @@
 
 - Route: `/workspace` (registered in `frontend/src/App.tsx:31`, label "Workspace" in `frontend/src/components/layout/Sidebar.tsx:49`).
 - Component: `frontend/src/pages/workspace/index.tsx` (`WorkspacePage`, default export).
-- Purpose: a single tabbed surface combining (a) chat with Hermes Foundation agents that have a `profile_slug`, and (b) real terminal sessions on the host (plain bash, or a CLI/runtime launcher such as Claude, Codex, Antigravity, Hermes), so a user can plan/converse with an agent and drop into a live shell against the same checkout without leaving the page. It is the renamed/evolved former "chat" page (`git status` shows `frontend/src/pages/chat/index.tsx` → `frontend/src/pages/workspace/index.tsx`).
+- Purpose: a persistent tabbed surface combining (a) multi-agent Conversations, (b) multi-agent Channels, (c) each agent's real Telegram channel, (d) detachable terminal sessions, and (e) embedded web application previews.
 
 ## Components
 
@@ -18,7 +18,12 @@
 | `frontend/src/pages/workspace/index.tsx` (`AttachMenuButton`, local) | "+" menu in the composer; today exposes only "Enviar arquivo" (pick a file to attach). |
 | `frontend/src/pages/workspace/index.tsx` (`MessageBubble`, local) | Renders one chat message (markdown content, attachment name, timestamp). |
 | `frontend/src/components/TerminalPane.tsx` | xterm.js terminal bound over a WebSocket to a host tmux session; one instance per terminal tab. |
+| `frontend/src/components/TelegramPane.tsx` | Per-agent Telegram transcript and composer; resumes the profile's real Telegram Hermes session and relays the answer through that agent's bot. |
 | `frontend/src/components/WorkingDirPicker.tsx` | Pill + popover folder browser used to set the working directory applied to newly-opened terminal tabs. |
+| `frontend/src/components/WebAppPane.tsx` | Full-width live view of the shared Chromium CDP session, with URL bar, ForgeHub/Application shortcuts, manual input, and pointer-aware scrolling/dragging. |
+| `frontend/src/hooks/useWorkspaceBrowser.ts` | Polls the browser image/state and exposes guarded browser commands. |
+| `backend/app/api/routes/workspace_browser.py` | Authenticated proxy; injects configured ForgeHub credentials only for explicit login. |
+| `host-bridge/app.py` (`/v1/workspace-browser/*`) | Owns persistent Chromium/CDP startup, capture, navigation, pointer/text input and login. |
 | `frontend/src/components/Markdown.tsx` | Shared markdown renderer (react-markdown + remark-gfm) used for assistant/user message content. |
 | `frontend/src/components/ui/button.tsx`, `textarea.tsx` | shadcn/ui primitives used throughout. |
 
@@ -33,6 +38,8 @@
 | Rename / pin / unpin session | `useUpdateChatSession(agentId)` | `/api/v1/chat/sessions/{session_id}` | PATCH |
 | Delete session | `useDeleteChatSession(agentId)` | `/api/v1/chat/sessions/{session_id}` | DELETE |
 | Send message (text and/or file) | `useSendChatMessage(agentId)` | `/api/v1/chat/sessions/{session_id}/messages` (multipart form) | POST |
+| Reattach all running Conversation turns | `useActiveTurns(sessionId)` | `/api/v1/chat/sessions/{session_id}/active-turn` | GET |
+| Telegram history / interaction per agent | `useAgentTelegramConversation`, `useSendAgentTelegramMessage` | `/api/v1/agents/{agent_id}/telegram/messages` | GET / POST |
 | Voice-to-text transcription | `useTranscribeAudio()` | `/api/v1/chat/transcribe` (multipart form) | POST |
 | Working-directory folder listing | `useBrowseDirs(path, enabled)` (`frontend/src/hooks/useTerminalBrowse.ts`) | `/api/v1/terminal/browse-dirs` | GET |
 | Terminal session output/input (xterm.js stream) | n/a (raw `WebSocket` opened directly in `TerminalPane.tsx`) | `/api/v1/terminal/ws?session=&command=&cwd=` | WS |
@@ -44,12 +51,18 @@ Backend routes are thin proxies: `backend/app/api/routes/chat.py` persists `chat
 ## Actions Available
 
 - **New Chat** (toolbar button) — opens a new chat tab for the currently-active tab's agent (or the first chatable agent if none active).
-- **New Terminal** (toolbar button) — opens a new plain-bash terminal tab (`openTerminalTab("bash")`).
+- **Telegram** (paper-plane toolbar button) — opens or focuses a persistent `Telegram · Agent` tab for the agent in the active Conversation.
+- **New Terminal** (toolbar button) — opens a new plain-bash terminal tab (`openTerminalTab("bash")`). Closing its tab detaches; the separate trash action confirms and terminates the backing tmux session.
+- **Internal browser toggle** (globe toolbar button) — opens or hides only the existing Web App tab without destroying its Chromium session; it does not open the assistant. The default development URL is `http://localhost:5174`; **Set as app** persists another current URL.
+- **Shared interaction** — the displayed image comes from the same Chromium page controlled through CDP. Human clicks are scaled against the viewport dimensions reported by the page and become CDP pointer events; mouse-wheel movement inside the browser becomes a CDP scroll event; the focused-field bar sends text to the selected field.
+- **Athos** — opens the docked assistant, targets the `athos` profile, keeps prompt/tool steps/final return visible, and supplies current URL, working directory, and browser contract.
+- **Command rail** — describes Navigate, Inspect, Click, Type, Back, Reload, and Screenshot.
+- **ForgeHub login** — sends `DEV_USER_USERNAME`/`DEV_USER_PASSWORD` directly from backend settings to the bridge for that command. The bridge neither persists nor returns them. The authorized development credential is `admin/admin`.
 - **CLI launcher icons** (Claude / Codex / Antigravity) — open a terminal tab that auto-types the corresponding CLI command (`claude`, `codex`, `agy`) once the tmux session is created.
 - **Runtime launcher icon** (Hermes) — same mechanism, types `hermes`.
 - **Working-directory picker** — browse host folders and select one; applied as `cwd` to terminal tabs opened afterward (does not retroactively affect already-open tabs).
 - **Toggle chat history sidebar** (PanelLeftClose/Open icon) — collapses/expands the session list for the active chat tab only; replaced in the toolbar by an `AgentPickerButton` when collapsed.
-- **Tab strip**: click to switch active tab; drag-and-drop to reorder; "x" to close a tab (closing a terminal tab calls the kill endpoint; closing a chat tab does not delete the chat session, only the tab).
+- **Tab strip**: click to switch active tab; drag-and-drop to reorder; close detaches/removes only the tab. Conversation turns are detached backend tasks and terminal processes remain in tmux; explicit Stop/Terminate actions end them.
 - **Per-chat-session "..." menu**: Rename (inline edit, commits on blur/Enter, cancels on Escape), Pin/Unpin (re-sorts list, pinned first), Delete.
 - **Composer**: type message, Enter to send (Shift+Enter for newline); "+" → "Enviar arquivo" to attach a file (image previews inline, other files show a paperclip chip, removable via "x"); paste an image directly into the textarea to attach it; mic button to record audio (toggles recording, transcribes on stop and appends the result to the composer text); agent-selector pill to retarget the tab to a different agent (clears the active session for that tab).
 - **Terminal pane**: standard terminal keyboard/mouse interaction (mouse wheel scroll enabled via tmux `mouse on`); pasting an image uploads it and types its host file path into the shell.
@@ -69,7 +82,7 @@ Backend routes are thin proxies: `backend/app/api/routes/chat.py` persists `chat
 
 ## Business Rules Surfaced Here
 
-None directly enforced here against `docs/BUSINESS_RULES.md` — that document's numbered rules cover the core domain entities (Product, Pipeline, Planning, Execution, Agent/Skill, Task, Governance). The Workspace screen's backing tables (`chat_sessions`, `chat_messages`, defined in `backend/app/db/models/chat.py`) and the terminal/tmux session concept are not part of that domain model; they are a separate "ops/chat bridge" surface. The only rule-like behavior visibly enforced in this screen's own code:
+None directly enforced here against `docs/reference/BUSINESS_RULES.md` — that document's numbered rules cover the core domain entities (Product, Pipeline, Planning, Execution, Agent/Skill, Task, Governance). The Workspace screen's backing tables (`chat_sessions`, `chat_messages`, defined in `backend/app/db/models/chat.py`) and the terminal/tmux session concept are not part of that domain model; they are a separate "ops/chat bridge" surface. The only rule-like behavior visibly enforced in this screen's own code:
 
 - A chat session can only target an agent that has a Hermes profile (`profile_slug` set) — enforced both client-side (`chatableAgents` filter, `index.tsx:669-672`) and server-side (`_get_chattable_agent_or_404`, `backend/app/api/routes/chat.py:41-50`, 400 if the agent lacks a profile).
 - A message must have non-empty text or a file (`backend/app/api/routes/chat.py:182-183`, 400 otherwise) — not separately enforced in the frontend (Send is disabled client-side under the same condition, `index.tsx:430`).
@@ -83,10 +96,25 @@ None directly enforced here against `docs/BUSINESS_RULES.md` — that document's
 - **`frontend/src/store/chatHandoff.ts`** (Zustand, not persisted) — one-shot relay consumed on mount to pre-fill a new chat tab's composer when navigating here from another page's "send to chat" action (e.g. Crons/Scripts pages per its docstring).
 - **Browser APIs**: `localStorage` (tab/active-tab persistence), `MediaRecorder`/`getUserMedia` (voice recording), `WebSocket` (terminal stream), `ResizeObserver` (terminal refit).
 
-## Notes / Improvement Opportunities
+## Continuity and parallelism
 
-- Tab state (`tabs`, `activeTabId`) is persisted to `localStorage` under fixed keys `forgehub-workspace-tabs`/`forgehub-workspace-active-tab` (`index.tsx:53-54`) with no schema versioning — a future shape change to `WorkspaceTab` would silently misrender or crash on `JSON.parse` of stale stored data rather than migrating it. The `try { … } catch { return [] }` guard (`index.tsx:676-680`) only protects against parse errors, not shape drift.
-- Terminal WebSocket has no reconnect/backoff logic and no visible "disconnected" state in `TerminalPane.tsx` — if the WS drops (e.g. backend restart), the pane just stops updating with no user-facing indication; the user has to close and reopen the tab.
+- Workspace tabs, exact Conversation `sessionId`, active tab, mode and working directory are validated and restored from versioned local storage.
+- Leaving the Workspace, changing its mode or switching tabs does not cancel an agent run. Active turns are persisted and discovered again on mount.
+- Different agents in one Conversation execute in parallel. Multiple messages for the same agent are serialized into that agent's single Hermes session, so the second message extends context instead of creating a child session.
+- Channels broadcast an unaddressed message to all active members; `#Agent` targets a member. Agent runs remain parallel and execution handoffs use Messages as the single execution record.
+- The Telegram tab reads only visible user/assistant text from the latest real Telegram session. Tool output, reasoning and credentials are not exposed.
+
+## Prompt improvement catalog
+
+- Conversation and Channel use the same `ImprovePromptDialog` and the same database-backed `prompt_techniques` catalog.
+- The strategy selector is classified by work context. Its information card explains purpose, when to use, when to avoid and expected effort before Aegis rewrites anything.
+- The sparkle action recommends a technique from the current draft using catalog-owned context terms. It changes the selection only on an explicit click and keeps the complete catalog available.
+- Prompt improvement is a private utility call: it uses a fresh agent session, replaces only the modal draft and never sends the rewritten prompt until the operator confirms it.
+- The backend preserves mentions, slash commands, URLs, paths, identifiers and code blocks, and keeps the trusted technique instruction server-side.
+
+## Notes / Improvement Opportunities
+- Athos's external config must keep `browser.allow_private_urls: true` and `browser.cdp_url: http://127.0.0.1:9223` in `/root/.hermes/profiles/athos/config.yaml`. This required external change binds Hermes browser tools to the displayed session.
+- Browser state persists at `/root/.forgehub/browser/athos`; it can contain authenticated cookies/localStorage and must be protected. Raw passwords are not stored by this browser module.
 - Closing a terminal tab's "kill" call is fire-and-forget (`index.tsx:748`, `.catch(() => {})`) — a failed kill leaves an orphaned tmux session on the host with no feedback to the user or retry path.
 - `AttachMenuButton`'s single menu item is hardcoded in Portuguese ("Enviar arquivo", `index.tsx:286`), while most of the rest of the UI strings are in English (e.g. "New Chat", "No chats yet.") — inconsistent i18n; likely leftover from earlier copy.
 - The composer placeholder ("Peça ao {agent}", `index.tsx:638`) is also Portuguese, same inconsistency.

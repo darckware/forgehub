@@ -40,6 +40,16 @@ export default {
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
       },
+      keyframes: {
+        "agent-cursor-fade": {
+          "0%": { opacity: "1", transform: "translate(-50%, -50%) scale(1)" },
+          "70%": { opacity: "1", transform: "translate(-50%, -50%) scale(1)" },
+          "100%": { opacity: "0", transform: "translate(-50%, -50%) scale(0.85)" },
+        },
+      },
+      animation: {
+        "agent-cursor": "agent-cursor-fade 1.6s ease-out forwards",
+      },
     },
   },
   plugins: [],

@@ -53,6 +53,7 @@ from app.db.models.backlog import (
     TriageDecision,
     VersionScopeItem,
 )
+from app.db.models.product import ProductVersion
 from app.db.models.project import Project, ProjectStructureNode
 from app.db.models.task import ProjectTask
 
@@ -82,7 +83,7 @@ async def create_planning_item(
 ) -> PlanningItem:
     if payload.item_type not in PLANNING_ITEM_TYPES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"item_type must be one of {PLANNING_ITEM_TYPES}",
         )
     if await db.get(Project, payload.project_id) is None:
@@ -147,10 +148,22 @@ async def update_planning_item(
             ),
         )
 
+    # Pacote 4 (2026-08-01): locked once the item's Project's ProductVersion
+    # is published -- same rule as Escopo/Telas in system_scope.py.
+    if item.project_id is not None:
+        project = await db.get(Project, item.project_id)
+        if project is not None and project.product_version_id is not None:
+            version = await db.get(ProductVersion, project.product_version_id)
+            if version is not None and version.status == "published":
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="This project's version is published; planning is locked",
+                )
+
     data = payload.model_dump(exclude_unset=True)
     if "item_type" in data and data["item_type"] not in PLANNING_ITEM_TYPES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"item_type must be one of {PLANNING_ITEM_TYPES}",
         )
     if "project_id" in data:
@@ -311,7 +324,7 @@ async def create_bug_report(
 
     if payload.severity not in BUG_SEVERITIES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"severity must be one of {BUG_SEVERITIES}",
         )
     bug = BugReport(**payload.model_dump())
@@ -346,7 +359,7 @@ async def update_bug_report(
 
     if "severity" in data and data["severity"] not in BUG_SEVERITIES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"severity must be one of {BUG_SEVERITIES}",
         )
     for field, value in data.items():

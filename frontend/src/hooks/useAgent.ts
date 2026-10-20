@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
-import { apiClient } from "@/lib/api";
+import { apiClient, getToken } from "@/lib/api";
 
 /**
  * Agent domain (see docs/SPEC.md 4.6 Agent Domain / PRD.md 5.11-5.13):
@@ -30,6 +30,23 @@ export type SkillOrigin = (typeof SKILL_ORIGINS)[number];
 
 export const RUNTIME_TIERS = ["A", "B", "C"] as const;
 export type RuntimeTier = (typeof RUNTIME_TIERS)[number];
+
+/**
+ * Host-bridge /v1/agent-runs' runtime_type -- how an agent is actually
+ * executed, and the axis the Agents page groups by: "hermes" is the eight
+ * in-house Hermes profile agents, the other three are external CLI runtimes
+ * with their own binary and their own config home (Porthus/claude,
+ * Aramis/codex, Dartan/agy). Null for agents registered by
+ * hand that have no dispatchable runtime at all.
+ */
+export const AGENT_RUNTIME_TYPES = ["hermes", "claude", "codex", "agy"] as const;
+export type AgentRuntimeType = (typeof AGENT_RUNTIME_TYPES)[number];
+
+/** Hermes profile agents vs. external CLI runtimes -- the top-level split of
+ *  the ecosystem view. */
+export function isExternalRuntime(runtimeType: string | null | undefined): boolean {
+  return Boolean(runtimeType) && runtimeType !== "hermes";
+}
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -124,6 +141,7 @@ export const agentSchema = z.object({
   agent_type: z.enum(AGENT_TYPES).default("executor"),
   status: z.enum(AGENT_STATUSES).default("active"),
   is_active: z.boolean().default(true),
+  avatar_data_url: z.string().nullable().optional(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
   // Hermes Foundation metadata -- read-only, populated by the sync below.
@@ -134,6 +152,31 @@ export const agentSchema = z.object({
   has_profile: z.boolean().default(false),
   mission: z.string().nullable().optional(),
   source_path: z.string().nullable().optional(),
+  department: z.string().nullable().optional(),
+  sector: z.string().nullable().optional(),
+  reports_to_profile_slug: z.string().nullable().optional(),
+  forgerouter_api_key_configured: z.boolean().default(false),
+  // Decrypted value -- only ever present on the single-agent GET
+  // (AgentDetailOut), admin-only, absent everywhere else (list, other
+  // domains' Agent references). See backend/app/db/models/agent.py's
+  // forgerouter_api_key_encrypted docstring for why this reverses the
+  // column's original write-only design (2026-07-29).
+  forgerouter_api_key: z.string().nullable().optional(),
+  // Host-bridge /v1/agent-runs' runtime_type -- only set for agents that
+  // can be dispatched via the Inbox: Porthus/Aramis/Dartan (claude/codex/
+  // agy, their own external CLIs) and the classic Hermes-profile agents
+  // (hermes). Null for everyone else.
+  runtime_type: z.enum(AGENT_RUNTIME_TYPES).nullable().optional(),
+  // Where this agent's profile files (SOUL.md, IDENTITY.md, ...) live on the
+  // host. `home_path` is the registered override, `effective_home_path` is
+  // what the backend actually reads -- the override when set, otherwise the
+  // runtime convention (/root/.hermes/profiles/<slug>, /root/.claude, ...).
+  home_path: z.string().nullable().optional(),
+  effective_home_path: z.string().nullable().optional(),
+  // The agent's declared specialty at registration (2026-08-05, see
+  // docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md) -- a
+  // channel only ever suggests this, never imposes it.
+  default_role: z.string().nullable().optional(),
   sub_agents: z.array(subAgentSchema).optional().default([]),
   agent_skills: z.array(agentSkillSchema).optional().default([]),
   cost_rates: z.array(agentCostRateSchema).optional().default([]),
@@ -149,6 +192,14 @@ export const agentInputSchema = z.object({
   agent_type: z.enum(AGENT_TYPES).default("executor"),
   status: z.enum(AGENT_STATUSES).default("active"),
   is_active: z.boolean().default(true),
+  avatar_data_url: z.string().nullable().optional(),
+  forgerouter_api_key: z.string().max(1000).optional(),
+  clear_forgerouter_api_key: z.boolean().optional(),
+  // Absolute host path; "" clears the override and restores the runtime default.
+  home_path: z.string().max(1000).optional(),
+  // Declared specialty (2026-08-05, see
+  // docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md).
+  default_role: z.string().nullable().optional(),
 });
 
 export const agentUpdateSchema = agentInputSchema.partial();
@@ -183,6 +234,31 @@ export function useAgents() {
   return useQuery({
     queryKey: agentKeys.all,
     queryFn: () => apiClient.get<Agent[]>(RESOURCE),
+  });
+}
+
+/** Agents with a runnable profile/runtime -- Hermes profile agents and the
+ * external CLI runtimes (Claude Code/Codex/agy), never a
+ * sub-agent or a profile-less service entry. This is the one filter every
+ * "pick an agent to talk to" picker across the app must share (Workspace's
+ * chat tab, AssistantDrawer, and Conception's "Gerar via IA" -- 2026-08-16,
+ * Marcelo: "o select do agente é igual ao do chat/conversation") --
+ * previously three independent `.filter(a => Boolean(a.profile_slug))`
+ * copies that could silently drift apart. Same queryKey as useAgents() so
+ * this reuses its cache instead of firing a second request.
+ *
+ * Also requires `runtime_type` (2026-08-16, Marcelo: "filtra dos agentes,
+ * somente os agentes de execução do hermes e externos") -- `profile_slug`
+ * alone let through leaked pytest fixture rows ("Channel Test Agent A",
+ * "Chat Group Test Agent", ...) that got a slug but no dispatchable
+ * runtime; `runtime_type` is exactly the host-bridge dispatch discriminator
+ * (`AGENT_RUNTIME_TYPES` = hermes + the four external CLIs), so requiring
+ * it keeps the picker to agents that can actually run. */
+export function useChattableAgents() {
+  return useQuery({
+    queryKey: agentKeys.all,
+    queryFn: () => apiClient.get<Agent[]>(RESOURCE),
+    select: (agents) => agents.filter((a) => Boolean(a.profile_slug) && Boolean(a.runtime_type)),
   });
 }
 
@@ -236,6 +312,543 @@ export function useSyncHermesAgents() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: agentKeys.all });
       queryClient.invalidateQueries({ queryKey: skillKeys.all });
+      // The MCP screens are keyed by the same roster: a sync that adds or
+      // retires an agent must not leave them showing the previous one.
+      queryClient.invalidateQueries({ queryKey: agentMcpKeys.overview });
+      queryClient.invalidateQueries({ queryKey: ["agent-activity"] });
+    },
+  });
+}
+
+/** Bulk "import all" for the ForgeRouter API key -- pulls every active
+ * agent's already-issued key straight from ForgeRouter's own registry
+ * (ai_router.agents), for agents ForgeRouter already knows about, not just
+ * the Hermes-profile ones the sync above already covers (2026-07-29). See
+ * useImportAgentForgeRouterKey below for the per-agent counterpart. */
+export interface ForgeRouterKeySyncAgent {
+  agent_id: string;
+  agent_name: string;
+  matched: boolean;
+  updated: boolean;
+}
+
+export interface ForgeRouterKeySyncResult {
+  checked: number;
+  matched: number;
+  updated: number;
+  agents: ForgeRouterKeySyncAgent[];
+  unmatched_forgerouter_agents: string[];
+}
+
+export function useSyncForgeRouterKeys() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.post<ForgeRouterKeySyncResult>(`${RESOURCE}/sync/forgerouter-keys`),
+    // agentKeys.all is ["agents"], a prefix of every agentKeys.detail(id) --
+    // TanStack Query's default partial matching means this one invalidation
+    // already covers the list and every open detail query too.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: agentKeys.all }),
+  });
+}
+
+/** Per-agent "Import" button next to the ForgeRouter API key field on the
+ * agent detail page -- same source/matching rule as the bulk sync above,
+ * scoped to one agent. */
+export interface ForgeRouterKeyImportResult {
+  matched: boolean;
+  updated: boolean;
+  forgerouter_api_key_configured: boolean;
+}
+
+export function useImportAgentForgeRouterKey(agentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.post<ForgeRouterKeyImportResult>(`${RESOURCE}/${agentId}/forgerouter-key/import`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: agentKeys.all });
+      queryClient.invalidateQueries({ queryKey: agentKeys.detail(agentId) });
+    },
+  });
+}
+
+/** Service-kind entries in ForgeRouter's own registry (ai_router.agents,
+ * kind='service' -- e.g. "Hindsight"), distinct from the Agent roster
+ * above -- backs Settings' "Default agent for project API keys" picker
+ * (2026-07-29, Marcelo: "eu adicionei agente do tipo serviço no
+ * forgerouter, filtra somente esses"). */
+export interface ForgeRouterService {
+  name: string;
+}
+
+export function useForgeRouterServices() {
+  return useQuery({
+    queryKey: ["agents", "forgerouter-services"],
+    queryFn: () => apiClient.get<ForgeRouterService[]>(`${RESOURCE}/forgerouter-services`),
+  });
+}
+
+/** One service's plaintext key (straight from ai_router.agents -- that
+ * table is ForgeRouter's own storage, nothing to decrypt) -- backs the
+ * Dashboard's ProjectsForgeRouterCard prompt pre-fill. Pass `undefined`
+ * for `name` to disable (mirrors useAgent's id-gated pattern): only fetch
+ * this admin-only secret while the prompt is actually open. */
+export function useForgeRouterServiceKey(name: string | undefined) {
+  return useQuery({
+    queryKey: ["agents", "forgerouter-services", name ?? ""],
+    queryFn: () => apiClient.get<{ name: string; api_key: string }>(`${RESOURCE}/forgerouter-services/${name}`),
+    enabled: Boolean(name),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Profile Markdown files (SOUL.md, IDENTITY.md, TOOLS.md, ...)
+//
+// Per-agent, not per-Hermes-profile: these endpoints resolve the directory
+// from the agent's own runtime, so the external CLI runtimes
+// (Porthus/claude, Aramis/codex, Dartan/agy) show their
+// files exactly like the eight Hermes profiles do. The older
+// /api/v1/foundation/profiles/{slug}/files/... route only ever saw the
+// latter — see useFoundation.ts.
+// ---------------------------------------------------------------------------
+
+/**
+ * The canonical profile file set, in provisioning order. Mirrors
+ * `CORE_PROFILE_FILES` in backend/app/core/agent_profile_files.py — kept
+ * client-side so the org chart can render one chip per file without a
+ * request per agent; content is only fetched when a chip is opened.
+ */
+export const CORE_PROFILE_FILES = [
+  "SOUL.md",
+  "IDENTITY.md",
+  "USER.md",
+  "TOOLS.md",
+  "AGENTS.md",
+  "FOUNDATION_LINK.md",
+  "HEARTBEAT.md",
+  "MEMORY.md",
+  "CONTINUITY.md",
+] as const;
+
+/** Files that only exist for one runtime. Claude Code reads CLAUDE.md as its
+ *  native always-loaded entrypoint — AGENTS.md's role on the other runtimes. */
+const RUNTIME_EXTRA_FILES: Record<string, readonly string[]> = {
+  claude: ["CLAUDE.md"],
+};
+
+/** `<PROFILE>_SUBAGENTS.md` — only for agents that orchestrate sub-agents. */
+export function subAgentsFileName(profileSlug: string | null | undefined): string | null {
+  if (!profileSlug) return null;
+  return `${profileSlug.toUpperCase().replace(/-/g, "_")}_SUBAGENTS.md`;
+}
+
+/** Every profile file this agent may have. Same ordering and membership rule
+ *  as the backend's `allowed_filenames` — the two must not drift. */
+export function profileFileNamesFor(agent: {
+  runtime_type?: string | null;
+  profile_slug?: string | null;
+}): string[] {
+  const names: string[] = [...CORE_PROFILE_FILES];
+  names.push(...(RUNTIME_EXTRA_FILES[agent.runtime_type ?? ""] ?? []));
+  const subAgents = subAgentsFileName(agent.profile_slug);
+  if (subAgents) names.push(subAgents);
+  return names;
+}
+
+export const agentProfileFileInfoSchema = z.object({
+  filename: z.string(),
+  path: z.string(),
+  exists: z.boolean(),
+  size: z.number().nullable().optional(),
+  modified_at: z.string().nullable().optional(),
+});
+
+export type AgentProfileFileInfo = z.infer<typeof agentProfileFileInfoSchema>;
+
+export const agentProfileFilesSchema = z.object({
+  agent_id: z.string(),
+  home_path: z.string().nullable().optional(),
+  /** False means the directory exists in the registry but is not reachable
+   *  from the backend process (a missing bind mount under Docker) — the UI
+   *  must show which path was tried instead of pretending the files are gone. */
+  home_resolved: z.boolean().default(false),
+  files: z.array(agentProfileFileInfoSchema).default([]),
+});
+
+export type AgentProfileFiles = z.infer<typeof agentProfileFilesSchema>;
+
+export const agentProfileFileSchema = z.object({
+  agent_id: z.string(),
+  filename: z.string(),
+  path: z.string(),
+  /** null (not "") when the file does not exist yet. */
+  content: z.string().nullable(),
+});
+
+export type AgentProfileFile = z.infer<typeof agentProfileFileSchema>;
+
+export const agentProfileFileKeys = {
+  list: (agentId: string) => ["agent-profile-files", agentId] as const,
+  detail: (agentId: string, filename: string) =>
+    ["agent-profile-files", agentId, filename] as const,
+};
+
+export function useAgentProfileFiles(agentId: string | undefined) {
+  return useQuery({
+    queryKey: agentProfileFileKeys.list(agentId ?? ""),
+    queryFn: () => apiClient.get<AgentProfileFiles>(`${RESOURCE}/${agentId}/profile-files`),
+    enabled: Boolean(agentId),
+  });
+}
+
+export function useAgentProfileFile(agentId: string | undefined, filename: string | undefined) {
+  return useQuery({
+    queryKey: agentProfileFileKeys.detail(agentId ?? "", filename ?? ""),
+    queryFn: () =>
+      apiClient.get<AgentProfileFile>(`${RESOURCE}/${agentId}/profile-files/${filename}`),
+    enabled: Boolean(agentId && filename),
+  });
+}
+
+export function useUpdateAgentProfileFile(agentId: string, filename: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (content: string) =>
+      apiClient.put<AgentProfileFile>(`${RESOURCE}/${agentId}/profile-files/${filename}`, {
+        content,
+      }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(agentProfileFileKeys.detail(agentId, filename), data);
+      // A first write creates the file, so the exists/size/mtime list is stale.
+      queryClient.invalidateQueries({ queryKey: agentProfileFileKeys.list(agentId) });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Telegram channel status
+// ---------------------------------------------------------------------------
+
+export const AGENT_TELEGRAM_STATUSES = [
+  "ok",
+  "not_running",
+  "not_configured",
+  "unknown",
+  "not_applicable",
+] as const;
+export type AgentTelegramStatusValue = (typeof AGENT_TELEGRAM_STATUSES)[number];
+
+export const agentTelegramStatusSchema = z.object({
+  agent_id: z.string(),
+  agent_name: z.string(),
+  profile_slug: z.string().nullable().optional(),
+  required: z.boolean().default(false),
+  /** Bot token + home channel present in the agent's own profile .env. */
+  installed: z.boolean().default(false),
+  home_channel_name: z.string().nullable().optional(),
+  service: z.string().nullable().optional(),
+  /** null = the systemd check could not run, NOT "the gateway is down". */
+  running: z.boolean().nullable().optional(),
+  status: z.enum(AGENT_TELEGRAM_STATUSES).default("unknown"),
+});
+
+export type AgentTelegramStatus = z.infer<typeof agentTelegramStatusSchema>;
+
+export const agentTelegramStatusListSchema = z.object({
+  agents: z.array(agentTelegramStatusSchema).default([]),
+  check_error: z.string().nullable().optional(),
+});
+
+export type AgentTelegramStatusList = z.infer<typeof agentTelegramStatusListSchema>;
+
+export const agentTelegramKeys = {
+  all: ["agent-telegram-status"] as const,
+};
+
+/** Whole-roster Telegram health in one request — the org chart and the list
+ *  table both render a badge per agent, so a per-agent query would fan out
+ *  into a dozen systemd checks. */
+export function useAgentsTelegramStatus() {
+  return useQuery({
+    queryKey: agentTelegramKeys.all,
+    queryFn: () => apiClient.get<AgentTelegramStatusList>(`${RESOURCE}/telegram-status`),
+    // The gateway can go down between page loads; this is a liveness signal.
+    refetchInterval: 60_000,
+  });
+}
+
+export const agentTelegramMessageSchema = z.object({
+  id: z.number(),
+  role: z.enum(["user", "assistant"]),
+  content: z.string(),
+  timestamp: z.number(),
+  platform_message_id: z.string().nullable().optional(),
+});
+
+export const agentTelegramConversationSchema = z.object({
+  agent_id: z.string(),
+  agent_name: z.string(),
+  profile_slug: z.string(),
+  session_id: z.string().nullable().optional(),
+  chat_id: z.string().nullable().optional(),
+  messages: z.array(agentTelegramMessageSchema).default([]),
+  delivery_error: z.string().nullable().optional(),
+});
+
+export type AgentTelegramConversation = z.infer<typeof agentTelegramConversationSchema>;
+
+export function useAgentTelegramConversation(agentId: string | undefined, active = true) {
+  return useQuery({
+    queryKey: [...agentTelegramKeys.all, "conversation", agentId ?? ""],
+    queryFn: async () => agentTelegramConversationSchema.parse(
+      await apiClient.get<AgentTelegramConversation>(`${RESOURCE}/${agentId}/telegram/messages`)
+    ),
+    enabled: Boolean(agentId),
+    refetchInterval: active ? 5_000 : false,
+  });
+}
+
+/** Sends through the agent's Telegram relay -- multipart since 2026-08-15
+ * (parity with useChat.ts's useSendChatMessage), so an image or text file
+ * can ride along with the message the same way the Conversations composer
+ * already sends them. `files` is optional and empty by default; the
+ * backend still requires at least a message or a file (see
+ * send_agent_telegram_message's own docstring). */
+export function useSendAgentTelegramMessage(agentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ message, files }: { message: string; files?: File[] }) => {
+      const form = new FormData();
+      form.set("message", message);
+      for (const file of files ?? []) form.append("files", file);
+      return apiClient.postForm<AgentTelegramConversation>(`${RESOURCE}/${agentId}/telegram/messages`, form);
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData([...agentTelegramKeys.all, "conversation", agentId], data);
+    },
+  });
+}
+
+/** Asks the agent to rewrite a Telegram draft per an improvement
+ * instruction -- the Telegram pane's own copy of useStreamImprovePrompt
+ * (2026-08-15), since that one resolves its agent from a ForgeHub chat
+ * session and a Telegram tab has no such session, only the agent id
+ * already in the URL. A private utility call, never a real turn -- see
+ * the backend route's own docstring. */
+export function useStreamTelegramImprovePrompt(agentId: string) {
+  return async function improvePrompt(
+    draft: string,
+    instruction: string,
+    techniqueCode: string,
+    signal?: AbortSignal
+  ): Promise<string> {
+    const token = getToken() ?? "";
+    const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
+    const url = `${apiBase}${RESOURCE}/${agentId}/telegram/improve-prompt/stream`;
+
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ draft, instruction, technique_code: techniqueCode }),
+      signal,
+    });
+    if (!resp.ok) {
+      let detail = `HTTP ${resp.status}`;
+      try {
+        detail = (await resp.json()).detail ?? detail;
+      } catch {
+        // Body wasn't JSON -- keep the generic HTTP status message.
+      }
+      throw new Error(detail);
+    }
+    if (!resp.body) throw new Error("Empty response body");
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let currentEvent = "message";
+    let improvedText: string | null = null;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (line.startsWith("event:")) {
+            currentEvent = line.slice(6).trim();
+            continue;
+          }
+          if (!line.startsWith("data:")) continue;
+          const raw = line.slice(5).trim();
+          if (currentEvent === "error") {
+            const parsed = JSON.parse(raw || "{}");
+            throw new Error(parsed.detail ?? "improve-prompt stream error");
+          }
+          if (currentEvent === "done") {
+            currentEvent = "message";
+            continue;
+          }
+          const parsed = JSON.parse(raw || "{}");
+          if (typeof parsed.improved_text === "string") improvedText = parsed.improved_text;
+          currentEvent = "message";
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    if (improvedText === null) throw new Error("The agent didn't return any text.");
+    return improvedText;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// MCP servers
+//
+// Not stored by ForgeHub: these read and write each runtime's own config file
+// (a Hermes profile's config.yaml, ~/.claude.json, ~/.codex/config.toml, ...),
+// which is what the runtime actually loads. See backend core/agent_mcp.py.
+// ---------------------------------------------------------------------------
+
+export const agentMcpServerSchema = z.object({
+  name: z.string(),
+  /** null for an HTTP server, which carries `url` instead. */
+  command: z.string().nullable().optional(),
+  args: z.array(z.string()).default([]),
+  env: z.record(z.string()).default({}),
+  url: z.string().nullable().optional(),
+  enabled: z.boolean().default(true),
+});
+
+export type AgentMcpServer = z.infer<typeof agentMcpServerSchema>;
+
+export const agentMcpServersSchema = z.object({
+  agent_id: z.string(),
+  runtime_type: z.string().nullable().optional(),
+  /** Host path of the runtime's own config file — always shown, so an
+   *  operator can verify the result outside ForgeHub. */
+  config_path: z.string().nullable().optional(),
+  config_exists: z.boolean().default(false),
+  /** Whether this runtime's format has an enable/disable flag at all.
+   *  Claude Code and agy have none: there, off means removed. */
+  supports_toggle: z.boolean().default(false),
+  /** A config file that exists but does not parse — surfaced instead of
+   *  failing the screen, since diagnosing that is why you opened it. */
+  error: z.string().nullable().optional(),
+  servers: z.array(agentMcpServerSchema).default([]),
+});
+
+export type AgentMcpServers = z.infer<typeof agentMcpServersSchema>;
+
+export const agentMcpOverviewItemSchema = agentMcpServersSchema.extend({
+  agent_name: z.string(),
+  profile_slug: z.string().nullable().optional(),
+  /** False = the agent has no runtime that could load an MCP server (an
+   *  agent registered without runtime_type). Listed, never hidden. */
+  supported: z.boolean().default(true),
+});
+
+export type AgentMcpOverviewItem = z.infer<typeof agentMcpOverviewItemSchema>;
+
+export const agentRuntimeSyncSchema = z.object({
+  checked: z.number().default(0),
+  updated: z.number().default(0),
+  agents: z
+    .array(
+      z.object({
+        agent_id: z.string(),
+        agent_name: z.string(),
+        runtime_type: z.string().nullable().optional(),
+        detected_runtime_type: z.string().nullable().optional(),
+        evidence: z.string().nullable().optional(),
+        home_path: z.string().nullable().optional(),
+        home_resolved: z.boolean().default(false),
+        mcp_config_exists: z.boolean().default(false),
+        applied: z.boolean().default(false),
+        issues: z.array(z.string()).default([]),
+      }),
+    )
+    .default([]),
+  unregistered_profiles: z.array(z.string()).default([]),
+});
+
+export type AgentRuntimeSync = z.infer<typeof agentRuntimeSyncSchema>;
+
+/** The *real* sync: reconciles each agent's runtime against what is installed
+ *  on the host, unlike useSyncHermesAgents which reads the Foundation docs.
+ *  Only fills a missing runtime_type; conflicts are reported, not applied. */
+export function useSyncAgentRuntimes() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.post<AgentRuntimeSync>(`${RESOURCE}/sync/runtimes`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: agentKeys.all });
+      queryClient.invalidateQueries({ queryKey: agentMcpKeys.overview });
+    },
+  });
+}
+
+export const agentMcpKeys = {
+  overview: ["agent-mcp-servers"] as const,
+  detail: (agentId: string) => ["agent-mcp-servers", agentId] as const,
+};
+
+export function useAgentMcpServers(agentId: string | undefined) {
+  return useQuery({
+    queryKey: agentMcpKeys.detail(agentId ?? ""),
+    queryFn: () => apiClient.get<AgentMcpServers>(`${RESOURCE}/${agentId}/mcp-servers`),
+    enabled: Boolean(agentId),
+    retry: false, // a runtime that cannot load MCP servers 400s; retrying won't change that
+  });
+}
+
+/** Whole-roster view for the MCP page — one request instead of a query per
+ *  agent, same reason as the Telegram roster above. */
+export function useAgentsMcpOverview() {
+  return useQuery({
+    queryKey: agentMcpKeys.overview,
+    queryFn: () => apiClient.get<{ agents: AgentMcpOverviewItem[] }>(`${RESOURCE}/mcp-servers`),
+  });
+}
+
+export interface AgentMcpServerInput {
+  name: string;
+  command?: string | null;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string | null;
+  enabled?: boolean;
+}
+
+export function useUpsertAgentMcpServer(agentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, ...server }: AgentMcpServerInput) =>
+      apiClient.put<AgentMcpServers>(`${RESOURCE}/${agentId}/mcp-servers/${name}`, {
+        command: server.command ?? null,
+        args: server.args ?? [],
+        env: server.env ?? {},
+        url: server.url ?? null,
+        enabled: server.enabled ?? true,
+      }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(agentMcpKeys.detail(agentId), data);
+      queryClient.invalidateQueries({ queryKey: agentMcpKeys.overview });
+    },
+  });
+}
+
+export function useDeleteAgentMcpServer(agentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiClient.delete<AgentMcpServers>(`${RESOURCE}/${agentId}/mcp-servers/${name}`),
+    onSuccess: (data) => {
+      queryClient.setQueryData(agentMcpKeys.detail(agentId), data);
+      queryClient.invalidateQueries({ queryKey: agentMcpKeys.overview });
     },
   });
 }
@@ -255,6 +868,20 @@ export function useSkills() {
   });
 }
 
+/** One agent's granted skills (AgentSkill rows, just skill_id -- join
+ * against useSkills()' catalog for name/version/risk). Separate from
+ * useAgent(id)'s embedded agent_skills because callers that only have the
+ * roster list (useAgents(), no agent_skills eager-loaded -- see
+ * AgentListItemOut's own docstring) still need a way to look this up
+ * on demand, e.g. the channel member detail popover (2026-08-06). */
+export function useAgentSkills(agentId: string | undefined) {
+  return useQuery({
+    queryKey: ["agent-skills", agentId ?? ""],
+    queryFn: () => apiClient.get<AgentSkill[]>(`${RESOURCE}/${agentId}/skills`),
+    enabled: Boolean(agentId),
+  });
+}
+
 export interface SkillUpdateInput {
   name?: string;
   version?: string;
@@ -262,6 +889,8 @@ export interface SkillUpdateInput {
   origin?: SkillOrigin;
   risk_level?: SkillRiskLevel;
   permissions?: string;
+  is_approved?: boolean;
+  security_reviewed?: boolean;
 }
 
 /** Partial update of a skill's registry metadata. The backend rejects

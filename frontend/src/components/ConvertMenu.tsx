@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ArrowRightCircle, Loader2 } from "lucide-react";
+import i18n from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -61,7 +63,8 @@ export function ConvertMenu({
   isPending: boolean;
   error?: string | null;
 }) {
-  const targets = CONVERT_TARGETS.filter((t) => !excludeTargets?.includes(t));
+  const { t } = useTranslation("convertMenu");
+  const targets = CONVERT_TARGETS.filter((target) => !excludeTargets?.includes(target));
   const [target, setTarget] = useState<ConvertTarget>(targets[0]);
   const [title, setTitle] = useState(defaultTitle);
   const [planningItemId, setPlanningItemId] = useState("");
@@ -108,13 +111,13 @@ export function ConvertMenu({
   return (
     <div className="space-y-2 rounded-md border border-border bg-muted/20 p-3">
       <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-        <ArrowRightCircle className="h-3.5 w-3.5" /> Forward
+        <ArrowRightCircle className="h-3.5 w-3.5" /> {t("forward")}
       </p>
       <div className="flex flex-wrap items-center gap-1.5">
         <Select value={target} className="h-8 w-40 text-xs" onChange={(e) => setTarget(e.target.value as ConvertTarget)}>
-          {targets.map((t) => (
-            <option key={t} value={t}>
-              {CONVERT_TARGET_LABELS[t]}
+          {targets.map((targetOption) => (
+            <option key={targetOption} value={targetOption}>
+              {t(CONVERT_TARGET_LABELS[targetOption])}
             </option>
           ))}
         </Select>
@@ -122,7 +125,7 @@ export function ConvertMenu({
           <Input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Title"
+            placeholder={t("titlePlaceholder")}
             className="h-8 w-48 text-xs"
           />
         )}
@@ -133,7 +136,7 @@ export function ConvertMenu({
             disabled={planningLoading}
             onChange={(e) => setPlanningItemId(e.target.value)}
           >
-            <option value="">{planningLoading ? "Loading…" : "Select planning item…"}</option>
+            <option value="">{planningLoading ? t("loading") : t("selectPlanningItem")}</option>
             {(planningItems ?? []).map((p) => (
               <option key={p.id} value={p.id}>
                 {p.title}
@@ -147,9 +150,9 @@ export function ConvertMenu({
             className="h-8 w-40 text-xs"
             onChange={(e) => setArtifactType(e.target.value)}
           >
-            {ARTIFACT_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
+            {ARTIFACT_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {type}
               </option>
             ))}
           </Select>
@@ -161,7 +164,7 @@ export function ConvertMenu({
             disabled={projectsLoading}
             onChange={(e) => setProjectId(e.target.value)}
           >
-            <option value="">{projectsLoading ? "Loading…" : "Select project…"}</option>
+            <option value="">{projectsLoading ? t("loading") : t("selectProject")}</option>
             {(projects ?? []).map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -171,9 +174,9 @@ export function ConvertMenu({
         )}
         {ITEM_TYPE_TARGETS.includes(target) && (
           <Select value={itemType} className="h-8 w-40 text-xs" onChange={(e) => setItemType(e.target.value)}>
-            {PLANNING_ITEM_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
+            {PLANNING_ITEM_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {type}
               </option>
             ))}
           </Select>
@@ -189,7 +192,7 @@ export function ConvertMenu({
                 setDocFolder("");
               }}
             >
-              <option value="">{docAreasLoading ? "Loading…" : "Creation area…"}</option>
+              <option value="">{docAreasLoading ? t("loading") : t("creationArea")}</option>
               {(docAreas ?? []).map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -199,7 +202,7 @@ export function ConvertMenu({
             <Input
               value={docFolder}
               onChange={(e) => setDocFolder(e.target.value)}
-              placeholder="folder (e.g. notes/procedures)"
+              placeholder={t("folderPlaceholder")}
               className="h-8 w-56 text-xs"
               list="convert-menu-doc-folders"
               disabled={!docAreaId}
@@ -212,7 +215,7 @@ export function ConvertMenu({
             <Input
               value={docFilename}
               onChange={(e) => setDocFilename(e.target.value)}
-              placeholder="document name"
+              placeholder={t("documentNamePlaceholder")}
               className="h-8 w-44 text-xs"
             />
           </>
@@ -223,19 +226,19 @@ export function ConvertMenu({
             onChange={(e) => setPath(e.target.value)}
             placeholder={
               target === "knowledge_base"
-                ? "vault path (required).md"
-                : "path (optional).md"
+                ? t("vaultPathPlaceholder")
+                : t("pathOptionalPlaceholder")
             }
             className="h-8 w-64 text-xs"
           />
         )}
         <Button size="sm" disabled={!canSubmit || isPending} onClick={handleSubmit}>
-          {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Forward"}
+          {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t("forward")}
         </Button>
       </div>
       {isSplitPath && (docFolder || docFilename) && (
         <p className="text-[11px] text-muted-foreground">
-          Will be saved to: <code>{joinDocPath(docFolder, docFilename)}</code>
+          {t("willBeSavedTo")} <code>{joinDocPath(docFolder, docFilename)}</code>
         </p>
       )}
       {error && <p className="text-xs text-destructive">{error}</p>}
@@ -244,20 +247,21 @@ export function ConvertMenu({
 }
 
 export function convertResultMessage(result: ConvertResult): string {
+  const t = i18n.getFixedT(null, "convertMenu");
   switch (result.entity_type) {
     case "task":
-      return "Task created successfully.";
+      return t("results.task");
     case "doc":
-      return `Document saved to ${result.reference}.`;
+      return t("results.doc", { reference: result.reference });
     case "artifact":
-      return "Artifact created successfully.";
+      return t("results.artifact");
     case "knowledge_base":
-      return `Note saved to the Knowledge Base at ${result.reference}.`;
+      return t("results.knowledge_base", { reference: result.reference });
     case "planning_item":
-      return "Item added to the project's planning.";
+      return t("results.planning_item");
     case "project_doc":
-      return `Document linked to the project at ${result.reference}.`;
+      return t("results.project_doc", { reference: result.reference });
     case "quick_task":
-      return "Standalone task created (with its own planning item).";
+      return t("results.quick_task");
   }
 }

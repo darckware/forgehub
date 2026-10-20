@@ -3,9 +3,20 @@ import { Outlet } from "react-router-dom";
 import { ChevronDown, Database } from "lucide-react";
 import { useDatabaseInstances, useDatabaseSchemas, useDatabaseTables } from "@/hooks/useDatabase";
 import { SchemaProvider, useSchema } from "./SchemaContext";
+import { useTranslation } from "react-i18next";
 
-function Select({ label, value, options, onChange, disabled }: {
-  label: string; value: string; options: string[]; onChange: (v: string) => void; disabled?: boolean;
+function Select({
+  label,
+  value,
+  options,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (v: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="shrink-0">
@@ -27,6 +38,7 @@ function Select({ label, value, options, onChange, disabled }: {
 }
 
 function LayoutInner() {
+  const { t } = useTranslation();
   const { instance, db, schema, setInstance, setDb, setSchema } = useSchema();
   const { data: instances = [] } = useDatabaseInstances();
   const { data: schemas = [] } = useDatabaseSchemas(instance, db);
@@ -60,16 +72,18 @@ function LayoutInner() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 h-full overflow-hidden">
-      <div className="flex items-center gap-4 px-6 py-2.5 border-b border-border shrink-0">
+      {/* Wraps below md: the instance/database/schema pickers dropped under
+          the title instead of squeezing it to a sliver on a phone. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 border-b border-border shrink-0 md:flex-nowrap md:px-6">
         <Database className="h-5 w-5 text-blue-500 shrink-0" />
         <div className="flex-1 min-w-0">
-          <h1 className="text-base font-bold leading-none">Database</h1>
+          <h1 className="text-base font-bold leading-none">{t('database:title')}</h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {tables.length} table(s) · <span className="font-mono">{instance}/{db}/{schema}</span>
+            {tables.length} {t('database:tablesCount', { count: tables.length })} · <span className="font-mono">{instance}/{db}/{schema}</span>
           </p>
         </div>
 
-        <div className="flex items-end gap-3 shrink-0">
+        <div className="flex flex-wrap items-end gap-3 shrink-0 max-md:basis-full">
           <Select
             label="Instance"
             value={instance}

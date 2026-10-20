@@ -1,0 +1,78 @@
+{
+  "profiles": {
+    "list": {
+      "title": "Perfiles de acceso",
+      "create": "Nuevo perfil"
+    },
+    "delete": {
+      "confirm": "Borrar perfil \"{{name}}?"
+    },
+    "permissions": {
+      "column": {
+        "module": "Módulo",
+        "view": "Ver",
+        "query": "Query",
+        "write": "Escribir",
+        "delete": "Eliminar"
+      }
+    },
+    "form": {
+      "name": "Nombre",
+      "namePlaceholder": "P. ej.: Desarrollador",
+      "description": "Descripción",
+      "descriptionPlaceholder": "Descripción opcional",
+      "sensitiveTitle": "Permisos para acciones sensibles",
+      "sensitiveHelp": "Estas acciones se deniegan por defecto y se comprueban en el servidor.",
+      "permissionAria": "{{operation}} — {{module}}",
+      "cancel": "Cancelar",
+      "save": "Guardar",
+      "edit": "Editar",
+      "delete": "Eliminar",
+      "operations": {
+        "can_view": "Ver",
+        "can_query": "Consultar",
+        "can_write": "Escribir",
+        "can_delete": "Eliminar"
+      },
+      "modules": {
+        "product": "Productos",
+        "projects": "Proyectos",
+        "pipeline": "Pipelines",
+        "backlog": "Planificación",
+        "tasks": "Ejecución",
+        "agents": "Agentes",
+        "artifacts": "Artefactos",
+        "governance": "Gobernanza",
+        "forgerouter": "ForgeRouter",
+        "obsidian": "Base de conocimiento",
+        "foundation": "Fundación",
+        "crons": "Tareas programadas",
+        "deploy": "Control de despliegues",
+        "servers": "Servidores",
+        "database": "Base de datos",
+        "users": "Usuarios",
+        "profiles": "Perfiles"
+      },
+      "actions": {
+        "planning_concept_view": "Ver detalles del concepto",
+        "planning_concept_edit": "Crear y revisar conceptos",
+        "planning_concept_submit": "Enviar conceptos para aprobación",
+        "planning_concept_decide": "Decisión anterior sobre conceptos (desactivada)",
+        "planning_blueprint_edit": "Editar mapas del sistema",
+        "planning_blueprint_approve": "Aprobar mapas del sistema",
+        "planning_delivery_authorize": "Autorizar la planificación de la entrega",
+        "planning_progress_view": "Ver el progreso y los hitos del proyecto",
+        "planning_progress_manage": "Gestionar hitos y recuperación",
+        "planning_stage_complete": "Completar etapas del pipeline",
+        "planning_execution_view": "Ver oleadas de ejecución y estado de los ejecutores",
+        "planning_execution_manage": "Crear y gestionar oleadas de ejecución",
+        "planning_execution_release": "Aprobar oleadas de ejecución",
+        "planning_execution_dispatch": "Emitir y distribuir paquetes de trabajo",
+        "planning_execution_cancel": "Cancelar y conciliar ejecuciones de CLI",
+        "governance_approval_view": "Ver aprobaciones gobernadas",
+        "governance_approval_decide": "Decidir sobre aprobaciones gobernadas",
+        "governance_delegation_manage": "Gestionar delegaciones de Athos"
+      }
+    }
+  }
+}

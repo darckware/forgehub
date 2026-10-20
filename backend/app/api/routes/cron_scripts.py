@@ -12,8 +12,7 @@ Content reads still go through /api/v1/foundation/scripts/{location}/{name}/cont
 Scanned locations: each profile's /profiles/<profile>/scripts dir --
 `location` is the profile name. (The old central dirs, /root/.hermes/scripts
 and /root/.hermes/crons, were migrated into the athos profile on 2026-07-06
-and removed; DB rows with the legacy locations "main"/"central"/"profile"
-get re-pointed on the next sync.)
+and removed; a data migration reconciles rows still using "main".)
 
 'referenced_by' is computed at query time by cross-referencing the live
 jobs.json stores, so it reflects the current scheduler state without an
@@ -92,6 +91,8 @@ class SyncResultOut(BaseModel):
     inserted: int
     updated: int
     total: int
+    # Registered rows whose file is no longer in any profile's scripts dir.
+    missing: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -187,8 +188,6 @@ def _infer_category(name: str) -> str:
         return "monitor"
     if n.startswith("pipeline"):
         return "pipeline"
-    if n.startswith("kanboard"):
-        return "kanboard"
     if n.startswith(("db_", "database", "init_agent")):
         return "database"
     if n.startswith("memory"):
@@ -201,10 +200,8 @@ def _infer_category(name: str) -> str:
 
 
 def _load_all_cron_jobs() -> list[dict[str, Any]]:
-    """Load jobs from every store (central + per-profile), deduplicated by
-    id/name keeping the copy from the most recently modified store -- the
-    scheduler has moved between the central and per-profile stores across
-    hermes versions, and a stale snapshot must not shadow the live jobs.
+    """Load jobs from every per-profile store, deduplicated by id/name
+    keeping the copy from the most recently modified store.
     Same logic as foundation.py's _load_raw_jobs, duplicated here to avoid
     cross-module import between route files."""
     import json
@@ -275,6 +272,25 @@ def _build_jobs_by_script(jobs: list[dict[str, Any]]) -> dict[str, list[CronJobR
         )
         index.setdefault(script, []).append(ref)
     return index
+
+
+def _mark_missing(rows: list[CronScript], scanned_names: set[str]) -> list[CronScript]:
+    """Flags every registered script that the scan no longer finds as
+    `exists_on_disk=False` and returns the rows it changed.
+
+    Sync used to update only the rows it *found*, so a script deleted or
+    moved during the migrations kept its last `exists_on_disk=True` forever
+    and the catalog listed ghosts as healthy (2026-09-27: audit_work_dir.py,
+    foundation_audit.py, worker.sh... all "ok", none on disk) -- the opposite
+    of what a monitoring registry is for. The row itself is kept: its agent,
+    category and description are the record of what that script was.
+    """
+    changed = []
+    for row in rows:
+        if row.name not in scanned_names and row.exists_on_disk:
+            row.exists_on_disk = False
+            changed.append(row)
+    return changed
 
 
 def _scan_script_paths() -> list[dict[str, Any]]:
@@ -485,8 +501,17 @@ async def sync_scripts(db: AsyncSession = Depends(get_db)) -> SyncResultOut:
             db.add(row)
             inserted += 1
 
+    # Only when the profiles mount is really there: an absent mount scans
+    # nothing, and would otherwise flag the whole catalog as gone.
+    missing = 0
+    if PROFILES_DIR.is_dir():
+        gone = _mark_missing(list(existing.values()), {raw["name"] for raw in scanned})
+        for row in gone:
+            row.updated_at = now
+        missing = len(gone)
+
     await db.commit()
-    return SyncResultOut(inserted=inserted, updated=updated, total=len(scanned))
+    return SyncResultOut(inserted=inserted, updated=updated, total=len(scanned), missing=missing)
 
 
 @router.put("/{script_id}", response_model=ScriptOut)

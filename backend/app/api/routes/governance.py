@@ -22,6 +22,7 @@ Rules and 5.7 Audit and Approval):
   delete is still offered for completeness/test cleanup.
 """
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -39,6 +40,8 @@ from app.api.schemas.governance import (
 )
 from app.db.base import get_db
 from app.db.models.governance import Approval, AuditEvent, Policy
+from app.db.models.notification import Notification
+from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
 
 router = APIRouter(prefix="/api/v1/governance", tags=["governance"])
 
@@ -48,8 +51,10 @@ router = APIRouter(prefix="/api/v1/governance", tags=["governance"])
 # ---------------------------------------------------------------------------
 @router.post("/approvals", response_model=ApprovalOut, status_code=status.HTTP_201_CREATED)
 async def create_approval(
-    payload: ApprovalCreate, db: AsyncSession = Depends(get_db)
+    payload: ApprovalCreate, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
 ) -> Approval:
+    await authorize_action(db, principal, "governance.approval.decide")
     if payload.policy_id is not None:
         policy = await db.get(Policy, payload.policy_id)
         if policy is None:
@@ -58,7 +63,7 @@ async def create_approval(
                 detail="policy_id does not reference an existing policy",
             )
 
-    approval = Approval(**payload.model_dump(), status="pending")
+    approval = Approval(**payload.model_dump(exclude={"requested_by"}), requested_by=principal.display_name, status="pending")
     db.add(approval)
     await db.commit()
     await db.refresh(approval)
@@ -109,16 +114,18 @@ async def get_approval(approval_id: uuid.UUID, db: AsyncSession = Depends(get_db
 
 @router.post("/approvals/{approval_id}/approve", response_model=ApprovalOut)
 async def approve_approval(
-    approval_id: uuid.UUID, payload: ApprovalDecision, db: AsyncSession = Depends(get_db)
+    approval_id: uuid.UUID, payload: ApprovalDecision, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
 ) -> Approval:
-    return await _decide_approval(approval_id, payload, "approved", db)
+    return await _decide_approval(approval_id, payload, "approved", db, principal)
 
 
 @router.post("/approvals/{approval_id}/reject", response_model=ApprovalOut)
 async def reject_approval(
-    approval_id: uuid.UUID, payload: ApprovalDecision, db: AsyncSession = Depends(get_db)
+    approval_id: uuid.UUID, payload: ApprovalDecision, db: AsyncSession = Depends(get_db),
+    principal: ActorPrincipal = Depends(get_actor_principal),
 ) -> Approval:
-    return await _decide_approval(approval_id, payload, "rejected", db)
+    return await _decide_approval(approval_id, payload, "rejected", db, principal)
 
 
 async def _decide_approval(
@@ -126,7 +133,9 @@ async def _decide_approval(
     payload: ApprovalDecision,
     new_status: str,
     db: AsyncSession,
+    principal: ActorPrincipal,
 ) -> Approval:
+    await authorize_action(db, principal, "governance.approval.decide")
     approval = await db.get(Approval, approval_id)
     if approval is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
@@ -139,7 +148,7 @@ async def _decide_approval(
         )
 
     approval.status = new_status
-    approval.decided_by = payload.decided_by
+    approval.decided_by = principal.display_name
     if payload.comments is not None:
         approval.comments = payload.comments
     await db.commit()
@@ -150,7 +159,7 @@ async def _decide_approval(
             entity_type="approval",
             entity_id=approval.id,
             event_type=f"approval_{new_status}",
-            actor=payload.decided_by,
+            actor=principal.display_name,
             payload={
                 "target_entity_type": approval.entity_type,
                 "target_entity_id": str(approval.entity_id),
@@ -160,6 +169,49 @@ async def _decide_approval(
         )
     )
     await db.commit()
+
+    # Pacote 4 (2026-08-01): approving a project_task Approval releases it
+    # for automatic start via Messages -- the same dispatch path
+    # POST /tasks/{id}/dispatch already uses, not a second executor. The
+    # approval decision above is already committed and final; a dispatch
+    # failure here (unfinished dependency, no assignment, host-bridge down)
+    # must not undo it -- it degrades to a Notification for manual dispatch,
+    # same as the rest of the system treats dispatch as best-effort.
+    if new_status == "approved" and approval.entity_type == "project_task":
+        from app.api.routes.task import TaskInboxDispatchIn, _dispatch_task_by_id
+        try:
+            await _dispatch_task_by_id(approval.entity_id, TaskInboxDispatchIn(), db)
+        except HTTPException as exc:
+            db.add(Notification(
+                source="system", severity="warning",
+                title=f"Approval decided but task dispatch failed: {exc.detail}",
+                message=f"Task {approval.entity_id} was approved but could not be auto-dispatched. Dispatch it manually once resolved.",
+                event_key=f"approval-dispatch-failed:{approval.id}",
+                occurred_at=datetime.now(timezone.utc),
+            ))
+            await db.commit()
+
+    # 2026-08-05, see docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md:
+    # deciding a ChatChannelTask delegation Approval (see
+    # api/routes/channel.py's propose_channel_task) narrates the outcome
+    # back into the channel that raised it -- a "system" message, same
+    # spirit as demand.py's _finalize_dispatch narration hook. This is
+    # display only; the Approval row above stays the single source of
+    # truth for the decision itself, nothing here duplicates its state.
+    if approval.entity_type == "chat_channel_task":
+        from app.db.models.channel import ChatChannelMessage, ChatChannelTask
+        task = await db.get(ChatChannelTask, approval.entity_id)
+        if task is not None:
+            db.add(ChatChannelMessage(
+                channel_id=task.channel_id,
+                author_type="system",
+                content=(
+                    f"Proposta de tarefa \"{task.title}\" {new_status} por {principal.display_name}"
+                    + (f": {payload.comments}" if payload.comments else ".")
+                ),
+            ))
+            await db.commit()
+
     return approval
 
 

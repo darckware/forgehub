@@ -1,0 +1,121 @@
+{
+  "page": {
+    "title": "2. Telas e Regras de Negócio",
+    "description": "Área de especificação do sistema. O cadastro de telas, mockups e regras de negócio é opcional e detalha requisitos visuais e comportamentais para os agentes de IA.",
+    "deriveDatabase": "Derivar Banco de Dados (ERD)",
+    "viewErd": "Ver Diagrama ERD",
+    "deriveSuccess": "Modelagem derivada: {{created}} tabela(s) criada(s), {{updated}} atualizada(s), {{fields}} campo(s) registrado(s).",
+    "openErd": "Abrir Diagrama ERD →"
+  },
+  "selectors": {
+    "project": "Projeto",
+    "selectProject": "Selecione um projeto...",
+    "scope": "Escopo do Projeto",
+    "selectScope": "Selecione um escopo...",
+    "revision": "Revisão {{revision}} · {{status}}"
+  },
+  "empty": {
+    "selectProject": "Selecione um projeto acima para visualizar e gerenciar telas e regras de negócio.",
+    "noScopeTitle": "Nenhum escopo inicial encontrado para este projeto",
+    "noScopeDescription": "Inicialize o escopo do projeto para cadastrar telas, mockups e regras de negócio.",
+    "initializeScope": "Inicializar Escopo e Começar",
+    "selectScreen": "Selecione ou crie uma tela na lista lateral para visualizar e editar."
+  },
+  "sidebar": {
+    "title": "Telas do Escopo",
+    "registered": "{{count}} cadastrada(s)",
+    "collapse": "Recolher barra lateral",
+    "expand": "Expandir barra de telas",
+    "newScreen": "Nome da nova tela",
+    "filter": "Filtrar telas...",
+    "noScreens": "Nenhuma tela encontrada.",
+    "fields": "{{count}} campo(s)",
+    "images": "{{count}} img"
+  },
+  "common": {
+    "loading": "Carregando...",
+    "project": "projeto"
+  },
+  "workspace": {
+    "mdFile": "Arquivo MD:",
+    "exitFullscreen": "Sair da área total",
+    "enterFullscreen": "Expandir para área total",
+    "reduce": "Reduzir",
+    "fullscreen": "Área Total",
+    "removeScreen": "Remover tela do escopo"
+  },
+  "tabs": {
+    "visual": "Visual da Tela",
+    "rules": "Regras de Negócio (.md)",
+    "attributes": "Atributos e Dados"
+  },
+  "prompt": {
+    "required": "obrigatório",
+    "noAttributes": "(nenhum atributo cadastrado)",
+    "template": "Por favor, leia a especificação e as regras de negócio da tela \"{{name}}\" no arquivo:\n`{{path}}`\n\nAtributos esperados:\n{{attributes}}"
+  },
+  "preview": {
+    "noHtml": "Nenhum conteúdo HTML definido para esta tela. Digite o HTML no editor para visualizar aqui.",
+    "mode": "Modo do Protótipo:",
+    "renderedHtml": "HTML Renderizado",
+    "imagesAndMockups": "Imagens e Mockups",
+    "plainCss": "CSS Padrão",
+    "htmlCode": "Código HTML do Protótipo",
+    "autosave": "Salva automaticamente ao desfocar",
+    "htmlPlaceholder": "<div><h1>Título da Tela</h1><p>Conteúdo...</p></div>",
+    "renderedPreview": "Visualização Renderizada",
+    "imageUrlPlaceholder": "Adicionar URL de imagem ou mockup online...",
+    "addUrl": "Adicionar URL",
+    "uploadImage": "Fazer Upload de Imagem",
+    "referenceTemplate": "Template de Referência / Arquivo UI:",
+    "templatePlaceholder": "Ex: templates/dashboard-v2.tsx ou link do Figma",
+    "noImages": "Nenhuma imagem anexada. Adicione URLs ou envie capturas de tela para ilustrar o mockup.",
+    "mockupAlt": "Mockup {{number}}",
+    "imageNumber": "Imagem #{{number}}",
+    "openImage": "Abrir imagem em tamanho real",
+    "removeImage": "Remover imagem",
+    "sandboxIframe": "Iframe isolado",
+    "screenPreviewTitle": "Prévia da tela"
+  },
+  "rules": {
+    "fileLocation": "Local do Arquivo MD:",
+    "fileDescription": "As regras salvas neste arquivo ficam acessíveis aos agentes via MCP e canal de mensagens.",
+    "pathCopied": "Caminho Copiado!",
+    "copyPath": "Copiar Caminho",
+    "promptCopied": "Prompt Copiado!",
+    "copyPrompt": "Copiar Prompt para Agente",
+    "view": "Visualização:",
+    "edit": "Editar (.md)",
+    "rendered": "Renderizado",
+    "sideBySide": "Lado a Lado",
+    "savedAt": "Salvo em: {{date}}",
+    "save": "Salvar Regras (.md)",
+    "loading": "Carregando regras de negócio...",
+    "editorPlaceholder": "# Regras de Negócio da Tela\n\n1. Invariantes de validação...\n2. Permissões de acesso...\n3. Integrações com backend...",
+    "noContent": "Nenhum conteúdo de regra de negócio cadastrado ainda.",
+    "markdownEditor": "Editor Markdown (.md)",
+    "shortPlaceholder": "# Regras de Negócio...",
+    "renderedPreview": "Prévia Renderizada",
+    "nothingToRender": "Nenhum conteúdo para renderizar."
+  },
+  "attributes": {
+    "title": "Atributos e Campos da Tela",
+    "description": "Dados manipulados na tela, usados na derivação do banco de dados (ERD).",
+    "add": "Adicionar Atributo",
+    "empty": "Nenhum atributo cadastrado. Adicione campos para documentar e derivar o banco de dados.",
+    "fieldName": "Nome do Campo",
+    "type": "Tipo",
+    "required": "Obrigatório",
+    "descriptionRule": "Descrição / Regra",
+    "namePlaceholder": "ex: email, valor, status",
+    "yes": "Sim",
+    "purposePlaceholder": "Finalidade do campo...",
+    "types": {
+      "string": "Texto",
+      "number": "Número",
+      "boolean": "Booleano",
+      "date": "Data",
+      "relation": "Relação"
+    }
+  }
+}

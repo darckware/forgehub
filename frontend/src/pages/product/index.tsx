@@ -1,8 +1,9 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Plus, Loader2, PackageSearch, Trash2, Pencil, Download, Upload, Database, FolderOpen } from "lucide-react";
+import { ArrowLeft, Plus, Loader2, PackageSearch, Trash2, Pencil, Download, Upload, Database, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -26,6 +27,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PageHeader } from "@/components/PageHeader";
 import { cn } from "@/lib/utils";
 import {
   useProducts,
@@ -33,29 +35,33 @@ import {
   useDeleteProduct,
   productInputSchema,
   type ProductInput,
+  type ProductUpdateInput,
   type Product,
 } from "@/hooks/useProduct";
 import { apiClient } from "@/lib/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 const statusBadgeVariant: Record<string, "success" | "secondary" | "outline"> = {
+  concept: "secondary",
   active: "success",
   inactive: "secondary",
   archived: "outline",
 };
 
 // ---------------------------------------------------------------------------
-// Inline edit row
+// Edit form (full-width card, not an inline table row -- long descriptions
+// need real room to read/write, which a cramped expanded row can't give)
 // ---------------------------------------------------------------------------
-interface EditRowProps {
+interface EditFormProps {
   product: Product;
   onClose: () => void;
 }
 
-function EditProductRow({ product, onClose }: EditRowProps) {
+function EditProductForm({ product, onClose }: EditFormProps) {
+  const { t } = useTranslation("product");
   const queryClient = useQueryClient();
   const update = useMutation({
-    mutationFn: (payload: Partial<ProductInput>) =>
+    mutationFn: (payload: ProductUpdateInput) =>
       apiClient.put<Product>(`/api/v1/products/${product.id}`, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
@@ -69,53 +75,80 @@ function EditProductRow({ product, onClose }: EditRowProps) {
       name: product.name,
       description: product.description ?? "",
       status: (product.status as "active" | "inactive" | "archived") ?? "active",
+      application_url: product.application_url ?? "",
+      application_url_dev: product.application_url_dev ?? "",
     },
   });
 
   return (
-    <TableRow className="bg-muted/30">
-      <TableCell colSpan={4} className="py-3">
-        <form onSubmit={handleSubmit((v) => update.mutate(v))} className="space-y-3">
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Name</Label>
-              <Input className="h-8 text-sm" {...register("name")} />
-              {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+    <Card>
+      <form noValidate
+        onSubmit={handleSubmit((v) =>
+          update.mutate({
+            ...v,
+            // "" limpa a URL: o backend precisa de null, não de string vazia
+            // (o pattern ^https?:// rejeitaria "").
+            application_url: v.application_url || null,
+            application_url_dev: v.application_url_dev || null,
+          }),
+        )}
+      >
+        <CardHeader>
+          <CardTitle>{t("editRow.title")}</CardTitle>
+          <CardDescription>{t("editRow.description", { name: product.name })}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="edit-name">{t("editRow.nameLabel")}</Label>
+            <Input id="edit-name" {...register("name")} />
+            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="edit-description">{t("editRow.descriptionLabel")}</Label>
+            <Textarea className="resize-none" id="edit-description" rows={6} {...register("description")} />
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="edit-url-dev">{t("editRow.urlDevLabel")}</Label>
+              <Input
+                id="edit-url-dev"
+                placeholder={t("editRow.urlDevPlaceholder")}
+                {...register("application_url_dev")}
+              />
+              {errors.application_url_dev && (
+                <p className="text-sm text-destructive">{errors.application_url_dev.message}</p>
+              )}
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Description</Label>
-              <Input className="h-8 text-sm" {...register("description")} />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Status</Label>
-              <Select className="h-8 text-sm" {...register("status")}>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-                <option value="archived">Archived</option>
-              </Select>
+            <div className="space-y-2">
+              <Label htmlFor="edit-url">{t("editRow.urlLabel")}</Label>
+              <Input id="edit-url" placeholder={t("editRow.urlPlaceholder")} {...register("application_url")} />
+              {errors.application_url && <p className="text-sm text-destructive">{errors.application_url.message}</p>}
             </div>
           </div>
-          {update.isError && (
-            <p className="text-xs text-destructive">Failed to save. Please try again.</p>
-          )}
-          <div className="flex gap-2">
-            <Button type="submit" size="sm" disabled={isSubmitting || update.isPending}>
-              {(isSubmitting || update.isPending) && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-              Save
-            </Button>
-            <Button type="button" size="sm" variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
+          <div className="space-y-2">
+            <Label htmlFor="edit-status">{t("editRow.statusLabel")}</Label>
+            <Select id="edit-status" {...register("status")}>
+              <option value="active">{t("list.status.active")}</option>
+              <option value="inactive">{t("list.status.inactive")}</option>
+              <option value="archived">{t("list.status.archived")}</option>
+            </Select>
           </div>
-        </form>
-      </TableCell>
-    </TableRow>
+          {update.isError && <p className="text-sm text-destructive">{t("editRow.error")}</p>}
+        </CardContent>
+        <CardFooter className="gap-2">
+          <Button type="submit" disabled={isSubmitting || update.isPending}>
+            {(isSubmitting || update.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {t("editRow.save")}
+          </Button>
+          <Button type="button" variant="outline" onClick={onClose}>
+            {t("editRow.cancel")}
+          </Button>
+        </CardFooter>
+      </form>
+    </Card>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main page
-// ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Restore modal
 // ---------------------------------------------------------------------------
@@ -127,15 +160,16 @@ interface RestoreModalProps {
 }
 
 function RestoreModal({ open, onClose, onConfirm, loading }: RestoreModalProps) {
+  const { t } = useTranslation("product");
   const [restoreDb, setRestoreDb] = useState(true);
   const [restoreFiles, setRestoreFiles] = useState(true);
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" aria-modal="true">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-md rounded-xl border border-border bg-card shadow-2xl animate-in fade-in-0 zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex justify-center overflow-y-auto p-4" aria-modal="true">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 my-auto w-full max-w-md rounded-xl border border-border bg-card shadow-2xl animate-in fade-in-0 zoom-in-95 duration-150">
         <div className="h-1 w-full rounded-t-xl bg-blue-500/80" />
         <div className="p-6 space-y-4">
           <div className="flex items-start gap-3">
@@ -143,9 +177,9 @@ function RestoreModal({ open, onClose, onConfirm, loading }: RestoreModalProps) 
               <Upload className="h-5 w-5 text-blue-500" />
             </div>
             <div>
-              <h2 className="text-base font-semibold">Restore backup</h2>
+              <h2 className="text-base font-semibold">{t("restoreModal.title")}</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Select what will be restored from the ZIP file.
+                {t("restoreModal.description")}
               </p>
             </div>
           </div>
@@ -154,28 +188,28 @@ function RestoreModal({ open, onClose, onConfirm, loading }: RestoreModalProps) 
               <input type="checkbox" checked={restoreDb} onChange={(e) => setRestoreDb(e.target.checked)} className="h-4 w-4" />
               <Database className="h-4 w-4 text-muted-foreground" />
               <div>
-                <p className="text-sm font-medium">Database data</p>
-                <p className="text-xs text-muted-foreground">Product, versions, projects, tasks, pipelines and planning items</p>
+                <p className="text-sm font-medium">{t("restoreModal.dbLabel")}</p>
+                <p className="text-xs text-muted-foreground">{t("restoreModal.dbDescription")}</p>
               </div>
             </label>
             <label className="flex items-center gap-3 rounded-lg border border-border p-3 cursor-pointer hover:bg-accent/50">
               <input type="checkbox" checked={restoreFiles} onChange={(e) => setRestoreFiles(e.target.checked)} className="h-4 w-4" />
               <FolderOpen className="h-4 w-4 text-muted-foreground" />
               <div>
-                <p className="text-sm font-medium">Project folder</p>
-                <p className="text-xs text-muted-foreground">Files and folders from each project's working_directory_path</p>
+                <p className="text-sm font-medium">{t("restoreModal.filesLabel")}</p>
+                <p className="text-xs text-muted-foreground">{t("restoreModal.filesDescription")}</p>
               </div>
             </label>
           </div>
           <div className="flex justify-end gap-3 pt-1">
-            <Button variant="outline" onClick={onClose} className="min-w-[88px]">Cancel</Button>
+            <Button variant="outline" onClick={onClose} className="min-w-[88px]">{t("restoreModal.cancel")}</Button>
             <Button
               onClick={() => onConfirm(restoreDb, restoreFiles)}
               disabled={loading || (!restoreDb && !restoreFiles)}
               className="min-w-[88px]"
             >
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Restore
+              {t("restoreModal.confirm")}
             </Button>
           </div>
         </div>
@@ -188,10 +222,11 @@ function RestoreModal({ open, onClose, onConfirm, loading }: RestoreModalProps) 
 // Main page
 // ---------------------------------------------------------------------------
 export default function ProductPage() {
+  const { t } = useTranslation("product");
   const { data: products, isLoading, isError, error, refetch } = useProducts();
   const createProduct = useCreateProduct();
   const deleteProduct = useDeleteProduct();
-  const [showForm, setShowForm] = useState(false);
+  const [view, setView] = useState<"list" | "form">("list");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [backupLoading, setBackupLoading] = useState<string | null>(null);
@@ -202,16 +237,43 @@ export default function ProductPage() {
   const queryClient = useQueryClient();
 
   const pendingDeleteProduct = products?.find((p) => p.id === pendingDeleteId);
+  const editingProduct = products?.find((p) => p.id === editingId);
 
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<ProductInput>({
     resolver: zodResolver(productInputSchema),
-    defaultValues: { name: "", description: "", status: "active" },
+    defaultValues: {
+      name: "",
+      description: "",
+      status: "active",
+      application_url: "",
+      application_url_dev: "",
+    },
   });
 
   const onSubmit = async (values: ProductInput) => {
-    await createProduct.mutateAsync(values);
+    await createProduct.mutateAsync({
+      ...values,
+      application_url: values.application_url || undefined,
+      application_url_dev: values.application_url_dev || undefined,
+    });
     reset();
-    setShowForm(false);
+    setView("list");
+  };
+
+  const openCreateForm = () => {
+    reset();
+    setEditingId(null);
+    setView("form");
+  };
+
+  const openEditForm = (id: string) => {
+    setEditingId(id);
+    setView("form");
+  };
+
+  const backToList = () => {
+    setEditingId(null);
+    setView("list");
   };
 
   // --- Backup: call backend endpoint which returns a ZIP ---
@@ -229,7 +291,7 @@ export default function ProductPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      alert("Failed to generate backup.");
+      alert(t("list.alerts.backupFailed"));
     } finally {
       setBackupLoading(null);
     }
@@ -260,9 +322,9 @@ export default function ProductPage() {
       queryClient.invalidateQueries({ queryKey: ["products"] });
       setRestoreModalOpen(false);
       setPendingRestoreFile(null);
-      alert("Backup restored successfully.");
+      alert(t("list.alerts.restoreSuccess"));
     } catch (err) {
-      alert(`Failed to restore: ${err instanceof Error ? err.message : "Unknown error."}`);
+      alert(t("list.alerts.restoreFailed", { message: err instanceof Error ? err.message : t("list.alerts.unknownError") }));
     } finally {
       setRestoreLoading(false);
     }
@@ -270,137 +332,180 @@ export default function ProductPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Products</h1>
-          <p className="text-muted-foreground">
-            Products under continuous development, each with one or more versions.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            ref={restoreInputRef}
-            type="file"
-            accept=".zip"
-            className="hidden"
-            onChange={handleRestoreFileChange}
-          />
-          <Button
-            variant="outline"
-            onClick={() => restoreInputRef.current?.click()}
-            title="Restore product from a JSON backup"
-          >
-            <Upload className="mr-2 h-4 w-4" />
-            Restore
-          </Button>
-          <Button onClick={() => setShowForm((v) => !v)}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Product
-          </Button>
-        </div>
-      </div>
-
-      {showForm && (
-        <Card>
-          <form onSubmit={handleSubmit(onSubmit)}>
-            <CardHeader>
-              <CardTitle>Create Product</CardTitle>
-              <CardDescription>Register a new product. Name must be unique.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
-                <Input id="name" placeholder="e.g. ForgeHub" {...register("name")} />
-                {errors.name && (
-                  <p className="text-sm text-destructive">{errors.name.message}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  placeholder="Optional description of the product"
-                  {...register("description")}
+      <PageHeader
+        align="center"
+        title={t("list.title")}
+        description={<p>{t("list.subtitle")}</p>}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {view === "list" ? (
+              <>
+                <input
+                  ref={restoreInputRef}
+                  type="file"
+                  accept=".zip"
+                  className="hidden"
+                  onChange={handleRestoreFileChange}
                 />
-                {errors.description && (
-                  <p className="text-sm text-destructive">{errors.description.message}</p>
+                <Button
+                  variant="outline"
+                  onClick={() => restoreInputRef.current?.click()}
+                  title={t("list.restoreButtonTitle")}
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  {t("list.restoreButton")}
+                </Button>
+                <Button onClick={openCreateForm}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  {t("list.newButton")}
+                </Button>
+              </>
+            ) : (
+              <Button variant="outline" onClick={backToList}>
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                {t("list.backToList")}
+              </Button>
+            )}
+          </div>
+        }
+      />
+
+      {view === "form" ? (
+        editingId && editingProduct ? (
+          <EditProductForm product={editingProduct} onClose={backToList} />
+        ) : (
+          <Card>
+            <form noValidate onSubmit={handleSubmit(onSubmit)}>
+              <CardHeader>
+                <CardTitle>{t("list.createForm.title")}</CardTitle>
+                <CardDescription>{t("list.createForm.description")}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">{t("list.createForm.nameLabel")}</Label>
+                  <Input id="name" placeholder={t("list.createForm.namePlaceholder")} {...register("name")} />
+                  {errors.name && (
+                    <p className="text-sm text-destructive">{errors.name.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="description">{t("list.createForm.descriptionLabel")}</Label>
+                  <Textarea className="resize-none"
+                    id="description"
+                    rows={6}
+                    placeholder={t("list.createForm.descriptionPlaceholder")}
+                    {...register("description")}
+                  />
+                  {errors.description && (
+                    <p className="text-sm text-destructive">{errors.description.message}</p>
+                  )}
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="application_url_dev">
+                      {t("list.createForm.urlDevLabel")}
+                    </Label>
+                    <Input
+                      id="application_url_dev"
+                      type="url"
+                      placeholder={t("list.createForm.urlDevPlaceholder")}
+                      {...register("application_url_dev")}
+                    />
+                    {errors.application_url_dev && (
+                      <p className="text-sm text-destructive">
+                        {errors.application_url_dev.message}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="application_url">{t("list.createForm.urlLabel")}</Label>
+                    <Input
+                      id="application_url"
+                      type="url"
+                      placeholder={t("list.createForm.urlPlaceholder")}
+                      {...register("application_url")}
+                    />
+                    {errors.application_url && (
+                      <p className="text-sm text-destructive">{errors.application_url.message}</p>
+                    )}
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">{t("list.createForm.urlHint")}</p>
+
+                <div className="space-y-2">
+                  <Label htmlFor="status">{t("list.createForm.statusLabel")}</Label>
+                  <Select id="status" {...register("status")}>
+                    <option value="active">{t("list.status.active")}</option>
+                    <option value="inactive">{t("list.status.inactive")}</option>
+                    <option value="archived">{t("list.status.archived")}</option>
+                  </Select>
+                </div>
+
+                {createProduct.isError && (
+                  <p className="text-sm text-destructive">
+                    {t("list.createForm.error")}
+                  </p>
                 )}
+              </CardContent>
+              <CardFooter className="gap-2">
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {t("list.createForm.save")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={backToList}
+                >
+                  {t("list.createForm.cancel")}
+                </Button>
+              </CardFooter>
+            </form>
+          </Card>
+        )
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            {isLoading && (
+              <div className="flex items-center justify-center gap-2 p-10 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                {t("list.loading")}
               </div>
+            )}
 
-              <div className="space-y-2">
-                <Label htmlFor="status">Status</Label>
-                <Select id="status" {...register("status")}>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                  <option value="archived">Archived</option>
-                </Select>
-              </div>
-
-              {createProduct.isError && (
+            {isError && !isLoading && (
+              <div className="flex flex-col items-center gap-3 p-10 text-center">
                 <p className="text-sm text-destructive">
-                  Failed to create product. Please try again.
+                  {error instanceof Error ? error.message : t("list.loadError")}
                 </p>
-              )}
-            </CardContent>
-            <CardFooter className="gap-2">
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Save
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => { reset(); setShowForm(false); }}
-              >
-                Cancel
-              </Button>
-            </CardFooter>
-          </form>
-        </Card>
-      )}
+                <Button variant="outline" size="sm" onClick={() => refetch()}>
+                  {t("list.retry")}
+                </Button>
+              </div>
+            )}
 
-      <Card>
-        <CardContent className="p-0">
-          {isLoading && (
-            <div className="flex items-center justify-center gap-2 p-10 text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              Loading products...
-            </div>
-          )}
+            {!isLoading && !isError && (products?.length ?? 0) === 0 && (
+              <div className="flex flex-col items-center gap-2 p-10 text-center text-muted-foreground">
+                <PackageSearch className="h-10 w-10" />
+                <p className="font-medium">{t("list.emptyTitle")}</p>
+                <p className="text-sm">{t("list.emptyDescription")}</p>
+              </div>
+            )}
 
-          {isError && !isLoading && (
-            <div className="flex flex-col items-center gap-3 p-10 text-center">
-              <p className="text-sm text-destructive">
-                {error instanceof Error ? error.message : "Failed to load products."}
-              </p>
-              <Button variant="outline" size="sm" onClick={() => refetch()}>
-                Retry
-              </Button>
-            </div>
-          )}
-
-          {!isLoading && !isError && (products?.length ?? 0) === 0 && (
-            <div className="flex flex-col items-center gap-2 p-10 text-center text-muted-foreground">
-              <PackageSearch className="h-10 w-10" />
-              <p className="font-medium">No products yet</p>
-              <p className="text-sm">Create your first product to get started.</p>
-            </div>
-          )}
-
-          {!isLoading && !isError && (products?.length ?? 0) > 0 && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Versions</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {products?.map((product) => (
-                  <>
+            {!isLoading && !isError && (products?.length ?? 0) > 0 && (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("list.columns.name")}</TableHead>
+                    <TableHead>{t("list.columns.status")}</TableHead>
+                    <TableHead>{t("list.columns.versions")}</TableHead>
+                    <TableHead className="text-right">{t("list.columns.actions")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {products?.map((product) => (
                     <TableRow key={product.id}>
                       <TableCell>
                         <Link
@@ -414,13 +519,39 @@ export default function ProductPage() {
                             {product.description}
                           </p>
                         )}
+                        {(product.application_url_dev || product.application_url) && (
+                          <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+                            {product.application_url_dev && (
+                              <a
+                                href={product.application_url_dev}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="truncate hover:underline"
+                                title={product.application_url_dev}
+                              >
+                                dev: {product.application_url_dev}
+                              </a>
+                            )}
+                            {product.application_url && (
+                              <a
+                                href={product.application_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="truncate hover:underline"
+                                title={product.application_url}
+                              >
+                                prod: {product.application_url}
+                              </a>
+                            )}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge
                           variant={statusBadgeVariant[product.status] ?? "outline"}
                           className={cn("capitalize")}
                         >
-                          {product.status}
+                          {t(`list.status.${product.status}`, { defaultValue: product.status })}
                         </Badge>
                       </TableCell>
                       <TableCell>{product.versions?.length ?? 0}</TableCell>
@@ -429,18 +560,16 @@ export default function ProductPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            title="Edit product"
-                            onClick={() =>
-                              setEditingId(editingId === product.id ? null : product.id)
-                            }
-                            className={cn(editingId === product.id && "bg-accent")}
+                            title={t("list.actions.edit")}
+                            disabled={product.status === "concept"}
+                            onClick={() => openEditForm(product.id)}
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
-                            title="Backup (export JSON)"
+                            title={t("list.actions.backup")}
                             disabled={backupLoading === product.id}
                             onClick={() => handleBackup(product)}
                           >
@@ -453,7 +582,7 @@ export default function ProductPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            title="Delete product"
+                            title={t("list.actions.delete")}
                             disabled={deleteProduct.isPending}
                             onClick={() => setPendingDeleteId(product.id)}
                           >
@@ -462,26 +591,19 @@ export default function ProductPage() {
                         </div>
                       </TableCell>
                     </TableRow>
-                    {editingId === product.id && (
-                      <EditProductRow
-                        key={`edit-${product.id}`}
-                        product={product}
-                        onClose={() => setEditingId(null)}
-                      />
-                    )}
-                  </>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <ConfirmDialog
         open={pendingDeleteId !== null}
-        title={`Delete "${pendingDeleteProduct?.name ?? "product"}"`}
-        description="This action is irreversible. All projects, pipelines, planning items, tasks, executions, artifacts and governance records linked to this product will be cascade-deleted."
-        confirmLabel="Delete all"
+        title={t("list.deleteDialog.title", { name: pendingDeleteProduct?.name ?? t("list.deleteDialog.defaultName") })}
+        description={t("list.deleteDialog.description")}
+        confirmLabel={t("list.deleteDialog.confirmLabel")}
         onConfirm={() => {
           if (pendingDeleteId) deleteProduct.mutate(pendingDeleteId);
           setPendingDeleteId(null);

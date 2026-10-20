@@ -1,0 +1,77 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  copyTerminalText,
+  findLastHttpUrl,
+  isTerminalContainerVisible,
+  prepareTerminalContextMenu,
+  terminalBufferToText,
+  type TerminalBufferLike,
+} from "./terminalInteraction";
+
+describe("terminal interaction helpers", () => {
+  it("reports container visibility based on non-zero layout dimensions", () => {
+    expect(isTerminalContainerVisible(null)).toBe(false);
+    expect(isTerminalContainerVisible({ offsetWidth: 0, offsetHeight: 0 })).toBe(false);
+    expect(isTerminalContainerVisible({ offsetWidth: 800, offsetHeight: 0 })).toBe(false);
+    expect(isTerminalContainerVisible({ offsetWidth: 0, offsetHeight: 600 })).toBe(false);
+    expect(isTerminalContainerVisible({ offsetWidth: 800, offsetHeight: 600 })).toBe(true);
+  });
+
+  it("suppresses the browser menu and returns selected terminal text", () => {
+    const event = new MouseEvent("contextmenu", { cancelable: true });
+
+    expect(prepareTerminalContextMenu(event, "selected output")).toBe("selected output");
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("suppresses the browser menu without requesting a copy when nothing is selected", () => {
+    const event = new MouseEvent("contextmenu", { cancelable: true });
+
+    expect(prepareTerminalContextMenu(event, "")).toBeNull();
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("finds the last URL even when ANSI/OSC sequences surround it", () => {
+    const output = [
+      "first https://example.test/old",
+      "\u001b]8;;https://accounts.google.com/o/oauth2/auth?client_id=123&scope=email\u0007",
+      "Click here\u001b]8;;\u0007",
+    ].join("\n");
+
+    expect(findLastHttpUrl(output)).toBe(
+      "https://accounts.google.com/o/oauth2/auth?client_id=123&scope=email",
+    );
+  });
+
+  it("reconstructs wrapped terminal rows without inserting line breaks", () => {
+    const rows = [
+      { isWrapped: false, text: "https://accounts.google.com/oauth?client=" },
+      { isWrapped: true, text: "abc" },
+      { isWrapped: false, text: "next line" },
+    ];
+    const buffer: TerminalBufferLike = {
+      length: rows.length,
+      getLine: (index) => {
+        const row = rows[index];
+        return row
+          ? { isWrapped: row.isWrapped, translateToString: () => row.text }
+          : undefined;
+      },
+    };
+
+    expect(terminalBufferToText(buffer)).toBe(
+      "https://accounts.google.com/oauth?client=abc\nnext line",
+    );
+  });
+
+  it("falls back to execCommand when navigator.clipboard is unavailable", async () => {
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => true),
+    });
+    const execCommand = vi.spyOn(document, "execCommand").mockReturnValue(true);
+
+    await expect(copyTerminalText("authorization code")).resolves.toBe(true);
+    expect(execCommand).toHaveBeenCalledWith("copy");
+  });
+});

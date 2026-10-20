@@ -21,7 +21,7 @@ SQLAlchemy resolves these lazily once every domain module has been imported
 centrally (see app/db/models/__init__.py).
 """
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean,
@@ -39,6 +39,32 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base, TimestampMixin
 
 PROJECT_STATUSES = ("planned", "active", "on_hold", "completed", "cancelled")
+
+# What kind of application this Project delivers -- deliberately a flat list
+# on Project itself (not a separate M:N classification table) per the
+# 2026-08-01 decision to create one Project per application type instead of
+# tracks inside a single Project (see docs/architecture/
+# PLANNING_DELIVERY_ARCHITECTURE.md section 2.2, which recommends the
+# opposite -- one Project per delivery with internal tracks -- and the note
+# added there explaining why this codebase diverges). Extend this tuple
+# (plus a migration) as new solution types are actually needed.
+PROJECT_SOLUTION_TYPES = (
+    "web_app", "mobile_app", "api_service", "database", "deploy",
+    # Added 2026-08-16 (Marcelo: "não vou fazer somente produto ou
+    # manutenção. Existe serviços de automação, migração, análise de
+    # dados, criação de relatório") -- non-application engagements that
+    # don't fit the "building an app" shape above. See
+    # ROLE_BY_SOLUTION_TYPE / SOLUTION_TYPE_TECH_STACK_KEYS in
+    # api/routes/system_scope.py, which must map every value here.
+    "automation", "data_migration", "data_analysis", "reporting",
+)
+
+# Whether a Project is standing up something new or evolving something
+# already shipped (2026-08-15, Marcelo: "o ciclo é o mesmo para os dois,
+# finalizado pelos controles de versão" -- creation and maintenance reuse the
+# exact same Project/Pipeline/PlanningItem machinery, this only classifies
+# intent). Set once at :authorize-delivery-planning time per project spec.
+PROJECT_TYPES = ("creation", "maintenance")
 
 FORGEROUTER_TOOLS = ("claude", "codex", "antigravity")
 PROJECT_PLAN_STATUSES = ("draft", "approved", "baselined", "superseded")
@@ -67,6 +93,15 @@ class Project(Base, TimestampMixin):
     __tablename__ = "projects"
     __table_args__ = (
         CheckConstraint(f"status IN {PROJECT_STATUSES!r}", name="ck_projects_status"),
+        CheckConstraint(
+            f"solution_type IS NULL OR solution_type IN {PROJECT_SOLUTION_TYPES!r}",
+            name="ck_projects_solution_type",
+        ),
+        CheckConstraint(f"project_type IN {PROJECT_TYPES!r}", name="ck_projects_project_type"),
+        CheckConstraint(
+            "darckware_origin_type IS NULL OR darckware_origin_type IN ('ticket', 'demand')",
+            name="ck_projects_darckware_origin_type",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -85,6 +120,18 @@ class Project(Base, TimestampMixin):
 
     owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # web_app | mobile_app | api_service | database | deploy -- nullable
+    # because pre-existing/manually-created projects may not have one;
+    # projects created via :authorize-delivery-planning always set it.
+    solution_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    # creation | maintenance -- server_default so a raw insert that doesn't
+    # know about this column still gets a valid value (same reasoning as
+    # AgentDemand.requires_response's server_default, see CLAUDE.md).
+    project_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="creation", server_default="creation"
+    )
+
     # planned -> active -> on_hold -> completed -> cancelled
     status: Mapped[str] = mapped_column(
         String(50), nullable=False, default="planned", server_default="planned"
@@ -97,6 +144,45 @@ class Project(Base, TimestampMixin):
     # any agent consulting it) knows which working directory the
     # project's structure_nodes' `path` values are relative to.
     working_directory_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
+    # The GitHub remote for working_directory_path, if any -- lets a
+    # project registered here be one-click-registered with System
+    # Control's Git Control card (POST /api/v1/system-control/repos, using
+    # this URL as clone_url and working_directory_path as path) instead of
+    # re-entering both by hand. Purely descriptive at the DB layer: nothing
+    # here validates it's reachable or matches the checkout's actual
+    # `origin` remote -- System Control owns that check at clone/register
+    # time (git/source-control operations are a ForgeHub responsibility,
+    # never a Foundation one, see governance/FOUNDATION.md's 2026-07-11
+    # ForgeRouter note).
+    github_repo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Client traceability (2026-10-04, client demands Onda 3). The client is
+    # inherited from the product when a project is created without one; the
+    # origin is the Darckware ticket/demand the project was opened from.
+    # Darckware ids, no FK (other database). Planning items and tasks reach
+    # the client through Project -> PlanningItem -> Task, no column of their own.
+    darckware_client_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    darckware_origin_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    darckware_origin_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
+    # Whether this project participates in per-project backup (System
+    # Control's project-backup endpoints, archives written under
+    # backup_location below) -- kept SEPARATE from the ecosystem-wide
+    # "Backup .hermes" button (always /root/.hermes -> /root/backup/
+    # directly), per explicit operator request: a project's backup
+    # lifecycle must be controllable independently of Hermes's. Off by
+    # default so registering a project never silently starts backing up
+    # an arbitrary working_directory_path.
+    backup_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
+    # Directory this project's archives are written into, e.g.
+    # "/root/backup/forgehub". NULL means "not set yet" -- System Control
+    # computes and displays a default of BACKUP_DIR/<slug-of-name> (see
+    # _project_slug in backend/app/api/routes/system_control.py) whenever
+    # this is empty, but never silently persists that default back here;
+    # only an explicit save on the project's own registration does.
+    backup_location: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 
 
 class ProjectPlan(Base, TimestampMixin):
@@ -170,7 +256,7 @@ class PlanBaseline(Base, TimestampMixin):
     end_date_snapshot: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     frozen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
 
 
@@ -290,7 +376,11 @@ class ProjectForgeRouterConfig(Base, TimestampMixin):
 
     Tools:
       claude       → {project}/.claude/settings.local.json
-      codex        → {project}/.codex/config.toml  (project-local override)
+      codex        → {project}/.codex/forgerouter.env (API key only; Codex
+                     CLI ignores model_provider/model_providers from a
+                     project-local config.toml, so the provider itself is
+                     registered via `-c` overrides at launch time -- see
+                     FORGEROUTER_CODEX_OVERRIDES in host-bridge/app.py)
       antigravity  → {project}/.forgerouter/antigravity.env (shell-source)
     """
 
@@ -307,7 +397,13 @@ class ProjectForgeRouterConfig(Base, TimestampMixin):
         unique=True,
     )
 
-    api_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Each CLI is a distinct product with its own key/token namespace
+    # (Claude Code, Codex, Antigravity) — a single shared key was silently
+    # reused across whichever tool was toggled on next, clobbering the
+    # first tool's credential. One column per tool keeps them independent.
+    claude_api_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    codex_api_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    antigravity_api_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     claude_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"

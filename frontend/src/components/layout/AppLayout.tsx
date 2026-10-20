@@ -1,7 +1,7 @@
 import { Outlet, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { useSessionKeepAlive } from "@/hooks/useAuth";
+import { useSessionKeepAlive, useSyncUiLanguage } from "@/hooks/useAuth";
 import { AssistantDrawer } from "@/components/chat/AssistantDrawer";
 
 export function AppLayout() {
@@ -9,6 +9,9 @@ export function AppLayout() {
   // expires out from under the user mid-work -- see useSessionKeepAlive's
   // own docstring for why this is needed at all.
   useSessionKeepAlive();
+  // Applies the logged-in user's saved UI language on load/login -- see
+  // useSyncUiLanguage's own docstring.
+  useSyncUiLanguage();
 
   // The workspace (chat/terminal) page manages its own full-bleed layout
   // (the terminal card should fill the viewport, not sit inside the
@@ -26,6 +29,8 @@ export function AppLayout() {
     pathname.startsWith("/notifications") ||
     pathname.startsWith("/auditor") ||
     pathname.startsWith("/docs") ||
+    pathname.startsWith("/obsidian") ||
+    pathname.startsWith("/foundation") ||
     pathname.startsWith("/demands");
 
   return (
@@ -35,7 +40,11 @@ export function AppLayout() {
           overflow-y-auto and AssistantDrawer's h-full need a definite
           ancestor height to actually contain their own scrolling instead
           of growing the page. */}
-      <div className="flex h-screen min-w-0 flex-1">
+      {/* h-dvh after h-screen: on mobile browsers 100vh includes the area
+          under the collapsible address bar, which pushed the bottom of the
+          page (the chat composer) off-screen. Browsers without dvh drop
+          that declaration and keep h-screen. */}
+      <div className="flex h-screen h-dvh min-w-0 flex-1">
         <main
           className={cn(
             "min-w-0 flex-1 overflow-hidden",
@@ -43,7 +52,11 @@ export function AppLayout() {
             // trigger is `fixed top-3 left-3` and would otherwise sit on
             // top of page titles/toolbars that start right at the p-8
             // corner.
-            isFullBleed ? "flex flex-col pt-14 md:pt-0" : "overflow-y-auto p-4 pt-16 md:p-8"
+            // The workspace fits the trigger into its own first toolbar row
+            // (see its modeToggle) -- a phone can't spare the extra 56px.
+            isFullBleed
+              ? cn("flex flex-col", !pathname.startsWith("/workspace") && "pt-14 md:pt-0")
+              : "overflow-y-auto p-4 pt-16 md:p-8"
           )}
         >
           <Outlet />

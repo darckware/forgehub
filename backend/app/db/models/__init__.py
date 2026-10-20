@@ -34,6 +34,7 @@ from app.db.models.task import (  # noqa: F401
 )
 from app.db.models.agent import (  # noqa: F401
     Agent,
+    AgentServiceCredential,
     SubAgent,
     Skill,
     AgentSkill,
@@ -42,14 +43,26 @@ from app.db.models.agent import (  # noqa: F401
     AgentCapacity,
 )
 from app.db.models.artifact import Artifact, ArtifactVersion  # noqa: F401
-from app.db.models.governance import Policy, Approval, AuditEvent  # noqa: F401
-from app.db.models.chat import ChatSession, ChatMessage, ChatArtifact, ChatSessionParticipant  # noqa: F401
+from app.db.models.governance import (  # noqa: F401
+    Policy, Approval, AuditEvent, PolicyVersion, PolicyBinding, PolicyEvaluation,
+    ApprovalRequest, ApprovalDecisionRecord, AuthorityDelegation,
+)
+from app.db.models.active_turn import ActiveTurn  # noqa: F401
+from app.db.models.chat import ChatSession, ChatMessage, ChatArtifact, ChatSessionParticipant, ChatGroup  # noqa: F401
 from app.db.models.toolversions import ToolVersionStatus, ToolSyncSetting  # noqa: F401
 from app.db.models.cron_script import CronScript  # noqa: F401
 from app.db.models.deploy import DeployInstallation, DeployGroup, DeploySyncIgnore  # noqa: F401
-from app.db.models.profile import Profile, ProfilePermission  # noqa: F401
+from app.db.models.profile import Profile, ProfilePermission, ProfileActionPermission  # noqa: F401
 from app.db.models.user import User  # noqa: F401
-from app.db.models.server import Server  # noqa: F401
+from app.db.models.server import HostGroup, HostGroupMember, Server  # noqa: F401
+from app.db.models.host_execution import HostExecution, HostExecutionResult  # noqa: F401
+from app.db.models.host_script import (  # noqa: F401
+    HostSchedule,
+    HostScript,
+    HostScriptCategory,
+    HostScriptVersion,
+)
+from app.db.models.vpn import RemoteAccessSecret, TailnetPolicyVersion, VpnOperationEvent  # noqa: F401
 from app.db.models.notification import Notification, NotificationIngestState  # noqa: F401
 from app.db.models.tool import AgentTool  # noqa: F401
 from app.db.models.audit import AuditCheck, AuditCheckRun  # noqa: F401
@@ -57,4 +70,61 @@ from app.db.models.doc_link import DocLink  # noqa: F401
 from app.db.models.demand import AgentDemand, DemandAttachment, DemandGroup  # noqa: F401
 from app.db.models.docs_area import DocsArea  # noqa: F401
 from app.db.models.prompt_command import PromptCommand  # noqa: F401
+from app.db.models.prompt_technique import PromptTechnique  # noqa: F401
 from app.db.models.foundation_script import FoundationScript  # noqa: F401
+from app.db.models.orchestration import (  # noqa: F401
+    AgentRuntimeProfile,
+    ProjectAgentMembership,
+    ProjectLoopPolicy,
+    TaskExecutionReview,
+)
+from app.db.models.system_scope import (  # noqa: F401
+    DevelopmentRequest,
+    ProductConcept,
+    ProductConceptRevision,
+    SystemBlueprint,
+    SystemBlueprintRevision,
+    SystemElement,
+    SystemElementRevision,
+    SystemElementRelation,
+    ProjectScope,
+    ProjectScopeItem,
+    ScopeItemAcceptanceCriterion,
+    TechStackOption,
+)
+from app.db.models.progress import ProgressCheckpoint, StageCompletionAssessment  # noqa: F401
+from app.db.models.execution import (  # noqa: F401
+    ExecutionWave, ExecutionWaveTask, ExecutionWorkPackage, ExecutionRunner,
+    ExecutionLease, ExecutionEvent, ExecutionResult,
+)
+from app.db.models.web_automation import StandaloneApp, WebAutomationRoutine, MacroInstructionSet  # noqa: F401
+from app.db.models.mcp_catalog import McpCatalogServer, McpCatalogAssignment  # noqa: F401
+from app.db.models.project_mcp import ProjectMcpServer  # noqa: F401
+from app.db.models.channel import (  # noqa: F401
+    ChatChannel,
+    ChatChannelMember,
+    ChatChannelMessage,
+    ChatChannelArtifact,
+    ChatChannelTask,
+)
+from app.db.models.file_explorer import ExplorerQuickAccessEntry  # noqa: F401
+from app.db.models.agent_activity_event import AgentActivityEvent  # noqa: F401
+from app.db.models.operations import (  # noqa: F401
+    AgentCharter,
+    AgentQuestion,
+    AgentRoutine,
+    AgentRoutineRun,
+    OperationsPolicy,
+)
+from app.db.models.personal import (  # noqa: F401
+    PersonalAssistantSettings,
+    PersonalCaptureSuggestion,
+    PersonalContact,
+    PersonalContactCategory,
+    PersonalContactMessage,
+    PersonalDemand,
+    PersonalDemandType,
+    PersonalEvent,
+    PersonalNote,
+    PersonalTask,
+)

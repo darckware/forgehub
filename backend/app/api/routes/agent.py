@@ -26,10 +26,30 @@ Business rules enforced here (SPEC.md section 6.5 / 5.5):
 Also owns POST /sync/hermes-foundation, which upserts Agent/SubAgent/
 Skill/AgentSkill rows from the Hermes Foundation canonical docs (parsing
 lives in app/core/hermes_sync.py, kept DB-free/pure there).
-"""
-import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+And GET/PUT /{agent_id}/profile-files[/{filename}], the per-agent view of
+the SOUL.md / IDENTITY.md / TOOLS.md / ... set that defines an agent.
+Directory resolution (Hermes profile vs external CLI runtime home) and the
+filename allow-list live in app/core/agent_profile_files.py.
+
+Plus GET/PUT/DELETE /{agent_id}/mcp-servers[/{name}], the per-agent view of
+the MCP servers that runtime loads. Each of the five runtimes stores those in
+its own file and format; reading and editing them lives in
+app/core/agent_mcp.py. ForgeHub keeps no copy of that configuration -- it
+edits the runtime's own file, which is what the runtime actually reads.
+"""
+import asyncio
+import hashlib
+import json
+import secrets
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import AsyncIterator
+
+import httpx
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,10 +64,31 @@ from app.api.schemas.agent import (
     AgentCreate,
     AgentDetailOut,
     AgentListItemOut,
+    AgentMcpOverviewItem,
+    AgentMcpOverviewOut,
+    AgentMcpServerIn,
+    AgentMcpServerOut,
+    AgentMcpServersOut,
     AgentOut,
+    AgentProfileFileInfo,
+    AgentProfileFileOut,
+    AgentProfileFilesOut,
+    AgentProfileFileUpdateIn,
+    AgentRuntimeSyncAgentOut,
+    AgentRuntimeSyncOut,
+    AgentServiceCredentialCreateIn,
+    AgentServiceCredentialOut,
     AgentSkillCreate,
     AgentSkillOut,
+    AgentTelegramStatusListOut,
+    AgentTelegramStatusOut,
+    AgentTelegramConversationOut,
     AgentUpdate,
+    ForgeRouterKeyImportOut,
+    ForgeRouterKeySyncAgentOut,
+    ForgeRouterKeySyncOut,
+    ForgeRouterServiceKeyOut,
+    ForgeRouterServiceOut,
     HermesSyncResultOut,
     SkillAgentRef,
     SkillCreate,
@@ -61,12 +102,21 @@ from app.api.schemas.agent import (
     SubAgentUpdate,
     SyncCounts,
 )
-from app.core import hermes_sync
+from app.api.routes.chat import _call_bridge_images, _call_bridge_text
+from app.api.schemas.prompt_technique import ImprovePromptRequest
+from app.core import agent_mcp, agent_profile_files, agent_runtime_sync, agent_telegram, forgerouter_sync, hermes_sync
+from app.core.mcp_catalog_apply import apply_global_servers_to_agent
+from app.core.config import settings
+from app.core.deps import get_current_admin
+from app.core.prompt_improvement import build_prompt_improvement_request, get_prompt_technique
+from app.core.secrets import decrypt_secret, encrypt_secret
 from app.db.base import get_db
+from app.db.models.user import User
 from app.db.models.agent import (
     Agent,
     AgentCapacity,
     AgentCostRate,
+    AgentServiceCredential,
     AgentSkill,
     Skill,
     SubAgent,
@@ -130,7 +180,11 @@ async def _get_skill_or_404(db: AsyncSession, skill_id: uuid.UUID) -> Skill:
 
 @router.post("", response_model=AgentOut, status_code=status.HTTP_201_CREATED)
 async def create_agent(payload: AgentCreate, db: AsyncSession = Depends(get_db)) -> Agent:
-    agent = Agent(**payload.model_dump())
+    data = payload.model_dump()
+    api_key = data.pop("forgerouter_api_key", None)
+    agent = Agent(**data)
+    if api_key:
+        agent.forgerouter_api_key_encrypted = encrypt_secret(api_key)
     db.add(agent)
     try:
         await db.commit()
@@ -141,6 +195,12 @@ async def create_agent(payload: AgentCreate, db: AsyncSession = Depends(get_db))
             detail="An agent with this name already exists",
         ) from None
     await db.refresh(agent)
+    # "apply_to_all_agents" (MCP catalog) must reach agents registered after
+    # the flag was set, not just the ones that existed at the time -- see
+    # core/mcp_catalog_apply.py's module docstring.
+    if await apply_global_servers_to_agent(db, agent):
+        await db.commit()
+        await db.refresh(agent)
     return agent
 
 
@@ -162,6 +222,480 @@ async def list_agents(
 
 
 # ---------------------------------------------------------------------------
+# Telegram channel status
+#
+# Registered before /{agent_id} so the literal path segment wins over the
+# UUID converter. Whole-roster in one call: the gateway state is a single
+# host-bridge round trip for every agent, not one per row.
+# ---------------------------------------------------------------------------
+
+
+async def _telegram_platform_states() -> tuple[dict[str, str] | None, str | None]:
+    return await agent_telegram.read_telegram_platform_states()
+
+
+@router.post("/sync/runtimes", response_model=AgentRuntimeSyncOut)
+async def sync_agent_runtimes(db: AsyncSession = Depends(get_db)) -> AgentRuntimeSyncOut:
+    """Reconcile the registry with what is actually installed on this host.
+
+    The companion to /sync/hermes-foundation, which reads the canonical *docs*
+    and therefore cannot know what an agent runs -- nothing in a contract says
+    "this is a Hermes profile". That is why Kairos sat registered with a NULL
+    `runtime_type` while its profile directory, gateway unit and MCP config all
+    existed: the doc sync had nothing to copy, so every MCP screen reported it
+    as an agent no runtime would ever load a server for.
+
+    Detection is by evidence on disk (see core/agent_runtime_sync.py) and only
+    ever *fills in* a missing runtime: a registered value is never overwritten,
+    because it decides the real command line used to execute the agent. A
+    registry that contradicts the disk, an unreachable home, or a profile
+    directory nobody claims are reported for a human to judge."""
+    result = await db.execute(select(Agent).where(Agent.is_active.is_(True)).order_by(Agent.name))
+    agents = list(result.scalars().all())
+
+    rows: list[AgentRuntimeSyncAgentOut] = []
+    updated = 0
+    for agent in agents:
+        plan = agent_runtime_sync.plan_for_agent(
+            agent_id=str(agent.id),
+            agent_name=agent.name,
+            profile_slug=agent.profile_slug,
+            runtime_type=agent.runtime_type,
+            home_path=agent.home_path,
+        )
+        applied = False
+        if plan.fill_runtime_type:
+            agent.runtime_type = plan.fill_runtime_type
+            applied = True
+            updated += 1
+            # Same "global reaches agents registered/typed later" rule as
+            # create_agent above -- this agent just became MCP-eligible for
+            # the first time, so global catalog servers apply now too.
+            await apply_global_servers_to_agent(db, agent)
+        rows.append(
+            AgentRuntimeSyncAgentOut(
+                agent_id=agent.id,
+                agent_name=agent.name,
+                profile_slug=agent.profile_slug,
+                runtime_type=agent.runtime_type,
+                detected_runtime_type=plan.detected.runtime_type,
+                evidence=plan.detected.evidence,
+                home_path=plan.detected.home_path,
+                home_resolved=plan.detected.home_resolved,
+                mcp_config_path=plan.detected.mcp_config_path,
+                mcp_config_exists=plan.detected.mcp_config_exists,
+                applied=applied,
+                issues=plan.issues,
+            )
+        )
+    if updated:
+        await db.commit()
+
+    return AgentRuntimeSyncOut(
+        checked=len(agents),
+        updated=updated,
+        agents=rows,
+        unregistered_profiles=agent_runtime_sync.unregistered_profiles(
+            {a.profile_slug for a in agents if a.profile_slug}
+        ),
+    )
+
+
+def _forgerouter_key_unchanged(agent: Agent, api_key: str) -> bool:
+    """True when the agent's stored (encrypted) key already decrypts to this
+    exact plaintext -- ciphertext can't be compared directly, Fernet
+    encryption is nondeterministic (fresh IV/timestamp on every call)."""
+    if not agent.forgerouter_api_key_encrypted:
+        return False
+    try:
+        return decrypt_secret(agent.forgerouter_api_key_encrypted) == api_key
+    except ValueError:
+        return False
+
+
+@router.post("/{agent_id}/forgerouter-key/import", response_model=ForgeRouterKeyImportOut)
+async def import_forgerouter_key(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> ForgeRouterKeyImportOut:
+    """Import this one agent's already-issued ForgeRouter API key straight
+    from ForgeRouter's own registry (ai_router.agents, see
+    core/forgerouter_sync.py) into forgerouter_api_key_encrypted -- the
+    per-agent "Import" button next to the manual paste-and-save field
+    (2026-07-29, Marcelo: "seria melhor criar um botão de importação do
+    api key do agente"). See /sync/forgerouter-keys below for the "all
+    agents at once" counterpart ("adiciona opção de todos e para cada
+    agente") -- both share the matching/overwrite rule documented there."""
+    agent = await db.get(Agent, agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    keys_by_name = {k.name.strip().lower(): k.api_key for k in await forgerouter_sync.read_forgerouter_agent_keys()}
+    api_key = keys_by_name.get(agent.name.strip().lower())
+    if api_key is None:
+        return ForgeRouterKeyImportOut(matched=False, updated=False, forgerouter_api_key_configured=agent.forgerouter_api_key_configured)
+
+    updated = not _forgerouter_key_unchanged(agent, api_key)
+    if updated:
+        agent.forgerouter_api_key_encrypted = encrypt_secret(api_key)
+        await db.commit()
+    return ForgeRouterKeyImportOut(matched=True, updated=updated, forgerouter_api_key_configured=True)
+
+
+@router.post("/sync/forgerouter-keys", response_model=ForgeRouterKeySyncOut)
+async def sync_forgerouter_keys(db: AsyncSession = Depends(get_db)) -> ForgeRouterKeySyncOut:
+    """Manual trigger of run_forgerouter_key_sync_pass below (the same pass
+    also runs on its own every FORGEROUTER_KEY_SYNC_INTERVAL_SECONDS)."""
+    return await run_forgerouter_key_sync_pass(db)
+
+
+async def run_forgerouter_key_sync_pass(db: AsyncSession) -> ForgeRouterKeySyncOut:
+    """Bulk counterpart of POST /{agent_id}/forgerouter-key/import above:
+    imports every active agent's already-issued ForgeRouter key in one
+    pass, for every agent registered in ForgeRouter -- not just the
+    Hermes-profile ones /sync/hermes-foundation already covers via
+    config.yaml (2026-07-29, Marcelo: "tem que gravar no campo forgerouter
+    api key de todos os agentes cadastrado no forgerouter").
+
+    Matched by exact agent name (case-insensitive) -- ai_router.agents has
+    no FK back to ForgeHub, name is the only shared key. Always overwrites
+    on a match: ai_router.agents is the authoritative, currently-live
+    value (ForgeRouter itself issued it and wrote it into that agent's own
+    config), so a stale ForgeHub copy should lose to it, unlike the
+    fill-only rule /sync/hermes-foundation and /sync/runtimes use for
+    fields a human might have hand-edited.
+
+    Runs on a timer too since 2026-10-14: as a button only, a key rotated in
+    ForgeRouter left ForgeHub's copy stale until someone remembered to click
+    it -- Lara, Themis and Dartan had drifted, Dartan's Messages dispatches
+    (agy runs on this copy, Hermes profiles on their own config.yaml) were
+    sending a key ForgeRouter refuses, and Maia/Vector had none at all."""
+    # A retired agent never gets a key back, even while its ForgeRouter row
+    # still exists (2026-10-14: Vector, retired 2026-10-12, was refilled).
+    result = await db.execute(
+        select(Agent).where(Agent.is_active.is_(True), Agent.status != "retired").order_by(Agent.name)
+    )
+    agents = list(result.scalars().all())
+    keys_by_name = {k.name.strip().lower(): k.api_key for k in await forgerouter_sync.read_forgerouter_agent_keys()}
+
+    rows: list[ForgeRouterKeySyncAgentOut] = []
+    matched = updated = 0
+    for agent in agents:
+        api_key = keys_by_name.pop(agent.name.strip().lower(), None)
+        if api_key is None:
+            rows.append(ForgeRouterKeySyncAgentOut(agent_id=agent.id, agent_name=agent.name))
+            continue
+        matched += 1
+        changed = not _forgerouter_key_unchanged(agent, api_key)
+        if changed:
+            agent.forgerouter_api_key_encrypted = encrypt_secret(api_key)
+            updated += 1
+        rows.append(
+            ForgeRouterKeySyncAgentOut(agent_id=agent.id, agent_name=agent.name, matched=True, updated=changed)
+        )
+    if updated:
+        await db.commit()
+
+    return ForgeRouterKeySyncOut(
+        checked=len(agents),
+        matched=matched,
+        updated=updated,
+        agents=rows,
+        unmatched_forgerouter_agents=sorted(keys_by_name),
+    )
+
+
+@router.get("/forgerouter-services", response_model=list[ForgeRouterServiceOut])
+async def list_forgerouter_services(_admin: User = Depends(get_current_admin)) -> list[ForgeRouterServiceOut]:
+    """Service-kind entries in ForgeRouter's own registry (ai_router.agents,
+    kind='service' -- e.g. "Hindsight") for Settings' "Default agent for
+    project API keys" picker (2026-07-29, Marcelo: "eu adicionei agente do
+    tipo serviço no forgerouter, filtra somente esses"). Distinct from the
+    Agent roster: a service has no ForgeHub Agent row of its own, so this
+    reads straight from ForgeRouter. Declared before /{agent_id} so this
+    literal path is never parsed as an agent UUID. Name only -- see
+    /forgerouter-services/{name} for the key itself, same
+    never-in-a-list-response pattern as every other secret in this module."""
+    services = await forgerouter_sync.read_forgerouter_service_keys()
+    return [ForgeRouterServiceOut(name=s.name) for s in services]
+
+
+@router.get("/forgerouter-services/{name}", response_model=ForgeRouterServiceKeyOut)
+async def get_forgerouter_service_key(name: str, _admin: User = Depends(get_current_admin)) -> ForgeRouterServiceKeyOut:
+    """One service's plaintext key -- backs the Dashboard's
+    ProjectsForgeRouterCard prompt pre-fill. Declared before /{agent_id} for
+    the same literal-path reason as above."""
+    services = await forgerouter_sync.read_forgerouter_service_keys()
+    match = next((s for s in services if s.name == name), None)
+    if match is None:
+        raise HTTPException(status_code=404, detail=f"Service '{name}' not found in ForgeRouter's registry")
+@router.get("/by-slug/{slug}", response_model=AgentDetailOut)
+async def get_agent_by_slug(
+    slug: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_admin)
+) -> AgentDetailOut:
+    """Retrieve agent details by profile slug."""
+    result = await db.execute(
+        select(Agent)
+        .options(
+            selectinload(Agent.sub_agents),
+            selectinload(Agent.agent_skills),
+            selectinload(Agent.cost_rates),
+            selectinload(Agent.capacities),
+        )
+        .where(Agent.profile_slug == slug.lower())
+    )
+    agent = result.scalar_one_or_none()
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Agent with profile_slug '{slug}' not found")
+    out = AgentDetailOut.model_validate(agent)
+    if agent.forgerouter_api_key_encrypted:
+        try:
+            out.forgerouter_api_key = decrypt_secret(agent.forgerouter_api_key_encrypted)
+        except ValueError:
+            out.forgerouter_api_key = None
+    return out
+
+
+@router.get("/mcp-servers", response_model=AgentMcpOverviewOut)
+async def get_agents_mcp_overview(db: AsyncSession = Depends(get_db)) -> AgentMcpOverviewOut:
+    """Every agent's MCP servers in one payload, for the ecosystem-wide MCP
+    screen. Declared before /{agent_id} so this literal path is not parsed as
+    an agent UUID.
+
+    Agents whose runtime cannot load MCP servers are included with
+    `supported=False` and an empty list: the point of this screen is comparing
+    who has which server, and silently dropping an agent would read as "it has
+    none configured" rather than "it cannot have any".
+
+    Retired agents (`is_active=False`) are excluded, though: this screen is a
+    coverage matrix, one column per agent, and an agent nobody runs anymore
+    adds a permanently empty column that reads as a gap to close."""
+    result = await db.execute(select(Agent).where(Agent.is_active.is_(True)).order_by(Agent.name))
+    items: list[AgentMcpOverviewItem] = []
+    for agent in result.scalars().all():
+        fmt = agent_mcp.format_for(agent.runtime_type)
+        host_path = agent_mcp.config_host_path(agent.effective_home_path, fmt) if fmt else None
+        resolved = agent_mcp.resolve_host_file(host_path) if host_path else None
+        servers: list[AgentMcpServerOut] = []
+        error: str | None = None
+        if fmt and host_path and resolved is not None:
+            try:
+                servers = [
+                    AgentMcpServerOut(**info.__dict__)
+                    for info in agent_mcp.read_servers(host_path, fmt)
+                ]
+            except agent_mcp.McpConfigError as e:
+                error = str(e)
+        items.append(
+            AgentMcpOverviewItem(
+                agent_id=agent.id,
+                agent_name=agent.name,
+                profile_slug=agent.profile_slug,
+                runtime_type=agent.runtime_type,
+                config_path=host_path,
+                config_exists=resolved is not None,
+                supported=fmt is not None,
+                supports_toggle=bool(fmt and fmt.toggle_field),
+                error=error,
+                servers=servers,
+            )
+        )
+    return AgentMcpOverviewOut(agents=items)
+
+
+@router.get("/telegram-status", response_model=AgentTelegramStatusListOut)
+async def get_agents_telegram_status(
+    db: AsyncSession = Depends(get_db),
+) -> AgentTelegramStatusListOut:
+    """Telegram channel health for every registered agent: whether the
+    channel is installed (bot token + home channel in the profile's own .env)
+    and whether the gateway daemon that serves it is running."""
+    result = await db.execute(select(Agent).order_by(Agent.name))
+    agents = list(result.scalars().all())
+    states, check_error = await _telegram_platform_states()
+    return AgentTelegramStatusListOut(
+        agents=[
+            AgentTelegramStatusOut(
+                agent_id=agent.id,
+                agent_name=agent.name,
+                **vars(
+                    agent_telegram.build_status(
+                        profile_slug=agent.profile_slug,
+                        required=agent.telegram_required,
+                        home_path=agent.effective_home_path,
+                        runtime_type=agent.runtime_type,
+                        telegram_states=states,
+                    )
+                ),
+            )
+            for agent in agents
+        ],
+        check_error=check_error,
+    )
+
+
+async def _telegram_conversation(agent: Agent) -> AgentTelegramConversationOut:
+    if not agent.profile_slug:
+        raise HTTPException(status_code=400, detail="This agent has no Hermes profile")
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.get(
+            f"{settings.CHAT_BRIDGE_URL}/v1/telegram/{agent.profile_slug}/messages",
+            headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+        )
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Telegram bridge error: {response.text[:500]}",
+        )
+    payload = response.json()
+    return AgentTelegramConversationOut(
+        agent_id=agent.id,
+        agent_name=agent.name,
+        profile_slug=agent.profile_slug,
+        session_id=payload.get("session_id"),
+        chat_id=payload.get("chat_id"),
+        messages=payload.get("messages") or [],
+    )
+
+
+@router.get("/{agent_id}/telegram/messages", response_model=AgentTelegramConversationOut)
+async def get_agent_telegram_messages(
+    agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> AgentTelegramConversationOut:
+    """Visible transcript from the agent's latest real Telegram session."""
+    return await _telegram_conversation(await _get_agent_or_404(db, agent_id))
+
+
+@router.post("/{agent_id}/telegram/messages", response_model=AgentTelegramConversationOut)
+async def send_agent_telegram_message(
+    agent_id: uuid.UUID,
+    message: str = Form(default=""),
+    files: list[UploadFile] = File(default=[]),
+    db: AsyncSession = Depends(get_db),
+) -> AgentTelegramConversationOut:
+    """Continue the agent's Telegram context from ForgeHub and relay its reply.
+
+    Telegram does not let a bot impersonate an inbound human message. The
+    operator prompt is therefore appended by resuming Hermes' actual Telegram
+    session, and the agent's answer is delivered to that same Telegram chat
+    through the agent's own bot.
+
+    Attachments (2026-08-15, parity with chat.py's send_chat_message, whose
+    image/text-file split this mirrors exactly): an image goes through
+    `_call_bridge_images` (the same vision-capable bridge call the
+    Conversations composer uses); a text file is decoded and pasted inline
+    into the prompt, never uploaded as a binary the agent would need a tool
+    to fetch. Both still resume the same real `conversation.session_id`
+    (never `None`, unlike the improve-prompt route below) so the attachment
+    lands in the actual ongoing Telegram thread, not a throwaway one.
+    """
+    agent = await _get_agent_or_404(db, agent_id)
+    conversation = await _telegram_conversation(agent)
+    if not conversation.session_id or not conversation.chat_id:
+        raise HTTPException(
+            status_code=409,
+            detail="No Telegram conversation exists yet. Send the agent's bot a message first.",
+        )
+    if not message.strip() and not files:
+        raise HTTPException(status_code=400, detail="message or file is required")
+
+    if files:
+        images: list[tuple[str, bytes]] = []
+        text_blocks: list[str] = []
+        for f in files:
+            content = await f.read()
+            if (f.content_type or "").startswith("image/"):
+                images.append((f.filename or "image.png", content))
+            else:
+                try:
+                    text_content = content.decode("utf-8")
+                except UnicodeDecodeError:
+                    raise HTTPException(
+                        status_code=400, detail="Attached file must be a text file or an image"
+                    ) from None
+                text_blocks.append(f'Content of file "{f.filename}" pasted below:\n---\n{text_content}\n---')
+        if images:
+            combined_message = "\n\n".join([*text_blocks, message]).strip()
+            bridge_result = await _call_bridge_images(
+                conversation.profile_slug,
+                combined_message or "See the attached images.",
+                conversation.session_id,
+                images,
+            )
+        else:
+            outgoing_message = "\n\n".join([*text_blocks, message]).strip()
+            bridge_result = await _call_bridge_text(
+                conversation.profile_slug, outgoing_message, conversation.session_id
+            )
+    else:
+        bridge_result = await _call_bridge_text(conversation.profile_slug, message, conversation.session_id)
+
+    reply = (bridge_result.get("reply") or "").strip()
+    if not reply:
+        raise HTTPException(status_code=502, detail="Agent returned an empty Telegram reply")
+    bridge_headers = {"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN}
+    async with httpx.AsyncClient(timeout=660.0) as client:
+        sent = await client.post(
+            f"{settings.CHAT_BRIDGE_URL}/v1/messages/send",
+            json={
+                "target": f"telegram:{conversation.chat_id}",
+                "message": reply,
+                "profile": conversation.profile_slug,
+            },
+            headers=bridge_headers,
+        )
+        if sent.status_code != 200:
+            # The Hermes turn has already been committed to the real session.
+            # Returning a normal transcript with a delivery warning prevents
+            # the UI from retrying the whole prompt and generating a duplicate
+            # answer merely because Telegram delivery failed afterward.
+            refreshed = await _telegram_conversation(agent)
+            refreshed.delivery_error = f"Telegram delivery error: {sent.text[:500]}"
+            return refreshed
+    return await _telegram_conversation(agent)
+
+
+@router.post("/{agent_id}/telegram/improve-prompt/stream")
+async def stream_telegram_improve_prompt(
+    agent_id: uuid.UUID, payload: ImprovePromptRequest, db: AsyncSession = Depends(get_db)
+) -> StreamingResponse:
+    """Same private rewrite-only call as chat.py's stream_improve_prompt
+    (2026-08-15, parity with the Conversations/Channels composer) -- that
+    one resolves its agent from a ForgeHub chat session, which the
+    Telegram pane doesn't have; this resolves it directly from the agent
+    id already in the URL, since a Telegram tab only ever means one agent.
+    Never touches the agent's real Telegram session
+    (`hermes_session_id=None`, a fresh bridge call every time) so drafting
+    can never leak a stray turn into the actual conversation."""
+    agent = await _get_agent_or_404(db, agent_id)
+    technique = await get_prompt_technique(db, payload.technique_code)
+    prompt = build_prompt_improvement_request(
+        actor_context=(
+            f'Você é o agente "{agent.name}" no ForgeHub. O usuário está rascunhando uma mensagem '
+            "para enviar via Telegram e pediu sua ajuda para melhorá-la."
+        ),
+        draft=payload.draft,
+        instruction=payload.instruction,
+        technique=technique,
+    )
+
+    async def _events() -> AsyncIterator[str]:
+        try:
+            task = asyncio.ensure_future(_call_bridge_text(agent.profile_slug, prompt, None))
+            while True:
+                done, _pending = await asyncio.wait([task], timeout=15)
+                if done:
+                    break
+                yield ": ping\n\n"
+            bridge_result = await task
+            improved_text = (bridge_result.get("reply") or "").strip()
+            yield f"data: {json.dumps({'improved_text': improved_text})}\n\n"
+        except Exception as exc:
+            detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            yield f"event: error\ndata: {json.dumps({'detail': str(detail)})}\n\n"
+        yield "event: done\ndata: {}\n\n"
+
+    return StreamingResponse(_events(), media_type="text/event-stream")
+
+
+# ---------------------------------------------------------------------------
 # Hermes Foundation sync
 # ---------------------------------------------------------------------------
 
@@ -178,14 +712,19 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
     creation and never touched again, so manual edits made in ForgeHub
     survive a re-sync.
 
-    The roster is sourced from the real, provisioned profile directories
-    under /root/.hermes/profiles/ (`hermes_sync.list_provisioned_profiles`)
-    -- NOT from the registry docs (ECOSYSTEM_AGENTS.md etc.), which can
-    list agents that are only planned/documented and not actually
-    provisioned (e.g. `forgenet`), or go stale. A registry entry is used
-    only to enrich a provisioned profile's metadata (name, layer, role,
-    telegram, runtime tier) when one exists; a profile with no matching
-    entry is still registered, just without that metadata.
+    A Hermes profile is roster-eligible only when it is both provisioned
+    under /root/.hermes/profiles/ and present in the active Foundation
+    registry.  Directory presence alone cannot reactivate an archived role.
+
+    name/layer/mission are read from each profile's own IDENTITY.md first
+    (`hermes_sync.parse_profile_identity` -- the agent's live self-declared
+    configuration) and only fall back to the Foundation docs
+    (ECOSYSTEM_AGENTS.md / <NAME>.md) when IDENTITY.md is missing that
+    field (2026-07-29, Marcelo: "a sincronização vem da documentação que
+    pode estar desatualizada. E não da configuração dos agentes"). Only
+    runtime_tier and telegram_required stay doc-only -- no profile-folder
+    equivalent exists for either. A profile with no matching registry entry
+    and no IDENTITY.md is still registered, just without that metadata.
     """
     warnings: list[str] = []
     agents_created = agents_updated = 0
@@ -196,7 +735,8 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
     # 1. Agent roster.
     registry_by_slug = {e["profile_slug"]: e for e in hermes_sync.parse_agent_registry()}
     agent_by_slug: dict[str, Agent] = {}
-    for slug in hermes_sync.list_provisioned_profiles():
+    active_profile_slugs = hermes_sync.list_active_provisioned_profiles()
+    for slug in active_profile_slugs:
         has_registry_entry = slug in registry_by_slug
         entry = registry_by_slug.get(slug)
         if entry is None:
@@ -211,6 +751,28 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
                 "runtime_tier": None,
             }
         mission, source_path = hermes_sync.parse_agent_mission(slug)
+        # The profile's own IDENTITY.md (live agent configuration) wins over
+        # ECOSYSTEM_AGENTS.md/<NAME>.md (Foundation documentation, which can
+        # go stale) for name/layer/mission -- 2026-07-29, Marcelo: "a
+        # sincronização vem da documentação que pode estar desatualizada. E
+        # não da configuração dos agentes" (docs still consulted as
+        # fallback when IDENTITY.md doesn't have a field, per "você pode
+        # até consultar algumas coisas da documentação"). Crons/scripts
+        # already read live from the profile folder (AgentEcosystemHierarchy.tsx,
+        # useFoundationCrons/useFoundationAllScripts) and sub-agents are
+        # intentionally catalog-only WORKER/ROLE entries with no profile of
+        # their own (SUBAGENTS_CATALOG.md's own text) -- neither needed a
+        # source change here.
+        identity = hermes_sync.parse_profile_identity(slug)
+        if identity.get("name"):
+            entry["name"] = identity["name"]
+        if identity.get("layer"):
+            entry["layer"] = identity["layer"]
+        if identity.get("mission"):
+            mission = identity["mission"]
+            source_path = f"/root/.hermes/profiles/{slug}/IDENTITY.md"
+        forge_router_api_key = hermes_sync.read_profile_forgerouter_api_key(slug)
+        department, sector, reports_to_profile_slug = hermes_sync.organization_for_profile(slug)
 
         result = await db.execute(select(Agent).where(Agent.profile_slug == slug))
         agent = result.scalar_one_or_none()
@@ -228,24 +790,62 @@ async def sync_hermes_foundation(db: AsyncSession = Depends(get_db)) -> HermesSy
                 has_profile=True,
                 mission=mission,
                 source_path=source_path,
+                department=department,
+                sector=sector,
+                reports_to_profile_slug=reports_to_profile_slug,
+                forgerouter_api_key_encrypted=(
+                    encrypt_secret(forge_router_api_key) if forge_router_api_key else None
+                ),
             )
             db.add(agent)
             agents_created += 1
         else:
-            # Only refresh the registry-mirrored fields when this run actually
-            # found registry data for the slug -- a transient/empty read of
-            # ECOSYSTEM_AGENTS.md must never wipe an existing agent's real
-            # layer/runtime_tier/telegram_required back to defaults.
-            if has_registry_entry:
+            # Only refresh a field when this run actually found real data
+            # for it -- a transient/empty doc read must never wipe an
+            # existing agent's real value back to defaults. `layer` has two
+            # possible sources now (IDENTITY.md above, or the registry doc),
+            # so it refreshes when either produced something; runtime_tier/
+            # telegram_required have no profile-folder equivalent, so they
+            # stay strictly registry-doc-gated.
+            if identity.get("layer") or has_registry_entry:
                 agent.layer = entry["layer"]
+            if has_registry_entry:
                 agent.runtime_tier = entry["runtime_tier"]
                 agent.telegram_required = entry["telegram_required"]
             agent.has_profile = True
             agent.mission = mission
             agent.source_path = source_path
+            agent.department = department
+            agent.sector = sector
+            agent.reports_to_profile_slug = reports_to_profile_slug
+            if forge_router_api_key and not agent.forgerouter_api_key_encrypted:
+                agent.forgerouter_api_key_encrypted = encrypt_secret(forge_router_api_key)
             agents_updated += 1
         await db.flush()
         agent_by_slug[slug] = agent
+
+    # A restored directory is not a lifecycle promotion. Preserve the row for
+    # audit and references, but stop presenting a previously synced Hermes
+    # identity as active when the canonical registry no longer contains it.
+    # If the registry read itself failed, do not mass-retire anything: an
+    # empty active set is treated as unavailable evidence, not as an empty
+    # ecosystem.
+    if active_profile_slugs:
+        stale_result = await db.execute(
+            select(Agent).where(
+                Agent.runtime_type == "hermes",
+                Agent.profile_slug.is_not(None),
+                Agent.profile_slug.not_in(active_profile_slugs),
+                Agent.is_active.is_(True),
+            )
+        )
+        for stale_agent in stale_result.scalars().all():
+            stale_agent.is_active = False
+            stale_agent.status = "retired"
+            agents_updated += 1
+            warnings.append(
+                f"Profile '{stale_agent.profile_slug}' is not in the active Foundation registry; retired."
+            )
 
     # 2. Sub-agent WORKER/ROLE catalog, per owning agent.
     for slug, roles in hermes_sync.parse_subagent_catalog().items():
@@ -447,8 +1047,22 @@ async def delete_skill(skill_id: uuid.UUID, db: AsyncSession = Depends(get_db)) 
 
 
 @router.get("/{agent_id}", response_model=AgentDetailOut)
-async def get_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Agent:
-    return await _get_agent_detail_or_404(db, agent_id)
+async def get_agent(
+    agent_id: uuid.UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_admin)
+) -> AgentDetailOut:
+    """Admin-gated (2026-07-29, was open to any authenticated caller before):
+    this is the one place forgerouter_api_key_encrypted is ever decrypted
+    back out to the response, so it needed the same admin gate the field's
+    own write side (PATCH .../forgerouter_api_key) already implicitly
+    relies on -- see AgentDetailOut.forgerouter_api_key's docstring."""
+    agent = await _get_agent_detail_or_404(db, agent_id)
+    out = AgentDetailOut.model_validate(agent)
+    if agent.forgerouter_api_key_encrypted:
+        try:
+            out.forgerouter_api_key = decrypt_secret(agent.forgerouter_api_key_encrypted)
+        except ValueError:
+            out.forgerouter_api_key = None
+    return out
 
 
 @router.patch("/{agent_id}", response_model=AgentOut)
@@ -457,17 +1071,36 @@ async def update_agent(
 ) -> Agent:
     agent = await _get_agent_or_404(db, agent_id)
     updates = payload.model_dump(exclude_unset=True)
+    api_key = updates.pop("forgerouter_api_key", None)
+    clear_api_key = updates.pop("clear_forgerouter_api_key", False)
+    if api_key:
+        agent.forgerouter_api_key_encrypted = encrypt_secret(api_key)
+    elif clear_api_key:
+        agent.forgerouter_api_key_encrypted = None
+    runtime_eligibility_touched = "runtime_type" in updates or "home_path" in updates
     for field, value in updates.items():
         setattr(agent, field, value)
     try:
         await db.commit()
     except IntegrityError:
         await db.rollback()
+        # Two unique constraints can land here now that profile_slug is
+        # editable (uq_agents_profile_slug alongside agents_name_key) --
+        # naming only the first would send someone hunting for a duplicate
+        # name that doesn't exist.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="An agent with this name already exists",
+            detail="Another agent already uses this name or profile_slug",
         ) from None
     await db.refresh(agent)
+    # AgentCreate has no runtime_type/home_path fields at all (an agent is
+    # always created bare, then typed later here or by sync_agent_runtimes)
+    # -- this PATCH, not creation, is where an agent actually becomes
+    # MCP-eligible for the first time, so this is where "apply_to_all_agents"
+    # must also reach it.
+    if runtime_eligibility_touched and await apply_global_servers_to_agent(db, agent):
+        await db.commit()
+        await db.refresh(agent)
     return agent
 
 
@@ -475,6 +1108,356 @@ async def update_agent(
 async def delete_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
     agent = await _get_agent_or_404(db, agent_id)
     await db.delete(agent)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This agent has related operational history. "
+                "Retire it instead of deleting it."
+            ),
+        ) from None
+
+
+# ---------------------------------------------------------------------------
+# Profile Markdown files (SOUL.md, IDENTITY.md, TOOLS.md, ...)
+#
+# Keyed by agent, not by Hermes profile: foundation.py's
+# /profiles/{profile}/files/{filename} can only ever reach the eight agents
+# that have a directory under /root/.hermes/profiles, which left the
+# external CLI runtimes (Porthus/claude, Aramis/codex, Dartan/agy) with no way to show their own identity files. Directory
+# resolution and the filename allow-list live in core/agent_profile_files.py.
+# ---------------------------------------------------------------------------
+
+
+def _resolve_profile_home(agent: Agent) -> tuple[str | None, Path | None]:
+    host_home = agent.effective_home_path
+    return host_home, agent_profile_files.resolve_home_dir(host_home)
+
+
+def _require_profile_file(agent: Agent, filename: str) -> tuple[str, Path]:
+    """Resolve one profile file for an agent, or raise. Both the allow-list
+    check and the "stays inside the home directory" check happen here --
+    `filename` comes straight from the URL."""
+    host_home, home_dir = _resolve_profile_home(agent)
+    if host_home is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "This agent has no profile directory. Register one in "
+                "'Profile directory' on the agent page."
+            ),
+        )
+    if home_dir is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Profile directory not reachable from the backend: {host_home}",
+        )
+    allowed = agent_profile_files.allowed_filenames(agent.runtime_type, agent.profile_slug)
+    path = agent_profile_files.resolve_file(home_dir, filename, allowed)
+    if path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown profile file")
+    return host_home, path
+
+
+@router.get("/{agent_id}/profile-files", response_model=AgentProfileFilesOut)
+async def list_agent_profile_files(
+    agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> AgentProfileFilesOut:
+    """List every profile file this agent may have, present or not. Missing
+    files are returned with exists=False rather than omitted -- "SOUL.md was
+    never written" is exactly what an operator needs to see."""
+    agent = await _get_agent_or_404(db, agent_id)
+    host_home, home_dir = _resolve_profile_home(agent)
+    allowed = agent_profile_files.allowed_filenames(agent.runtime_type, agent.profile_slug)
+    files: list[AgentProfileFileInfo] = []
+    for filename in allowed:
+        if home_dir is None:
+            files.append(
+                AgentProfileFileInfo(
+                    filename=filename,
+                    path=f"{(host_home or '').rstrip('/')}/{filename}",
+                    exists=False,
+                )
+            )
+            continue
+        info = agent_profile_files.stat_file(home_dir / filename, filename, host_home or "")
+        files.append(AgentProfileFileInfo(**info.__dict__))
+    return AgentProfileFilesOut(
+        agent_id=agent.id,
+        home_path=host_home,
+        home_resolved=home_dir is not None,
+        files=files,
+    )
+
+
+@router.get("/{agent_id}/profile-files/{filename}", response_model=AgentProfileFileOut)
+async def get_agent_profile_file(
+    agent_id: uuid.UUID, filename: str, db: AsyncSession = Depends(get_db)
+) -> AgentProfileFileOut:
+    agent = await _get_agent_or_404(db, agent_id)
+    host_home, path = _require_profile_file(agent, filename)
+    try:
+        content: str | None = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        content = None
+    except OSError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to read {filename}: {e}",
+        ) from e
+    return AgentProfileFileOut(
+        agent_id=agent.id,
+        filename=filename,
+        path=f"{host_home.rstrip('/')}/{filename}",
+        content=content,
+    )
+
+
+@router.put("/{agent_id}/profile-files/{filename}", response_model=AgentProfileFileOut)
+async def update_agent_profile_file(
+    agent_id: uuid.UUID,
+    filename: str,
+    payload: AgentProfileFileUpdateIn,
+    db: AsyncSession = Depends(get_db),
+) -> AgentProfileFileOut:
+    """Write a profile file, creating it if absent. These files are what the
+    agent loads at session start, so a write here changes real agent behaviour
+    on its next run -- same contract as foundation.py's profile-file writer."""
+    agent = await _get_agent_or_404(db, agent_id)
+    host_home, path = _require_profile_file(agent, filename)
+    try:
+        path.write_text(payload.content, encoding="utf-8")
+    except OSError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to write {filename}: {e}",
+        ) from e
+    return AgentProfileFileOut(
+        agent_id=agent.id,
+        filename=filename,
+        path=f"{host_home.rstrip('/')}/{filename}",
+        content=payload.content,
+    )
+
+
+# ---------------------------------------------------------------------------
+# MCP servers
+#
+# Each runtime keeps its MCP servers in its own file and format (see
+# core/agent_mcp.py); these routes read and edit that file in place. There is
+# deliberately no ForgeHub-side table: a copy would drift the moment someone
+# ran `claude mcp add` in a terminal, and the runtime reads the file, not us.
+# ---------------------------------------------------------------------------
+
+
+def _require_mcp_target(agent: Agent) -> tuple[agent_mcp.McpConfigFormat, str]:
+    """The MCP config format and host file path for an agent, or 400/404.
+
+    An agent with no `runtime_type` is not an error in the registry (Kairos is
+    registered without one), but it has no runtime that could load an MCP
+    server -- so it gets an explicit 400 rather than an empty list that would
+    read as "configured, none yet"."""
+    fmt = agent_mcp.format_for(agent.runtime_type)
+    if fmt is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Agent {agent.name} has no runtime that loads MCP servers"
+                + (f" (runtime_type={agent.runtime_type!r})." if agent.runtime_type else ".")
+            ),
+        )
+    host_path = agent_mcp.config_host_path(agent.effective_home_path, fmt)
+    if not host_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "This agent has no home directory on file, so its MCP config "
+                "cannot be located. Set 'Profile directory' on the agent page."
+            ),
+        )
+    return fmt, host_path
+
+
+@router.get("/{agent_id}/mcp-servers", response_model=AgentMcpServersOut)
+async def list_agent_mcp_servers(
+    agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> AgentMcpServersOut:
+    """The MCP servers this agent's runtime will load on its next run.
+
+    A config file that exists but cannot be parsed is reported through `error`
+    with an empty server list, never as a 500: a hand-edited config with a
+    syntax error is exactly the situation an operator opens this screen to
+    diagnose, and a failing screen would hide it."""
+    agent = await _get_agent_or_404(db, agent_id)
+    fmt, host_path = _require_mcp_target(agent)
+    resolved = agent_mcp.resolve_host_file(host_path)
+    servers: list[AgentMcpServerOut] = []
+    error: str | None = None
+    if resolved is not None:
+        try:
+            servers = [
+                AgentMcpServerOut(**info.__dict__)
+                for info in agent_mcp.read_servers(host_path, fmt)
+            ]
+        except agent_mcp.McpConfigError as e:
+            error = str(e)
+    return AgentMcpServersOut(
+        agent_id=agent.id,
+        runtime_type=agent.runtime_type,
+        config_path=host_path,
+        config_exists=resolved is not None,
+        supports_toggle=fmt.toggle_field is not None,
+        error=error,
+        servers=servers,
+    )
+
+
+@router.put("/{agent_id}/mcp-servers/{name}", response_model=AgentMcpServersOut)
+async def upsert_agent_mcp_server(
+    agent_id: uuid.UUID,
+    name: str,
+    payload: AgentMcpServerIn,
+    db: AsyncSession = Depends(get_db),
+) -> AgentMcpServersOut:
+    """Add or update one MCP server in the runtime's own config file.
+
+    This changes what the agent can do on its next run -- for the Hermes
+    profiles that also means their persistent gateway daemon
+    keeps the old set until it is restarted, while a one-shot dispatch picks
+    the change up immediately."""
+    agent = await _get_agent_or_404(db, agent_id)
+    fmt, host_path = _require_mcp_target(agent)
+    if bool(payload.command) == bool(payload.url):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide either a command (stdio server) or a url (HTTP server), not both.",
+        )
+    if not payload.enabled and fmt.toggle_field is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"The {agent.runtime_type} runtime has no enable/disable flag for MCP servers — "
+                "remove the server instead."
+            ),
+        )
+    server = agent_mcp.McpServerInfo(
+        name=name,
+        command=payload.command,
+        args=payload.args,
+        env=payload.env,
+        url=payload.url,
+        enabled=payload.enabled,
+    )
+    try:
+        agent_mcp.write_server(host_path, fmt, name, server)
+    except agent_mcp.McpConfigError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return await list_agent_mcp_servers(agent_id, db)
+
+
+@router.delete("/{agent_id}/mcp-servers/{name}", response_model=AgentMcpServersOut)
+async def delete_agent_mcp_server(
+    agent_id: uuid.UUID, name: str, db: AsyncSession = Depends(get_db)
+) -> AgentMcpServersOut:
+    """Remove one MCP server from the runtime's own config file."""
+    agent = await _get_agent_or_404(db, agent_id)
+    fmt, host_path = _require_mcp_target(agent)
+    try:
+        agent_mcp.write_server(host_path, fmt, name, None)
+    except agent_mcp.McpConfigError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return await list_agent_mcp_servers(agent_id, db)
+
+
+# ---------------------------------------------------------------------------
+# Agent Service Credentials (Tokens for MCP and automated API access)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{agent_id}/credentials",
+    response_model=AgentServiceCredentialOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def issue_agent_service_credential(
+    agent_id: uuid.UUID,
+    payload: AgentServiceCredentialCreateIn = AgentServiceCredentialCreateIn(),
+    db: AsyncSession = Depends(get_db),
+) -> AgentServiceCredentialOut:
+    """Generate and issue a fresh, active Service Credential (agt_...) for an agent."""
+    agent = await _get_agent_or_404(db, agent_id)
+    raw_token = f"agt_{secrets.token_urlsafe(32)}"
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+    credential = AgentServiceCredential(
+        agent_id=agent.id,
+        label=payload.label,
+        token_hash=token_hash,
+        expires_at=payload.expires_at,
+    )
+    db.add(credential)
+    await db.commit()
+    await db.refresh(credential)
+
+    return AgentServiceCredentialOut(
+        id=credential.id,
+        agent_id=credential.agent_id,
+        label=credential.label,
+        token=raw_token,
+        expires_at=credential.expires_at,
+        created_at=credential.created_at,
+    )
+
+
+@router.get(
+    "/{agent_id}/credentials",
+    response_model=list[AgentServiceCredentialOut],
+)
+async def list_agent_service_credentials(
+    agent_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> list[AgentServiceCredentialOut]:
+    """List active service credentials for an agent (tokens themselves are not stored in plaintext)."""
+    agent = await _get_agent_or_404(db, agent_id)
+    result = await db.execute(
+        select(AgentServiceCredential)
+        .where(
+            AgentServiceCredential.agent_id == agent.id,
+            AgentServiceCredential.revoked_at.is_(None),
+        )
+        .order_by(AgentServiceCredential.created_at.desc())
+    )
+    return [
+        AgentServiceCredentialOut(
+            id=c.id,
+            agent_id=c.agent_id,
+            label=c.label,
+            token=None,
+            expires_at=c.expires_at,
+            created_at=c.created_at,
+        )
+        for c in result.scalars().all()
+    ]
+
+
+@router.delete(
+    "/{agent_id}/credentials/{credential_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def revoke_agent_service_credential(
+    agent_id: uuid.UUID,
+    credential_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Revoke an agent's service credential."""
+    agent = await _get_agent_or_404(db, agent_id)
+    credential = await db.get(AgentServiceCredential, credential_id)
+    if not credential or credential.agent_id != agent.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
+    credential.revoked_at = datetime.now(timezone.utc)
     await db.commit()
 
 

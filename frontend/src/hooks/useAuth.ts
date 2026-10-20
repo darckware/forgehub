@@ -1,29 +1,34 @@
 import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api";
-import { useAuthStore, type AuthUser, type PermissionMap } from "@/store/authStore";
+import i18n, { SUPPORTED_UI_LANGUAGES, type UiLanguage } from "@/i18n";
+import { useAuthStore, type ActionPermissionMap, type AuthUser, type PermissionMap } from "@/store/authStore";
 
 interface TokenOut {
   access_token: string;
   token_type: string;
-  user: AuthUser;
-  permissions: PermissionMap;
+  user: AuthUser | null;
+  permissions: PermissionMap | null;
+  actions: ActionPermissionMap;
+  requires_totp?: boolean;
+  totp_pending_token?: string;
 }
 
 interface LoginPayload {
   username: string;
   password: string;
+  recaptchaToken?: string | null;
 }
 
 export function useLogin() {
   const setAuth = useAuthStore((s) => s.setAuth);
-  const qc = useQueryClient();
 
   return useMutation<TokenOut, Error, LoginPayload>({
-    mutationFn: async ({ username, password }) => {
+    mutationFn: async ({ username, password, recaptchaToken }) => {
       const form = new URLSearchParams();
       form.append("username", username);
       form.append("password", password);
+      if (recaptchaToken) form.append("recaptcha_token", recaptchaToken);
       const base = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
       const res = await fetch(`${base}/api/v1/auth/token`, {
         method: "POST",
@@ -37,10 +42,22 @@ export function useLogin() {
       return res.json();
     },
     onSuccess: (data) => {
-      setAuth(data.access_token, data.user, data.permissions ?? {});
-      qc.clear();
+      if (!data.requires_totp && data.access_token) {
+        setAuth(data.access_token, data.user!, data.permissions ?? {}, data.actions ?? {});
+      }
     },
   });
+}
+
+// Clears every cached query so a new login never shows the previous
+// session's data. Called on logout (UserSettingsMenu's handleLogout), not
+// on login success -- clearing there raced the fresh post-login navigation
+// into AppLayout, which mounts several data-fetching widgets that expect a
+// query cache to exist a moment before their first render, causing an
+// intermittent blank screen recoverable only by a manual reload.
+export function useClearQueryCacheOnLogout() {
+  const qc = useQueryClient();
+  return () => qc.clear();
 }
 
 // The JWT has a fixed 60-minute expiry (backend ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -70,7 +87,7 @@ export function useSessionKeepAlive() {
       apiClient
         .get<TokenOut>("/api/v1/auth/me")
         .then((data) => {
-          if (data.access_token) setAuth(data.access_token, data.user, data.permissions ?? {});
+          if (data.access_token && data.user) setAuth(data.access_token, data.user, data.permissions ?? {}, data.actions ?? {});
         })
         .catch(() => {
           // Token already invalid -- lib/api.ts's 401 handler already
@@ -83,6 +100,79 @@ export function useSessionKeepAlive() {
       for (const evt of ACTIVITY_EVENTS) window.removeEventListener(evt, onActivity);
     };
   }, [token, setAuth]);
+}
+
+// Applies the logged-in user's saved ui_language to i18next -- covers
+// initial load (zustand's persisted store rehydrates before this runs),
+// login, and any change made elsewhere (e.g. UserSettingsMenu's language
+// picker, which also calls i18n.changeLanguage directly for an instant
+// switch; this hook is what makes that choice durable across reloads and
+// other devices/browsers, where localStorage alone wouldn't carry it).
+export function useSyncUiLanguage() {
+  const uiLanguage = useAuthStore((s) => s.user?.ui_language);
+
+  useEffect(() => {
+    if (!uiLanguage) return;
+    if (!(SUPPORTED_UI_LANGUAGES as readonly string[]).includes(uiLanguage)) return;
+    if (i18n.language === uiLanguage) return;
+    void i18n.changeLanguage(uiLanguage as UiLanguage);
+  }, [uiLanguage]);
+}
+
+// ---- TOTP 2FA ---------------------------------------------------------------
+
+interface TotpSetupOut {
+  secret: string;
+  provisioning_uri: string;
+  qr_code_data_url: string;
+  recovery_codes: string[];
+}
+
+export function useSetupTotp() {
+  return useMutation<TotpSetupOut, Error, void>({
+    mutationFn: () => apiClient.post("/api/v1/auth/totp/setup"),
+  });
+}
+
+export function useEnableTotp() {
+  const updateUser = useAuthStore((s) => s.updateUser);
+  return useMutation<{ enabled: boolean }, Error, { secret: string; code: string; recovery_codes?: string[] }>({
+    mutationFn: (body) => apiClient.post("/api/v1/auth/totp/enable", body),
+    onSuccess: () => updateUser({ totp_enabled: true } as Partial<AuthUser>),
+  });
+}
+
+export function useDisableTotp() {
+  const updateUser = useAuthStore((s) => s.updateUser);
+  return useMutation<{ enabled: boolean }, Error, { password: string; code: string }>({
+    mutationFn: (body) => apiClient.post("/api/v1/auth/totp/disable", body),
+    onSuccess: () => updateUser({ totp_enabled: false } as Partial<AuthUser>),
+  });
+}
+
+export function useVerifyTotp() {
+  const setAuth = useAuthStore((s) => s.setAuth);
+  return useMutation<TokenOut, Error, { totp_pending_token: string; code: string }>({
+    mutationFn: (body) => {
+      const base = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
+      return fetch(`${base}/api/v1/auth/totp/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then(async (res) => {
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error((err as { detail?: string }).detail ?? "TOTP verification failed");
+        }
+        return res.json();
+      });
+    },
+    onSuccess: (data) => {
+      if (data.access_token) {
+        setAuth(data.access_token, data.user!, data.permissions ?? {}, data.actions ?? {});
+      }
+    },
+  });
 }
 
 // ---- Users ----------------------------------------------------------------
@@ -125,7 +215,7 @@ export function useDeleteUser() {
  * password/is_admin/is_active/profile_id (see backend's SelfUserUpdate). */
 export function useUpdateMe() {
   const updateUser = useAuthStore((s) => s.updateUser);
-  return useMutation<AuthUser, Error, Partial<{ email: string; full_name: string; avatar_data_url: string | null }>>({
+  return useMutation<AuthUser, Error, Partial<{ email: string; full_name: string; avatar_data_url: string | null; ui_language: UiLanguage }>>({
     mutationFn: (body) => apiClient.patch("/api/v1/users/me", body),
     onSuccess: (user) => updateUser(user),
   });
@@ -152,6 +242,7 @@ export interface Profile {
   name: string;
   description: string | null;
   permissions: ProfilePermission[];
+  action_permissions: { action_key: string; allowed: boolean }[];
   created_at: string;
   updated_at: string;
 }
@@ -165,7 +256,7 @@ export function useProfiles() {
 
 export function useCreateProfile() {
   const qc = useQueryClient();
-  return useMutation<Profile, Error, { name: string; description?: string; permissions: ProfilePermission[] }>({
+  return useMutation<Profile, Error, { name: string; description?: string; permissions: ProfilePermission[]; action_permissions?: { action_key: string; allowed: boolean }[] }>({
     mutationFn: (body) => apiClient.post("/api/v1/profiles", body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["profiles"] }),
   });
@@ -173,7 +264,7 @@ export function useCreateProfile() {
 
 export function useUpdateProfile() {
   const qc = useQueryClient();
-  return useMutation<Profile, Error, { id: string; body: { name?: string; description?: string; permissions?: ProfilePermission[] } }>({
+  return useMutation<Profile, Error, { id: string; body: { name?: string; description?: string; permissions?: ProfilePermission[]; action_permissions?: { action_key: string; allowed: boolean }[] } }>({
     mutationFn: ({ id, body }) => apiClient.patch(`/api/v1/profiles/${id}`, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["profiles"] }),
   });

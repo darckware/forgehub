@@ -1,0 +1,273 @@
+# Pendências — Nexo, Headscale e Darckware
+
+> **Aposentado em 2026-10-17.** O domínio Nexo (clientes, estações, irregularidades, relatórios, pacotes do agente) foi removido do ForgeHub — código, rotas, telas e tabelas (migration `a9c4e7f2b1d6`; dump em `/root/backup/forgehub-nexo/`). Este documento fica só como histórico.
+
+> **Atualizado em:** 2026-09-17
+> **Escopo:** acompanhamento da entrega descrita em
+> [`architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md`](architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md).
+
+Este é o registro central do estado da entrega. Ele não substitui especificações nem planos: um item
+só migra para **Concluído** quando existe código e evidência verificável.
+
+## Fronteira entre os sistemas
+
+- **Darckware** será a fonte canônica do cadastro do cliente e abriga site, CRM, área administrativa
+  e área do cliente.
+- **ForgeHub** gerencia a operação de projetos, serviços e desenvolvimento, além de estações e
+  instalações Nexo. Essas entidades devem se associar ao cliente por uma referência estável do
+  Darckware, sem recriar um segundo cadastro mestre. Quando necessário, o ForgeHub poderá manter
+  apenas uma projeção de exibição, sincronizada e somente leitura.
+- **ForgeRouter** permanece como proxy de LLMs e não é alterado por esta entrega.
+
+A migração do cadastro atual e o vínculo externo ainda **não estão implementados**. A integração deve
+continuar por API server-to-server; acoplamento direto entre bancos permanece fora do escopo.
+
+## Concluído
+
+### Fundação de monitoramento Nexo
+
+- Domínio `Client`, `Workstation` e `Irregularity`, com migrations no schema `company`.
+- Emissão/revogação do token, ingestão autenticada, regras de irregularidade e detecção de estações
+  sem comunicação.
+- APIs e telas internas de clientes, estações e irregularidades.
+
+Referências: [plano da fundação](superpowers/plans/2026-09-06-nexo-client-monitoring-foundation-implementation.md),
+commit integrado `1e19a07` e migration `e9ae96a2c664`.
+
+### Administração de rede Nexo
+
+- Concessão/revogação auditável de comunicação entre estações do mesmo cliente.
+- Política Headscale determinística, publicação pelo host bridge e rollback em falha.
+- APIs, hooks e telas administrativas.
+
+Referências: [plano de administração de rede](superpowers/plans/2026-09-06-nexo-network-administration-implementation.md)
+e migration `40e6bb284f7b`.
+
+## Integrado — validação operacional pendente
+
+### Instalador, distribuição e monitoramento da instalação
+
+Implementação de `feature/nexo-installer-monitoring` integrada em `develop` pelo merge `ec81c3f`,
+incluindo a revisão funcional `27679d9` e a documentação `be1a98d`. A verificação de 14/09 abaixo
+foi executada no checkout integrado; build real, instalação e deploy continuam pendentes.
+
+- Builds Linux e Windows catalogadas por revisão Git e plataforma, com artefatos persistentes e
+  verificação de tamanho/SHA-256.
+- Fronteira allowlisted no host bridge, sem comando, ref ou caminho arbitrário enviado pelo browser.
+- ZIP temporário por estação com binário, `agent.yaml`, instalador, manifesto e instruções; o token
+  em claro existe somente dentro do pacote e é substituído a cada nova geração.
+- Estados atuais e histórico imutável de instalação, promovendo para `online` apenas após relatório
+  autenticado da geração vigente.
+- Área `/nexo-agents` e ações contextuais na página do cliente, com textos em inglês, português e
+  espanhol.
+
+Referências: [especificação](superpowers/specs/2026-09-08-nexo-installer-monitoring-design.md),
+[plano](superpowers/plans/2026-09-08-nexo-installer-monitoring-implementation.md) e
+[runbook operacional](runbooks/NEXO_AGENT_PACKAGES.md).
+
+## Pendente — funcional
+
+### Identidade canônica e integração Darckware
+
+Falta especificar e implementar:
+
+- uma chave externa estável e única que associe projetos, serviços, desenvolvimento, estações e
+  instalações do ForgeHub ao cliente canônico do Darckware;
+- migração/deduplicação idempotente dos clientes já existentes, sem criar registros mestres iguais
+  nos dois bancos;
+- regras de unicidade, reconciliação, desativação e tratamento de vínculo ausente ou conflitante;
+- projeção local opcional, sincronizada e somente leitura, limitada aos campos necessários à
+  operação e exibição;
+- API server-to-server client-scoped para irregularidades e relatórios, com credencial mínima,
+  isolamento entre tenants e `404` para recursos de outro cliente;
+- consumo dessa API pela área autenticada `/cliente/` do Darckware.
+
+Não se deve introduzir foreign key entre bancos, leitura direta do banco Darckware pelo ForgeHub nem
+um segundo fluxo de cadastro mestre no ForgeHub.
+
+Referência: [seção 8 da especificação](architecture/NEXO_CLIENT_MONITORING_AND_NETWORK_ADMIN.md#8-client-facing-display-lives-in-the-darckware-sites-existing-client-area-not-here).
+
+## Pendente — operacional
+
+### Ambiente dedicado para validação real
+
+Foi decidido em 14/09 validar primeiro em ambiente dedicado, sem alterar a stack ForgeHub ativa
+nem o Headscale de produção. A estação informada é `100.107.175.100`; `root` foi recusado por
+`Permission denied (publickey,password)`, mas a chave dedicada existente funciona com o usuário
+operacional `aegis`. Em 15/09, a sondagem direta e o endpoint do host bridge (`/v1/servers/check-status`)
+retornaram estado `active` usando essa conta/chave. As builds reais Linux/Windows já foram produzidas,
+mas ainda não há uma estação Nexo registrada para esse host; instalação e smoke test continuam pendentes.
+Na sondagem de 16/09, o host informou `srv-sup`, usuário `aegis` e `passwordless_sudo=no`; portanto,
+a instalação do pacote ainda requer uma chave/conta root autorizada ou sudo operacional para essa conta.
+Em seguida, a estação Linux `8530f620-45b6-4482-bf9c-0bcd87d6a7fc` foi criada para a SEMED, o pacote
+da revisão `0724d69` foi gerado e transferido para `/home/aegis/nexo-semed-srv-sup/`; o estado atual
+da instalação é `package_ready`, aguardando execução do instalador como root.
+
+### Sincronização Git
+
+O estado da branch e do remoto deve ser verificado novamente antes da integração. Este documento não
+autoriza merge, rebase ou push.
+
+### Validação com Headscale real
+
+Os testes automatizados isolam o host bridge. Em 16/09, o Headscale 0.29.3 foi instalado com a
+unidade `remoto-headscale`, configuração validada e serviço ativo em `127.0.0.1:18080`; o health
+check retornou `{"status":"pass"}`. O fluxo administrativo criou os clientes `SEMED` e `GATLING`
+e publicou as tags `tag:cliente-semed` e `tag:cliente-gatling` na política do Headscale, com leitura
+posterior consistente.
+
+Ainda falta validar, em ambiente autorizado, concessão/revogação, tráfego efetivo e rollback contra
+estações reais. Após a configuração do Cloudflare em 16/09, `remoto.darckware.net` passou a resolver
+pelos endereços do proxy, `GET /health` retornou HTTP 200 com `{"status":"pass"}` e a rota de
+ingestão respondeu HTTP 401 sem token, confirmando encaminhamento público e autenticação ativa.
+
+### Deploy, migrations e smoke test real
+
+A migration Nexo `5a8c1e7d9f20` está aplicada no backend ativo desta stack. Ainda é necessário
+reconciliar Git, comparar `alembic current` com `alembic heads` no ambiente-alvo, aplicar migrations
+pelo processo autorizado quando aplicável, e executar health checks e smoke tests autenticados na
+estação real.
+
+### Build real pelo host bridge
+
+Concluída em 15/09 contra o checkout Nexo limpo `0724d691f6c7586a0d696c1da120f69a20816561`,
+usando o bridge implantado e publicação em `/root/forgehub-data/nexo-agent-artifacts`:
+
+- Linux: 8.421.872 bytes, SHA-256 `7bbbc8a01e3ab649dca9448944ebf98c39e37edcd0410d47aca97108e6495e9a`, ELF x86-64.
+- Windows: 8.655.872 bytes, SHA-256 `b7577d8720354272fbaae76c3be54201f64786fc78458b2107efba009d2630e6`, PE32+ x86-64.
+
+O serviço não encontrava `go` no `PATH`; isso foi corrigido incluindo o toolchain validado
+`/tmp/nexo-go-toolchain/bin` na unidade systemd do host bridge. A build e a retenção dos artefatos
+foram confirmadas pelo endpoint allowlisted e por verificação independente de tamanho, formato,
+checksum e metadados. Instalação em estação e smoke test autenticado continuam pendentes.
+
+O catálogo ativo foi atualizado com as duas builds em estado `ready`, ambas na revisão `0724d69`.
+
+## Pendências técnicas resolvidas e integradas
+
+### Verificação e instalação de ferramentas de desenvolvimento (Tool Versions)
+
+Implementado em 17/09:
+- **Diagnóstico e host bridge:** Identificado que ferramentas CLI monitoradas não instaladas no host (ex: `pi`, `opencode`, `openclaw`) reportavam "Check failed" devido a caminhos fixos que disparavam erro no bridge. Ajustado `host-bridge/app.py` com busca dinâmica (`shutil.which` e caminhos fallback), retornando `installed_version: null` e a versão mais recente do npm sem erro para ferramentas não instaladas. Adicionado endpoint `POST /v1/tool-versions/install` com timeout estendido para instalação remota segura via npm.
+- **Backend API:** Adicionado schema `ToolInstallResult` em `backend/app/api/schemas/toolversions.py` e endpoint `POST /api/v1/tool-versions/{tool}/install` em `backend/app/api/routes/toolversions.py`. Testes automatizados implementados em `backend/app/tests/test_toolversions.py`.
+- **Frontend e UX:** Atualizados `ToolVersionsCard.tsx`, `useToolVersions.ts`, `toolUpdate.ts` e arquivos de tradução (`pt-BR` e `en`) para exibir badge "Não instalado" e botão "Instalar" com feedback visual de carregamento (spinner) e tratamento de erros assíncronos. Testes unitários implementados em `ToolVersionsCard.test.tsx`.
+- **Validação e implantação:** Testes unitários e de integração aprovados no backend (pytest no container `forgehub-backend`) e frontend (vitest e build de produção Vite). Bridge recarregado via systemd e artefatos de frontend sincronizados no container de produção.
+
+
+### Relatórios de acompanhamento e credenciais de leitura de clientes (Seções 7 e 8 Nexo)
+
+Implementado em 16/09 e integrado em `develop`:
+- **Modelos e migração:** Tabelas `client_reports` e `client_read_credentials` na schema `company` (`backend/alembic/versions/6c9e8a2d4b70_add_client_reports.py`), com checks de período e unicidade para relatórios mensais por cliente.
+- **Geração e imutabilidade:** Renderização em HTML autônomo com snapshot JSON completo das estações, irregularidades no período e estatísticas de suporte; CSS inline autônomo e auditável.
+- **Gestão administrativa:** Endpoints administrativos para geração sob demanda (`POST /api/v1/clients/{id}/reports`), geração mensal (`POST /api/v1/clients/{id}/reports/monthly`), revisão auditável (`PATCH /api/v1/client-reports/{id}/review`), download e emissão de credenciais de leitura (`POST /api/v1/clients/{id}/read-credentials`).
+- **API client-scoped para integração externa:** Rota tenant-scoped autenticada via token `clr_` (`/api/v1/client-access/clients/{id}/reports`, `/download`, `/irregularities`), com isolamento estrito e retorno `404` para clientes não proprietários da credencial.
+- **Frontend e i18n:** Componente `ClientReportsPanel` integrado na página de detalhes do cliente (`/clients/[id]`), com internacionalização completa em `pt-BR`, `en` e `es`.
+- **Resiliência do System Control:** Tratamento gracioso para falhas de git e adição do repositório `forgehub` em `KNOWN_REPOS`, corrigindo o erro 500 no endpoint `/api/v1/system-control/status` e na ferramenta MCP `get_system_status`.
+- **Deploy e validação real:** Migração `6c9e8a2d4b70` aplicada no banco de dados de produção (`forgehub_postgres`). Containers `forgehub-backend` e `forgehub-frontend` reconstruídos e iniciados com sucesso. Endpoints de saúde e ciclo de vida de relatórios validados ao vivo.
+
+### Verificação sintética integrada do ciclo completo
+
+O teste `test_synthetic_build_package_and_authenticated_report_flow`, incluído em `27679d9`,
+solicita builds Linux/Windows, gera e inspeciona os dois ZIPs e usa o token do pacote Linux para
+comprovar a transição para `online` e o histórico. A instalação Windows permanece `downloaded`;
+o teste não comprova execução do agente Windows. Os registros descartáveis são removidos em
+`finally`. Bridge e binários são sintéticos; a validação real continua pendente.
+
+### Persistência de falha de empacotamento
+
+A revisão `27679d9` registra `error`, `last_error` e evento auditável quando não existe geração
+utilizável. Se há uma geração utilizável, preserva seu estado, build, datas e token e acrescenta
+somente o diagnóstico e evento de falha. Mensagens persistidas e respostas de erro de domínio são
+genéricas, sem token ou caminho privado. Ambos os cenários têm testes de regressão.
+
+## Evidências verificadas em 2026-09-14
+
+Checkout integrado `develop`, revisão de código `ec81c3f`. Testes backend executados com
+`source /tmp/forgehub-pending-test-env`, apontando para o PostgreSQL dedicado de testes:
+
+- `/tmp/forgehub-pending-venv/bin/python -m pytest app/tests/test_nexo_build_routes.py app/tests/test_nexo_package_routes.py app/tests/test_nexo_package_e2e.py app/tests/test_nexo_report_reconciliation.py app/tests/test_nexo_installation_models.py app/tests/test_nexo_installation_routes.py -q --tb=short -x`: **42 aprovados em 9,06 s**.
+- `/tmp/forgehub-pending-venv/bin/python -m pytest app/tests/test_nexo_host_builds.py -q --tb=short -x`: **13 aprovados em 0,19 s**.
+- `/tmp/forgehub-pending-venv/bin/python -m pytest app/tests/test_agent_report_ingestion.py app/tests/test_workstation_routes.py -q --tb=short -x`: **8 aprovados em 3,69 s**.
+- `/tmp/forgehub-pending-venv/bin/ruff check app`: **aprovado**.
+- `npm test -- --run src/pages/nexo-agents/index.test.tsx src/pages/clients/index.test.tsx src/lib/api.test.ts src/components/ui/confirm-dialog.test.tsx src/components/layout/navSections.test.tsx`: **44 aprovados em 5 arquivos**, com avisos conhecidos do React Router.
+- `npm run build`: **aprovado**, 5.255 módulos transformados, etapa Vite em 40,10 s; avisos de chunks grandes e import estático/dinâmico do Mermaid permanecem.
+
+Esses testes usam bridge/artefatos simulados. Não comprovam build real do agente, instalação em
+estação, política Headscale real ou atualização dos serviços ativos.
+Consulta Docker mostrou containers `forgehub-backend` e `forgehub-frontend` criados em 08/09,
+ambos com tag `latest`; não houve deploy nesta verificação.
+
+### Compilação direta do código Nexo atual
+
+Origem `/root/project/nexo`, base `c874e3d` com alterações locais preservadas. Usando
+`GOCACHE=/tmp/nexo-go-cache`, `GOMODCACHE=/tmp/nexo-go-mod` e o compilador
+`/tmp/nexo-go-toolchain/bin/go`:
+
+- `go test -count=1 ./cmd/remote-agent ./internal/agentconfig`: **ambos aprovados** (0,041 s e 0,010 s), com acesso a sockets locais; o sandbox bloqueou inicialmente o servidor HTTPS de teste.
+- `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/nexo-resume-linux ./cmd/remote-agent`: **aprovado**, formato ELF x86-64 confirmado.
+- `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/nexo-resume-windows.exe ./cmd/remote-agent`: **aprovado**, formato PE32+ x86-64 confirmado.
+
+SHA-256 Linux: `7e0f355ec5cd0741bb4761643b11c19c0adf592e74890459023eaf44e78b91fc`.
+SHA-256 Windows: `1a6c011935261b9d33efc790879b1c478883a5a98fc338a69d80322c4f70538f`.
+São compilações diretas de uma origem com alterações locais, sem publicação no catálogo,
+empacotamento pelo bridge ou execução dos binários em estações.
+
+## Evidências verificadas em 2026-09-13
+
+Worktree `feature/nexo-installer-monitoring`, revisão `27679d9`:
+
+- `POSTGRES_HOST=127.0.0.1 timeout 60s .venv/bin/python -m pytest app/tests/test_nexo_package_routes.py app/tests/test_nexo_package_e2e.py -q --tb=short`: **16 aprovados em 4,96 s**, com o `.env` raiz carregado.
+- `.venv/bin/ruff check app/api/routes/nexo_installation.py app/tests/test_nexo_package_routes.py app/tests/test_nexo_package_e2e.py`: **aprovado**.
+- A primeira tentativa no sandbox falhou antes dos testes por bloqueio de socket; a execução com
+  acesso ao PostgreSQL local produziu o resultado acima.
+
+Não foram reexecutados build frontend, migration ou validações contra infraestrutura real nesta
+revisão. As evidências anteriores abaixo mantêm sua data e revisão originais.
+
+## Evidências verificadas em 2026-09-10
+
+Na revisão `7d653d1` antes desta atualização documental:
+
+- `alembic current`: `5a8c1e7d9f20 (head)`;
+- suíte backend relevante: **61 testes aprovados** em 12,59 s;
+- Ruff em `backend/app`: **todos os checks aprovados**;
+- suíte frontend focada: **40 testes aprovados** em 4 arquivos; permaneceram somente dois avisos já
+  conhecidos de flags futuras do React Router;
+- build de produção: **concluído**, 5.238 módulos transformados em 49,03 s; permaneceram avisos de
+  chunk grande e import misto do Mermaid;
+- seleção de cinco testes sintéticos independentes (catálogo das duas plataformas, ZIP Linux/Windows,
+  rotação e primeiro relatório): **5 testes aprovados** em 4,99 s, com fixtures isoladas e limpeza
+  automática de cada teste.
+
+Esse último resultado valida contratos isolados; não é uma execução E2E integrada nem uma validação
+contra host bridge, repositório Nexo ou estações reais.
+
+## Fora do escopo desta entrega
+
+- Atualização remota, reinstalação, desinstalação ou execução de comandos nas estações.
+- Editor de política HuJSON bruta e validação com Headscale real.
+- Geração de relatórios/PDF e implementação da interface `/cliente/` do Darckware.
+- Migração do cadastro mestre de clientes para Darckware.
+- Conexão direta entre os bancos ForgeHub e Darckware ou acesso do navegador do cliente diretamente
+  ao ForgeHub.
+- Mudanças no ForgeRouter.
+
+## Critério para atualização
+
+Ao concluir uma pendência, mover o item para **Concluído** e anexar revisão/commit, migration quando
+aplicável, comando e resultado dos testes e evidência de deploy/smoke test quando afetar runtime.
+
+## Auditoria do ecossistema — pendências de 2026-10-04
+
+O [runbook do Auditor](runbooks/auditor-cron-recovery.md) registra o cron do Athos, as migrações
+e os resultados dos 52 checks ativos. A implementação do catálogo v2 e das telas está concluída;
+as falhas dos checks abaixo representam estado do ecossistema a corrigir:
+
+- `ECO-019`: restringir permissões do `.env` do ForgeVault após validar seu proprietário e consumo.
+- `ECO-003/004/027/031/033/034/035/038`: corrigir deriva dos contratos de Knowledge Base, perfis e memória indicada pelos runs do último cron.
+- `ECO-039`: corrigir rotação de logs dos três PostgreSQL apontados e aprovar limite de cache Docker.
+- `ECO-042/043`: completar os contratos dos perfis Kairos e Lara.
+- `ECO-047`: revisar listeners fora da allow-list e fechar `/docs`, `/redoc` e `/openapi.json` públicos do ForgeVault. Não alterar o deploy do Darckware nesta entrega.
+- `ECO-048/050/055/056`: criar provas seguras e só então habilitar os checks reservados.
+- `ECO-058`: primeiro snapshot externo e restauração de amostra continuam adiados por decisão do Marcelo.
+- `ECO-040/041` e `ECO-012`: criar e validar artefatos de remediação antes de habilitar reparo automático.

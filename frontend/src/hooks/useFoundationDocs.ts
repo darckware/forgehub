@@ -57,6 +57,8 @@ export function useUpdateFoundationDoc() {
       apiClient.put<FoundationDoc>(`${RESOURCE}/doc`, { content }, { params: { path } }),
     onSuccess: (doc) => {
       queryClient.setQueryData(foundationDocKeys.doc(doc.path), doc);
+      // PUT also creates brand-new docs now, so the tree may have gained a node.
+      queryClient.invalidateQueries({ queryKey: foundationDocKeys.tree });
     },
   });
 }
@@ -71,4 +73,70 @@ export function useDeleteFoundationDoc() {
       queryClient.invalidateQueries({ queryKey: ["foundation-docs-graph"] });
     },
   });
+}
+
+export function useCreateFoundationFolder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (path: string) => apiClient.post<FoundationDocNode>(`${RESOURCE}/folder`, { path }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: foundationDocKeys.tree });
+    },
+  });
+}
+
+export function useRenameFoundationPath() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ path, newPath }: { path: string; newPath: string }) =>
+      apiClient.post<FoundationDocNode>(`${RESOURCE}/rename`, { path, new_path: newPath }),
+    onSuccess: (_data, { path }) => {
+      queryClient.removeQueries({ queryKey: foundationDocKeys.doc(path) });
+      queryClient.invalidateQueries({ queryKey: foundationDocKeys.tree });
+      queryClient.invalidateQueries({ queryKey: ["foundation-docs-graph"] });
+    },
+  });
+}
+
+export function useUploadFoundationFile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ folder, file }: { folder: string; file: File }) => {
+      const form = new FormData();
+      form.append("folder", folder);
+      form.append("file", file);
+      return apiClient.postForm<FoundationDocNode>(`${RESOURCE}/upload`, form);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: foundationDocKeys.tree });
+      queryClient.invalidateQueries({ queryKey: ["foundation-docs-graph"] });
+    },
+  });
+}
+
+/** Deletes a doc, a folder (recursively), or any other file -- unlike
+ * useDeleteFoundationDoc, not restricted to markdown. Backs the tree's
+ * hover delete icon. */
+export function useDeleteFoundationPath() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (path: string) => apiClient.delete<void>(`${RESOURCE}/path`, { params: { path } }),
+    onSuccess: (_data, path) => {
+      queryClient.removeQueries({ queryKey: foundationDocKeys.doc(path) });
+      queryClient.invalidateQueries({ queryKey: foundationDocKeys.tree });
+      queryClient.invalidateQueries({ queryKey: ["foundation-docs-graph"] });
+    },
+  });
+}
+
+export async function downloadFoundationFile(path: string): Promise<void> {
+  const { blob, filename } = await apiClient.downloadFile(
+    `${RESOURCE}/download?path=${encodeURIComponent(path)}`
+  );
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename || path.split("/").pop() || "download";
+  a.click();
+  URL.revokeObjectURL(url);
 }

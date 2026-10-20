@@ -30,8 +30,8 @@ foundation convention.
 """
 import uuid
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import CheckConstraint, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -45,7 +45,7 @@ PRODUCT_VERSION_STATUSES = ("planned", "in_development", "in_test", "published",
 RELEASE_STATUSES = ("draft", "ready", "released", "cancelled")
 
 # Allowed values for Product.status.
-PRODUCT_STATUSES = ("active", "inactive", "archived")
+PRODUCT_STATUSES = ("concept", "active", "inactive", "archived")
 
 
 class Product(Base, TimestampMixin):
@@ -58,12 +58,21 @@ class Product(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="active", server_default="active")
+    # Where the running application lives, one URL per environment. The
+    # production one keeps the historical column name `application_url`: it
+    # predates the split (2026-07-26) and is what WebAppPane.tsx and
+    # workspace_browser.py already open, so renaming it would break those
+    # callers and any external consumer of ProductOut for no gain.
+    application_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    application_url_dev: Mapped[str | None] = mapped_column(String(2048), nullable=True)
 
-    # Kanboard project created when this product is registered.
-    # kanboard_column_ids maps ForgeHub task status → Kanboard column id for
-    # this specific Kanboard project (since each project has its own column IDs).
-    kanboard_project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    kanboard_column_ids: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # The Darckware client this product is built for (2026-10-04, client
+    # demands Onda 3). Darckware's id, not a FK -- that CRM lives in another
+    # database (same (entity_type, entity_id) spirit as governance.Approval).
+    # The name is a snapshot for display/search, refreshed on every link; the
+    # client itself is always read from Darckware. NULL = internal product.
+    darckware_client_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    darckware_client_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     modules: Mapped[list["ProductModule"]] = relationship(
         "ProductModule", back_populates="product", cascade="all, delete-orphan"

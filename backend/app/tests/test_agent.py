@@ -20,19 +20,23 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.api.routes import agent as agent_routes
+from app.core import agent_telegram
 from app.db.base import AsyncSessionLocal, Base, engine
 from app.db.models.agent import (
     Agent,
     AgentCapacity,
     AgentCostRate,
+    AgentServiceCredential,
     AgentSkill,
     Skill,
     SubAgent,
     SubAgentSkill,
 )
+from app.db.models.chat import ChatSession
+from app.db.models.user import User
 
 _MY_TABLES = [
     Agent.__table__,
@@ -42,6 +46,7 @@ _MY_TABLES = [
     SubAgentSkill.__table__,
     AgentCostRate.__table__,
     AgentCapacity.__table__,
+    AgentServiceCredential.__table__,
 ]
 
 
@@ -59,6 +64,33 @@ async def _ensure_agent_tables():
             )
         )
     yield
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def _ensure_admin_user():
+    """GET /{agent_id} is admin-gated (2026-07-29, decrypts
+    forgerouter_api_key back into the response) -- auth_headers' JWT
+    (conftest.py) is for username "test-suite", so that user needs to
+    actually exist with is_admin=True, or get_current_admin 401s/403s.
+    Same shared-username convention as test_pipeline.py's fixture; only
+    deletes the row afterwards if this fixture is the one that created it,
+    in case another concurrently-running test module owns it instead."""
+    async with AsyncSessionLocal() as session:
+        user = (await session.execute(select(User).where(User.username == "test-suite"))).scalar_one_or_none()
+        created = user is None
+        if created:
+            session.add(User(
+                username="test-suite", hashed_password="test-only-not-a-real-password",
+                is_active=True, is_admin=True,
+            ))
+            await session.commit()
+    yield
+    if created:
+        async with AsyncSessionLocal() as session:
+            user = (await session.execute(select(User).where(User.username == "test-suite"))).scalar_one_or_none()
+            if user:
+                await session.delete(user)
+                await session.commit()
 
 
 @pytest_asyncio.fixture
@@ -138,12 +170,139 @@ async def test_create_agent_duplicate_name_rejected(client, cleanup_agent_ids):
 
 
 @pytest.mark.asyncio
+async def test_issue_list_and_revoke_agent_service_credential(
+    client, cleanup_agent_ids
+):
+    create_agent = await client.post(
+        "/api/v1/agents", json={"name": _unique_name("credential-agent")}
+    )
+    assert create_agent.status_code == 201, create_agent.text
+    agent_id = create_agent.json()["id"]
+    cleanup_agent_ids.append(agent_id)
+
+    issue = await client.post(
+        f"/api/v1/agents/{agent_id}/credentials",
+        json={"label": "Regression test"},
+    )
+    assert issue.status_code == 201, issue.text
+    credential = issue.json()
+    assert credential["token"].startswith("agt_")
+
+    listed = await client.get(f"/api/v1/agents/{agent_id}/credentials")
+    assert listed.status_code == 200, listed.text
+    assert [row["id"] for row in listed.json()] == [credential["id"]]
+
+    revoked = await client.delete(
+        f"/api/v1/agents/{agent_id}/credentials/{credential['id']}"
+    )
+    assert revoked.status_code == 204, revoked.text
+
+    listed_after_revoke = await client.get(
+        f"/api/v1/agents/{agent_id}/credentials"
+    )
+    assert listed_after_revoke.status_code == 200, listed_after_revoke.text
+    assert listed_after_revoke.json() == []
+
+
+@pytest.mark.asyncio
 async def test_create_agent_invalid_status_rejected(client):
     resp = await client.post(
         "/api/v1/agents", json={"name": _unique_name("bad-status"), "status": "bogus"}
     )
     # Pydantic field_validator raises ValueError -> FastAPI returns 422.
     assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_foundation_sync_retires_previously_synced_profile_outside_active_registry(
+    client, cleanup_agent_ids, monkeypatch, restore_hermes_agent_statuses,
+):
+    suffix = uuid.uuid4().hex[:8]
+    stale = Agent(
+        name=f"Archived sync agent {suffix}",
+        profile_slug=f"archived-sync-{suffix}",
+        runtime_type="hermes",
+        has_profile=True,
+        status="active",
+        is_active=True,
+    )
+    async with AsyncSessionLocal() as db:
+        db.add(stale)
+        await db.commit()
+        await db.refresh(stale)
+        cleanup_agent_ids.append(stale.id)
+
+    active_slug = f"active-sync-{suffix}"
+    monkeypatch.setattr(agent_routes.hermes_sync, "list_active_provisioned_profiles", lambda: [active_slug])
+    monkeypatch.setattr(
+        agent_routes.hermes_sync,
+        "parse_agent_registry",
+        lambda: [{
+            "profile_slug": active_slug,
+            "name": f"Active sync agent {suffix}",
+            "layer": "Governance",
+            "telegram_required": False,
+            "runtime_tier": "A",
+        }],
+    )
+    monkeypatch.setattr(agent_routes.hermes_sync, "parse_agent_mission", lambda _slug: (None, None))
+    monkeypatch.setattr(agent_routes.hermes_sync, "parse_profile_identity", lambda _slug: {})
+    monkeypatch.setattr(agent_routes.hermes_sync, "read_profile_forgerouter_api_key", lambda _slug: None)
+    monkeypatch.setattr(agent_routes.hermes_sync, "organization_for_profile", lambda _slug: (None, None, None))
+    monkeypatch.setattr(agent_routes.hermes_sync, "parse_subagent_catalog", lambda: {})
+    monkeypatch.setattr(agent_routes.hermes_sync, "parse_profile_skills", lambda _slug: [])
+
+    response = await client.post("/api/v1/agents/sync/hermes-foundation")
+
+    assert response.status_code == 200, response.text
+    async with AsyncSessionLocal() as db:
+        active = (
+            await db.execute(select(Agent).where(Agent.profile_slug == active_slug))
+        ).scalar_one()
+        cleanup_agent_ids.append(active.id)
+        refreshed_stale = await db.get(Agent, stale.id)
+        assert refreshed_stale is not None
+        assert refreshed_stale.is_active is False
+        assert refreshed_stale.status == "retired"
+
+
+@pytest.mark.asyncio
+async def test_delete_agent_with_chat_history_returns_conflict_instead_of_server_error():
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        agent = Agent(name=f"Agent with history {suffix}")
+        db.add(agent)
+        await db.flush()
+        session = ChatSession(agent_id=agent.id, title="History must survive")
+        db.add(session)
+        await db.commit()
+        agent_id = agent.id
+        session_id = session.id
+
+    app = FastAPI()
+    app.include_router(agent_routes.router)
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.delete(f"/api/v1/agents/{agent_id}")
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == (
+            "This agent has related operational history. Retire it instead of deleting it."
+        )
+        async with AsyncSessionLocal() as db:
+            assert await db.get(Agent, agent_id) is not None
+            assert await db.get(ChatSession, session_id) is not None
+    finally:
+        async with AsyncSessionLocal() as db:
+            chat = await db.get(ChatSession, session_id)
+            if chat is not None:
+                await db.delete(chat)
+                await db.flush()
+            persisted_agent = await db.get(Agent, agent_id)
+            if persisted_agent is not None:
+                await db.delete(persisted_agent)
+            await db.commit()
 
 
 @pytest.mark.asyncio
@@ -273,3 +432,268 @@ async def test_sub_agent_skill_requires_parent_agent_grant(
         json={"skill_id": skill_id},
     )
     assert grant_resp_2.status_code == 201
+
+
+# ---------------------------------------------------------------------------
+# Profile files (SOUL.md, IDENTITY.md, ... -- see core/agent_profile_files.py)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_profile_files_use_registered_home_path(client, cleanup_agent_ids, tmp_path):
+    """A registered home_path wins over the runtime convention, and the
+    listing reports which of the expected files actually exist."""
+    (tmp_path / "SOUL.md").write_text("# soul", encoding="utf-8")
+
+    create_resp = await client.post(
+        "/api/v1/agents",
+        json={"name": _unique_name("test-agent-home"), "agent_type": "executor"},
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    agent_id = create_resp.json()["id"]
+    cleanup_agent_ids.append(agent_id)
+
+    patch_resp = await client.patch(
+        f"/api/v1/agents/{agent_id}", json={"home_path": str(tmp_path)}
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    assert patch_resp.json()["effective_home_path"] == str(tmp_path)
+
+    list_resp = await client.get(f"/api/v1/agents/{agent_id}/profile-files")
+    assert list_resp.status_code == 200, list_resp.text
+    listing = list_resp.json()
+    assert listing["home_resolved"] is True
+    by_name = {f["filename"]: f for f in listing["files"]}
+    assert by_name["SOUL.md"]["exists"] is True
+    assert by_name["IDENTITY.md"]["exists"] is False
+    # No profile_slug -> no <PROFILE>_SUBAGENTS.md entry at all.
+    assert not any(name.endswith("_SUBAGENTS.md") for name in by_name)
+
+    read_resp = await client.get(f"/api/v1/agents/{agent_id}/profile-files/SOUL.md")
+    assert read_resp.status_code == 200
+    assert read_resp.json()["content"] == "# soul"
+
+    # A file that does not exist yet reads as null content, not 404 --
+    # the editor must be able to create it.
+    missing_resp = await client.get(f"/api/v1/agents/{agent_id}/profile-files/IDENTITY.md")
+    assert missing_resp.status_code == 200
+    assert missing_resp.json()["content"] is None
+
+    write_resp = await client.put(
+        f"/api/v1/agents/{agent_id}/profile-files/IDENTITY.md",
+        json={"content": "# identity"},
+    )
+    assert write_resp.status_code == 200, write_resp.text
+    assert (tmp_path / "IDENTITY.md").read_text(encoding="utf-8") == "# identity"
+
+
+@pytest.mark.asyncio
+async def test_profile_files_reject_paths_outside_the_allow_list(
+    client, cleanup_agent_ids, tmp_path
+):
+    """`filename` comes straight from the URL, so anything off the
+    allow-list -- including traversal -- must 404 rather than read."""
+    (tmp_path / "secrets.json").write_text("{}", encoding="utf-8")
+
+    create_resp = await client.post(
+        "/api/v1/agents",
+        json={"name": _unique_name("test-agent-guard"), "agent_type": "executor"},
+    )
+    agent_id = create_resp.json()["id"]
+    cleanup_agent_ids.append(agent_id)
+    await client.patch(f"/api/v1/agents/{agent_id}", json={"home_path": str(tmp_path)})
+
+    for filename in ("secrets.json", "../secrets.json", "..%2F..%2Fetc%2Fpasswd"):
+        resp = await client.get(f"/api/v1/agents/{agent_id}/profile-files/{filename}")
+        assert resp.status_code == 404, f"{filename} -> {resp.status_code}"
+
+    write_resp = await client.put(
+        f"/api/v1/agents/{agent_id}/profile-files/secrets.json",
+        json={"content": "pwned"},
+    )
+    assert write_resp.status_code == 404
+    assert (tmp_path / "secrets.json").read_text(encoding="utf-8") == "{}"
+
+
+@pytest.mark.asyncio
+async def test_profile_files_404_when_agent_has_no_directory(client, cleanup_agent_ids):
+    """An agent with neither a profile_slug nor a runtime has no profile
+    directory -- that is a registration gap, not a server error."""
+    create_resp = await client.post(
+        "/api/v1/agents",
+        json={"name": _unique_name("test-agent-nohome"), "agent_type": "executor"},
+    )
+    agent_id = create_resp.json()["id"]
+    cleanup_agent_ids.append(agent_id)
+
+    list_resp = await client.get(f"/api/v1/agents/{agent_id}/profile-files")
+    assert list_resp.status_code == 200
+    assert list_resp.json()["home_resolved"] is False
+    assert list_resp.json()["home_path"] is None
+
+    read_resp = await client.get(f"/api/v1/agents/{agent_id}/profile-files/SOUL.md")
+    assert read_resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Telegram channel status (see core/agent_telegram.py)
+# ---------------------------------------------------------------------------
+
+
+def test_telegram_gateway_service_only_for_hermes_profiles():
+    """The external CLI runtimes carry a profile_slug too -- it is their
+    Inbox addressing key, not a directory under /root/.hermes/profiles -- so
+    only Hermes profiles map to the (single, multiplex) host gateway."""
+    assert agent_telegram.gateway_service_name("athos", "hermes") == "hermes-gateway.service"
+    assert agent_telegram.gateway_service_name("porthus", "claude") is None
+    assert agent_telegram.gateway_service_name(None, "hermes") is None
+
+
+def _gateway_state_output(alive: str = "yes", gateway_state: str = "running") -> str:
+    import json as _json
+
+    state = {
+        "pid": 202061,
+        "gateway_state": gateway_state,
+        "platforms": {
+            "telegram": {"state": "connected"},
+            "athos:telegram": {"state": "connected"},
+            "aegis:telegram": {"state": "fatal", "error_code": "telegram_polling_conflict"},
+            "athos:whatsapp": {"state": "disabled"},
+        },
+    }
+    return _json.dumps(state) + "\n__GATEWAY_PID_ALIVE__\n" + alive + "\n"
+
+
+def test_telegram_states_come_from_the_multiplex_gateway_state():
+    """2026-09-27: every channel read "not running" because ForgeHub looked
+    for per-profile units that multiplex removed, while Aegis & co. were
+    really `fatal` inside a healthy gateway. The adapter state is the signal."""
+    assert agent_telegram.parse_telegram_states(_gateway_state_output()) == {
+        "default": "connected",
+        "athos": "connected",
+        "aegis": "fatal",
+    }
+
+
+def test_telegram_states_empty_when_the_gateway_is_dead_or_stopped():
+    # A crashed gateway leaves its last state file behind: trust the PID.
+    assert agent_telegram.parse_telegram_states(_gateway_state_output(alive="no")) == {}
+    assert agent_telegram.parse_telegram_states(_gateway_state_output(gateway_state="stopped")) == {}
+    assert agent_telegram.parse_telegram_states("garbage\n__GATEWAY_PID_ALIVE__\nyes\n") == {}
+
+
+def test_telegram_state_command_checks_the_recorded_pid():
+    command = agent_telegram.gateway_state_command()
+    assert agent_telegram.GATEWAY_STATE_PATH in command
+    assert "kill -0" in command
+
+
+def test_telegram_status_reads_env_without_leaking_the_token(tmp_path):
+    (tmp_path / ".env").write_text(
+        "# comment\n"
+        "TELEGRAM_BOT_TOKEN=123456:super-secret\n"
+        "TELEGRAM_HOME_CHANNEL=1085550644\n"
+        "TELEGRAM_HOME_CHANNEL_NAME=Marcelo\n"
+        "OPENAI_API_KEY=must-not-be-read\n",
+        encoding="utf-8",
+    )
+    status = agent_telegram.build_status(
+        profile_slug="athos",
+        required=True,
+        home_path=str(tmp_path),
+        runtime_type="hermes",
+        telegram_states={"athos": "connected"},
+    )
+    assert status.installed is True
+    assert status.running is True
+    assert status.status == "ok"
+    assert status.home_channel_name == "Marcelo"
+    # The token is reduced to a boolean and must never reach the response.
+    assert "super-secret" not in repr(status)
+
+
+def test_telegram_config_uses_the_profiles_default_home_when_override_is_empty(
+    tmp_path, monkeypatch
+):
+    """Synced Hermes agents normally leave Agent.home_path NULL."""
+    (tmp_path / ".env").write_text(
+        "TELEGRAM_BOT_TOKEN=t\nTELEGRAM_HOME_CHANNEL=1085550644\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        agent_telegram,
+        "effective_home_path",
+        lambda home_path, runtime_type, profile_slug: "/root/.hermes/profiles/atlas",
+    )
+    monkeypatch.setattr(agent_telegram, "resolve_home_dir", lambda path: tmp_path)
+
+    installed, _ = agent_telegram.read_profile_telegram_config(None, "hermes", "atlas")
+    assert installed is True
+    assert agent_telegram.read_profile_home_chat(None, "hermes", "atlas") == "1085550644"
+
+
+def test_telegram_status_states(tmp_path):
+    configured = tmp_path / "configured"
+    configured.mkdir()
+    (configured / ".env").write_text(
+        "TELEGRAM_BOT_TOKEN=t\nTELEGRAM_HOME_CHANNEL=1\n", encoding="utf-8"
+    )
+
+    # Installed but the channel is down -- messages silently go nowhere, so
+    # this is its own state rather than a generic failure. Both a `fatal`
+    # adapter and a profile the gateway doesn't serve count as down.
+    for states in ({"athos": "fatal"}, {}):
+        down = agent_telegram.build_status(
+            profile_slug="athos",
+            required=True,
+            home_path=str(configured),
+            runtime_type="hermes",
+            telegram_states=states,
+        )
+        assert down.status == "not_running"
+
+    # Host-bridge unreachable: "we could not check" must not render as
+    # "it is broken".
+    unchecked = agent_telegram.build_status(
+        profile_slug="athos",
+        required=True,
+        home_path=str(configured),
+        runtime_type="hermes",
+        telegram_states=None,
+    )
+    assert unchecked.running is None
+    assert unchecked.status == "unknown"
+
+    # A required channel with no bot token at all.
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    missing = agent_telegram.build_status(
+        profile_slug="athos",
+        required=True,
+        home_path=str(empty),
+        runtime_type="hermes",
+        telegram_states={},
+    )
+    assert missing.status == "not_configured"
+
+    # A Hermes profile served by the gateway whose Telegram isn't required
+    # and has no bot: not a gap, not applicable.
+    optional = agent_telegram.build_status(
+        profile_slug="atlas",
+        required=False,
+        home_path=str(empty),
+        runtime_type="hermes",
+        telegram_states={},
+    )
+    assert optional.status == "not_applicable"
+
+    # An external runtime Telegram was never part of.
+    external = agent_telegram.build_status(
+        profile_slug="porthus",
+        required=False,
+        home_path=str(empty),
+        runtime_type="claude",
+        telegram_states={},
+    )
+    assert external.status == "not_applicable"

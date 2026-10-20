@@ -243,3 +243,41 @@ async def test_group_rename_and_delete_cascade_to_installations(client):
             await session.execute(delete(DeployInstallation).where(DeployInstallation.name == iname))
             await session.commit()
         await _cleanup_group(gname, renamed)
+
+
+@pytest.mark.asyncio
+async def test_sync_fills_compose_from_label_and_reports_stale_and_missing_compose(client):
+    live = f"test-deploy-live-{uuid.uuid4().hex[:8]}"
+    gone = f"test-deploy-gone-{uuid.uuid4().hex[:8]}"
+    compose = f"/srv/{live}/docker-compose.yml"
+    bad_compose = f"/srv/{gone}/docker-compose.yml"
+    try:
+        resp = await client.post(
+            "/api/v1/deploy/installations",
+            json={"name": gone, "container_name": gone, "compose_file": bad_compose},
+        )
+        assert resp.status_code == 201
+
+        async def fake_bridge(method, path, **kwargs):
+            if path == "/v1/docker/ps":
+                labels = f"com.docker.compose.project=x,com.docker.compose.project.config_files={compose}"
+                return {"containers": [{"Names": live, "Ports": "", "Labels": labels}]}
+            assert path == "/v1/exec"
+            # The host reports only the retired container's compose file as missing.
+            return {"exit_code": 0, "stdout": f"{bad_compose}\n", "stderr": ""}
+
+        with patch("app.api.routes.deploy._bridge", new=fake_bridge):
+            resp = await client.post("/api/v1/deploy/sync")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert live in body["names_created"]
+        assert {"name": gone, "container_name": gone} in body["stale"]
+        assert {"name": gone, "compose_file": bad_compose} in body["invalid_compose"]
+
+        resp = await client.get("/api/v1/deploy/installations")
+        by_name = {i["container_name"]: i for i in resp.json()}
+        assert by_name[live]["compose_file"] == compose
+        assert gone in by_name  # reported, never deleted
+    finally:
+        await _cleanup(live)
+        await _cleanup(gone)

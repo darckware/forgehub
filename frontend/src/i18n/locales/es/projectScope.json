@@ -1,0 +1,39 @@
+{
+  "page": {
+    "title": "Alcance del proyecto",
+    "description": "Seleccione exactamente qué elementos aprobados del Mapa del Sistema agregará, cambiará, eliminará o verificará un proyecto."
+  },
+  "selectors": {
+    "project": "Proyecto",
+    "projectPlaceholder": "Seleccionar un proyecto",
+    "scopeBaseline": "Base de referencia del alcance",
+    "scopePlaceholder": "No se dispone de alcance",
+    "revisionOption": "Revisión {{revision}} · {{status}}"
+  },
+  "addItem": {
+    "title": "Añadir elemento de alcance",
+    "description": "Cada elemento sigue siendo rastreable al mapa aprobado.",
+    "fields": {
+      "systemElement": "Elemento del sistema",
+      "systemElementPlaceholder": "Seleccionar elemento",
+      "change": "Cambio",
+      "applicability": "Aplicabilidad",
+      "rationale": "Justificación",
+      "acceptanceCriterion": "Criterio de aceptación"
+    },
+    "acceptanceCriterionPlaceholder": "Dado... cuando... entonces...",
+    "button": "Añadir al ámbito de aplicación"
+  },
+  "coverage": {
+    "title": "Ámbito de aplicación",
+    "summary": "{{selected}} de {{total}} mapeó elementos seleccionados.",
+    "outsideScope": "fuera del ámbito de aplicación actual"
+  },
+  "visualScope": {
+    "title": "Alcance visual",
+    "description": "El mismo diagrama que definió el alcance en Concepción, ahora coloreado por el estado de ejecución de cada elemento (gris = planeado, azul = en progreso, rojo = bloqueado, verde = hecho)."
+  },
+  "changeRequest": {
+    "link": "Archivo de una solicitud de cambio"
+  }
+}

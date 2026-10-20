@@ -1,19 +1,175 @@
 """Pydantic schemas for the agent-demand inbox and its conversions."""
 import uuid
+from typing import Literal
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.conversions import CONVERT_TARGETS
-from app.db.models.demand import DEMAND_STATUSES
+from app.db.models.demand import DEMAND_CHANNELS, DEMAND_ORIGIN_TYPES, DEMAND_STATUSES
+
+
+class DemandConsolidateIn(BaseModel):
+    source_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+    subject: str = Field(min_length=1, max_length=255)
+    body: str = Field(min_length=1)
+    owner_agent_id: uuid.UUID
+    project_id: uuid.UUID | None = None
+    context_area: str | None = Field(default=None, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_context(self):
+        self.context_area = (self.context_area or "").strip() or None
+        if (self.project_id is None) == (self.context_area is None):
+            raise ValueError("Choose a project or an area")
+        if len(set(self.source_ids)) != len(self.source_ids):
+            raise ValueError("Sources must be unique")
+        if not self.subject.strip() or not self.body.strip():
+            raise ValueError("Subject and summary must not be blank")
+        return self
+
+
+class DemandDecisionIn(BaseModel):
+    action: Literal["approve", "reject", "postpone", "archive", "restore", "drop", "request_approval", "authorize_retry",
+                    "record_investigation", "confirm_inactive"]
+    reason: str | None = Field(default=None, max_length=4000)
+    # confirm_inactive only: the run id typed back, so the confirmation names
+    # the exact run the operator checked (a stale screen can't confirm another).
+    confirmation: str | None = Field(default=None, max_length=100)
+    matures_at: datetime | None = None
+    evidence_ref: str | None = Field(default=None, max_length=2000)
+    expected_updated_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_reason(self):
+        if self.action in ("reject", "postpone", "drop", "authorize_retry", "record_investigation", "confirm_inactive") and not (self.reason or "").strip():
+            raise ValueError("A reason is required")
+        if self.action in ("authorize_retry", "record_investigation", "confirm_inactive") and not (self.evidence_ref or "").strip():
+            raise ValueError("A reference to the correction evidence is required")
+        if self.action == "postpone" and (self.matures_at is None or self.matures_at.tzinfo is None):
+            raise ValueError("A future date with timezone is required")
+        return self
+
+
+class DemandBulkItemIn(BaseModel):
+    id: uuid.UUID
+    updated_at: datetime
+
+
+class DemandBulkIn(BaseModel):
+    action: Literal["archive", "restore", "request_approval", "postpone"]
+    items: list[DemandBulkItemIn] = Field(min_length=1, max_length=100)
+    reason: str | None = Field(default=None, max_length=4000)
+    matures_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_items(self):
+        if len({item.id for item in self.items}) != len(self.items):
+            raise ValueError("Select each message only once")
+        DemandDecisionIn(action=self.action, reason=self.reason, matures_at=self.matures_at)
+        return self
+
+
+def _check_origin_type(v: str | None) -> str | None:
+    if v is not None and v not in DEMAND_ORIGIN_TYPES:
+        raise ValueError(f"origin_type must be one of {DEMAND_ORIGIN_TYPES}")
+    return v
+
+
+def _check_status_value(v: str | None) -> str | None:
+    if v is not None and v not in DEMAND_STATUSES:
+        raise ValueError(f"status must be one of {DEMAND_STATUSES}")
+    return v
+
+
+def _check_channel_value(v: str | None) -> str | None:
+    if v is not None and v not in DEMAND_CHANNELS:
+        raise ValueError(f"channel must be one of {DEMAND_CHANNELS}")
+    return v
 
 
 class DemandSubmitIn(BaseModel):
-    """Body for POST /demands/submit (agents, via the shared bridge token)."""
+    """Body for POST /demands/submit (agents, via the shared bridge token)
+    and POST /demands (the "New note" panel)."""
 
     from_agent: str = Field(min_length=1, max_length=50)
+    requires_approval: bool = False
+    context_area: str | None = Field(default=None, max_length=100)
     subject: str = Field(min_length=1, max_length=255)
     body: str = Field(min_length=1)
+    # Optional at creation time -- set the dispatch target right away
+    # instead of a separate PATCH afterward.
+    target_agent_id: uuid.UUID | None = None
+    # Alternative to target_agent_id for callers that only know the Hermes
+    # profile slug, not the ForgeHub UUID -- namely send_demand.sh (bridge
+    # token only, can't call the JWT-gated GET /agents to look the UUID up
+    # itself). Resolved against Agent.profile_slug at the route layer;
+    # ignored if target_agent_id is also given.
+    target_agent_slug: str | None = None
+    # Lets the compose panel pick a real registered Agent as the sender
+    # ("From (agent)") instead of leaving from_agent_id null (the case for
+    # every other human-composed item, only ever set server-side on an
+    # auto-generated reply -- see get_dispatch_status's reply-creation docstring).
+    # Validated same as target_agent_id. Needed for the requires_response relay: see
+    # get_dispatch_status's reply-creation docstring. When omitted, the
+    # route layer still tries an automatic match: from_agent against
+    # Agent.profile_slug (best-effort, no error on a miss -- covers
+    # send_demand.sh, which already sends the sending profile's slug as
+    # from_agent for display and shouldn't need a second field for the
+    # same value).
+    from_agent_id: uuid.UUID | None = None
+    # Which project this message is about -- see AgentDemand.project_id's
+    # docstring for how this differs from ConvertIn.project_id below.
+    project_id: uuid.UUID | None = None
+    development_request_id: uuid.UUID | None = None
+    # Working directory path for agent execution -- when dispatching to
+    # external agents (claude, codex, agy), this specifies the
+    # cwd where the agent should run. If not provided, falls back to
+    # AGENT_RUNTIME_PATHS or /root.
+    working_path: str | None = None
+    # Meio de comunicação por onde este pedido chegou, e o endereço concreto
+    # de retorno dentro dele (id da sessão de chat, id do canal, id da task,
+    # chat_id do Telegram). Ver DEMAND_CHANNELS. No Telegram, o nome do bot
+    # ou do agente destinatário também pode ser usado como alias do home
+    # channel configurado no perfil.
+    channel: str | None = None
+    channel_ref: str | None = None
+    # Links this new item to an existing Task or Demand as its origin,
+    # resolved from a human-typed number rather than a UUID (§4.1 of the
+    # dispatch proposal): "task" -> ProjectTask.number,
+    # "demand" -> AgentDemand.number. Both origin_type and origin_number
+    # must be given together, or neither.
+    origin_type: str | None = None
+    origin_number: int | None = None
+    # "Retorno" -- whether this message expects a response back from the
+    # recipient. Defaults to False (no response expected).
+    requires_response: bool = False
+    # Scheduled send -- if set, target_agent_id must be given too (checked
+    # at the route layer, same as origin_type/origin_number pairing above).
+    # See AgentDemand.scheduled_at's docstring for how the actual dispatch
+    # gets triggered.
+    scheduled_at: datetime | None = None
+    # Lets the compose panel file a new item straight into the Notes
+    # (Archived) tree instead of Incoming -- e.g. Origin="Note" messages,
+    # per the Inbox sidebar's direction-first grouping (see
+    # DemandsPage's SelectedFolder docstring). Defaults to "new" (Incoming)
+    # when omitted, same as before this field existed.
+    status: str | None = None
+
+    @field_validator("origin_type")
+    @classmethod
+    def _check_origin_type(cls, v: str | None) -> str | None:
+        return _check_origin_type(v)
+
+    @field_validator("status")
+    @classmethod
+    def _check_status(cls, v: str | None) -> str | None:
+        return _check_status_value(v)
+
+    @field_validator("channel")
+    @classmethod
+    def _check_channel(cls, v: str | None) -> str | None:
+        return _check_channel_value(v)
 
 
 class DemandUpdateIn(BaseModel):
@@ -29,13 +185,56 @@ class DemandUpdateIn(BaseModel):
     # Sending group_id (non-null) without an explicit status forces
     # status="archived" at the route layer.
     group_id: uuid.UUID | None = None
+    # Associates an item with an agent without dispatching yet (§3.1 of the
+    # dispatch proposal) -- lets Marcelo pick a target before writing the
+    # command_text that actually triggers POST .../dispatch.
+    target_agent_id: uuid.UUID | None = None
+    # Lets "Alterar" fix up the sender identity too -- e.g. a message that
+    # arrived with no From (agent) picked. See DemandSubmitIn.from_agent_id's
+    # docstring for what this feeds (the requires_response relay).
+    from_agent_id: uuid.UUID | None = None
+    project_id: uuid.UUID | None = None
+    development_request_id: uuid.UUID | None = None
+    # Working directory path for agent execution -- when dispatching to
+    # external agents (claude, codex, agy), this specifies the
+    # cwd where the agent should run.
+    working_path: str | None = None
+    # Full edit support ("Alterar" button) -- subject/body plus re-pointing
+    # the origin, same resolution as DemandSubmitIn.origin_number above.
+    subject: str | None = Field(default=None, min_length=1, max_length=255)
+    body: str | None = Field(default=None, min_length=1)
+    origin_type: str | None = None
+    origin_number: int | None = None
+    requires_response: bool | None = None
+    scheduled_at: datetime | None = None
 
     @field_validator("status")
     @classmethod
     def _check_status(cls, v: str | None) -> str | None:
-        if v is not None and v not in DEMAND_STATUSES:
-            raise ValueError(f"status must be one of {DEMAND_STATUSES}")
-        return v
+        return _check_status_value(v)
+
+    @field_validator("origin_type")
+    @classmethod
+    def _check_origin_type_update(cls, v: str | None) -> str | None:
+        return _check_origin_type(v)
+
+
+class AgentDemandUpdateIn(BaseModel):
+    """Bridge-token counterpart to DemandUpdateIn, deliberately narrower --
+    only the fields an agent should reasonably touch on mail it sent
+    (2026-08-15, closing the MCP's CRUD gap: the read tools were already
+    agent-parameterized for any agent, but there was no write path at all
+    outside the JWT-only human API). No status/group_id/origin_type here --
+    archiving is its own dedicated action (agent-archive) with its own
+    ownership check, and reclassifying origin is a human/reading-pane
+    concern, not something a script should do to itself mid-flight."""
+
+    agent: str = Field(min_length=1)
+    subject: str | None = Field(default=None, min_length=1, max_length=255)
+    body: str | None = Field(default=None, min_length=1)
+    target_agent: str | None = None
+    requires_response: bool | None = None
+    request_approval: bool = False
 
 
 class DemandGroupCreateIn(BaseModel):
@@ -53,8 +252,7 @@ class DemandGroupUpdateIn(BaseModel):
 
 
 class DemandGroupOut(BaseModel):
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     name: str
@@ -64,21 +262,22 @@ class DemandGroupOut(BaseModel):
 
 
 class DemandAttachmentOut(BaseModel):
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     filename: str
     size_bytes: int
     content_type: str | None
     created_at: datetime
+    # Optional caption supplied at upload time; None when none was given.
+    description: str | None = None
 
 
 class DemandOut(BaseModel):
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    number: int
     from_agent: str
     subject: str
     body: str
@@ -89,6 +288,88 @@ class DemandOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     attachments: list[DemandAttachmentOut] = []
+    target_agent_id: uuid.UUID | None
+    from_agent_id: uuid.UUID | None
+    project_id: uuid.UUID | None
+    context_area: str | None = None
+    consolidated_into_id: uuid.UUID | None = None
+    requires_approval: bool = False
+    approval_status: str | None = None
+    decision_reminded_at: datetime | None = None
+    decision_reason: str | None = None
+    retry_limit: int = 3
+    development_request_id: uuid.UUID | None
+    command_text: str | None
+    # cwd the recipient agent's run starts in; None means fall back to the
+    # runtime default (see AgentDemand.working_path's docstring).
+    working_path: str | None = None
+    origin_type: str
+    # ProjectTask.id for origin_type="task" -- see AgentDemand.origin_id's
+    # docstring. Always None for origin_type="incubation".
+    origin_id: uuid.UUID | None
+    # --- Incubation (2026-08-13) ---
+    # All four are server-owned: set together when an item is created as (or
+    # edited into) an incubation, and all None for a task. Read-only here --
+    # DemandSubmitIn/DemandUpdateIn deliberately don't accept them, since the
+    # three invariants they encode (an owner, an explicit state, a deadline
+    # to decide) are resolved at the route layer and enforced by DB
+    # constraints. See AgentDemand's own docstrings.
+    # --- Dispatch contingency (2026-08-13) ---
+    # All three server-owned: the deadline a dispatch must report back by
+    # (NULL once terminal), how many times it has been dispatched, and why
+    # the last attempt failed. The UI uses attempts against
+    # DISPATCH_MAX_ATTEMPTS to decide whether to still offer reprocessing.
+    channel: str | None = None
+    channel_ref: str | None = None
+    feedback_sent_at: datetime | None = None
+    dispatch_deadline_at: datetime | None = None
+    dispatch_attempts: int = 0
+    dispatch_error: str | None = None
+    incubation_owner_id: uuid.UUID | None = None
+    incubation_state: str | None = None
+    matures_at: datetime | None = None
+    drop_reason: str | None = None
+    # When this message actually finished running -- stamped server-side by
+    # get_dispatch_status (the recipient agent's run reached a terminal
+    # state) or by task.py (a linked ProjectTask completed). See
+    # AgentDemand.task_execution_at's docstring for both writers. Never
+    # sent by the compose form; not accepted by DemandSubmitIn/DemandUpdateIn.
+    task_execution_at: datetime | None
+    # The agent's raw output once dispatch finishes -- recorded on this same
+    # message regardless of requires_response ("processamento"). See
+    # AgentDemand.dispatch_result's docstring.
+    dispatch_result: str | None
+    requires_response: bool
+    # Set only on an auto-generated return message (requires_response=true
+    # on the original) -- points back at the message it answers. See
+    # AgentDemand.reply_to_id's docstring.
+    reply_to_id: uuid.UUID | None
+    scheduled_at: datetime | None
+    # Set once the target agent itself pulls this item via GET
+    # .../pending -- see AgentDemand.agent_processed_at's docstring. Never
+    # sent by the compose form.
+    agent_processed_at: datetime | None
+    dispatch_status: str | None
+    agent_run_id: str | None
+
+
+class DispatchIn(BaseModel):
+    """Body for POST /demands/{id}/dispatch. Either target_agent_id or
+    reply_to_sender=True must resolve to an agent -- the route rejects both
+    missing and both present as ambiguous."""
+
+    target_agent_id: uuid.UUID | None = None
+    reply_to_sender: bool = False
+    # Marcelo's instruction, combined with the item's body as the prompt.
+    # Not required -- for a reply continuing an existing thread, the body
+    # (Marcelo's own reply text) is already the full prompt on its own.
+    command_text: str | None = None
+
+
+class DispatchStatusOut(BaseModel):
+    dispatch_status: str | None
+    agent_run_id: str | None
+    reply_demand_id: uuid.UUID | None = None
 
 
 class ConvertIn(BaseModel):

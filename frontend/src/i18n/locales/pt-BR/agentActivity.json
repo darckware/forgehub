@@ -1,0 +1,387 @@
+{
+  "documentTitle": "Atividade dos agentes · ForgeHub",
+  "title": "Atividade dos agentes",
+  "subtitle": "Comunicação, execução e continuidade a partir de Messages, checkpoints e approvals.",
+  "liveRecords": "Registros ao vivo",
+  "recordStatus": {
+    "loading": "Carregando registros",
+    "degraded": "Registros com defasagem",
+    "unavailable": "Registros indisponíveis"
+  },
+  "updatedAt": "Atualizado {{value}}",
+  "syncAgents": "Atualizar agentes",
+  "syncingAgents": "Atualizando agentes…",
+  "syncAgentsTooltip": "Sincronizar roster de agentes com a Hermes Foundation e atualizar atividade",
+  "syncError": "Falha ao atualizar agentes: {{message}}",
+  "availability": {
+    "available": "Disponível",
+    "busy": "Executando",
+    "degraded": "Degradado",
+    "unavailable": "Indisponível",
+    "unknown": "Desconhecido"
+  },
+  "profileStatus": {
+    "healthy": "Saudável",
+    "warning": "Atenção",
+    "error": "Com erro",
+    "unavailable": "Indisponível"
+  },
+  "states": {
+    "loading": "Carregando atividade operacional…",
+    "empty": "Nenhum trabalho ativo para exibir.",
+    "requestFailed": "Não foi possível carregar a atividade dos agentes. Verifique a API e tente novamente.",
+    "sourceHealth": "Estado das fontes",
+    "optionalUnavailable": "Fonte opcional indisponível: {{source}}.",
+    "stale": "Dados desatualizados da fonte {{source}}."
+  },
+  "topology": {
+    "title": "Topologia operacional",
+    "legend": "Legenda de disponibilidade",
+    "organize": "Organizar objetos",
+    "organized": "Objetos restaurados ao layout automático.",
+    "distribute": "Distribuir entidades",
+    "distributed": "Entidades distribuídas com espaçamento otimizado.",
+    "fullscreen": "Tela cheia",
+    "exitFullscreen": "Sair da tela cheia",
+    "movementStatus": "Movimentação da topologia",
+    "nodeMoved": "{{name}} foi movido.",
+    "nodeSelected": "{{name}} foi selecionado.",
+    "nodeDeselected": "{{name}} foi desmarcado.",
+    "relationships": "Relações da topologia",
+    "noRelationships": "Nenhuma relação de projeto ou recurso registrada.",
+    "objectType": {
+      "agent": "agente",
+      "conception": "Concepção",
+      "project": "projeto",
+      "resource": "banco de dados",
+      "database": "banco de dados",
+      "platform": "plataforma",
+      "gateway": "gateway de IA",
+      "vault": "vault de conhecimento",
+      "portal": "site & portal",
+      "site": "site darckware"
+    },
+    "noProject": "Sem projeto atual",
+    "noTask": "Sem tarefa atual",
+    "messageRecords": "Registros de Messages",
+    "openMessage": "Abrir mensagem de {{from}} para {{to}}: {{subject}}",
+    "openFactoryContext": "Abrir contexto da Software Factory: {{context}}",
+    "conception": "Concepção",
+    "project": "Projeto",
+    "unknownAgent": "Agente desconhecido",
+    "noSubject": "Sem assunto",
+    "noMessages": "Nenhuma mensagem na janela atual."
+  },
+  "rail": {
+    "title": "Painel operacional e inspetor"
+  },
+  "views": {
+    "label": "Visão operacional",
+    "flow": "Fluxo atual",
+    "history": "Histórico",
+    "lanes": "Raias",
+    "events": "Eventos"
+  },
+  "flow": {
+    "title": "Fluxo atual",
+    "subtitle": "registros canônicos por etapa de processamento",
+    "empty": "Nenhum item operacional na janela atual.",
+    "stageEmpty": "Sem itens",
+    "stage": {
+      "incoming": "Entrada",
+      "planning": "Planejamento",
+      "queued": "Fila",
+      "executing": "Execução",
+      "verifying": "Verificação",
+      "completed": "Concluído",
+      "attention": "Atenção",
+      "archived": "Arquivado"
+    }
+  },
+  "severity": {
+    "title": "Caixa de severidade",
+    "empty": "Nenhum incidente operacional.",
+    "filterByAgent": "Filtrado por: {{name}}",
+    "showAll": "Ver todos",
+    "allIncidents": "Todos os incidentes",
+    "emptyForAgent": "Nenhum incidente para este agente.",
+    "requestMonitoring": "Solicitar monitoramento ao Athos",
+    "level": {
+      "info": "Informação",
+      "warning": "Atenção",
+      "error": "Erro",
+      "critical": "Crítico"
+    }
+  },
+  "inspector": {
+    "title": "Inspetor do agente",
+    "selectAgent": "Selecione um agente.",
+    "selectAgentHint": "Selecione um agente nos cartões ou na constelação para inspecionar seus detalhes.",
+    "deselectAgent": "Desmarcar agente",
+    "switchAgent": "Trocar agente",
+    "noProfile": "sem perfil",
+    "runtimeHealth": "Saúde do runtime",
+    "currentAction": "Ação atual",
+    "project": "Projeto",
+    "execution": "Execução",
+    "branch": "Branch",
+    "workingDirectory": "Diretório de trabalho",
+    "sourceTask": "Tarefa de origem",
+    "sourceMessage": "Mensagem de origem",
+    "waits": "Espera / dependência",
+    "checkpoint": "Último checkpoint",
+    "resumeFrom": "Retomar de",
+    "error": "Erro",
+    "authorization": "Autorização",
+    "pendingAuthorization": "Autorização pendente",
+    "noActiveWork": "Nenhum trabalho ativo",
+    "noWaits": "Nenhuma espera registrada",
+    "notRecorded": "Não registrado"
+  },
+  "timeline": {
+    "ariaLabel": "Timeline de continuidade",
+    "title": "Histórico de continuidade",
+    "subtitle": "registros sincronizados por faixa",
+    "selectedAgentEvent": "relacionado ao agente selecionado",
+    "empty": "Nenhum evento de continuidade na janela atual.",
+    "laneEmpty": "Sem eventos",
+    "lane": {
+      "communication": "Comunicação",
+      "planning": "Planejamento",
+      "execution": "Execução",
+      "checkpoint": "Checkpoints",
+      "governance": "Governança"
+    }
+  },
+  "monitoring": {
+    "title": "Solicitar monitoramento ao Athos",
+    "description": "Confirme o incidente e a execução antes de criar os registros de Messages e Notifications.",
+    "errorCode": "Código de erro",
+    "execution": "Execução",
+    "checkpoint": "Checkpoint",
+    "blocker": "Bloqueio",
+    "notRecorded": "Não registrado",
+    "missingExecution": "Este incidente não possui uma execução vinculada e não pode ser enviado.",
+    "cancel": "Cancelar",
+    "confirm": "Confirmar solicitação",
+    "close": "Fechar solicitação de monitoramento",
+    "failure": "O monitoramento não foi solicitado. Revise o incidente e tente novamente.",
+    "success": "Solicitação de monitoramento criada."
+  },
+  "live": {
+    "section": "Agora",
+    "noSignal": "Sem atividade registrada",
+    "turnsHour": "Turnos (1h)",
+    "toolsHour": "Ferramentas (1h)",
+    "failuresHour": "Falhas (1h)",
+    "pending": "Pendências",
+    "model": "Modelo",
+    "channel": "Canal",
+    "counterpartLabel": "Com",
+    "lastSeen": "Último sinal",
+    "never": "nunca",
+    "state": {
+      "executing": "Executando {{tool}}",
+      "executingNoTool": "Executando ferramenta",
+      "thinking": "Pensando",
+      "conversing": "Respondeu agora",
+      "waiting_one": "{{count}} pendência",
+      "waiting_other": "{{count}} pendências",
+      "degraded": "Última execução falhou",
+      "degradedReason": "Falhou: {{reason}}",
+      "idle": "Ocioso",
+      "idleSince": "Ocioso há {{time}}",
+      "executingMessage": "Executando mensagem #{{number}}"
+    },
+    "counterpart": {
+      "owner": "Você",
+      "human": "Contato {{ref}}",
+      "humanNoRef": "Contato externo",
+      "agent": "Agente",
+      "system": "Sistema"
+    },
+    "platform": {
+      "workspace": "Workspace",
+      "telegram": "Telegram",
+      "whatsapp": "WhatsApp",
+      "cli": "Terminal",
+      "tui": "Terminal",
+      "acp": "Editor",
+      "cron": "Cron",
+      "kanban": "Kanban",
+      "subagent": "Subagente",
+      "tool": "ForgeHub",
+      "api_server": "API",
+      "messages": "Messages",
+      "site": "Site darckware"
+    }
+  },
+  "pulse": {
+    "title": "Pulso ao vivo",
+    "activeAgents": "Agentes ativos",
+    "inTurn_one": "{{count}} em turno",
+    "inTurn_other": "{{count}} em turno",
+    "turnsHour": "Turnos (1h)",
+    "turnsPerMinute": "Turnos por minuto na última hora",
+    "toolsHour": "Ferramentas (1h)",
+    "llmCalls_one": "{{count}} chamada LLM",
+    "llmCalls_other": "{{count}} chamadas LLM",
+    "tokensHour": "Tokens (1h)",
+    "forgerouterUnavailable": "ForgeRouter indisponível",
+    "costToday": "Custo hoje",
+    "attention": "Falhas (1h)",
+    "pending_one": "{{count}} pendência",
+    "pending_other": "{{count}} pendências"
+  },
+  "cards": {
+    "title": "Agentes ao vivo",
+    "empty": "Nenhum agente para monitorar.",
+    "sparkLabel": "Atividade na última hora, em blocos de 5 minutos",
+    "turns_one": "{{count}} turno",
+    "turns_other": "{{count}} turnos",
+    "tools_one": "{{count}} ferramenta",
+    "tools_other": "{{count}} ferramentas",
+    "tokens": "{{value}} tokens",
+    "pending_one": "{{count}} pendência",
+    "pending_other": "{{count}} pendências",
+    "failures_one": "{{count}} falha",
+    "failures_other": "{{count}} falhas"
+  },
+  "mainView": {
+    "label": "Visualização principal",
+    "cards": "Cartões vivos",
+    "topology": "Topologia",
+    "constellation": "Constelação"
+  },
+  "stream": {
+    "connecting": "Conectando",
+    "live": "Ao vivo",
+    "reconnecting": "Reconectando…",
+    "error": "Sem conexão ao vivo — tentando novamente"
+  },
+  "constellation": {
+    "title": "Constelação de atividade",
+    "legend": "Legenda das interações",
+    "showInfra": "Infraestrutura",
+    "calm": "Tudo calmo — nenhuma interação nos últimos 5 minutos.",
+    "recent": "Interações recentes",
+    "noInteractions": "Nenhuma interação nos últimos 5 minutos.",
+    "now": "agora",
+    "source": {
+      "owner": "Você",
+      "human": "Contatos",
+      "system": "Sistema",
+      "agent": "Entre agentes",
+      "forgerouter": "ForgeRouter"
+    }
+  },
+  "trace": {
+    "title": "Raias",
+    "window": "Janela",
+    "preset": {
+      "1h": "1 h",
+      "2h": "2 h",
+      "6h": "6 h",
+      "24h": "24 h",
+      "custom": "Período"
+    },
+    "start": "Início",
+    "end": "Fim",
+    "rangeError": {
+      "order": "O início precisa ser antes do fim.",
+      "tooWide": "A janela vai até 24 horas.",
+      "invalid": "Informe início e fim."
+    },
+    "play": "Reproduzir",
+    "pause": "Pausar",
+    "live": "Ao vivo",
+    "empty": "Nenhuma atividade registrada nesta janela.",
+    "cursorLabel": "Instante do replay (clique ou use as setas)",
+    "legend": "Legenda das raias",
+    "legendFailed": "Falhou ou abandonado",
+    "legendTool": "Ferramenta",
+    "legendDispatch": "Execução pelo Messages",
+    "message": "Mensagem #{{number}}: {{from}} → {{to}}",
+    "block": {
+      "turn": "{{who}} · {{channel}}",
+      "dispatch": "Mensagem #{{number}} de {{from}}",
+      "workspace": "Você · Workspace"
+    },
+    "kind": {
+      "turn": "Turno do runtime",
+      "dispatch": "Execução pelo Messages",
+      "workspace": "Turno do Workspace"
+    },
+    "status": {
+      "completed": "Concluído",
+      "failed": "Falhou",
+      "interrupted": "Interrompido",
+      "abandoned": "Abandonado",
+      "open": "Em andamento",
+      "running": "Em andamento",
+      "dispatched": "Despachado",
+      "ok": "OK",
+      "error": "Erro",
+      "cancelled": "Cancelado"
+    },
+    "detail": {
+      "title": "Detalhe",
+      "kind": "Tipo",
+      "start": "Início",
+      "end": "Fim",
+      "open": "em andamento",
+      "duration": "Duração",
+      "status": "Status",
+      "error": "Erro",
+      "session": "Sessão",
+      "close": "Fechar detalhe",
+      "tools_one": "{{count}} ferramenta",
+      "tools_other": "{{count}} ferramentas"
+    },
+    "replayFromHere": "Reproduzir daqui",
+    "openMessage": "Abrir mensagem",
+    "openWorkspace": "Abrir Workspace",
+    "openAgent": "Abrir agente",
+    "replaying": "Replay de {{time}}",
+    "replayNote": "Estado reconstruído dos registros. Fila e custo não têm histórico e ficam de fora.",
+    "replayLoading": "Carregando o instante…",
+    "events": {
+      "title": "Eventos",
+      "count_one": "{{count}} registro",
+      "count_other": "{{count}} registros",
+      "filter": "Filtrar eventos",
+      "empty": "Nenhum evento para este filtro.",
+      "truncated": "Mostrando os 2.000 registros mais recentes da janela; reduza o período para ver o restante.",
+      "open": "Abrir registro",
+      "filters": {
+        "all": "Todos",
+        "turns": "Turnos",
+        "tools": "Ferramentas",
+        "messages": "Messages",
+        "failures": "Falhas"
+      },
+      "columns": {
+        "time": "Quando",
+        "agent": "Agente",
+        "event": "Evento",
+        "channel": "Canal",
+        "detail": "Detalhe",
+        "status": "Status",
+        "record": "Registro"
+      },
+      "kind": {
+        "turn_started": "Turno iniciado",
+        "turn_ended": "Turno encerrado",
+        "tool_started": "Ferramenta iniciada",
+        "tool_ended": "Ferramenta concluída",
+        "session_started": "Sessão iniciada",
+        "dispatch_started": "Execução iniciada",
+        "dispatch_completed": "Execução concluída",
+        "dispatch_failed": "Execução falhou",
+        "message_sent": "Mensagem enviada",
+        "workspace_turn": "Turno do Workspace"
+      }
+    },
+    "onlyAgent": "Só {{name}} · mostrar todos"
+  }
+}

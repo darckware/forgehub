@@ -111,18 +111,24 @@ async def convert_to_doc(*, path: str, content: str, root: Path | None = None) -
 
 
 async def copy_attachments_to_folder(
-    *, attachments: list[tuple[str, str]], dest_path: str, dest_root: Path | None = None
+    *, attachments: list[tuple[str, Path]], dest_path: str, dest_root: Path | None = None
 ) -> list[str]:
-    """Copies each (filename, source_relative_path-under-DOCS_ROOT)
+    """Copies each (filename, already-resolved absolute source path)
     attachment into the same folder `dest_path` (a just-written doc) lives
     in under `dest_root` -- so a demand's attached files land next to its
-    note instead of only the markdown body making it into Docs. Attachment
-    sources always live under DOCS_ROOT regardless of `dest_root` (they're
-    uploaded via the fixed /demands/{id}/attachments endpoint); `dest_root`
+    note instead of only the markdown body making it into Docs. `dest_root`
     only affects where the copy lands, e.g. an área de criação other than
     the original /root/docs mount. Missing source files are skipped rather
     than failing the whole conversion (an attachment row can outlive its
     file if something else already moved/deleted it).
+
+    Sources arrive resolved, not as paths relative to some root this module
+    assumes: attachments moved out of the Docs mount into their own
+    (/messages, 2026-07-27) and legacy rows still live under the old one, so
+    only the caller knows where a given attachment's bytes actually are. When
+    this function did that resolution itself, the move would have made it
+    silently skip every new attachment -- a conversion that quietly drops
+    files rather than failing.
 
     `dest_root` defaults to None (resolved to DOCS_ROOT in the body), same
     late-binding reason as convert_to_doc's `root` param -- see its
@@ -131,9 +137,8 @@ async def copy_attachments_to_folder(
         dest_root = DOCS_ROOT
     dest_folder = _resolve_or_raise(dest_root, dest_path).parent
     copied: list[str] = []
-    for filename, source_rel in attachments:
-        source = _resolve_or_raise(DOCS_ROOT, source_rel)
-        if not source.is_file():
+    for filename, source in attachments:
+        if source is None or not source.is_file():
             continue
         target = dest_folder / filename
         target.parent.mkdir(parents=True, exist_ok=True)

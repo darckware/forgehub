@@ -1,0 +1,44 @@
+{
+  "title": "Systems Hub",
+  "subtitle": "MCP servers and app testing, scoped to your systems (Project/Product) rather than to an agent -- see /mcp for per-agent MCP config.",
+  "tabs": {
+    "catalog": "Catalog",
+    "projectMcp": "Project MCP servers",
+    "backgroundTests": "Background tests"
+  },
+  "catalog": {
+    "title": "MCP catalog",
+    "description": "Register a server once, then assign it to any number of agents or projects -- including 'apply to all agents, including ones registered later'."
+  },
+  "projectMcp": {
+    "title": "Project MCP servers",
+    "description": "MCP servers scoped to a project's own working directory (Claude Code's .mcp.json today). Pick a project to manage its servers.",
+    "pickProject": "Select a project…",
+    "openTerminalHere": "Open terminal here"
+  },
+  "backgroundTests": {
+    "title": "Background app testing",
+    "description": "Ask an agent to test a product's live application, in the background or watched live, without blocking the chat.",
+    "pickProduct": "Select a product…",
+    "routinesTitle": "Routines",
+    "loading": "Loading…",
+    "noRoutines": "This product has no automation routines yet -- create one from the Web App pane's Automations panel first, then come back here to enable it for background testing.",
+    "enableToggle": "Background-testable",
+    "runBackground": "Run in background",
+    "runVisible": "Watch live",
+    "historyTitle": "History",
+    "noHistory": "No test runs yet.",
+    "screenshotCount": "{{count}} screenshot(s) captured",
+    "status": {
+      "queued": "Queued",
+      "running": "Running",
+      "passed": "Passed",
+      "failed": "Failed",
+      "error": "Error"
+    },
+    "mode": {
+      "background": "Background",
+      "visible": "Visible"
+    }
+  }
+}

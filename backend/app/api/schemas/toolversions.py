@@ -28,6 +28,16 @@ class ToolUpdateResult(BaseModel):
     status: ToolVersionOut
 
 
+class ToolInstallResult(BaseModel):
+    """Returned by POST .../{tool}/install -- the raw outcome of running the
+    real install command on the host, plus the tool's refreshed status row."""
+
+    success: bool
+    output: str
+    error: str | None
+    status: ToolVersionOut
+
+
 class ToolSyncSettingOut(BaseModel):
     enabled: bool
 

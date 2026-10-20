@@ -72,7 +72,7 @@ APPLICATION_TYPE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("reporting", ("report", "summary", "digest", "news", "notify", "telegram", "alert")),
     ("maintenance", ("cleanup", "clean", "trash", "purge", "rotate", "archive", "audit", "maintenance", "fix", "logs")),
     ("deployment", ("deploy", "install", "setup", "provision", "release", "boot")),
-    ("integration", ("kanboard", "github", "sync", "webhook", "gateway", "bridge")),
+    ("integration", ("github", "sync", "webhook", "gateway", "bridge")),
     ("automation", ("cron", "wrapper", "wrapped", "tick", "schedule", "task")),
 ]
 

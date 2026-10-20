@@ -1,0 +1,358 @@
+{
+  "statusHelpers": {
+    "healthy": "Saludable",
+    "unhealthy": "Insalubre",
+    "starting": "Inicio",
+    "running": "Correr",
+    "stopped": "Detenido"
+  },
+  "logsModal": {
+    "title": "{{containerName}}",
+    "subtitle": "— últimas líneas {{lines}}",
+    "linesOptions": {
+      "50": "50 líneas",
+      "100": "100 líneas",
+      "200": "200 líneas",
+      "500": "500 líneas",
+      "1000": "1000 líneas"
+    },
+    "refresh": "Actualizar",
+    "close": "Cerrar",
+    "loading": "Cargando registros...",
+    "noLogs": "No hay registros disponibles."
+  },
+  "groupsModal": {
+    "title": "Grupos",
+    "create": {
+      "inputPlaceholder": "Nuevo nombre de grupo",
+      "button": "Nuevo grupo"
+    },
+    "actions": {
+      "rename": "Cambiar nombre",
+      "delete": "Eliminar",
+      "save": "Guardar",
+      "cancel": "Cancelar"
+    },
+    "messages": {
+      "noGroups": "No se crearon grupos.",
+      "info": "Renombrar un grupo actualiza sus instalaciones. Eliminar un grupo deja sus instalaciones sin agrupar."
+    },
+    "confirm": {
+      "title": "Borrar grupo",
+      "description": "Borrar grupo \"{{name}}\"? Las instalaciones en este grupo se convertirán en ungrouped.",
+      "confirm": "Eliminar",
+      "cancel": "Cancelar"
+    },
+    "tableHeaders": {
+      "name": "Nombre",
+      "actions": "Medidas"
+    }
+  },
+  "installationForm": {
+    "name": {
+      "label": "Nombre *",
+      "placeholder": "Motor ForgeHub"
+    },
+    "group": {
+      "label": "Grupo",
+      "none": "— ningún grupo —",
+      "buttonTitle": "Gestionar grupos"
+    },
+    "description": {
+      "label": "Descripción",
+      "placeholder": "Breve descripción del servicio"
+    },
+    "container": {
+      "label": "Contenedor Docker",
+      "none": "— ninguno —"
+    },
+    "order": {
+      "label": "Orden"
+    },
+    "restartCommand": {
+      "label": "Reiniciar comando",
+      "placeholder": "docker restart container-name"
+    },
+    "composeFile": {
+      "label": "ruta docker-compose.yml",
+      "placeholder": "/root/project/forgehub/docker-compose.yml"
+    },
+    "product": {
+      "label": "Producto ForgeHub (opcional)",
+      "none": "— ninguno —"
+    },
+    "ports": {
+      "label": "Puertos expuestos",
+      "inputPlaceholder": "8000:8000",
+      "button": "Añadir puerto"
+    },
+    "links": {
+      "label": "Vínculos",
+      "inputs": {
+        "label": "Etiqueta",
+        "url": "http://localhost:8000"
+      },
+      "button": "Añadir enlace"
+    },
+    "notes": {
+      "label": "Notas",
+      "placeholder": "Notas, credenciales, referencias..."
+    },
+    "containerDetails": {
+      "containerId": "ID del contenedor",
+      "container": "Contenedor",
+      "image": "Imagen",
+      "status": "Situación",
+      "ports": "Puertos",
+      "offline": "Este contenedor no está funcionando actualmente en Docker.",
+      "volumes": "Volúmenes",
+      "folders": "carpetas compartidas",
+      "networks": "Redes",
+      "none": "ninguno"
+    }
+  },
+  "actions": {
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "register": "Registro"
+  },
+  "installationCard": {
+    "actions": {
+      "edit": "Registro de contenedores (datos de Docker)",
+      "remove": "Eliminar",
+      "viewLogs": "Ver registros",
+      "restart": "Reiniciar contenedor",
+      "copyCommand": "Copiar comando",
+      "registerFromLive": "Instancia de registro",
+      "openInstance": "Abrir instancia"
+    },
+    "status": {
+      "running": "Correr",
+      "stopped": "Detenido",
+      "healthy": "Saludable",
+      "unhealthy": "Insalubre",
+      "starting": "Inicio",
+      "offline": "desconectado"
+    },
+    "details": {
+      "product": "Producto:",
+      "container": "Contenedor:",
+      "image": "Imagen:",
+      "volumes": "Volúmenes:",
+      "networks": "Redes:",
+      "ports": "Puertos:",
+      "livePorts": "Puertos (vivos):",
+      "links": "Enlaces:",
+      "restart": "Reiniciar:",
+      "compose": "Compone:"
+    }
+  },
+  "liveContainersTab": {
+    "header": "Contenedores {{count}} en el host",
+    "refresh": "Actualizar",
+    "error": {
+      "title": "El puente anfitrión no respondió.",
+      "message": "Reinicie el puente-host para activar el control de Docker en vivo. Ejecute en el terminal:",
+      "command": "kill $(pgrep -f \"host-bridge\") ; cd /root/project/forgehub/host-bridge ; source /root/project/forgehub/.env ; nohup /usr/local/lib/hermes-agent/venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 8910 > /tmp/host-bridge.log 2>&1 &"
+    },
+    "loading": "Cargando contenedores...",
+    "actions": {
+      "openInstance": "Abrir instancia \"{{name}}\"",
+      "register": "Instancia de registro",
+      "delete": "Eliminar contenedor"
+    },
+    "confirm": {
+      "title": "Eliminar contenedor",
+      "description": "¿Quitar el contenedor \"{{name}}\" de Docker y de la base de datos de instalación? Esta acción no se puede deshacer (los volúmenes no se eliminan).",
+      "confirm": "Eliminar",
+      "cancel": "Cancelar"
+    }
+  },
+  "volumesTab": {
+    "summary": "{{volumes}} volúmenes · {{binds}} montajes bind",
+    "activeTitle": "Activo — usado por un contenedor en ejecución",
+    "inactiveTitle": "Inactivo — ningún contenedor en ejecución",
+    "dockerVolumes": "Volúmenes Docker ({{count}})",
+    "noDockerVolumes": "No hay volúmenes Docker.",
+    "bindMounts": "Montajes bind — carpetas y archivos del host compartidos con contenedores ({{count}})",
+    "bindDescription": "Estos montajes no son volúmenes Docker: están en el sistema de archivos del host y no se eliminan aquí.",
+    "header": "Volumen(es) {{count}}",
+    "refresh": "Actualizar",
+    "error": {
+      "message": "Host-bridge offline — volúmenes no disponibles."
+    },
+    "loading": "Cargando volúmenes...",
+    "empty": "No se encontraron volúmenes.",
+    "table": {
+      "headers": {
+        "name": "Nombre",
+        "driver": "Controlador",
+        "scope": "Ámbito",
+        "mountpoint": "Punto de montaje",
+        "containers": "Contenedores",
+        "actions": ""
+      }
+    },
+    "actions": {
+      "openInstance": "Abrir instancia \"{{name}}\"",
+      "register": "Registrar instancia",
+      "delete": "Eliminar volumen"
+    },
+    "confirm": {
+      "title": "Eliminar volumen",
+      "description": "¿Quitar el volumen \"{{name}}\" de Docker? Los datos almacenados en él se perderán. Esta acción no se puede deshacer.",
+      "confirm": "Eliminar",
+      "cancel": "Cancelar"
+    }
+  },
+  "networksTab": {
+    "activeTitle": "Activa — conectada a un contenedor en ejecución",
+    "inactiveTitle": "Inactiva — ningún contenedor en ejecución",
+    "subnets": "Subredes",
+    "connectedContainers": "Contenedores conectados",
+    "container": "Contenedor",
+    "emptyDetails": "No hay contenedores ni subredes configurados.",
+    "header": "Red(es) {{count}}",
+    "refresh": "Actualizar",
+    "error": {
+      "message": "Puente-Hospedaje fuera de línea — redes no disponibles."
+    },
+    "loading": "Cargando redes...",
+    "table": {
+      "headers": {
+        "name": "Nombre",
+        "id": "ID",
+        "driver": "Conductor",
+        "scope": "Ámbito de aplicación",
+        "internal": "interno",
+        "containers": "Contenedor(es) {{count}}",
+        "actions": ""
+      }
+    },
+    "actions": {
+      "openInstance": "Abrir instancia \"{{name}}\"",
+      "register": "Instancia de registro",
+      "delete": "Borrar la red"
+    },
+    "confirm": {
+      "title": "Borrar la red",
+      "description": "¿Quitar la red \"{{name}}\" de Docker? Esta acción no se puede deshacer.",
+      "confirm": "Eliminar",
+      "cancel": "Cancelar"
+    }
+  },
+  "imagesTab": {
+    "headerSelected": "{{count}} seleccionadas",
+    "selectDangling": "Seleccionar sin etiqueta ({{count}})",
+    "deleteSelected": "Eliminar seleccionadas ({{count}})",
+    "selectAll": "Seleccionar todas las imágenes que se pueden eliminar",
+    "selectNamed": "Seleccionar {{name}}",
+    "deleteFailedCount_one": "No se pudo eliminar {{count}} imagen:",
+    "deleteFailedCount_other": "No se pudieron eliminar {{count}} imágenes:",
+    "bulkTitle": "Eliminar imágenes seleccionadas",
+    "bulkDescription_one": "¿Eliminar {{count}} imagen de Docker? Esta acción no se puede deshacer.",
+    "bulkDescription_other": "¿Eliminar {{count}} imágenes de Docker? Esta acción no se puede deshacer.",
+    "bulkConfirm": "Eliminar {{count}}",
+    "header": "Imagen(es) {{count}}",
+    "headerUnused": "{{count}} no utilizado",
+    "refresh": "Actualizar",
+    "error": {
+      "message": "Host-bridge offline — imágenes no disponibles."
+    },
+    "loading": "Cargando imágenes...",
+    "empty": "No se encontraron imágenes.",
+    "table": {
+      "headers": {
+        "repository": "Repositorio",
+        "tag": "Etiqueta",
+        "id": "ID",
+        "size": "Tamaño",
+        "created": "Creado",
+        "status": "Situación",
+        "actions": ""
+      }
+    },
+    "status": {
+      "inUse": "En uso",
+      "unused": "Sin utilizar",
+      "dangling": "Dangling"
+    },
+    "actions": {
+      "delete": "Eliminar imagen"
+    },
+    "confirm": {
+      "title": "Eliminar imagen",
+      "description": "¿Quitar la imagen \"{{name}}\" de Docker? Esta acción no se puede deshacer.",
+      "confirm": "Eliminar",
+      "cancel": "Cancelar"
+    }
+  },
+  "mainPage": {
+    "ungrouped": "Sin grupo",
+    "removeFailed": "Error al eliminar la instalación: {{error}}",
+    "containerTitle": "Contenedor",
+    "removeTitle": "Eliminar instalación",
+    "restartTitle": "Reiniciar contenedor",
+    "header": {
+      "title": "Implementar control",
+      "description": "Seguimiento y control de las instalaciones de Docker"
+    },
+    "stats": {
+      "installations": "Instalaciones",
+      "containers": "Contenedores",
+      "running": "Correr",
+      "healthy": "Saludable",
+      "issues": "Cuestiones",
+      "volumes": "Volúmenes",
+      "networks": "Redes",
+      "images": "Imágenes"
+    },
+    "bridgeOffline": {
+      "title": "Host-bridge offline — Datos de Docker no disponibles. Reinicie con:",
+      "command": "kill $(pgrep -f host-bridge); cd /root/project/forgehub/host-bridge && source /root/project/forgehub/.env && nohup /usr/local/lib/hermes-agent/venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 8910 > /tmp/host-bridge.log 2>&1 &"
+    },
+    "tabs": {
+      "installations": "instalaciones",
+      "live": "vivo",
+      "volumes": "volúmenes",
+      "networks": "redes",
+      "images": "imágenes"
+    },
+    "actions": {
+      "sync": "Sincronizar Docker",
+      "newInstallation": "Nueva instalación",
+      "cancel": "Cancelar",
+      "save": "Guardar",
+      "register": "Registro",
+      "edit": "Editar",
+      "remove": "Eliminar",
+      "restart": "Reiniciar",
+      "viewLogs": "Ver registros",
+      "copyCommand": "Copiar comando",
+      "registerFromLive": "Instancia de registro",
+      "openInstance": "Abrir instancia"
+    },
+    "messages": {
+      "loading": "Cargando...",
+      "noInstallations": "No hay ninguna instalación registrada.",
+      "noInstallationsHelp": "Use \"Nueva instalación\" o regístrese directamente desde la pestaña Live Docker.",
+      "hostBridgeOffline": "Host-bridge offline — Datos de Docker no disponibles. Reinicie con:",
+      "hostBridgeResponseFailed": "El puente anfitrión no respondió.",
+      "volumesUnavailable": "Host-bridge offline — volúmenes no disponibles.",
+      "noVolumes": "No se encontraron volúmenes.",
+      "networksUnavailable": "Puente-Hospedaje fuera de línea — redes no disponibles.",
+      "imagesUnavailable": "Host-bridge offline — imágenes no disponibles.",
+      "noImages": "No se encontraron imágenes.",
+      "bridgeOffline": "Host-bridge offline — Datos de Docker no disponibles. Reinicie con:",
+      "restartConfirmation": "¿Reiniciar el contenedor \"{{name}}\"? El servicio estará desconectado durante unos segundos.",
+      "removeConfirmation": "¿Quitar \"{{name}}\" del registro? El contenedor Docker no se verá afectado.",
+      "syncResult": {
+        "created": "creado",
+        "updated": "Actualizado",
+        "upToDate": "La Secretaría ya está actualizada",
+        "stale": "sin envase (cuento)",
+        "invalidCompose": "con un archivo de composición faltante"
+      }
+    }
+  }
+}

@@ -1,0 +1,168 @@
+{
+  "toggle": {
+    "newIdea": "Nova ideia",
+    "backToList": "Voltar para solicitações"
+  },
+  "page": {
+    "title": "1. Concepção & Contexto",
+    "description": "Transforme uma ideia em uma definição de produto versionada e revisável antes da execução começar."
+  },
+  "wizard": {
+    "updateFromDiagram": "Atualizar a partir do diagrama",
+    "updateFromDiagramEmpty": "O diagrama de entidades e funcionalidades ainda está vazio -- abra o Mapa do Sistema para começar a modelar.",
+    "steps": {
+      "pipeline": "1. Contexto",
+      "problem": "2. Problema e visão",
+      "description": "3. Descrição e pasta",
+      "stack": "4. Stack tecnológico",
+      "delivery": "5. Projeto(s) a criar",
+      "documentation": "6. Documentação"
+    },
+    "context": {
+      "help": "Cole um documento de contexto solto (uma ideia de sistema, automação ou serviço) e peça para um agente rascunhar os campos abaixo a partir dele -- revise e ajuste antes de salvar. Pode regenerar quantas vezes quiser.",
+      "agentLabel": "Agente",
+      "selectAgent": "Selecione um agente...",
+      "contextLabel": "Contexto (.md)",
+      "contextPlaceholder": "Cole ou escreva o contexto solto aqui...",
+      "upload": "Enviar arquivo",
+      "uploadNoAgent": "Selecione um agente abaixo para enviar e resumir um arquivo.",
+      "generate": "Gerar a partir do contexto",
+      "copyPromptLabel": "Copiar prompt",
+      "copyPrompt": "Copiar o prompt (o que o agente espera do contexto)",
+      "appliedHint": "Rascunho de documentação pronto -- veja no Passo 6 (Documentação)."
+    },
+    "documentation": {
+      "help": "Anexe material de referência em markdown ou modelos para preencher a concepção -- envie um arquivo ou crie um novo, depois edite direto aqui.",
+      "saveFirst": "Salve esta ideia primeiro (Criar concepção) antes de anexar documentos.",
+      "filesTitle": "Arquivos",
+      "upload": "Enviar arquivo",
+      "newDocument": "Novo documento",
+      "create": "Criar",
+      "loading": "Carregando…",
+      "empty": "Nenhum documento ainda.",
+      "selectHint": "Selecione um arquivo à esquerda, ou envie/crie um.",
+      "save": "Salvar",
+      "catalogTemplate": "Catalogar modelo:", "filter": "Filtrar:", "all": "Todos ({{count}})", "classification": "Classificação do documento", "classificationShort": "Classificação:", "filenamePlaceholder": "Nome do arquivo (ex: PRD.md)", "emptyCategory": "Nenhum documento nesta classificação.", "purposePlaceholder": "Descreva o propósito deste documento...", "selectDescription": "Selecione um documento catalogado para visualizar e editar, ou use os botões acima para criar PRD, Design System, modelagem de banco, especificação de arquitetura, telas ou APIs.", "pasteTip": "Dica: você pode colar capturas de tela diretamente com Ctrl+V ou Cmd+V.", "assetPreview": "Prévia da imagem ou mockup de tela", "markdownPlaceholder": "Conteúdo do documento em Markdown...", "pastedImageDescription": "Mockup / imagem de tela colada", "document": "Documento", "details": "Detalhes", "overview": "Visão geral", "detailedSpecification": "Especificação detalhada",
+      "categories": {"prd": {"label": "PRD / Requisitos", "description": "Documento de requisitos do produto (PRD)"}, "design_system": {"label": "Design System / UI", "description": "Guia de estilos, tokens e componentes UI"}, "database": {"label": "Modelagem de banco de dados", "description": "Modelagem, schemas e tabelas do banco"}, "architecture": {"label": "Arquitetura / SPEC", "description": "Especificação técnica e arquitetura do sistema"}, "screens": {"label": "Telas / Wireframes", "description": "Especificação e protótipos de telas"}, "api": {"label": "APIs / Integrações", "description": "Contratos de endpoints e integrações"}, "other": {"label": "Outros documentos", "description": "Documentação geral de referência"}}
+    },
+    "description": {
+      "help": "Descreva o sistema em linguagem natural e, se o código já existir, aponte a pasta de trabalho -- essa descrição alimenta o diagrama de entidades e funcionalidades nas próximas etapas.",
+      "fields": {
+        "projectDescription": "Descrição do projeto",
+        "workingDirectory": "Pasta de trabalho"
+      },
+      "workingDirectoryPlaceholder": "/root/project/meu-projeto"
+    },
+    "stack": {
+      "help": "Adicione as tecnologias que este projeto realmente usa, escolhendo entre os padrões organizacionais de arquitetura -- nem todo projeto precisa de todas as camadas, e alguns precisam de mais de uma entrada na mesma camada. Fica registrado na concepção e alimenta o Spec de tecnologia quando o conceito for aprovado. \"Gerar com agente\" propõe uma stack com base no help/TECH_STACK_GUIDE.md e no catálogo atual, em vez de uma sugestão livre.",
+      "empty": "Nenhuma tecnologia adicionada ainda.",
+      "viewCatalog": "Ver catálogo completo",
+      "hideCatalog": "Ocultar catálogo",
+      "catalogEmpty": "Nenhuma opção registrada ainda.",
+      "add": "Adicionar tecnologia",
+      "generate": "Gerar com agente",
+      "generateNoAgent": "Selecione um agente acima (Passo 1) para gerar a stack.",
+      "remove": "Remover",
+      "layer": "Camada",
+      "technology": "Tecnologia",
+      "layers": {
+        "frontend": "Frontend",
+        "mobile": "Mobile",
+        "backend": "Backend",
+        "database": "Database",
+        "cache": "Cache",
+        "messaging": "Messaging / Event Bus",
+        "auth": "Authentication / Identity",
+        "storage": "Storage",
+        "search": "Search",
+        "api_gateway": "API / Gateway",
+        "deploy_infra": "Deploy / Infrastructure",
+        "cicd": "CI/CD",
+        "observability": "Observability",
+        "testing": "Testing",
+        "documentation": "Documentation"
+      },
+      "platforms": {
+        "web_app": "Web app",
+        "landing_page": "Landing page",
+        "institutional_site": "Site institucional",
+        "pwa": "PWA",
+        "mobile": "Mobile"
+      },
+      "selectPlaceholder": "Selecione uma tecnologia...",
+      "addNewOption": "Adicionar nova opção",
+      "newOptionPlaceholder": "Nome da nova tecnologia",
+      "confirmAdd": "Adicionar",
+      "cancelAdd": "Cancelar",
+      "rationale": "Justificativa (opcional)"
+    }
+  },
+  "captureIdea": {
+    "title": "Capturar ideia",
+    "description": "Cria um produto conceito e sua primeira revisão do Mapa do Sistema.",
+    "editTitle": "Editar ideia",
+    "editDescription": "Atualize os dados do cadastro da concepção.",
+    "conceptLocked": "O conceito já foi enviado para revisão, então a declaração do problema, visão e escopo inicial não podem mais ser editados aqui. Nome, solicitante, descrição do projeto, pasta de trabalho e stack tecnológico continuam editáveis.",
+    "fields": {
+      "name": "Nome",
+      "problemStatement": "Declaração do problema",
+      "vision": "Visão",
+      "initialScope": "Escopo inicial",
+      "requestedBy": "Solicitado por",
+      "priority": "Prioridade"
+    },
+    "priorityOptions": {
+      "low": "baixa",
+      "medium": "média",
+      "high": "alta",
+      "critical": "crítica"
+    },
+    "buttons": {
+      "create": "Criar concepção",
+      "save": "Salvar alterações",
+      "cancel": "Cancelar"
+    },
+    "error": {
+      "createFailed": "A ideia não pôde ser criada. Verifique se já existe um nome duplicado."
+    }
+  },
+  "developmentRequests": {
+    "title": "Solicitações de desenvolvimento",
+    "description": "Histórico de entrada e conversão para criação de produto.",
+    "loading": "Carregando…",
+    "empty": "Nenhuma ideia capturada ainda.",
+    "openSystemMap": "Abrir Mapa do Sistema",
+    "edit": "Editar",
+    "delete": "Excluir",
+    "deleteDialog": {
+      "title": "Excluir \"{{name}}\"?",
+      "description": "Isso exclui permanentemente o produto, seu conceito, o Mapa do Sistema e todas as revisões relacionadas. Isso não pode ser desfeito.",
+      "confirmLabel": "Excluir"
+    }
+  },
+  "captureDialog": {"title": "Abertura de Concepção de Projeto", "description": "Vincule a concepção a um produto existente para manter o histórico evolutivo de versões.", "associatedProduct": "Produto associado", "selectProduct": "Selecione um produto...", "newProduct": "+ Novo produto", "openingType": "Tipo de abertura", "newImplementation": "🚀 Nova implementação", "maintenance": "🔧 Manutenção", "maintenanceNameExample": "Ex: correção de autenticação e otimização de consultas", "newNameExample": "Ex: módulo de cobrança recorrente PIX", "problemPlaceholder": "Descreva o problema ou o objetivo desta abertura...", "visionPlaceholder": "Visão da solução...", "scopePlaceholder": "Resumo do escopo...", "requesterPlaceholder": "Ex: usuário / Product Owner"},
+  "projectPlanning": {
+    "saveFirst": "Salve a ideia primeiro para criar o projeto.", "existing": "Projetos existentes", "createNew": "Criar novo projeto", "maintenance": "Manutenção de projeto", "existingDescription": "Visualize e sincronize a documentação dos projetos vinculados.", "manageDescription": "Defina novos projetos ou realize manutenção evolutiva.", "noExisting": "Nenhum projeto existente no produto", "noExistingDescription": "Este produto ainda não possui projetos vinculados. Use a aba ao lado para criar o primeiro projeto.", "createFirst": "Criar primeiro projeto", "general": "Geral", "createdCounts": "({{scopes}} escopos, {{tasks}} tarefas)", "syncTitle": "Sincronizar documentos da concepção para o projeto", "syncDocs": "Sincronizar docs", "openMaintenance": "Abrir manutenção para este projeto", "evolve": "Evoluir", "syncSuccess": "Documentos sincronizados: {{files}}", "noGeneratedDocs": "(nenhum documento gerado ainda)", "syncExplanation": "Sincronizar docs copia os documentos da Concepção (PRD, especificações, design system e telas) para a pasta docs/ do repositório do projeto, disponibilizando o contexto aos agentes de desenvolvimento.", "actionType": "Tipo de ação", "newProject": "Novo projeto", "newProjectDescription": "Criar nova aplicação ou camada", "maintenanceShort": "Manutenção", "maintenanceDescription": "Evoluir projeto existente", "defineProjects": "Definir novos projetos / camadas", "eachLayer": "Cada camada gera um projeto versionado independente.", "projectNameExample": "Nome do projeto (ex: Portal Web Factory)", "initialVersion": "Versão inicial", "operationType": "Tipo de operação", "newImplementation": "Nova implementação (criação)", "addApplicationType": "Adicionar tipo de aplicação", "selectForMaintenance": "Selecionar projeto existente para manutenção", "noExistingForMaintenance": "Nenhum projeto existente encontrado para este produto.", "maintenanceNeedsProject": "Para realizar manutenção, crie primeiro um projeto na opção Novo projeto.", "projectForMaintenance": "Projeto a receber a manutenção:", "currentVersion": "Versão atual: v{{version}}", "maintenanceMode": "Modo: manutenção", "projectIdentification": "Nome / identificação do projeto", "projectName": "Nome do projeto", "maintenanceVersion": "Nova versão da manutenção (patch / minor)", "authorizeMaintenance": "Autorizar manutenção do projeto", "syncDocsWithProject": "Sincronizar docs com projeto", "processFailed": "Falha ao processar: {{error}}", "deleteTitle": "Excluir projeto \"{{name}}\"?", "deleteDescription": "Isso excluirá o projeto permanentemente junto com suas tarefas e configurações. Esta ação não pode ser desfeita.",
+    "solutionTypes": {"web_app": "Aplicação web", "mobile_app": "Aplicativo mobile", "api_service": "Serviço de API", "database": "Banco de dados", "deploy": "Deploy / infraestrutura", "automation": "Automação", "data_migration": "Migração de dados", "data_analysis": "Análise de dados", "reporting": "Geração de relatórios"}
+  },
+  "conceptDecision": {
+    "title": "Decisão de conceito",
+    "description": "A execução permanece bloqueada até que o conceito e o mapa sejam aprovados.",
+    "actions": {
+      "reviewSystemMap": "Revisar Mapa do Sistema",
+      "submitForReview": "Enviar para revisão",
+      "openApprovalInbox": "Abrir caixa de aprovação",
+      "authorizeDelivery": "Autorizar planejamento de entrega",
+      "openProjectScope": "Abrir Escopo do Projeto criado"
+    },
+    "error": {
+      "submitBlocked": "O envio foi bloqueado. Valide o Mapa do Sistema e sua permissão de comando."
+    },
+    "authorizeForm": {
+      "version": "Versão",
+      "projectName": "Nome do projeto",
+      "owner": "Responsável",
+      "tasksGenerated": "{{count}} tarefa(s) gerada(s) no Backlog a partir deste escopo."
+    }
+  }
+}

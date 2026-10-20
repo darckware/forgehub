@@ -1,0 +1,25 @@
+{
+  "title": "Notifications",
+  "unreadCount": "{{count}} unread",
+  "markAllRead": "Mark all as read",
+  "cleanup": {
+    "keep30Label": "Keep last 30 days",
+    "keep30Description": "Delete every notification older than 30 days.",
+    "keep15Label": "Keep last 15 days",
+    "keep15Description": "Delete every notification older than 15 days.",
+    "clearAllLabel": "Clear all",
+    "clearAllDescription": "Delete the entire notification record. This cannot be undone.",
+    "confirmLabel": "Delete"
+  },
+  "filters": {
+    "all": "All",
+    "unread": "Unread",
+    "error": "Errors"
+  },
+  "totalRecorded": "{{count}} recorded",
+  "empty": "No notifications recorded.",
+  "read": "Read",
+  "errorLabel": "Error",
+  "runSummary": "Run summary",
+  "noRunOutput": "No run output recorded for this execution."
+}

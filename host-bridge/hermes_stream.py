@@ -21,6 +21,7 @@ Must be run from HERMES_HOME set to the target profile directory, e.g.:
 """
 import json
 import os
+import re
 import sys
 import threading
 import uuid
@@ -29,6 +30,20 @@ import uuid
 def _emit(payload: dict) -> None:
     sys.stdout.write(json.dumps(payload) + "\n")
     sys.stdout.flush()
+
+
+# Codex/Harmony tool-call serialization (``to=functions.search_files {...}``,
+# optionally prefixed with ``assistant`` or a ``<|channel|>`` marker) that the
+# model sometimes emits as plain assistant text instead of a real structured
+# tool call -- e.g. because the target profile's model.api_mode is
+# "chat_completions", which doesn't get the Responses-API leak recovery in
+# hermes-agent's agent/codex_responses_adapter.py. Mirrors that module's
+# _TOOL_CALL_LEAK_PATTERN so this stream never persists the raw leaked tokens
+# as the assistant's reply (see forgehub#chat garbled-reply reports).
+_TOOL_CALL_LEAK_PATTERN = re.compile(
+    r"(?:^|[\s>|])to=functions\.[A-Za-z_][\w.]*",
+    re.IGNORECASE,
+)
 
 
 # Slash commands ForgeHub's web chat will actually execute via Hermes's own
@@ -139,42 +154,67 @@ def main() -> None:
     p.add_argument("--profile-home", required=True)
     p.add_argument("--message", required=True)
     p.add_argument("--session-id", default=None)
+    p.add_argument("--cwd", default=None)
     args = p.parse_args()
 
     os.environ["HERMES_HOME"] = args.profile_home
     os.environ.setdefault("HERMES_SESSION_SOURCE", "tool")
+    # Without this, MCP tools (forgehub included) are never
+    # available to the model during a chat.py-driven turn (2026-07-28).
+    # This process instantiates HermesCLI directly and calls _init_agent()
+    # itself, skipping hermes_cli/main.py's main() -- which is the only
+    # place that normally calls start_background_mcp_discovery() before a
+    # real hermes chat session. _init_agent() already calls
+    # _prepare_deferred_agent_startup() (cli.py) unconditionally and then
+    # waits on wait_for_mcp_discovery() (mcp_startup.py) -- but
+    # _prepare_deferred_agent_startup() is itself a no-op unless this env
+    # var is set, so the wait was returning instantly with nothing ever
+    # discovered. Setting it here reuses hermes-agent's own existing
+    # deferred-startup path (built for Termux) instead of duplicating MCP
+    # discovery logic in this file or patching the installed package.
+    os.environ.setdefault("HERMES_DEFER_AGENT_STARTUP", "1")
 
     sys.path.insert(0, "/usr/local/lib/hermes-agent")
-    os.chdir(args.profile_home)
-
-    stream_id = str(uuid.uuid4())
-    _emit({"stream_id": stream_id})
+    # ChatSession.working_directory_path (see chat.py's /stream) -- runs the
+    # turn's terminal/tools from a project's folder instead of the agent's
+    # own profile home, without losing the profile's identity/config
+    # (HERMES_HOME above still points at profile_home regardless). Falls
+    # back to profile_home rather than raising if the path is stale/gone
+    # (e.g. a project folder moved/deleted after the session picked it) --
+    # stderr is discarded by the host-bridge caller, so an unhandled
+    # exception here would silently kill the whole turn with no output.
+    cwd = args.cwd if args.cwd and os.path.isdir(args.cwd) else args.profile_home
+    os.chdir(cwd)
 
     try:
         from cli import HermesCLI  # type: ignore
+        from tools.approval import register_gateway_notify, unregister_gateway_notify
+        from tools.approval_context import reset_current_session_key, set_current_session_key
     except Exception as exc:
         _emit({"error": f"import failed: {exc}"})
         return
 
+    # Hermes may relaunch this script while importing cli to finish a source
+    # update. Announce the ID only after imports complete, so the bridge and
+    # approval callback never refer to different process generations.
+    stream_id = str(uuid.uuid4())
+    _emit({"stream_id": stream_id})
+
     session_key_token = None
     try:
-        from tools.approval import (
-            register_gateway_notify,
-            reset_current_session_key,
-            set_current_session_key,
-            unregister_gateway_notify,
-        )
-
         cli_inst = HermesCLI(resume=args.session_id)
         cli_inst.tool_progress_mode = "off"  # keep the CLI's own print()s out of our JSON-line stdout
 
         full_parts: list[str] = []
+        any_tool_ran = False
 
         def on_delta(delta: str) -> None:
             full_parts.append(delta)
             _emit({"delta": delta})
 
         def on_tool_start(tool_id, name, tool_args) -> None:
+            nonlocal any_tool_ran
+            any_tool_ran = True
             try:
                 from agent.display import build_tool_label
                 context = build_tool_label(name, tool_args, max_len=80) or name
@@ -197,6 +237,19 @@ def main() -> None:
             if name in ("write_file", "patch") and isinstance(tool_args, dict) and tool_args.get("path"):
                 payload["summary"] = f"Artefato criado: {tool_args['path']}"
                 payload["path"] = tool_args["path"]
+            # Delegating to another agent mid-conversation (2026-07-28, see
+            # FORGEHUB_MESSAGE.md's "Delegating to another agent
+            # mid-conversation"): forgehub' send_agent_message
+            # always replies with "Sent message #<N> (...)" as its first
+            # line (forgehub_messages_mcp.py). Surfacing the number here --
+            # not by having the frontend re-parse the model's own paraphrase
+            # of it -- lets ChatPane render a live status card for the
+            # message this tool call just created, backed by the same
+            # dispatch_status the Messages page already polls.
+            if name == "mcp__forgehub_messages__send_agent_message" and isinstance(result, str):
+                match = re.search(r"Sent message #(\d+)", result)
+                if match:
+                    payload["demand_number"] = int(match.group(1))
             _emit({"tool_complete": payload})
 
         def on_approval_request(approval_data: dict) -> None:
@@ -255,6 +308,16 @@ def main() -> None:
         )
         new_sid = cli_inst.session_id
         full_reply = result.get("final_response", "".join(full_parts))
+        if not any_tool_ran and _TOOL_CALL_LEAK_PATTERN.search(full_reply):
+            # The model tried to call a tool and degenerated into emitting
+            # the raw serialization as text instead (no tool actually ran).
+            # Persisting that garbage as the reply is worse than saying we
+            # don't have a real answer -- ask the user to retry the turn.
+            full_reply = (
+                "O agente tentou chamar uma ferramenta, mas o modelo não formatou "
+                "a chamada corretamente e nenhuma ferramenta rodou. Tente reenviar "
+                "a mensagem."
+            )
         _emit({"done": True, "session_id": new_sid, "reply": full_reply})
 
     except Exception as exc:

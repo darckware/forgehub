@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 from app.api.schemas.profile import ProfileCreate, ProfileOut, ProfileUpdate
 from app.core.deps import get_current_admin
 from app.db.base import get_db
-from app.db.models.profile import Profile, ProfilePermission
+from app.db.models.profile import Profile, ProfileActionPermission, ProfilePermission, SENSITIVE_ACTIONS
 from app.db.models.user import User
 
 router = APIRouter(prefix="/api/v1/profiles", tags=["profiles"])
@@ -23,7 +23,7 @@ async def _get_or_404(db: AsyncSession, profile_id: uuid.UUID) -> Profile:
     result = await db.execute(
         select(Profile)
         .where(Profile.id == profile_id)
-        .options(selectinload(Profile.permissions))
+        .options(selectinload(Profile.permissions), selectinload(Profile.action_permissions))
     )
     profile = result.scalar_one_or_none()
     if profile is None:
@@ -38,7 +38,7 @@ async def list_profiles(
 ) -> list[ProfileOut]:
     result = await db.execute(
         select(Profile)
-        .options(selectinload(Profile.permissions))
+        .options(selectinload(Profile.permissions), selectinload(Profile.action_permissions))
         .order_by(Profile.name)
     )
     return [ProfileOut.model_validate(p) for p in result.scalars().all()]
@@ -66,6 +66,12 @@ async def create_profile(
             can_query=perm_in.can_query,
             can_write=perm_in.can_write,
             can_delete=perm_in.can_delete,
+        ))
+    for action in body.action_permissions:
+        if action.action_key not in SENSITIVE_ACTIONS:
+            raise HTTPException(422, f"Unknown sensitive action: {action.action_key}")
+        db.add(ProfileActionPermission(
+            profile_id=profile.id, action_key=action.action_key, allowed=action.allowed
         ))
 
     await db.commit()
@@ -113,6 +119,17 @@ async def update_profile(
                 can_query=perm_in.can_query,
                 can_write=perm_in.can_write,
                 can_delete=perm_in.can_delete,
+            ))
+
+    if body.action_permissions is not None:
+        await db.execute(ProfileActionPermission.__table__.delete().where(
+            ProfileActionPermission.profile_id == profile_id
+        ))
+        for action in body.action_permissions:
+            if action.action_key not in SENSITIVE_ACTIONS:
+                raise HTTPException(422, f"Unknown sensitive action: {action.action_key}")
+            db.add(ProfileActionPermission(
+                profile_id=profile_id, action_key=action.action_key, allowed=action.allowed
             ))
 
     await db.commit()
