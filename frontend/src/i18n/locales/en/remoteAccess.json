@@ -259,6 +259,12 @@
     "back": "Back"
   },
   "executions": {
+    "stopAll_one": "Stop {{count}} execution",
+    "stopAll_other": "Stop {{count}} executions",
+    "stopAllTitle": "Stop every running execution?",
+    "stopAllText": "Machines that haven't started are skipped. Ones already running finish what they started, so no change is left half-applied.",
+    "stopAllConfirm": "Stop all",
+    "stopped": "{{count}} execution(s) stopped; {{skipped}} machine(s) never ran.",
     "title": "Executions",
     "loadFailed": "Could not load executions.",
     "empty": "No commands run yet.",
@@ -397,6 +403,10 @@
     "rotate_ssh_key": "Rotate SSH key"
   },
   "composer": {
+    "canary": "Canary: one machine first",
+    "canaryHelp": "Runs on the first machine and only goes on to the others if it succeeds.",
+    "canaryOn": "Canary on: the other machines run only if the first one succeeds.",
+    "confirmWord": "Type {{word}} to run (destructive script or ad-hoc command on several machines)",
     "machines_one": "Machines ({{count}} selected)",
     "machines_other": "Machines ({{count}} selected)",
     "search": "Search by name, IP, location or client",
@@ -803,14 +813,27 @@
   },
   "knownFailure": {
     "tailscale_not_unattended": {
-      "short": "The machine's Tailscale is not in unattended mode",
-      "title": "This machine's Tailscale is bound to one Windows account",
-      "why": "It was set up from the app while signed in as {{owner}} and only answers that session. ForgeHub signs in as darckware and gets \"access denied\" — the installer stops before touching RustDesk. ForgeHub can't fix this itself; it also drops the machine off the tailnet when that person signs out of Windows.",
-      "someone": "the signed-in user",
+      "short": "The machine's Tailscale belongs to a Windows user",
+      "title": "This machine's Tailscale belongs to a Windows account",
+      "why": "It was connected in {{owner}}'s session, and Windows only lets that account control it (even with unattended mode on, which binds it to that account in \"server mode\"). ForgeHub logs in as darckware and gets \"access denied\" on any Tailscale command. SSH access, RustDesk and other scripts keep working.",
+      "someone": "the user who connected it",
       "steps": [
-        "On the machine, signed in as {{owner}}: Tailscale tray icon → Preferences → check \"Run unattended\" (or, in a PowerShell in that session: tailscale set --unattended).",
-        "Run this script again from ForgeHub."
+        "Scripts that don't touch Tailscale need no change.",
+        "For ForgeHub to manage Tailscale, it must be reconnected by the darckware account (ForgeHub's installer, with a new auth key generated in the Tailscale console for this machine). Closing the tray icon or turning on \"Run unattended\" doesn't help."
       ]
+    },
+    "host_key_changed": {
+      "short": "The machine's SSH key changed",
+      "title": "The machine answered with an SSH key different from the recorded one",
+      "why": "For safety ForgeHub refuses the connection. Expected after reinstalling Windows/Linux, replacing the machine or a Tailscale address moving to another device. If none of that happened, someone may be impersonating the machine: don't accept.",
+      "steps": [
+        "Confirm why it changed (reinstall, new machine, reused address).",
+        "Only then accept the new key: the next connection records it."
+      ],
+      "action": "Accept this machine's new key",
+      "confirmTitle": "Accept the new SSH key?",
+      "confirmText": "The old key is discarded and the next connection records the new one. Do it only if you know why it changed. It is recorded in the audit trail and the machine's history.",
+      "done": "Old key discarded. Run the script again."
     }
   }
 }

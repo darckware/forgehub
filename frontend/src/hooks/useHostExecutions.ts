@@ -80,6 +80,8 @@ export interface HostExecutionCreate {
   reason?: string;
   darckware_item_kind?: "ticket" | "demand";
   darckware_item_id?: string;
+  canary?: boolean;
+  confirmation?: string;
 }
 
 const KEY = ["host-executions"] as const;
@@ -173,7 +175,7 @@ export function shellForOs(osFamilies: (string | null)[]): ExecShell | null {
 
 /** A failure ForgeHub knows how to explain, recognized in a machine's output. */
 export interface KnownFailure {
-  kind: "tailscale_not_unattended";
+  kind: "tailscale_not_unattended" | "host_key_changed";
   /** The Windows account the local Tailscale is bound to, when the output names it. */
   owner: string | null;
 }
@@ -190,7 +192,12 @@ export interface KnownFailure {
  * "Run unattended". ForgeHub can't fix it from that account by design. */
 export function detectKnownFailure(output: string | null): KnownFailure | null {
   if (!output) return null;
-  const match = /Tailscale already in use by\s+(.+?),\s*pid/i.exec(output);
+  if (/REMOTE HOST IDENTIFICATION HAS CHANGED|Host key verification failed/i.test(output)) {
+    return { kind: "host_key_changed", owner: null };
+  }
+  const match = /Tailscale already in use by\s+(.+?),\s*pid/i.exec(output)
+    ?? /server mode \("?([^"\)]+)/i.exec(output)
+    ?? /pertence ao usuario (\S+)/i.exec(output);
   if (match || /failed to connect to local tailscaled[\s\S]*401 Unauthorized/i.test(output)) {
     return { kind: "tailscale_not_unattended", owner: match?.[1]?.trim() ?? null };
   }
@@ -203,4 +210,22 @@ export function formatDuration(ms: number | null): string {
   const seconds = ms / 1000;
   if (seconds < 60) return `${seconds.toFixed(1)} s`;
   return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
+}
+
+
+/** Forgets a machine's recorded SSH host key (audited) after it changed. */
+export function useForgetHostKey() {
+  return useMutation<{ removed: boolean }, Error, string>({
+    mutationFn: (serverId) => apiClient.post(`/api/v1/servers/${serverId}/host-key:forget`),
+  });
+}
+
+
+/** The stop button: every running execution stops starting machines. */
+export function useCancelAllExecutions() {
+  const qc = useQueryClient();
+  return useMutation<{ cancelled: number; machines_skipped: number }, Error, void>({
+    mutationFn: () => apiClient.post("/api/v1/host-executions/running:cancel"),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["host-executions"] }),
+  });
 }

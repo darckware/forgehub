@@ -259,6 +259,12 @@
     "back": "Volver"
   },
   "executions": {
+    "stopAll_one": "Detener {{count}} ejecución",
+    "stopAll_other": "Detener {{count}} ejecuciones",
+    "stopAllTitle": "¿Detener todas las ejecuciones en curso?",
+    "stopAllText": "Las máquinas que no empezaron se omiten. Las que ya están corriendo terminan lo que empezaron, para no dejar un cambio a medias.",
+    "stopAllConfirm": "Detener todas",
+    "stopped": "{{count}} ejecución(es) detenida(s); {{skipped}} máquina(s) no llegaron a ejecutarse.",
     "title": "Ejecuciones",
     "loadFailed": "No se pudieron cargar las ejecuciones.",
     "empty": "Aún no se ejecutaron comandos.",
@@ -397,6 +403,10 @@
     "rotate_ssh_key": "Rotar clave SSH"
   },
   "composer": {
+    "canary": "Canario: primero en una máquina",
+    "canaryHelp": "Ejecuta en la primera máquina y solo sigue con las demás si sale bien.",
+    "canaryOn": "Canario activo: las demás máquinas solo se ejecutan si la primera sale bien.",
+    "confirmWord": "Escriba {{word}} para ejecutar (script destructivo o comando suelto en varias máquinas)",
     "machines_one": "Máquinas ({{count}} seleccionada)",
     "machines_other": "Máquinas ({{count}} seleccionadas)",
     "search": "Buscar por nombre, IP, ubicación o cliente",
@@ -803,14 +813,27 @@
   },
   "knownFailure": {
     "tailscale_not_unattended": {
-      "short": "El Tailscale de la máquina no está en modo desatendido",
-      "title": "El Tailscale de esta máquina está atado a una cuenta de Windows",
-      "why": "Se configuró desde la aplicación con la sesión de {{owner}} y solo responde a esa sesión. ForgeHub entra como darckware y recibe \"acceso denegado\": el instalador se detiene antes de tocar RustDesk. ForgeHub no puede corregirlo; además, la máquina sale de la tailnet cuando esa persona cierra la sesión de Windows.",
-      "someone": "el usuario conectado",
+      "short": "El Tailscale de la máquina pertenece a un usuario de Windows",
+      "title": "El Tailscale de esta máquina pertenece a una cuenta de Windows",
+      "why": "Se conectó en la sesión de {{owner}}, y Windows solo deja que esa cuenta lo controle (aun con el modo desatendido, que lo ata a esa cuenta en \"modo servidor\"). ForgeHub entra como darckware y recibe \"acceso denegado\" en cualquier comando de Tailscale. El acceso SSH, RustDesk y los demás scripts siguen funcionando.",
+      "someone": "el usuario que lo conectó",
       "steps": [
-        "En la máquina, con la sesión de {{owner}}: icono de Tailscale en la bandeja → Preferences → marque \"Run unattended\" (o, en un PowerShell de esa sesión: tailscale set --unattended).",
-        "Vuelva a ejecutar este script desde ForgeHub."
+        "Los scripts que no tocan Tailscale no necesitan cambios.",
+        "Para que ForgeHub administre Tailscale, hay que reconectarlo con la cuenta darckware (instalador de ForgeHub, con una auth key nueva generada en el panel de Tailscale para esta máquina). Cerrar el icono de la bandeja o activar \"Run unattended\" no lo resuelve."
       ]
+    },
+    "host_key_changed": {
+      "short": "La clave SSH de la máquina cambió",
+      "title": "La máquina respondió con una clave SSH distinta de la registrada",
+      "why": "Por seguridad ForgeHub rechaza la conexión. Es esperado tras reinstalar Windows/Linux, reemplazar la máquina o si la dirección de Tailscale pasó a otro dispositivo. Si nada de eso ocurrió, alguien puede estar suplantando la máquina: no acepte.",
+      "steps": [
+        "Confirme el motivo del cambio (reinstalación, máquina nueva, dirección reutilizada).",
+        "Solo entonces acepte la nueva clave: la próxima conexión la registra."
+      ],
+      "action": "Aceptar la nueva clave de esta máquina",
+      "confirmTitle": "¿Aceptar la nueva clave SSH?",
+      "confirmText": "La clave anterior se descarta y la próxima conexión registra la nueva. Hágalo solo si sabe por qué cambió. Queda registrado en la auditoría y en el historial de la máquina.",
+      "done": "Clave anterior descartada. Ejecute el script de nuevo."
     }
   }
 }

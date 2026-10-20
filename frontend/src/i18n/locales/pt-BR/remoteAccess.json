@@ -259,6 +259,12 @@
     "back": "Voltar"
   },
   "executions": {
+    "stopAll_one": "Parar {{count}} execução",
+    "stopAll_other": "Parar {{count}} execuções",
+    "stopAllTitle": "Parar todas as execuções em andamento?",
+    "stopAllText": "As máquinas que ainda não começaram são puladas. As que já estão rodando terminam o que começaram, para não deixar uma alteração pela metade.",
+    "stopAllConfirm": "Parar todas",
+    "stopped": "{{count}} execução(ões) parada(s); {{skipped}} máquina(s) não chegaram a rodar.",
     "title": "Execuções",
     "loadFailed": "Não foi possível carregar as execuções.",
     "empty": "Nenhum comando executado ainda.",
@@ -397,6 +403,10 @@
     "rotate_ssh_key": "Rotacionar chave SSH"
   },
   "composer": {
+    "canary": "Canário: primeiro em uma máquina",
+    "canaryHelp": "Roda na primeira máquina e só segue para as outras se der certo.",
+    "canaryOn": "Canário ligado: as demais máquinas só rodam se a primeira der certo.",
+    "confirmWord": "Digite {{word}} para executar (script destrutivo ou comando avulso em várias máquinas)",
     "machines_one": "Máquinas ({{count}} selecionada)",
     "machines_other": "Máquinas ({{count}} selecionadas)",
     "search": "Buscar por nome, IP, local ou cliente",
@@ -803,14 +813,27 @@
   },
   "knownFailure": {
     "tailscale_not_unattended": {
-      "short": "Tailscale da máquina não está em modo autônomo",
-      "title": "O Tailscale desta máquina está preso a uma conta do Windows",
-      "why": "Ele foi configurado pelo aplicativo, logado como {{owner}}, e só responde a essa sessão. O ForgeHub entra como darckware e recebe \"acesso negado\" — o instalador para antes de mexer no RustDesk. Não dá para corrigir pelo ForgeHub; isso também faz a máquina sair da tailnet quando essa pessoa sai do Windows.",
-      "someone": "o usuário logado",
+      "short": "Tailscale da máquina pertence a um usuário do Windows",
+      "title": "A Tailscale desta máquina pertence a uma conta do Windows",
+      "why": "Ela foi conectada na sessão de {{owner}}, e o Windows só deixa essa conta dar comandos a ela (mesmo com o modo autônomo ligado, que a prende a essa conta em \"modo servidor\"). O ForgeHub entra como darckware e recebe \"acesso negado\" em qualquer comando da Tailscale. O acesso por SSH, o RustDesk e os outros scripts continuam funcionando.",
+      "someone": "o usuário que a conectou",
       "steps": [
-        "Na máquina, logado como {{owner}}: ícone do Tailscale na bandeja → Preferences → marque \"Run unattended\" (ou, num PowerShell dessa sessão: tailscale set --unattended).",
-        "Rode este script de novo pelo ForgeHub."
+        "Para scripts que não mexem na Tailscale, nada precisa mudar.",
+        "Para o ForgeHub administrar a Tailscale, ela precisa ser reconectada pela conta darckware (pelo instalador do ForgeHub, com uma auth key nova gerada no painel da Tailscale para esta máquina). Fechar o ícone da bandeja ou ligar \"Run unattended\" não resolve."
       ]
+    },
+    "host_key_changed": {
+      "short": "A chave SSH da máquina mudou",
+      "title": "A máquina respondeu com uma chave SSH diferente da registrada",
+      "why": "Por segurança, o ForgeHub recusa a conexão. É esperado quando o Windows/Linux foi reinstalado, a máquina foi trocada ou o endereço da Tailscale passou para outro dispositivo. Se nada disso aconteceu, pode ser alguém se passando pela máquina: não aceite.",
+      "steps": [
+        "Confirme o motivo da troca (reinstalação, máquina nova, endereço reaproveitado).",
+        "Só então aceite a nova chave: a próxima conexão a registra."
+      ],
+      "action": "Aceitar a nova chave desta máquina",
+      "confirmTitle": "Aceitar a nova chave SSH?",
+      "confirmText": "A chave antiga é descartada e a próxima conexão registra a nova. Faça isso só se souber por que ela mudou. Fica registrado na auditoria e no histórico da máquina.",
+      "done": "Chave antiga descartada. Rode o script de novo."
     }
   }
 }

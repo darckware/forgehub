@@ -735,6 +735,7 @@ _EVENT_TITLES = {
     "rustdesk_password_recorded": "Senha do RustDesk registrada",
     "rustdesk_id_recorded": "ID do RustDesk registrado",
     "os_detected": "Sistema operacional detectado",
+    "host_key_forgotten": "Chave SSH antiga da máquina descartada (nova chave aceita na próxima conexão)",
     "rustdesk_password_revealed": "Senha do RustDesk consultada",
     "login_password_revealed": "Senha da conta darckware consultada",
     "login_password_rotated": "Senha da conta darckware trocada",
@@ -1176,6 +1177,32 @@ async def _adopt_vault_key(db: AsyncSession, server: Server, actor: str) -> str:
                       payload={"old_key_path": old_path, "verified_with": "forgevault"}))
     await db.commit()
     return "switched"
+
+
+@router.post("/{server_id}/host-key:forget")
+async def forget_host_key(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+) -> dict:
+    """The machine answered with a different SSH host key than the one this
+    host recorded, so every connection is refused (that is the protection).
+    When a person knows why -- reinstalled Windows, a replaced machine, a
+    Tailscale address now used by another device -- this forgets the old key
+    so the next connection records the new one. Audited; never automatic."""
+    server = await db.get(Server, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if not server.ip_address:
+        raise HTTPException(status_code=422, detail="The machine has no address")
+    resp = await _bridge_post("/v1/servers/forget-host-key", {"host": server.ip_address, "port": server.ssh_port or 22})
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Host bridge error: {_bridge_detail(resp)}")
+    removed = bool(resp.json().get("removed"))
+    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="host_key_forgotten", actor=admin.username,
+                      payload={"address": server.ip_address, "removed": removed}))
+    await db.commit()
+    return {"removed": removed}
 
 
 @router.post("/os:detect")

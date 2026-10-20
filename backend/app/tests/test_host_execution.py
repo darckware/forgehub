@@ -86,7 +86,7 @@ async def test_run_skips_with_reasons_and_masks_output(client, machines):
 
     with patch.object(host_exec_runner, "call_bridge_exec", fake_bridge):
         resp = await client.post("/api/v1/host-executions", json={
-            "command": "uptime # password=s3cret99", "shell": "sh",
+            "command": "uptime # password=s3cret99", "shell": "sh", "confirmation": "CONFIRMAR",
             "server_ids": [str(r.id) for r in rows.values()],
         })
         assert resp.status_code == 201, resp.text
@@ -133,14 +133,14 @@ async def test_typed_login_runs_where_forgehub_has_no_access(client, machines):
 
     try:
         assert (await client.post("/api/v1/host-executions", json={
-            "command": "uptime", "shell": "sh", "server_ids": [str(rows["linux"].id)], "login_user": "suporte",
+            "command": "uptime", "shell": "sh", "confirmation": "CONFIRMAR", "server_ids": [str(rows["linux"].id)], "login_user": "suporte",
         })).status_code == 422  # login without password
         with (
             patch.object(host_exec_runner, "call_bridge_exec", fake_own),
             patch.object(host_exec_runner, "call_bridge_exec_as", fake_as),
         ):
             resp = await client.post("/api/v1/host-executions", json={
-                "command": "uptime", "shell": "sh",
+                "command": "uptime", "shell": "sh", "confirmation": "CONFIRMAR",
                 "server_ids": [str(rows["linux"].id), str(rows["linux2"].id), str(rows["nologin"].id)],
                 "login_user": "suporte", "login_password": "Pw-9x!typed",
             })
@@ -175,7 +175,7 @@ async def test_failure_then_follow_up_only_on_failed(client, machines):
 
     with patch.object(host_exec_runner, "call_bridge_exec", fake_bridge):
         first = (await client.post("/api/v1/host-executions", json={
-            "command": "apt-get update", "shell": "sh", "server_ids": [str(ok_id), str(bad_id)],
+            "command": "apt-get update", "shell": "sh", "confirmation": "CONFIRMAR", "server_ids": [str(ok_id), str(bad_id)],
         })).json()
         created.append(uuid.UUID(first["id"]))
         await _wait(first["id"])
@@ -212,13 +212,13 @@ async def test_busy_machine_is_skipped_and_reads_busy_until_done(client, machine
 
     with patch.object(host_exec_runner, "call_bridge_exec", slow_bridge):
         first = (await client.post("/api/v1/host-executions", json={
-            "command": "sleep", "shell": "sh", "server_ids": [str(rows["linux"].id)],
+            "command": "sleep", "shell": "sh", "confirmation": "CONFIRMAR", "server_ids": [str(rows["linux"].id)],
         })).json()
         created.append(uuid.UUID(first["id"]))
         await asyncio.sleep(0.2)
 
         second = (await client.post("/api/v1/host-executions", json={
-            "command": "uptime", "shell": "sh", "server_ids": [str(rows["linux"].id)],
+            "command": "uptime", "shell": "sh", "confirmation": "CONFIRMAR", "server_ids": [str(rows["linux"].id)],
         })).json()
         created.append(uuid.UUID(second["id"]))
         assert second["results"][0]["skip_reason"] == "Already running another command"
@@ -247,7 +247,7 @@ async def test_cancel_skips_machines_not_started(client, machines):
         patch.object(host_exec_runner, "MAX_PARALLEL", 1),
     ):
         resp = (await client.post("/api/v1/host-executions", json={
-            "command": "uptime", "shell": "sh", "server_ids": [str(rows["linux"].id), str(rows["linux2"].id)],
+            "command": "uptime", "shell": "sh", "confirmation": "CONFIRMAR", "server_ids": [str(rows["linux"].id), str(rows["linux2"].id)],
         })).json()
         created.append(uuid.UUID(resp["id"]))
         await asyncio.sleep(0.2)
@@ -267,7 +267,7 @@ async def test_cancel_skips_machines_not_started(client, machines):
 async def test_rejects_empty_and_unknown_targets(client, machines):
     assert (await client.post("/api/v1/host-executions", json={"command": "x", "shell": "sh"})).status_code == 422
     unknown = await client.post("/api/v1/host-executions", json={
-        "command": "x", "shell": "sh", "server_ids": [str(uuid.uuid4())],
+        "command": "x", "shell": "sh", "confirmation": "CONFIRMAR", "server_ids": [str(uuid.uuid4())],
     })
     assert unknown.status_code == 422
 
@@ -571,3 +571,58 @@ async def test_delegation_expiry_warns_once_in_the_last_week():
             await db.execute(delete(Agent).where(Agent.id == agent.id))
             await db.execute(delete(User).where(User.id == grantor.id))
             await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_canary_stops_after_a_failing_first_machine_and_confirmation_is_required(client, machines):
+    rows, created = machines
+    ran = []
+
+    async def failing_bridge(server, shell, script, timeout):
+        ran.append(server.name)
+        return {"exit_code": 1, "stdout": "", "stderr": "boom", "duration_ms": 1, "failure": "command"}
+
+    ids = [str(rows["linux"].id), str(rows["linux2"].id)]
+    body = {"command": "true", "shell": "sh", "server_ids": ids, "canary": True}
+    assert (await client.post("/api/v1/host-executions", json=body)).status_code == 422  # word missing
+    with patch.object(host_exec_runner, "call_bridge_exec", failing_bridge):
+        resp = await client.post("/api/v1/host-executions", json={**body, "confirmation": "confirmar"})
+        assert resp.status_code == 201, resp.text
+        execution_id = resp.json()["id"]
+        created.append(uuid.UUID(execution_id))
+        await _wait(execution_id)
+    assert len(ran) == 1  # only the canary ran
+    detail = (await client.get(f"/api/v1/host-executions/{execution_id}")).json()
+    skipped = [r for r in detail["results"] if r["status"] == "skipped"]
+    assert len(skipped) == 1 and skipped[0]["skip_reason"] == host_exec_runner.CANARY_SKIP_REASON
+
+
+@pytest.mark.asyncio
+async def test_stop_all_cancels_every_running_execution(client, machines):
+    rows, created = machines
+    gate = asyncio.Event()
+
+    async def slow_bridge(server, shell, script, timeout):
+        await gate.wait()
+        return {"exit_code": 0, "stdout": "", "stderr": "", "duration_ms": 1, "failure": None}
+
+    with patch.object(host_exec_runner, "call_bridge_exec", slow_bridge), patch.object(host_exec_runner, "MAX_PARALLEL", 1):
+        resp = await client.post("/api/v1/host-executions", json={
+            "command": "true", "shell": "sh", "confirmation": "CONFIRMAR",
+            "server_ids": [str(rows["linux"].id), str(rows["linux2"].id)]})
+        execution_id = resp.json()["id"]
+        created.append(uuid.UUID(execution_id))
+        await asyncio.sleep(0.2)
+        async with AsyncSessionLocal() as db:
+            others = (await db.execute(select(HostExecution.id).where(
+                HostExecution.status == "running", HostExecution.id != uuid.UUID(execution_id)))).scalars().all()
+        if others:  # the database is shared with production: never stop a real run
+            gate.set()
+            await _wait(execution_id)
+            pytest.skip("another execution is running; stop-all would cancel it")
+        stopped = (await client.post("/api/v1/host-executions/running:cancel")).json()
+        assert stopped["cancelled"] >= 1 and stopped["machines_skipped"] >= 1
+        gate.set()
+        await _wait(execution_id)
+    detail = (await client.get(f"/api/v1/host-executions/{execution_id}")).json()
+    assert detail["status"] == "cancelled" and detail["counts"]["skipped"] == 1

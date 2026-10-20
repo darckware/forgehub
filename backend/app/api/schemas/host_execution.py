@@ -27,6 +27,11 @@ class HostExecutionCreate(BaseModel):
     # its own there): used for this run only, never stored, masked in output.
     login_user: str | None = Field(default=None, min_length=1, max_length=100)
     login_password: str | None = Field(default=None, min_length=1, max_length=256, repr=False)
+    # Canary: the first machine alone; the others only if it succeeded.
+    canary: bool = False
+    # Typed by the person for a destructive script or an ad-hoc command on
+    # more than one machine (CONFIRMATION_WORD) -- a deliberate second step.
+    confirmation: str | None = Field(default=None, max_length=20)
     # Maintenance record: why it runs and the client ticket/demand it serves.
     reason: str | None = Field(default=None, max_length=2000)
     darckware_item_kind: Literal["ticket", "demand"] | None = None

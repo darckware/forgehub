@@ -187,6 +187,7 @@ async def launch_execution(
     reason: str | None = None,
     darckware_item: tuple[str, str] | None = None,
     agent_demand_id: uuid.UUID | None = None,
+    canary: bool = False,
 ) -> HostExecution:
     """Creates the execution + one result per machine (skipped ones already
     closed with their reason), audits it and starts the background run.
@@ -246,6 +247,7 @@ async def launch_execution(
                 "script": f"{script.name} v{script.current_version}" if script else None,
                 "reason": reason,
                 "darckware_item": f"{darckware_item[0]}:{darckware_item[1]}" if darckware_item else None,
+                "canary": canary,
             },
         )
     )
@@ -254,7 +256,7 @@ async def launch_execution(
     if on_success is None and script is not None:
         on_success = system_script_hook(script, values_for_hook)
     host_exec_runner.start_execution(
-        execution.id, shell, command, timeout_seconds, secrets, retry_until, on_success, executor
+        execution.id, shell, command, timeout_seconds, secrets, retry_until, on_success, executor, canary
     )
     return execution
 
@@ -369,6 +371,9 @@ async def prepare_script_run(script: HostScript, values: dict | None) -> tuple[s
     return render_script(script.platform, script.content, resolved), shell_for(script.platform), secrets
 
 
+CONFIRMATION_WORD = "CONFIRMAR"
+
+
 def darckware_item_of(kind: str | None, item_id: str | None) -> tuple[str, str] | None:
     """The client ticket/demand an execution serves: both or neither."""
     if bool(kind) != bool(item_id):
@@ -421,6 +426,12 @@ async def create_execution(
         command, shell, timeout = payload.command, payload.shell, payload.timeout_seconds
 
     item = darckware_item_of(payload.darckware_item_kind, payload.darckware_item_id)
+    if (script.risk == "destructive" if script else len(servers) > 1) and \
+            (payload.confirmation or "").strip().upper() != CONFIRMATION_WORD:
+        raise HTTPException(
+            status_code=422,
+            detail=f'Type "{CONFIRMATION_WORD}" to run a destructive script or an ad-hoc command on several machines',
+        )
     login = None
     if payload.login_user or payload.login_password:
         if not (payload.login_user and payload.login_password):
@@ -446,6 +457,7 @@ async def create_execution(
         login_given=bool(login),
         reason=(payload.reason or "").strip() or None,
         darckware_item=item,
+        canary=payload.canary,
     )
     if login:
         db.add(AuditEvent(entity_type="host_execution", entity_id=execution.id, event_type="typed_login_used",
@@ -759,6 +771,26 @@ async def agent_get_execution(
     if not execution or (principal.principal_type == "agent" and execution.agent_id != principal.principal_id):
         raise HTTPException(status_code=404, detail="Execution not found")
     return await _detail(db, execution)
+
+
+@router.post("/running:cancel")
+async def cancel_all_running(db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)) -> dict:
+    """The stop button: every running execution stops starting machines.
+    Ones already running on a machine finish (same rule as a single cancel)."""
+    executions = list((await db.execute(select(HostExecution).where(HostExecution.status == "running"))).scalars())
+    now = datetime.now(timezone.utc)
+    skipped = 0
+    for execution in executions:
+        execution.status = "cancelled"
+        pending = await db.execute(select(HostExecutionResult).where(
+            HostExecutionResult.execution_id == execution.id, HostExecutionResult.status == "pending"))
+        for result in pending.scalars():
+            result.status, result.skip_reason, result.finished_at = "skipped", "Cancelled before it started", now
+            skipped += 1
+        db.add(AuditEvent(entity_type="host_execution", entity_id=execution.id, event_type="cancelled",
+                          actor=admin.username, payload={"all": True}))
+    await db.commit()
+    return {"cancelled": len(executions), "machines_skipped": skipped}
 
 
 @router.get("", response_model=list[HostExecutionSummary])

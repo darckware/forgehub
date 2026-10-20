@@ -80,6 +80,16 @@ export interface ExecutionComposerViewModel {
   setTimeOfDay: (value: string) => void;
   windowMinutes: number;
   setWindowMinutes: (value: number) => void;
+  // safety
+  /** Canary: the first machine alone; the rest only if it succeeded. */
+  canary: boolean;
+  setCanary: (value: boolean) => void;
+  /** A destructive script or an ad-hoc command on several machines needs the
+   * confirmation word typed in the review step. */
+  needsConfirmation: boolean;
+  confirmation: string;
+  setConfirmation: (value: string) => void;
+  confirmed: boolean;
   // login for machines ForgeHub has no SSH login on yet
   /** Selected machines online but without ForgeHub's own login: they run with
    * the login typed below (this run only, never stored). */
@@ -113,6 +123,8 @@ export interface ExecutionComposerViewModel {
 }
 
 const TZ = "America/Sao_Paulo";
+/** Typed to run a destructive script or an ad-hoc command on several machines (backend CONFIRMATION_WORD). */
+export const CONFIRMATION_WORD = "CONFIRMAR";
 
 export function useExecutionComposerViewModel(handlers: {
   onRan: (execution: HostExecutionDetail) => void;
@@ -147,6 +159,8 @@ export function useExecutionComposerViewModel(handlers: {
   const [windowMinutes, setWindowMinutes] = useState(120);
   const [confirming, setConfirming] = useState(false);
   const [reason, setReason] = useState("");
+  const [canary, setCanary] = useState(false);
+  const [confirmation, setConfirmation] = useState("");
   const [itemKey, setItemKey] = useState("");
   const [loginUser, setLoginUser] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -202,6 +216,8 @@ export function useExecutionComposerViewModel(handlers: {
   const clientId = clientIds.size === 1 ? [...clientIds][0] : "";
   const workItems = useWorkItems({ client_account_id: clientId, stage: "open" }, Boolean(clientId));
   const clientItems = clientId ? workItems.data?.items ?? [] : [];
+  const needsConfirmation = when === "now" && (source === "library" ? script?.risk === "destructive" : selectedMachines.length > 1);
+  const confirmed = !needsConfirmation || confirmation.trim().toUpperCase() === CONFIRMATION_WORD;
   const noAccessMachines = selectedMachines.filter((m) => readinessById.get(m.id)?.readiness === "not_prepared");
   const typedLogin = noAccessMachines.length > 0 && when === "now";
 
@@ -289,6 +305,12 @@ export function useExecutionComposerViewModel(handlers: {
       render.mutate({ id: script.id, parameter_values: values });
     },
     closeRendered: () => render.reset(),
+    canary: canary && selectedMachines.length > 1,
+    setCanary,
+    needsConfirmation,
+    confirmation,
+    setConfirmation,
+    confirmed,
     reason,
     setReason,
     clientItems,
@@ -305,13 +327,17 @@ export function useExecutionComposerViewModel(handlers: {
       schedule.reset();
       setConfirming(true);
     },
-    back: () => setConfirming(false),
+    back: () => { setConfirmation(""); setConfirming(false); },
     submit: () => {
       const serverIds = selectedMachines.map((m) => m.id);
       const values = Object.fromEntries(Object.entries(paramValues).filter(([, v]) => v !== ""));
       if (when === "now") {
         const login = typedLogin ? { login_user: loginUser.trim(), login_password: loginPassword } : {};
         const [kind, id] = itemKey.split(":");
+        const safety = {
+          ...(canary && selectedMachines.length > 1 ? { canary: true } : {}),
+          ...(needsConfirmation ? { confirmation: confirmation.trim() } : {}),
+        };
         const record = {
           ...(reason.trim() ? { reason: reason.trim() } : {}),
           ...(id && clientItems.some((i) => `${i.kind}:${i.id}` === itemKey)
@@ -319,8 +345,8 @@ export function useExecutionComposerViewModel(handlers: {
         };
         run.mutate(
           source === "library"
-            ? { script_id: script!.id, parameter_values: values, server_ids: serverIds, group_ids: [], timeout_seconds: timeoutSeconds, ...login, ...record }
-            : { command, shell, server_ids: serverIds, group_ids: [], timeout_seconds: timeoutSeconds, ...login, ...record },
+            ? { script_id: script!.id, parameter_values: values, server_ids: serverIds, group_ids: [], timeout_seconds: timeoutSeconds, ...login, ...record, ...safety }
+            : { command, shell, server_ids: serverIds, group_ids: [], timeout_seconds: timeoutSeconds, ...login, ...record, ...safety },
           {
             onSuccess: (execution) => {
               setLoginPassword("");

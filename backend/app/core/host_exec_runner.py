@@ -43,6 +43,8 @@ OnSuccess = Callable[[uuid.UUID, dict], Awaitable[None]]
 # admin). Returns the same outcome dict as call_bridge_exec.
 Executor = Callable[[Server], Awaitable[dict]]
 
+CANARY_SKIP_REASON = "Canary failed on the first machine; the others were not run"
+
 # Kept so the tasks aren't garbage-collected mid-run.
 _running: dict[uuid.UUID, asyncio.Task] = {}
 
@@ -159,6 +161,7 @@ async def _run_execution(
     retry_until: datetime | None = None,
     on_success: OnSuccess | None = None,
     executor: Executor | None = None,
+    canary: bool = False,
 ) -> None:
     try:
         async with AsyncSessionLocal() as db:
@@ -193,7 +196,23 @@ async def _run_execution(
                         await db.commit()
 
         try:
-            await asyncio.gather(*(guarded(rid) for rid in pending))
+            if canary and len(pending) > 1:
+                # Canary: one machine first; the rest only if it succeeded.
+                first, rest = pending[0], pending[1:]
+                await guarded(first)
+                async with AsyncSessionLocal() as db:
+                    went_well = (await db.get(HostExecutionResult, first)).status == "succeeded"
+                    if not went_well:
+                        await db.execute(
+                            update(HostExecutionResult)
+                            .where(HostExecutionResult.id.in_(rest), HostExecutionResult.status == "pending")
+                            .values(status="skipped", skip_reason=CANARY_SKIP_REASON, finished_at=_now())
+                        )
+                        await db.commit()
+                if went_well:
+                    await asyncio.gather(*(guarded(rid) for rid in rest))
+            else:
+                await asyncio.gather(*(guarded(rid) for rid in pending))
         finally:
             heartbeat.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -227,9 +246,10 @@ def start_execution(
     retry_until: datetime | None = None,
     on_success: OnSuccess | None = None,
     executor: Executor | None = None,
+    canary: bool = False,
 ) -> asyncio.Task:
     task = asyncio.create_task(
-        _run_execution(execution_id, shell, script, timeout, list(secrets or []), retry_until, on_success, executor),
+        _run_execution(execution_id, shell, script, timeout, list(secrets or []), retry_until, on_success, executor, canary),
         name=f"host-execution-{execution_id}",
     )
     _running[execution_id] = task

@@ -4,13 +4,15 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { Bot, CalendarClock, CornerDownRight, ListChecks, User } from "lucide-react";
+import { Bot, CalendarClock, CornerDownRight, ListChecks, Square, User } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAgents } from "@/hooks/useAgent";
-import { useHostExecutions, type ExecTrigger, type ExecutionLogFilters } from "@/hooks/useHostExecutions";
+import { useCancelAllExecutions, useHostExecutions, type ExecTrigger, type ExecutionLogFilters } from "@/hooks/useHostExecutions";
 import { VerdictBadge } from "./VerdictBadge";
 
 const ORIGIN_ICON = { manual: User, schedule: CalendarClock, agent: Bot } as const;
@@ -21,14 +23,35 @@ export function ExecutionsCard() {
   const { data, isLoading, isError } = useHostExecutions(50, filters);
   const { data: agents } = useAgents();
   const fmt = new Intl.DateTimeFormat(i18n.language, { dateStyle: "short", timeStyle: "short" });
+  const stopAll = useCancelAllExecutions();
+  const [stopping, setStopping] = useState(false);
+  const running = (data ?? []).filter((e) => e.status === "running").length;
   const people = useMemo(() => [...new Set((data ?? []).map((e) => e.requested_by))].sort(), [data]);
 
   return (
     <Card>
       <CardHeader className="flex flex-col gap-3 space-y-0 pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <ListChecks className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> {t("executions.title")}
-        </CardTitle>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ListChecks className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> {t("executions.title")}
+          </CardTitle>
+          {running > 0 && (
+            <Button type="button" size="sm" variant="destructive" onClick={() => setStopping(true)} className="cursor-pointer gap-1.5">
+              <Square className="h-3.5 w-3.5" aria-hidden="true" /> {t("executions.stopAll", { count: running })}
+            </Button>
+          )}
+        </div>
+        {stopAll.data && <p role="status" className="text-xs text-muted-foreground">{t("executions.stopped", { count: stopAll.data.cancelled, skipped: stopAll.data.machines_skipped })}</p>}
+        <ConfirmDialog
+          open={stopping}
+          title={t("executions.stopAllTitle")}
+          description={t("executions.stopAllText")}
+          confirmLabel={t("executions.stopAllConfirm")}
+          loading={stopAll.isPending}
+          error={stopAll.error?.message}
+          onConfirm={() => stopAll.mutate(undefined, { onSuccess: () => setStopping(false) })}
+          onCancel={() => setStopping(false)}
+        />
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <Select aria-label={t("executions.filterAgent")} value={filters.agent_id ?? ""} onChange={(e) => setFilters((f) => ({ ...f, agent_id: e.target.value || undefined }))} className="max-md:text-base">
             <option value="">{t("executions.allAgents")}</option>

@@ -378,3 +378,30 @@ async def test_detect_missing_os_fills_only_blank_and_answering_machines(client,
         assert (await db.get(Server, set_already.id)).os_family == "macos"
         await db.execute(delete(AuditEvent).where(AuditEvent.entity_id.in_([win.id, lin.id])))
         await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_forget_host_key_is_audited(client, marker):
+    import httpx
+
+    from app.db.models.governance import AuditEvent
+
+    async with AsyncSessionLocal() as db:
+        row = _row(name=f"hk-{marker}", ip_address="100.127.7.1")
+        db.add(row)
+        await db.commit()
+    sent = []
+
+    async def fake_bridge(path, payload, timeout=20.0):
+        sent.append((path, payload))
+        return httpx.Response(200, json={"removed": True})
+
+    with patch.object(server_routes, "_bridge_post", fake_bridge):
+        resp = await client.post(f"/api/v1/servers/{row.id}/host-key:forget")
+    assert resp.status_code == 200 and resp.json() == {"removed": True}
+    assert sent == [("/v1/servers/forget-host-key", {"host": "100.127.7.1", "port": 22})]
+    async with AsyncSessionLocal() as db:
+        event = (await db.execute(select(AuditEvent).where(AuditEvent.entity_id == row.id))).scalar_one()
+        assert event.event_type == "host_key_forgotten"
+        await db.delete(event)
+        await db.commit()

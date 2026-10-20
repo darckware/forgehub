@@ -4,7 +4,7 @@
  * From a failed run, a fix can be run on the failed machines only; it is
  * linked to this one, so the history reads failure -> fix -> result.
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ChevronDown, ChevronRight, CornerDownRight, Lightbulb, Loader2, Play, Square, TerminalSquare, Wrench } from "lucide-react";
@@ -20,15 +20,17 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useExecutionViewModel } from "@/hooks/useExecutionViewModel";
-import { detectKnownFailure, formatDuration, type HostExecutionResult, type KnownFailure } from "@/hooks/useHostExecutions";
+import { detectKnownFailure, formatDuration, useForgetHostKey, type HostExecutionResult, type KnownFailure } from "@/hooks/useHostExecutions";
 import { VerdictBadge } from "./VerdictBadge";
 
 /** What to do about a failure ForgeHub recognizes (detectKnownFailure),
  * shown on the machine's row without having to open the raw output. */
-function KnownFailureHint({ failure }: { failure: KnownFailure }) {
+function KnownFailureHint({ failure, serverId }: { failure: KnownFailure; serverId: string | null }) {
   const { t } = useTranslation("remoteAccess");
+  const forget = useForgetHostKey();
+  const [confirming, setConfirming] = useState(false);
   const k = `knownFailure.${failure.kind}`;
-  const owner = failure.owner ?? t(`${k}.someone`);
+  const owner = failure.owner ?? t(`${k}.someone`, { defaultValue: "" });
   const steps = t(`${k}.steps`, { returnObjects: true, owner }) as unknown as string[];
   return (
     <div role="note" className="mt-3 ml-7 space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
@@ -40,6 +42,23 @@ function KnownFailureHint({ failure }: { failure: KnownFailure }) {
       <ol className="list-decimal space-y-1 pl-5">
         {steps.map((step, i) => <li key={i}>{step}</li>)}
       </ol>
+      {failure.kind === "host_key_changed" && serverId && (
+        forget.data ? (
+          <p role="status" className="text-xs text-emerald-700 dark:text-emerald-400">{t(`${k}.done`)}</p>
+        ) : (
+          <Button type="button" size="sm" variant="outline" onClick={() => setConfirming(true)} className="cursor-pointer">{t(`${k}.action`)}</Button>
+        )
+      )}
+      <ConfirmDialog
+        open={confirming}
+        title={t(`${k}.confirmTitle`)}
+        description={t(`${k}.confirmText`)}
+        confirmLabel={t(`${k}.action`)}
+        loading={forget.isPending}
+        error={forget.error?.message}
+        onConfirm={() => serverId && forget.mutate(serverId, { onSuccess: () => setConfirming(false) })}
+        onCancel={() => setConfirming(false)}
+      />
     </div>
   );
 }
@@ -233,7 +252,7 @@ export default function ExecutionPage() {
                   <span className="text-xs text-muted-foreground">{formatDuration(r.duration_ms)}</span>
                   {detail && <span className="text-xs text-muted-foreground">· {detail}</span>}
                 </button>
-                {known && <KnownFailureHint failure={known} />}
+                {known && <KnownFailureHint failure={known} serverId={r.server_id} />}
                 {open && (
                   <div className="mt-3 space-y-3 pl-7">
                     <OutputBlock label={t("execution.stdout")} text={r.stdout} />

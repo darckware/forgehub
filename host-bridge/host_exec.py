@@ -425,6 +425,30 @@ class DetectOsRequest(BaseModel):
     password: str | None = Field(default=None, min_length=1, max_length=256)
 
 
+class ForgetHostKeyRequest(BaseModel):
+    host: str
+    port: int = Field(default=22, ge=1, le=65535)
+
+
+KNOWN_HOSTS = os.path.expanduser("~/.ssh/known_hosts")
+
+
+async def forget_host_key(host: str, port: int, known_hosts: str = KNOWN_HOSTS) -> bool:
+    """Drops the recorded host key of one address from this host's
+    known_hosts, so the next connection records the machine's new key
+    (trust on first use again). Returns whether an entry existed."""
+    name = host if port == 22 else f"[{host}]:{port}"
+    proc = await asyncio.create_subprocess_exec(
+        "ssh-keygen", "-R", name, "-f", known_hosts,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    out, err = await proc.communicate()
+    text = (out + err).decode(errors="replace")
+    if proc.returncode != 0 and "not found" not in text:
+        raise RuntimeError(text.strip()[:300] or "ssh-keygen failed")
+    return "updated" in text or "removed" in text.lower()
+
+
 def make_host_exec_router(
     check_token: Callable[[str | None], None],
     resolve_key_path: Callable[[str], str],
@@ -444,6 +468,16 @@ def make_host_exec_router(
                 yield ExecTarget(host=req.host, user=req.user, port=req.port, agent_sock=sock)
             return
         yield _target(req)
+
+    @router.post("/v1/servers/forget-host-key")
+    async def forget_server_host_key(req: ForgetHostKeyRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+        check_token(x_bridge_token)
+        if not _HOST_RE.match(req.host):
+            raise HTTPException(status_code=400, detail="Invalid host")
+        try:
+            return {"removed": await forget_host_key(req.host, req.port)}
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @router.post("/v1/servers/exec")
     async def exec_on_server(req: ExecRequest, x_bridge_token: str | None = Header(default=None)) -> dict:

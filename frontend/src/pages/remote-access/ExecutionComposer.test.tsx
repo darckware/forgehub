@@ -176,6 +176,27 @@ describe("ExecutionComposer", () => {
     }));
   });
 
+  it("an ad-hoc command on several machines needs the typed word; canary is sent when chosen", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ id: "e6" } as never);
+    const { onRan } = renderComposer();
+    fireEvent.click(await screen.findByRole("checkbox", { name: /PC-01/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /srv-lin/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "Comando avulso" }));
+    fireEvent.change(screen.getByLabelText("Comando"), { target: { value: "hostname" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /Canário/ }));
+    fireEvent.change(screen.getByLabelText("Login"), { target: { value: "suporte" } });
+    fireEvent.change(screen.getByLabelText("Senha"), { target: { value: "X1!" } });
+    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
+    const run = screen.getByRole("button", { name: "Executar agora" });
+    expect(run).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Digite CONFIRMAR/), { target: { value: "confirmar" } });
+    fireEvent.click(run);
+    await vi.waitFor(() => expect(onRan).toHaveBeenCalled());
+    expect(apiClient.post).toHaveBeenCalledWith("/api/v1/host-executions", expect.objectContaining({
+      command: "hostname", canary: true, confirmation: "confirmar",
+    }));
+  });
+
   it("never shows a parameter's default value on screen, only that blank uses it", async () => {
     renderComposer();
     fireEvent.click(await screen.findByRole("checkbox", { name: /PC-01/ }));

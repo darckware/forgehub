@@ -243,3 +243,32 @@ def test_agent_cache_reuses_per_key_and_reaps_idle(tmp_path):
     assert first == second and reveals == ["ref-1"]  # one agent, one vault read
     assert code == 0 and reaped == 1
     assert not os.path.exists(first)
+
+
+
+def test_forget_host_key_drops_only_that_address(tmp_path):
+    import asyncio
+    import subprocess
+
+    known = tmp_path / "known_hosts"
+    key = tmp_path / "k"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True)
+    pub = key.with_suffix(".pub").read_text().split()[:2]
+    known.write_text(f"100.64.0.1 {' '.join(pub)}\n100.64.0.2 {' '.join(pub)}\n")
+    assert asyncio.run(host_exec.forget_host_key("100.64.0.1", 22, str(known))) is True
+    lines = known.read_text().splitlines()
+    assert len(lines) == 1 and lines[0].startswith("100.64.0.2")
+    assert asyncio.run(host_exec.forget_host_key("100.64.0.9", 22, str(known))) is False
+
+
+def test_forget_host_key_route_validates(monkeypatch):
+    async def fake(host, port):
+        return True
+
+    monkeypatch.setattr(host_exec, "forget_host_key", fake)
+    app = FastAPI()
+    app.include_router(host_exec.make_host_exec_router(_check_token, lambda raw: raw))
+    client = TestClient(app)
+    assert client.post("/v1/servers/forget-host-key", json={"host": "ws01"}).status_code == 401
+    assert client.post("/v1/servers/forget-host-key", json={"host": "-oX=y"}, headers={"X-Bridge-Token": TOKEN}).status_code == 400
+    assert client.post("/v1/servers/forget-host-key", json={"host": "ws01"}, headers={"X-Bridge-Token": TOKEN}).json() == {"removed": True}

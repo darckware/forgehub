@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useExecutionComposerViewModel, type WhenMode } from "@/hooks/useExecutionComposerViewModel";
+import { CONFIRMATION_WORD, useExecutionComposerViewModel, type WhenMode } from "@/hooks/useExecutionComposerViewModel";
 import type { HostExecutionDetail } from "@/hooks/useHostExecutions";
 import type { HostSchedule } from "@/hooks/useHostScripts";
 import { scriptFits } from "@/hooks/useHostScripts";
@@ -247,6 +247,12 @@ export function ExecutionComposer({
                 )}
               </fieldset>
 
+              {vm.when === "now" && vm.selectedMachines.length > 1 && (
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" className="mt-1" checked={vm.canary} onChange={(e) => vm.setCanary(e.target.checked)} />
+                  <span>{t("composer.canary")}<span className="block text-xs text-muted-foreground">{t("composer.canaryHelp")}</span></span>
+                </label>
+              )}
               {vm.when === "now" && (
                 <fieldset className="space-y-2 rounded-md border border-border p-3">
                   <legend className="px-1 text-sm font-medium">{t("composer.record.title")}</legend>
@@ -348,10 +354,17 @@ export function ExecutionComposer({
                   <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> {t("composer.destructive")}
                 </p>
               )}
+              {vm.canary && <p className="text-xs text-muted-foreground">{t("composer.canaryOn")}</p>}
+              {vm.needsConfirmation && (
+                <div className="space-y-1">
+                  <Label htmlFor="run-confirm">{t("composer.confirmWord", { word: CONFIRMATION_WORD })}</Label>
+                  <Input id="run-confirm" autoComplete="off" value={vm.confirmation} onChange={(e) => vm.setConfirmation(e.target.value)} className="max-md:text-base" />
+                </div>
+              )}
               {vm.error && <p role="alert" className="text-xs text-destructive">{vm.error}</p>}
               <div className="flex flex-wrap justify-end gap-2">
                 <Button type="button" variant="outline" onClick={vm.back} disabled={busy} className="cursor-pointer">{t("run.back")}</Button>
-                <Button type="button" onClick={vm.submit} disabled={busy} className="cursor-pointer gap-1.5">
+                <Button type="button" onClick={vm.submit} disabled={busy || !vm.confirmed} className="cursor-pointer gap-1.5">
                   {busy ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden="true" /> : vm.when === "now" ? <Play className="h-4 w-4" aria-hidden="true" /> : <CalendarClock className="h-4 w-4" aria-hidden="true" />}
                   {t(vm.when === "now" ? "composer.runNow" : "composer.schedule")}
                 </Button>
