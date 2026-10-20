@@ -792,10 +792,13 @@ async def machine_maintenance(
         .order_by(AuditEvent.created_at.desc()).limit(limit)
     )).scalars()
     for event in events:
-        entries.append(MaintenanceEntry(
-            at=event.created_at, kind="event", actor=event.actor,
-            title=_EVENT_TITLES.get(event.event_type, event.event_type.replace("_", " ")),
-        ))
+        payload = event.payload or {}
+        if event.event_type == "agent_task_requested":
+            title = f"Tarefa pedida ao agente {payload.get('agent', '?')} (mensagem #{payload.get('demand_number')})"
+        else:
+            title = _EVENT_TITLES.get(event.event_type, event.event_type.replace("_", " "))
+        entries.append(MaintenanceEntry(at=event.created_at, kind="event", actor=event.actor, title=title,
+                                        reason=payload.get("instruction") if event.event_type == "agent_task_requested" else None))
     entries.sort(key=lambda e: e.at, reverse=True)
     return entries[:limit]
 

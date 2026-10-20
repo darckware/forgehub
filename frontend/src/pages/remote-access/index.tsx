@@ -30,6 +30,7 @@ import { PrepareDialog } from "./PrepareDialog";
 import { RotationDialog } from "./RotationDialog";
 import { TailnetPolicyCard } from "./TailnetPolicyCard";
 import { MachinesCard } from "./MachinesCard";
+import { AuthorizedAgentsCard } from "./AuthorizedAgentsCard";
 import { ExecutionComposer } from "./ExecutionComposer";
 import { SchedulesPanel } from "./SchedulesPanel";
 import { ScriptLibrary } from "./ScriptLibrary";
@@ -344,6 +345,7 @@ export default function RemoteAccessPage() {
               </Button>
             ))}
           </div>}
+          {isAdmin && <AuthorizedAgentsCard />}
           <MachinesCard />
           {rotating && (
             <RotationDialog

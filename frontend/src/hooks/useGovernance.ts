@@ -278,6 +278,8 @@ export function useDecideGovernedApproval() {
 export interface AuthorityDelegation {
   id: string; grantee_id: string; scope_type: string; allowed_actions: string[];
   expires_at: string; status: string; reason: string | null;
+  grantor_user_id?: string; max_risk?: string; valid_from?: string;
+  product_id?: string | null; project_id?: string | null;
 }
 
 export function useAuthorityDelegations(enabled = true) {

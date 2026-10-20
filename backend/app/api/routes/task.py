@@ -23,8 +23,9 @@ and 6.2 used as a pattern for dependency-style blocking):
   schema (evidence_ref required once status is verified/completed) and
   re-checked here for partial updates.
 - Dependency cycle/self-reference guard: a task cannot depend on itself
-  (schema-level) and a direct A->B / B->A cycle is rejected here.
-- A task cannot be marked "done" while it has an incomplete dependency
+  (schema-level); direct and indirect cycles are rejected here.
+- A task cannot start or complete while it has an incomplete dependency;
+  all predecessors must be "done" or "deployed"
   (mirrors SPEC 6.2.9 "blocked stages must prevent dependent stages from
   advancing", applied at task granularity).
 - A task cannot be marked "done" while any of its own subtasks
@@ -642,6 +643,8 @@ async def update_task_execution(
     # since evidence_ref might already be set from a previous PATCH.
     new_status = data.get("status", execution.status)
     new_evidence = data.get("evidence_ref", execution.evidence_ref)
+    if new_status != execution.status and new_status != "failed":
+        await ensure_task_dependencies_satisfied(db, task_id)
     if new_status in ("verified", "completed") and not new_evidence:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -726,7 +729,7 @@ async def create_task_dependency(
     if await db.scalar(select(reachable.c.task_id).where(reachable.c.task_id == task_id).limit(1)):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="This dependency would create a cycle between the two tasks",
+            detail="This dependency would create a cycle between tasks",
         )
 
     dependency = TaskDependency(**payload.model_dump())

@@ -142,3 +142,32 @@ class AgentScriptOut(BaseModel):
     risk: str
     description: str | None
     parameters: list
+
+
+class AgentRequestScript(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    script_id: uuid.UUID
+    parameter_values: dict[str, str | None] = Field(default_factory=dict)
+
+
+class AgentRequestCreate(BaseModel):
+    """"Pedir ao agente" (2026-10-19): a maintenance task for one or more
+    authorized agents on chosen machines -- one Messages task per agent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_ids: list[uuid.UUID] = Field(min_length=1, max_length=10)
+    server_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_TARGETS)
+    instruction: str = Field(min_length=5, max_length=8000)
+    # When given, the agent is told to run only these, with these values.
+    scripts: list[AgentRequestScript] = Field(default_factory=list, max_length=10)
+    darckware_item_kind: Literal["ticket", "demand"] | None = None
+    darckware_item_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class AgentRequestOut(BaseModel):
+    agent_id: uuid.UUID
+    agent_name: str
+    demand_id: uuid.UUID
+    demand_number: int | None = None

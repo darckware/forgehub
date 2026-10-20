@@ -31,6 +31,17 @@ class CategoryOut(BaseModel):
     slug: str
     label: str
     description: str | None
+    # Scripts filed under it (archived included) -- deletable only at 0.
+    script_count: int = 0
+    # Shipped by ForgeHub (Tailscale, RustDesk, ...): renamable, not deletable.
+    is_system: bool = False
+
+
+class CategoryUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str | None = Field(default=None, min_length=2, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
 
 
 class CategoryCreate(BaseModel):

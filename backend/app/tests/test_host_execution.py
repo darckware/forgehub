@@ -400,3 +400,91 @@ async def test_agent_maintenance_needs_delegation_reason_and_a_prepared_machine(
             await db.execute(delete(Agent).where(Agent.id == ids.agent))
             await db.execute(delete(User).where(User.id == ids.grantor))
             await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_agent_request_creates_one_task_per_authorized_agent(client, machines):
+    """"Pedir ao agente": refused for an agent without the delegation or below
+    the scripts' risk, for an unprepared machine, and for secret values;
+    otherwise one self-addressed Task per agent, logged on each machine."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.api.routes import demand as demand_routes
+    from app.core.security import hash_password
+    from app.db.models.agent import Agent
+    from app.db.models.governance import AuthorityDelegation
+    from app.db.models.host_script import HostScript, HostScriptCategory
+    from app.db.models.user import User
+
+    rows, _ = machines
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        grantor = User(username=f"grantor2-{tag}", hashed_password=hash_password("x"), is_admin=True)
+        low = Agent(name=f"low-{tag}", agent_type="executor")
+        mid = Agent(name=f"mid-{tag}", agent_type="executor")
+        none = Agent(name=f"none-{tag}", agent_type="executor")
+        category = (await db.execute(select(HostScriptCategory).limit(1))).scalar_one()
+        change = HostScript(name=f"fix-{tag}", category_id=category.id, platform="linux", risk="change", timeout_seconds=30,
+                            parameters=[{"name": "SERVICE", "label": "S", "required": True, "default": None, "secret": False},
+                                        {"name": "PASS", "label": "P", "required": False, "default": None, "secret": True}],
+                            content="true", current_version=1, created_by="t", updated_by="t")
+        db.add_all([grantor, low, mid, none, change])
+        await db.flush()
+        now = datetime.now(timezone.utc)
+        for agent, risk in ((low, "low"), (mid, "medium")):
+            db.add(AuthorityDelegation(grantor_user_id=grantor.id, grantee_type="agent", grantee_id=agent.id,
+                                       allowed_actions=["remote_access.execute"], max_risk=risk,
+                                       valid_from=now - timedelta(minutes=1), expires_at=now + timedelta(days=1)))
+        await db.commit()
+        ids = SimpleNamespace(grantor=grantor.id, low=low.id, mid=mid.id, none=none.id, change=change.id)
+
+    async def fake_readiness(**_kw):
+        return SimpleNamespace(entries=[SimpleNamespace(server_id=r.id, readiness="ready" if r is rows["linux"] else "not_prepared",
+                                                        status="complete") for r in rows.values()])
+
+    sent = []
+
+    async def fake_create(db, payload):
+        sent.append(payload)
+        return SimpleNamespace(id=uuid.uuid4(), number=900 + len(sent))
+
+    base = {"server_ids": [str(rows["linux"].id)], "instruction": "Reiniciar o spooler travado",
+            "scripts": [{"script_id": str(ids.change), "parameter_values": {"SERVICE": "spooler"}}],
+            "darckware_item_kind": "ticket", "darckware_item_id": "T-9"}
+    try:
+        with patch.object(server_routes, "get_readiness", fake_readiness), patch.object(demand_routes, "create_demand_and_notify", fake_create):
+            r = await client.post("/api/v1/host-executions/agent-requests", json={**base, "agent_ids": [str(ids.none)]})
+            assert r.status_code == 422 and f"none-{tag}" in r.json()["detail"]
+            r = await client.post("/api/v1/host-executions/agent-requests", json={**base, "agent_ids": [str(ids.low)]})
+            assert r.status_code == 422  # a "change" script is above a low ceiling
+            r = await client.post("/api/v1/host-executions/agent-requests",
+                                  json={**base, "agent_ids": [str(ids.mid)], "server_ids": [str(rows["linux2"].id)]})
+            assert r.status_code == 409
+            secret = {**base, "scripts": [{"script_id": str(ids.change), "parameter_values": {"SERVICE": "x", "PASS": "s3cr3t"}}]}
+            assert (await client.post("/api/v1/host-executions/agent-requests", json={**secret, "agent_ids": [str(ids.mid)]})).status_code == 422
+            assert sent == []
+
+            r = await client.post("/api/v1/host-executions/agent-requests", json={**base, "agent_ids": [str(ids.mid)]})
+            assert r.status_code == 201, r.text
+            assert r.json()[0]["agent_name"] == f"mid-{tag}"
+            # Free text only: no script restriction, any authorized ceiling.
+            r = await client.post("/api/v1/host-executions/agent-requests",
+                                  json={**base, "scripts": [], "agent_ids": [str(ids.low), str(ids.mid)]})
+            assert r.status_code == 201 and len(r.json()) == 2
+        task = sent[0]
+        assert task.origin_type == "task" and task.target_agent_id == task.from_agent_id == ids.mid
+        assert str(rows["linux"].id) in task.body and str(ids.change) in task.body and "SERVICE=spooler" in task.body
+        assert 'darckware_ticket_id="T-9"' in task.body
+        assert "list_maintenance_scripts" in sent[1].body and len(sent) == 3
+        history = (await client.get(f"/api/v1/servers/{rows['linux'].id}/maintenance")).json()
+        assert any(h["title"].startswith(f"Tarefa pedida ao agente mid-{tag}") for h in history)
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(AuditEvent).where(AuditEvent.event_type == "agent_task_requested",
+                                                      AuditEvent.entity_id.in_([r.id for r in rows.values()])))
+            await db.execute(delete(AuthorityDelegation).where(AuthorityDelegation.grantor_user_id == ids.grantor))
+            await db.execute(delete(HostScript).where(HostScript.id == ids.change))
+            await db.execute(delete(Agent).where(Agent.id.in_([ids.low, ids.mid, ids.none])))
+            await db.execute(delete(User).where(User.id == ids.grantor))
+            await db.commit()

@@ -66,11 +66,11 @@ async def dependency_pair(client, created_ids, planning_item_id):
     return ids
 
 
-@pytest.mark.parametrize("entry", ["execution", "status", "messages", "scheduler"])
+@pytest.mark.parametrize("entry", ["execution", "execution_update", "status", "messages", "execution_link", "scheduler"])
 async def test_dependencies_gate_every_execution_entry(
     client, dependency_pair, test_suite_agent, monkeypatch, entry
 ):
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
     from unittest.mock import AsyncMock
 
     from app.api.routes import demand as demand_routes
@@ -88,6 +88,18 @@ async def test_dependencies_gate_every_execution_entry(
     if entry == "execution":
         response = await client.post(f"/api/v1/tasks/{task_id}/executions", json={"executor_type": "agent"})
         assert response.status_code == 409, response.text
+    elif entry == "execution_update":
+        response = await client.patch(f"/api/v1/tasks/{predecessor_id}", json={"status": "done"})
+        assert response.status_code == 200, response.text
+        response = await client.post(f"/api/v1/tasks/{task_id}/executions", json={"executor_type": "agent"})
+        assert response.status_code == 201, response.text
+        execution_id = response.json()["id"]
+        response = await client.patch(f"/api/v1/tasks/{predecessor_id}", json={"status": "planned"})
+        assert response.status_code == 200, response.text
+        response = await client.patch(
+            f"/api/v1/tasks/{task_id}/executions/{execution_id}", json={"status": "running"}
+        )
+        assert response.status_code == 409, response.text
     elif entry == "status":
         response = await client.patch(f"/api/v1/tasks/{task_id}", json={"status": "in_progress"})
         assert response.status_code == 409, response.text
@@ -101,19 +113,37 @@ async def test_dependencies_gate_every_execution_entry(
 
         monkeypatch.setattr(demand_routes, "datetime", Clock)
         monkeypatch.setattr(demand_routes, "_dispatch_slots", AsyncMock(return_value=1))
-        monkeypatch.setattr(demand_routes, "_agents_already_running", AsyncMock(return_value=set()))
         async with AsyncSessionLocal() as db:
+            linked_execution_id = None
+            if entry == "execution_link":
+                execution = TaskExecution(
+                    task_id=uuid.UUID(task_id), executor_type="agent", attempt_number=1, status="pending",
+                )
+                db.add(execution)
+                await db.flush()
+                linked_execution_id = execution.id
             item = AgentDemand(
                 from_agent="test-suite", from_agent_id=test_suite_agent,
                 target_agent_id=test_suite_agent, subject="Dependency guard", body="test",
-                working_path="/tmp", origin_type="task", origin_id=uuid.UUID(task_id),
+                working_path="/tmp", origin_type="task",
+                origin_id=uuid.UUID(predecessor_id if entry == "execution_link" else task_id),
+                task_execution_id=linked_execution_id,
                 scheduled_at=due,
             )
             db.add(item)
+            independent = None
+            if entry == "scheduler":
+                independent = AgentDemand(
+                    from_agent="test-suite", from_agent_id=test_suite_agent,
+                    target_agent_id=test_suite_agent, subject="Independent work", body="test",
+                    working_path="/tmp", origin_type="task", scheduled_at=due + timedelta(seconds=1),
+                )
+                db.add(independent)
             await db.commit()
             demand_id = item.id
+            demand_ids = [item.id] + ([independent.id] if independent is not None else [])
         try:
-            if entry == "messages":
+            if entry in {"messages", "execution_link"}:
                 response = await client.post(
                     f"/api/v1/demands/{demand_id}/dispatch",
                     json={"target_agent_id": str(test_suite_agent)},
@@ -129,7 +159,14 @@ async def test_dependencies_gate_every_execution_entry(
                 assert queued.agent_run_id is None
                 assert queued.dispatch_attempts == 0
                 assert queued.dispatch_error is None
-            assert starts == []
+                if independent is not None:
+                    ready = await db.get(AgentDemand, independent.id)
+                    assert ready.dispatch_status == "dispatched"
+                    # The external runner is a fake; simulate its terminal
+                    # result before expecting a second run for this agent.
+                    ready.dispatch_status = "completed"
+                    await db.commit()
+            assert len(starts) == (1 if entry == "scheduler" else 0)
             finished = await client.patch(f"/api/v1/tasks/{predecessor_id}", json={"status": "done"})
             assert finished.status_code == 200, finished.text
             async with AsyncSessionLocal() as db:
@@ -138,12 +175,49 @@ async def test_dependencies_gate_every_execution_entry(
                 released = await db.get(AgentDemand, demand_id)
                 assert released.dispatch_status == "dispatched"
                 assert released.dispatch_attempts == 1
-            assert len(starts) == 1
+            assert len(starts) == (2 if entry == "scheduler" else 1)
         finally:
             async with AsyncSessionLocal() as db:
-                await db.execute(delete(AgentDemand).where(AgentDemand.id == demand_id))
+                await db.execute(delete(AgentDemand).where(AgentDemand.id.in_(demand_ids)))
                 await db.commit()
-    assert starts == [] if entry in {"execution", "status"} else len(starts) == 1
+    if entry in {"execution", "execution_update", "status"}:
+        assert starts == []
+    else:
+        assert len(starts) == (2 if entry == "scheduler" else 1)
+
+
+async def test_every_prerequisite_must_finish(client, dependency_pair, created_ids, planning_item_id):
+    first_id, task_id = dependency_pair
+    response = await client.post("/api/v1/tasks", json=_task_payload(planning_item_id, title="Second prerequisite"))
+    assert response.status_code == 201, response.text
+    second_id = response.json()["id"]
+    created_ids["project_tasks"].append(second_id)
+    response = await client.post(
+        f"/api/v1/tasks/{task_id}/dependencies",
+        json={"task_id": task_id, "depends_on_task_id": second_id},
+    )
+    assert response.status_code == 201, response.text
+    created_ids["task_dependencies"].append(response.json()["id"])
+    response = await client.patch(f"/api/v1/tasks/{first_id}", json={"status": "done"})
+    assert response.status_code == 200, response.text
+    response = await client.post(f"/api/v1/tasks/{task_id}/dispatch", json={})
+    assert response.status_code == 409, response.text
+    assert [item["task_id"] for item in response.json()["detail"]["blocking"]] == [second_id]
+    response = await client.patch(f"/api/v1/tasks/{second_id}", json={"status": "done"})
+    assert response.status_code == 200, response.text
+    response = await client.post(f"/api/v1/tasks/{task_id}/dispatch", json={})
+    assert response.status_code == 400, response.text
+    assert "dependencies" not in response.json()["detail"]
+
+
+@pytest.mark.parametrize("predecessor_status", ["in_progress", "blocked", "cancelled"])
+async def test_unfinished_dependency_states_block_dispatch(client, dependency_pair, predecessor_status):
+    predecessor_id, task_id = dependency_pair
+    response = await client.patch(f"/api/v1/tasks/{predecessor_id}", json={"status": predecessor_status})
+    assert response.status_code == 200, response.text
+    response = await client.post(f"/api/v1/tasks/{task_id}/dispatch", json={})
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["blocking"][0]["status"] == predecessor_status
 
 
 async def test_deployed_dependency_allows_completion(client, dependency_pair):

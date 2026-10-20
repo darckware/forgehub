@@ -31,7 +31,7 @@ from app.db.models.orchestration import AgentRuntimeProfile, ProjectAgentMembers
 from app.db.models.pipeline import PipelineStage, ProjectPipeline
 from app.db.models.progress import ProgressCheckpoint
 from app.db.models.project import ChangeRequest, PlanBaseline, Project, ProjectForgeRouterConfig, ProjectPlan
-from app.db.models.task import ProjectTask, TaskAssignment, TaskDependency, TaskExecution
+from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
 
 router = APIRouter(prefix="/api/v1", tags=["execution-runtime"])
 ACTIVE_EXECUTION_STATES = ("pending", "running", "recovering", "reconciling")

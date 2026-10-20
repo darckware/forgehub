@@ -285,3 +285,50 @@ async def test_scheduled_run_retries_unreachable_then_not_run(world, monkeypatch
     assert len(calls) > 1
     result = detail.results[0]
     assert result.status == "skipped" and result.skip_reason == "Unreachable until the scheduled window closed"
+
+
+@pytest.mark.asyncio
+async def test_classification_rename_and_delete_rules():
+    """Rename/describe any classification; delete only an unused one that
+    ForgeHub doesn't ship."""
+    import uuid as _uuid
+
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from sqlalchemy import delete as _delete
+
+    from app.api.routes import host_script as routes
+    from app.core.security import create_access_token, hash_password
+    from app.db.base import AsyncSessionLocal
+    from app.db.models.governance import AuditEvent
+    from app.db.models.user import User
+
+    tag = _uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        admin = User(username=f"cat-admin-{tag}", hashed_password=hash_password("x"), is_admin=True)
+        db.add(admin)
+        await db.commit()
+    app = FastAPI()
+    app.include_router(routes.router)
+    headers = {"Authorization": f"Bearer {create_access_token(admin.username)}"}
+    created_id = None
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=headers) as c:
+            created = (await c.post("/api/v1/host-scripts/categories", json={"label": f"Impressoras {tag}"})).json()
+            created_id = created["id"]
+            assert created["script_count"] == 0 and created["is_system"] is False
+            upd = (await c.put(f"/api/v1/host-scripts/categories/{created_id}", json={"label": f"Impressão {tag}", "description": "Filas e drivers"})).json()
+            assert upd["label"] == f"Impressão {tag}" and upd["description"] == "Filas e drivers" and upd["slug"] == created["slug"]
+            cats = {x["slug"]: x for x in (await c.get("/api/v1/host-scripts/categories")).json()}
+            assert cats["rustdesk"]["is_system"] and cats["rustdesk"]["script_count"] > 0
+            assert (await c.delete(f"/api/v1/host-scripts/categories/{cats['rustdesk']['id']}")).status_code == 409
+            assert (await c.delete(f"/api/v1/host-scripts/categories/{created_id}")).status_code == 204
+            created_id = None
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(_delete(AuditEvent).where(AuditEvent.actor == admin.username))
+            await db.execute(_delete(User).where(User.id == admin.id))
+            if created_id:
+                from app.db.models.host_script import HostScriptCategory
+                await db.execute(_delete(HostScriptCategory).where(HostScriptCategory.id == _uuid.UUID(created_id)))
+            await db.commit()

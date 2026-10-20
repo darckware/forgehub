@@ -28,6 +28,8 @@ from app.api.schemas.host_execution import (
     MAX_TARGETS,
     AgentExecutionCreate,
     AgentMachineOut,
+    AgentRequestCreate,
+    AgentRequestOut,
     AgentScriptOut,
     HostExecutionCounts,
     HostExecutionCreate,
@@ -541,6 +543,114 @@ async def agent_create_execution(
         darckware_item=item,
     )
     return await _detail(db, execution)
+
+
+async def agent_risk_ceilings(db: AsyncSession, agent_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """The highest max_risk each agent's active remote_access.execute
+    delegations allow (absent = not authorized)."""
+    from app.db.models.governance import DELEGATION_RISK_ORDER, AuthorityDelegation
+
+    now = datetime.now(timezone.utc)
+    rows = (await db.execute(select(AuthorityDelegation).where(
+        AuthorityDelegation.grantee_type == "agent", AuthorityDelegation.grantee_id.in_(agent_ids),
+        AuthorityDelegation.status == "active", AuthorityDelegation.valid_from <= now,
+        AuthorityDelegation.expires_at > now,
+    ))).scalars()
+    best: dict[uuid.UUID, str] = {}
+    for row in rows:
+        if AGENT_ACTION not in (row.allowed_actions or []) or row.product_id or row.project_id:
+            continue
+        if DELEGATION_RISK_ORDER.get(row.max_risk, 0) >= DELEGATION_RISK_ORDER.get(best.get(row.grantee_id, ""), -1):
+            best[row.grantee_id] = row.max_risk
+    return best
+
+
+def _request_body(user: str, payload: AgentRequestCreate, servers: list[Server],
+                  scripts: list[tuple[HostScript, dict]], item: tuple[str, str] | None) -> str:
+    lines = [f"Manutenção pedida por {user} pelo Acesso Remoto do ForgeHub.", "", "Instrução:", payload.instruction.strip(), "",
+             "Máquinas (use estes ids em run_maintenance_script):"]
+    for s in servers:
+        what = " · ".join(filter(None, [s.os_family, s.kind, s.darckware_client_name]))
+        lines.append(f"- {s.name} ({what}) — id: {s.id}")
+    lines.append("")
+    if scripts:
+        lines.append("Scripts autorizados para esta tarefa — execute somente estes, com estes parâmetros:")
+        for script, values in scripts:
+            shown = ", ".join(f"{k}={v}" for k, v in values.items() if v) or "padrão"
+            lines.append(f"- {script.name} (risco {script.risk}) — script_id: {script.id}; parâmetros: {shown}")
+    else:
+        lines.append("Escolha os scripts com list_maintenance_scripts e execute com run_maintenance_script; "
+                     "nenhum comando fora da biblioteca.")
+    lines.append("")
+    if item:
+        arg = "darckware_ticket_id" if item[0] == "ticket" else "darckware_demand_id"
+        lines.append(f"Atendimento: {'chamado' if item[0] == 'ticket' else 'demanda'} {item[1]} — passe {arg}=\"{item[1]}\".")
+    lines.append("Em cada run_maintenance_script, informe em reason o motivo (resuma a instrução acima).")
+    lines.append("Ao terminar, responda o que foi feito em cada máquina e o resultado.")
+    return "\n".join(lines)
+
+
+@router.post("/agent-requests", response_model=list[AgentRequestOut], status_code=status.HTTP_201_CREATED)
+async def create_agent_request(
+    payload: AgentRequestCreate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """"Pedir ao agente": one Messages task per agent (the single executor of
+    agent work, with its deadline, failure notice and reprocessing). Checked
+    here so a request can't promise what the agent will be refused: every
+    agent needs an active remote_access.execute delegation whose risk covers
+    the chosen scripts, and every machine needs ForgeHub's own login. Secret
+    parameter values are refused -- the task text is readable in Messages."""
+    from app.api.routes.demand import create_demand_and_notify
+    from app.api.schemas.demand import DemandSubmitIn
+    from app.db.models.governance import DELEGATION_RISK_ORDER
+
+    agents = list((await db.execute(select(Agent).where(Agent.id.in_(payload.agent_ids)))).scalars())
+    if len(agents) != len(set(payload.agent_ids)):
+        raise HTTPException(status_code=422, detail="Unknown agent")
+    servers, _ = await resolve_targets(db, payload.server_ids, [])
+    readiness = await _agent_readiness(db)
+    blocked = [s.name for s in servers if not readiness.get(s.id, (False, ""))[0]]
+    if blocked:
+        raise HTTPException(status_code=409, detail=f"ForgeHub has no working login on: {', '.join(blocked)} (configure access first)")
+    scripts: list[tuple[HostScript, dict]] = []
+    for chosen in payload.scripts:
+        script = await db.get(HostScript, chosen.script_id)
+        if not script or script.archived:
+            raise HTTPException(status_code=404, detail="Script not found")
+        values = {k: v for k, v in chosen.parameter_values.items() if v not in (None, "")}
+        declared = {p["name"]: p for p in script.parameters}
+        if unknown := set(values) - set(declared):
+            raise HTTPException(status_code=422, detail=f"Unknown parameter(s) for {script.name}: {', '.join(sorted(unknown))}")
+        if secret := [n for n in values if declared[n].get("secret")]:
+            raise HTTPException(status_code=422, detail=f"Secret parameters can't go in an agent task: {', '.join(secret)}")
+        scripts.append((script, values))
+    needed = max((DELEGATION_RISK_ORDER[_RISK_FOR_DELEGATION.get(s.risk, "high")] for s, _ in scripts), default=0)
+    ceilings = await agent_risk_ceilings(db, [a.id for a in agents])
+    refused = [a.name for a in agents if a.id not in ceilings or DELEGATION_RISK_ORDER[ceilings[a.id]] < needed]
+    if refused:
+        raise HTTPException(status_code=422, detail=f"Not authorized for this maintenance: {', '.join(refused)}")
+    item = darckware_item_of(payload.darckware_item_kind, payload.darckware_item_id)
+
+    names = ", ".join(s.name for s in servers[:3]) + (f" +{len(servers) - 3}" if len(servers) > 3 else "")
+    subject = f"Manutenção em {names}: {payload.instruction.strip().splitlines()[0][:80]}"
+    body = _request_body(admin.username, payload, servers, scripts, item)
+    out = []
+    for agent in agents:
+        # Self-addressed Task: the agent's own Incoming, dispatched right away;
+        # its answer lands on the same message (dispatch_result).
+        demand = await create_demand_and_notify(db, DemandSubmitIn(
+            from_agent=admin.username, from_agent_id=agent.id, target_agent_id=agent.id,
+            subject=subject[:255], body=body, origin_type="task",
+        ))
+        for server in servers:
+            db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="agent_task_requested",
+                              actor=admin.username, payload={"agent": agent.name, "demand_number": demand.number,
+                                                             "instruction": payload.instruction.strip()[:500]}))
+        out.append(AgentRequestOut(agent_id=agent.id, agent_name=agent.name, demand_id=demand.id, demand_number=demand.number))
+    await db.commit()
+    return out
 
 
 @router.get("/agent/{execution_id}", response_model=HostExecutionDetail)

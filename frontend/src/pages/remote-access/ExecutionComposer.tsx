@@ -3,7 +3,7 @@
  * useExecutionComposerViewModel. */
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { CalendarClock, Check, ClipboardCopy, Copy, KeyRound, Loader2, Play, Search, TriangleAlert, X } from "lucide-react";
+import { Bot, CalendarClock, Check, ClipboardCopy, Copy, KeyRound, Loader2, Play, Search, TriangleAlert, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import type { HostExecutionDetail } from "@/hooks/useHostExecutions";
 import type { HostSchedule } from "@/hooks/useHostScripts";
 import { scriptFits } from "@/hooks/useHostScripts";
 import { cn } from "@/lib/utils";
+import { AgentRequestDialog } from "./AgentRequestDialog";
 import { STATUS_DOT, statusKey } from "./machineStatus";
 
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7];
@@ -33,6 +34,7 @@ export function ExecutionComposer({
   const { t } = useTranslation("remoteAccess");
   const vm = useExecutionComposerViewModel({ onRan, onScheduled, initialSystem });
   const [copied, setCopied] = useState(false);
+  const [asking, setAsking] = useState(false);
   const busy = vm.status === "submitting";
 
   return (
@@ -316,6 +318,10 @@ export function ExecutionComposer({
               )}
               {vm.renderError && <p role="alert" className="text-xs text-destructive">{vm.renderError}</p>}
               <div className="flex flex-wrap justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setAsking(true)} disabled={vm.selectedMachines.length === 0}
+                  className="cursor-pointer gap-1.5" title={t("askAgent.fromComposerHelp")}>
+                  <Bot className="h-4 w-4" aria-hidden="true" /> {t("askAgent.button")}
+                </Button>
                 {vm.source === "library" && vm.script && (
                   <Button type="button" variant="outline" onClick={vm.renderForCopy} disabled={vm.rendering} className="cursor-pointer gap-1.5" title={t("composer.copyHelp")}>
                     {vm.rendering ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden="true" /> : <ClipboardCopy className="h-4 w-4" aria-hidden="true" />}
@@ -354,6 +360,7 @@ export function ExecutionComposer({
           )}
         </CardContent>
       </Card>
+      {asking && <AgentRequestDialog machines={vm.selectedMachines} onClose={() => setAsking(false)} />}
     </div>
   );
 }

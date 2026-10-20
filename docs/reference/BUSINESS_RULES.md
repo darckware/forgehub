@@ -46,6 +46,9 @@ Convention used throughout the codebase: rules that are single-column constraint
 | 2 | Each task can have multiple executions | `TaskExecution.attempt_number` auto-increments per task, `create_task_execution` |
 | 3 | Every execution must have evidence | Schema + route re-check: `evidence_ref` required once status is `verified`/`completed`, `api/schemas/task.py` + `update_task_execution` |
 | 4 | Every task completion must be auditable | **Implemented this session**: `AuditEvent` auto-written on `ProjectTask`→`done` and `TaskExecution`→`verified`/`completed`, `api/routes/task.py` |
+| 5 | Every declared predecessor must be `done` or `deployed` before starting or completing a dependent task; cancelled, failed or merely reported work does not satisfy a prerequisite | Shared gate in `core/task_dependencies.py`; task dispatch, execution creation/transitions, Messages runner, scheduled dispatch and Work Package dispatch |
+| 6 | A task waiting for dependencies remains queued without consuming a dispatch attempt or reserving its agent ahead of eligible work | `run_scheduled_dispatch_pass`, `api/routes/demand.py`; rechecked before the external start |
+| 7 | Dependency graphs cannot contain direct or indirect cycles | Recursive reachability check and serialized graph insertions in `create_task_dependency`, `api/routes/task.py`; self-reference rejected by schema |
 
 ### 4.1 Messages: remetente, destino e tipo
 

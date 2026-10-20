@@ -14,6 +14,10 @@ export interface ScriptCategory {
   slug: string;
   label: string;
   description: string | null;
+  /** Scripts filed under it, archived included (deletable only at 0). */
+  script_count?: number;
+  /** Shipped by ForgeHub: renamable, not deletable. */
+  is_system?: boolean;
 }
 
 export interface ScriptParameter {
@@ -125,6 +129,22 @@ export function useCreateScriptCategory() {
   const qc = useQueryClient();
   return useMutation<ScriptCategory, Error, { label: string; description?: string | null }>({
     mutationFn: (data) => apiClient.post("/api/v1/host-scripts/categories", data),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: [...SCRIPTS, "categories"] }),
+  });
+}
+
+export function useUpdateScriptCategory() {
+  const qc = useQueryClient();
+  return useMutation<ScriptCategory, Error, { id: string; label?: string; description?: string | null }>({
+    mutationFn: ({ id, ...data }) => apiClient.put(`/api/v1/host-scripts/categories/${id}`, data),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: [...SCRIPTS] }),
+  });
+}
+
+export function useDeleteScriptCategory() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (id) => apiClient.delete(`/api/v1/host-scripts/categories/${id}`),
     onSuccess: () => void qc.invalidateQueries({ queryKey: [...SCRIPTS, "categories"] }),
   });
 }

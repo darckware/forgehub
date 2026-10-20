@@ -5,6 +5,8 @@ as an administrator on client machines.
 Endpoints:
   GET    /api/v1/host-scripts/categories          – classification list
   POST   /api/v1/host-scripts/categories          – add a classification
+  PUT    /api/v1/host-scripts/categories/{id}     – rename / describe
+  DELETE /api/v1/host-scripts/categories/{id}     – only when no script uses it
   GET    /api/v1/host-scripts                     – library (?platform=&category_id=&include_archived=)
   POST   /api/v1/host-scripts                     – new script (version 1)
   GET    /api/v1/host-scripts/{id}                – script + versions
@@ -25,7 +27,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +36,7 @@ from app.api.schemas.host_execution import HostExecutionDetail
 from app.api.schemas.host_script import (
     CategoryCreate,
     CategoryOut,
+    CategoryUpdate,
     ScheduleCreate,
     ScheduleOut,
     ScheduleUpdate,
@@ -67,9 +70,62 @@ def _audit(db: AsyncSession, entity_type: str, entity_id: uuid.UUID, event: str,
 
 # --- categories ---------------------------------------------------------------
 
+async def _category_out(db: AsyncSession, rows: list[HostScriptCategory]) -> list[CategoryOut]:
+    from app.core.system_scripts import SYSTEM_CATEGORIES
+
+    counts = dict((await db.execute(
+        select(HostScript.category_id, func.count()).group_by(HostScript.category_id)
+    )).all())
+    system = {slug for slug, _, _ in SYSTEM_CATEGORIES}
+    return [
+        CategoryOut.model_validate(r).model_copy(update={"script_count": counts.get(r.id, 0), "is_system": r.slug in system})
+        for r in rows
+    ]
+
+
 @router.get("/categories", response_model=list[CategoryOut])
 async def list_categories(db: AsyncSession = Depends(get_db), _admin: User = Depends(get_current_admin)):
-    return list((await db.execute(select(HostScriptCategory).order_by(HostScriptCategory.label))).scalars())
+    rows = list((await db.execute(select(HostScriptCategory).order_by(HostScriptCategory.label))).scalars())
+    return await _category_out(db, rows)
+
+
+@router.put("/categories/{category_id}", response_model=CategoryOut)
+async def update_category(
+    category_id: uuid.UUID, payload: CategoryUpdate,
+    db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin),
+):
+    """Rename or describe. The slug never changes: it is what system scripts
+    are filed under, so a renamed system classification keeps its scripts."""
+    row = await db.get(HostScriptCategory, category_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Classification not found")
+    before = {"label": row.label, "description": row.description}
+    if payload.label is not None:
+        row.label = payload.label.strip()
+    if "description" in payload.model_fields_set:
+        row.description = (payload.description or "").strip() or None
+    _audit(db, "host_script_category", row.id, "updated", admin.username,
+           {"before": before, "after": {"label": row.label, "description": row.description}})
+    await db.commit()
+    await db.refresh(row)
+    return (await _category_out(db, [row]))[0]
+
+
+@router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_category(
+    category_id: uuid.UUID, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)
+):
+    row = await db.get(HostScriptCategory, category_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Classification not found")
+    out = (await _category_out(db, [row]))[0]
+    if out.is_system:
+        raise HTTPException(status_code=409, detail="A classification shipped by ForgeHub can be renamed, not deleted")
+    if out.script_count:
+        raise HTTPException(status_code=409, detail=f"{out.script_count} script(s) still use this classification")
+    _audit(db, "host_script_category", row.id, "deleted", admin.username, {"label": row.label})
+    await db.delete(row)
+    await db.commit()
 
 
 @router.post("/categories", response_model=CategoryOut, status_code=status.HTTP_201_CREATED)
@@ -86,7 +142,7 @@ async def create_category(
     _audit(db, "host_script_category", row.id, "created", admin.username, {"label": row.label})
     await db.commit()
     await db.refresh(row)
-    return row
+    return (await _category_out(db, [row]))[0]
 
 
 # --- scripts ------------------------------------------------------------------

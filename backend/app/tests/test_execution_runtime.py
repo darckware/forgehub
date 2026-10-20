@@ -13,7 +13,7 @@ from app.db.models.execution import ExecutionWave, ExecutionWaveTask, ExecutionW
 from app.db.models.orchestration import AgentRuntimeProfile, ProjectAgentMembership
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import PlanBaseline, Project, ProjectPlan
-from app.db.models.task import ProjectTask, TaskAssignment
+from app.db.models.task import ProjectTask, TaskAssignment, TaskDependency
 from app.core.security import create_access_token, hash_password
 from app.db.models.user import User
 from app.main import app
@@ -78,3 +78,21 @@ async def test_wave_release_and_immutable_package(runtime_context):
         issued = await client.post(f"/api/v1/work-packages/{body['id']}:issue", json={})
         assert issued.status_code == 200, issued.text
         assert issued.json()["status"] == "issued"
+        # Preflight was valid, but a new prerequisite now blocks the task.
+        # Dispatch must recheck instead of trusting the old wave snapshot.
+        async with AsyncSessionLocal() as db:
+            predecessor = ProjectTask(planning_item_id=ctx["item"], title="New prerequisite", status="planned")
+            db.add(predecessor)
+            await db.flush()
+            predecessor_id = predecessor.id
+            db.add(TaskDependency(task_id=ctx["task"], depends_on_task_id=predecessor_id))
+            await db.commit()
+        try:
+            blocked = await client.post(f"/api/v1/work-packages/{body['id']}:dispatch", json={})
+            assert blocked.status_code == 409, blocked.text
+            assert blocked.json()["detail"]["blocking"][0]["task_id"] == str(predecessor_id)
+        finally:
+            async with AsyncSessionLocal() as db:
+                await db.execute(delete(TaskDependency).where(TaskDependency.depends_on_task_id == predecessor_id))
+                await db.execute(delete(ProjectTask).where(ProjectTask.id == predecessor_id))
+                await db.commit()

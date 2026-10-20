@@ -1379,12 +1379,15 @@ async def recover_dispatch_outcome(
 
 
 async def _ensure_demand_dependencies_satisfied(db: AsyncSession, demand: AgentDemand) -> None:
+    task_ids: set[uuid.UUID] = set()
     if demand.origin_type == "task" and demand.origin_id is not None:
-        await ensure_task_dependencies_satisfied(db, demand.origin_id)
-    elif demand.task_execution_id is not None:
+        task_ids.add(demand.origin_id)
+    if demand.task_execution_id is not None:
         execution = await db.get(TaskExecution, demand.task_execution_id)
         if execution is not None:
-            await ensure_task_dependencies_satisfied(db, execution.task_id)
+            task_ids.add(execution.task_id)
+    for task_id in sorted(task_ids):
+        await ensure_task_dependencies_satisfied(db, task_id)
 
 
 def _assert_dispatchable(demand: AgentDemand) -> None:

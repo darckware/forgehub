@@ -49,6 +49,8 @@ Nova aba **Pessoal → Tarefas dos agentes**, com filtros **Precisam de atençã
 
 Cada linha mostra número, assunto, agente responsável, tipo, situação, idade/prazo, tentativas e um resumo do erro. O detalhe mostra conteúdo, resultado, vínculo com tarefa de projeto e histórico das ações. Busca por número/assunto e filtros por agente e período devem usar paginação no servidor.
 
+Mostrar também as dependências da tarefa vinculada: número, título e situação de cada predecessora, com acesso ao detalhe. Enquanto alguma predecessora não estiver `done` ou `deployed`, apresentar “Aguardando dependências” e explicar o bloqueio de execução. Concluir um run de agente ou marcar uma mensagem como processada não equivale a concluir a tarefa com a evidência exigida pelo domínio.
+
 | Situação | Ações propostas |
 | --- | --- |
 | Incubação | Promover e executar, adiar decisão, descartar com motivo ou arquivar |
@@ -72,6 +74,7 @@ Arquivar preserva o registro e o remove das filas operacionais. Descartar encerr
 - Uma execução por agente e respeito ao limite global em todos os caminhos de início.
 - Nenhuma execução automática após restaurar um item arquivado.
 - Nenhum reenvio enquanto uma execução anterior puder continuar ativa.
+- Tarefas dependentes só iniciam após todas as predecessoras estarem `done` ou `deployed`; espera por dependência não é falha nem consome tentativas.
 - Preservar o total de tentativas e o histórico de correções, decisões e resultados.
 - Ações em lote retornam resultado por item; uma falha não pode ser apresentada como sucesso do lote inteiro.
 - Textos traduzidos nos idiomas já suportados e chamadas HTTP pelo cliente central de `frontend/src/lib/api.ts`.
@@ -169,3 +172,15 @@ Sequência: **proteções → recuperação → decisões de incubação → aba
 Cancelamento de processo ativo, mudanças no runtime Hermes e reformulação da gestão de projetos ficam fora desta entrega. Caso o runner existente já ofereça cancelamento comprovável, sua exposição pode ser planejada depois; marcar um registro como arquivado não equivale a parar um processo.
 
 Não foram alterados código de aplicação, dados, configurações ou serviços durante este planejamento. A consulta ao banco foi somente de leitura; não foram executados testes de implementação porque as mudanças ainda são propostas.
+
+## Complemento — ajuste de dependências solicitado posteriormente
+
+Marcelo solicitou análise e correção da execução de tarefas dependentes após a elaboração deste plano. A implementação dessa correção foi iniciada no backend, sem antecipar a entrega da aba de Pessoal.
+
+- Regra compartilhada para início e conclusão: todas as dependências em `done` ou `deployed`.
+- Validação no despacho de tarefas, criação/transição de execuções, Messages e despacho de Work Packages; agendador mantém itens bloqueados na fila e os reavalia nas próximas passagens.
+- Uma tarefa bloqueada não consome tentativas nem impede trabalho elegível do mesmo agente.
+- Rejeição de ciclos indiretos, além da proteção existente contra autorreferência.
+- Na consulta operacional anterior aos testes desta correção, `company.task_dependencies` tinha zero registros. Dependências precisam ser cadastradas explicitamente; não foram inferidas nem criadas sobre tarefas operacionais existentes.
+
+A interface de acompanhamento e as demais etapas deste documento continuam como trabalho planejado. Este complemento distingue a correção de dependências do planejamento original.

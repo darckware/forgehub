@@ -1,8 +1,9 @@
 /** Script library: classified, versioned scripts per platform. System
  * scripts (ForgeHub's own: Tailscale/RustDesk install, RustDesk password)
  * are listed but locked. State: useScriptLibraryViewModel. */
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Archive, ArchiveRestore, History, Loader2, Lock, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Archive, ArchiveRestore, History, Loader2, Lock, Pencil, Plus, Search, Tags, Trash2, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,21 +13,28 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useScriptLibraryViewModel } from "@/hooks/useScriptLibraryViewModel";
+import { ScriptCategoriesDialog } from "./ScriptCategoriesDialog";
 
 export function ScriptLibrary() {
   const { t, i18n } = useTranslation("remoteAccess");
   const vm = useScriptLibraryViewModel();
   const fmt = new Intl.DateTimeFormat(i18n.language, { dateStyle: "short", timeStyle: "short" });
   const d = vm.draft;
+  const [managingCategories, setManagingCategories] = useState(false);
 
   return (
     <Card>
       <CardHeader className="flex flex-col gap-3 space-y-0 pb-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="text-base">{t("library.title")}</CardTitle>
-          <Button type="button" size="sm" onClick={vm.startNew} className="cursor-pointer gap-1.5">
-            <Plus className="h-3.5 w-3.5" aria-hidden="true" /> {t("library.new")}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={() => setManagingCategories(true)} className="cursor-pointer gap-1.5">
+              <Tags className="h-3.5 w-3.5" aria-hidden="true" /> {t("categories.title")}
+            </Button>
+            <Button type="button" size="sm" onClick={vm.startNew} className="cursor-pointer gap-1.5">
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" /> {t("library.new")}
+            </Button>
+          </div>
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_180px_160px_auto] sm:items-center">
           <label className="relative">
@@ -191,6 +199,7 @@ export function ScriptLibrary() {
           ))
         )}
       </CardContent>
+      {managingCategories && <ScriptCategoriesDialog onClose={() => setManagingCategories(false)} />}
     </Card>
   );
 }

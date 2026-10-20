@@ -10,6 +10,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   Activity,
+  Bot,
   FolderPlus,
   History,
   Vault,
@@ -57,6 +58,7 @@ import { ServerServicesPanel } from "@/pages/servers/ServerServicesPanel";
 import { serverHome } from "@/pages/workspace/workspaceState";
 import { STATUS_BADGE, hasSsh, statusKey } from "./machineStatus";
 import { PrepareDialog } from "./PrepareDialog";
+import { AgentRequestDialog } from "./AgentRequestDialog";
 import { MaintenanceDialog } from "./MaintenanceDialog";
 import { RevealPasswordDialog } from "./RevealPasswordDialog";
 
@@ -155,6 +157,7 @@ export function MachinesCard() {
   const { data: clientList } = useDarckwareClients();
   const [revealing, setRevealing] = useState<{ machine: Server; kind: "login" | "rustdesk" } | null>(null);
   const [historyOf, setHistoryOf] = useState<Server | null>(null);
+  const [askingFor, setAskingFor] = useState<Server | null>(null);
 
   const syncSummary = vm.syncResult
     ? (["created", "linked", "updated"] as const)
@@ -245,6 +248,11 @@ export function MachinesCard() {
               {vm.isAdmin && machine.login_password_stored && (
                 <IconButton label={t("password.for", { name: machine.name })} onClick={() => setRevealing({ machine, kind: "login" })}>
                   <KeyRound className="h-4 w-4" aria-hidden="true" />
+                </IconButton>
+              )}
+              {vm.isAdmin && machine.access_enabled && ready && (
+                <IconButton label={t("askAgent.forMachine", { name: machine.name })} onClick={() => setAskingFor(machine)} className="text-sky-600">
+                  <Bot className="h-4 w-4" aria-hidden="true" />
                 </IconButton>
               )}
               <IconButton label={t("maintenance.open", { name: machine.name })} onClick={() => setHistoryOf(machine)}>
@@ -598,6 +606,7 @@ export function MachinesCard() {
         onConfirm={vm.confirmMigrate}
         onCancel={vm.cancelMigrate}
       />
+      {askingFor && <AgentRequestDialog machines={[askingFor]} onClose={() => setAskingFor(null)} />}
       {historyOf && <MaintenanceDialog machine={historyOf} onClose={() => setHistoryOf(null)} />}
       {revealing && <RevealPasswordDialog machine={revealing.machine} kind={revealing.kind} onClose={() => setRevealing(null)} />}
 
