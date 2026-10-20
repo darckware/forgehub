@@ -519,6 +519,7 @@
     "run_other": "Rotacionar ({{count}})"
   },
   "machines": {
+    "copyRustdeskId": "Copiar o ID do RustDesk",
     "title": "Máquinas",
     "totals": "{{ready}} de {{total}} prontas · {{attention}} pedem atenção · {{offline}} offline",
     "new": "Nova máquina",
@@ -557,6 +558,7 @@
       "allClients": "Todos os clientes"
     },
     "columns": {
+      "rustdesk": "ID RustDesk",
       "name": "Máquina",
       "kind": "Tipo / SO",
       "client": "Cliente / grupo"

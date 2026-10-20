@@ -37,7 +37,8 @@ const base = {
 };
 const MACHINES = [
   { ...base, id: "m1", name: "GAT-ADM-PC01", remote_user: "darckware", kind: "workstation", os_family: "windows",
-    darckware_client_id: "c1", darckware_client_name: "Gatling", group_ids: ["g1"], tailnet_node_id: "nPC1" },
+    darckware_client_id: "c1", darckware_client_name: "Gatling", group_ids: ["g1"], tailnet_node_id: "nPC1",
+    rustdesk_id: "217385777" },
   { ...base, id: "s1", name: "srv-sup", ip_address: "172.15.2.9", remote_user: "aegis", kind: "server", os_family: "linux",
     darckware_client_id: null, darckware_client_name: null, tailnet_node_id: "nSUP" },
   { ...base, id: "s2", name: "srv-ad03", ip_address: "172.15.1.3", remote_user: "aegis", kind: "server", os_family: null,
@@ -196,6 +197,13 @@ describe("MachinesCard", () => {
     expect(screen.getAllByText("Não preparada").length).toBeGreaterThan(0);
     expect(screen.queryByText("Online sem acesso")).not.toBeInTheDocument();
     expect(screen.getAllByLabelText("Sem RustDesk registrado").length).toBeGreaterThan(0);
+  });
+
+  it("shows the RustDesk ID with a copy button", async () => {
+    renderCard();
+    await screen.findByText("srv-ad03");
+    expect(screen.getAllByText("217 385 777").length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle("Copiar o ID do RustDesk").length).toBeGreaterThan(0);
   });
 
   it("gives a view-only servers user the sections without admin actions or the tailnet", async () => {

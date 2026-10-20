@@ -32,6 +32,7 @@ import {
   X,
 } from "lucide-react";
 
+import { CopyButton } from "@/components/CopyButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -92,6 +93,19 @@ function ReadinessBadge({ entry, t }: { entry: HostReadinessEntry | undefined; t
           </MonitorSmartphone>
         </>
       )}
+    </span>
+  );
+}
+
+/** The RustDesk ID ForgeHub recorded for the machine (installer or by hand),
+ * spaced in threes as RustDesk shows it, with a copy button. */
+function RustDeskId({ id, t }: { id: string | null | undefined; t: T }) {
+  if (!id) return <span className="text-xs text-muted-foreground">—</span>;
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-xs">
+      <MonitorSmartphone className="h-3.5 w-3.5 text-emerald-600 md:hidden" aria-hidden="true" />
+      {id.replace(/(\d{3})(?=\d)/g, "$1 ")}
+      <CopyButton getText={() => id} title={t("machines.copyRustdeskId")} />
     </span>
   );
 }
@@ -180,6 +194,7 @@ export function MachinesCard() {
               </p>
             )}
             <div className="mt-1 md:hidden"><ReadinessBadge entry={readiness} t={t} /></div>
+            {machine.rustdesk_id && <div className="mt-1 md:hidden"><RustDeskId id={machine.rustdesk_id} t={t} /></div>}
             {routes.length > 0 && (
               <Badge variant="secondary" className="mt-1 gap-1 whitespace-nowrap font-mono text-[10px]">
                 <Waypoints className="h-3 w-3" aria-hidden="true" /> {t("machines.routerOf", { routes: routes.join(", ") })}
@@ -197,6 +212,7 @@ export function MachinesCard() {
             </p>
           </TableCell>
           <TableCell className="font-mono text-xs max-md:hidden">{machine.remote_user || "—"}</TableCell>
+          <TableCell className="max-md:hidden"><RustDeskId id={machine.rustdesk_id} t={t} /></TableCell>
           <TableCell className="max-md:hidden"><ReadinessBadge entry={readiness} t={t} /></TableCell>
           <TableCell className="whitespace-nowrap text-right">
             <div className="flex justify-end gap-0.5">
@@ -264,7 +280,7 @@ export function MachinesCard() {
         </TableRow>
         {vm.expandedId === machine.id && (
           <TableRow>
-            <TableCell colSpan={6} className="p-0">
+            <TableCell colSpan={7} className="p-0">
               <ServerServicesPanel server={machine} />
             </TableCell>
           </TableRow>
@@ -478,6 +494,7 @@ export function MachinesCard() {
                       <TableHead className="max-md:hidden">{t("machines.columns.kind")}</TableHead>
                       <TableHead className="max-md:hidden">{t("machines.columns.client")}</TableHead>
                       <TableHead className="max-md:hidden">{t("workstations.columns.login")}</TableHead>
+                      <TableHead className="max-md:hidden">{t("machines.columns.rustdesk")}</TableHead>
                       <TableHead className="max-md:hidden">{t("workstations.columns.readiness")}</TableHead>
                       <TableHead className="text-right">{t("devices.actions")}</TableHead>
                     </TableRow>
