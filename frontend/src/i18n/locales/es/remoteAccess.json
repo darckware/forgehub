@@ -403,6 +403,7 @@
     "rotate_ssh_key": "Rotar clave SSH"
   },
   "composer": {
+    "authKey": {"open": "Generar auth key en el panel de Tailscale", "help": "En Settings › Keys › Generate auth key: marque Pre-approved o apruebe la máquina en el panel después, deje Reusable desactivado (una clave por máquina) y elija la tag del cliente (estación: tag:<cliente>-users; servidor: tag:<cliente>-srv) — sin ella ForgeHub no alcanza la máquina por SSH. Pegue aquí la clave tskey-auth-…."},
     "canary": "Canario: primero en una máquina",
     "canaryHelp": "Ejecuta en la primera máquina y solo sigue con las demás si sale bien.",
     "canaryOn": "Canario activo: las demás máquinas solo se ejecutan si la primera sale bien.",

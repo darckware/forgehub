@@ -29,6 +29,8 @@ const SCRIPTS = [
     { name: "RUSTDESK_ID_SERVER", label: "Servidor de ID", required: true, default: null, secret: false, vault_secret: "RUSTDESK_SERVER" },
     { name: "RUSTDESK_KEY", label: "Key", required: true, default: null, secret: true, vault_secret: "RUSTDESK_SERVER" },
   ] }),
+  script({ id: "ts", name: "Instalar Tailscale", parameters: [
+    { name: "TAILSCALE_AUTHKEY", label: "Chave de autenticação", required: true, default: null, secret: true }] }),
   script({ id: "dflt", name: "Com padrão", parameters: [{ name: "ID_SERVER", label: "Servidor de ID", required: true, default: "100.105.235.114", secret: false }] }),
 ];
 
@@ -195,6 +197,15 @@ describe("ExecutionComposer", () => {
     expect(apiClient.post).toHaveBeenCalledWith("/api/v1/host-executions", expect.objectContaining({
       command: "hostname", canary: true, confirmation: "confirmar",
     }));
+  });
+
+  it("links the Tailscale auth key field to the console page where a person generates it", async () => {
+    renderComposer();
+    fireEvent.click(await screen.findByRole("checkbox", { name: /PC-01/ }));
+    fireEvent.change(screen.getByLabelText("Script"), { target: { value: "ts" } });
+    const link = screen.getByRole("link", { name: /Gerar auth key no painel da Tailscale/ });
+    expect(link).toHaveAttribute("href", "https://login.tailscale.com/admin/settings/keys");
+    expect(link).toHaveAttribute("target", "_blank");
   });
 
   it("never shows a parameter's default value on screen, only that blank uses it", async () => {
