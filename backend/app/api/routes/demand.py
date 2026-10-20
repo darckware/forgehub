@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,10 +34,16 @@ from app.api.schemas.demand import (
     DemandUpdateIn,
     DispatchIn,
     DispatchStatusOut,
+    DemandConsolidateIn,
+    DemandDecisionIn,
+    DemandBulkIn,
 )
 from app.core import conversions
 from app.core.agent_runs import AgentRunDispatchError, dispatch_agent_run, poll_agent_run
 from app.core.config import settings
+from app.core.deps import get_current_admin
+from app.core.demand_workflow import WorkflowBlocked, assert_execution_allowed, ensure_workflow_allowed, invalidate_changed_approval, requires_reconciliation, record_transition
+from app.core.demand_dispatch_guard import reserve_dispatch
 from app.core.demand_thread import build_thread_prompt
 from app.core.feedback import deliver_feedback, wants_telegram_reply
 from app.core.localtime import format_local
@@ -91,9 +97,12 @@ RECONCILIATION_REQUIRED_ERROR = (
 )
 
 
-async def _get_demand_or_404(db: AsyncSession, demand_id: uuid.UUID) -> AgentDemand:
+async def _get_demand_or_404(db: AsyncSession, demand_id: uuid.UUID, *, lock: bool = False) -> AgentDemand:
+    query = select(AgentDemand).where(AgentDemand.id == demand_id)
+    if lock:
+        query = query.with_for_update().execution_options(populate_existing=True)
     demand = (
-        await db.execute(select(AgentDemand).where(AgentDemand.id == demand_id))
+        await db.execute(query)
     ).scalar_one_or_none()
     if demand is None:
         raise HTTPException(status_code=404, detail="Demand not found")
@@ -419,6 +428,9 @@ async def create_demand_and_notify(
     demand = AgentDemand(
         from_agent=payload.from_agent,
         from_agent_id=from_agent_id,
+        requires_approval=payload.requires_approval,
+        approval_status="pending" if payload.requires_approval else None,
+        context_area=payload.context_area,
         subject=payload.subject,
         body=payload.body,
         status=payload.status or "new",
@@ -514,13 +526,23 @@ async def list_pending_for_agent(
     if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid bridge token")
     resolved = await _get_agent_by_slug_or_404(db, agent)
+    now = datetime.now(timezone.utc)
     result = await db.execute(
         select(AgentDemand)
         .where(
-            AgentDemand.target_agent_id == resolved.id,
+            or_(AgentDemand.target_agent_id == resolved.id, AgentDemand.incubation_owner_id == resolved.id),
             AgentDemand.agent_processed_at.is_(None),
+            AgentDemand.status != "archived",
+            or_(
+                (AgentDemand.origin_type == "incubation") & (AgentDemand.incubation_state == "decision_pending"),
+                (AgentDemand.reply_to_id.isnot(None)) & (AgentDemand.dispatch_status == "completed"),
+                (AgentDemand.origin_type == "task") & AgentDemand.dispatch_status.is_(None)
+                & AgentDemand.agent_run_id.is_(None)
+                & or_(AgentDemand.scheduled_at.is_(None), AgentDemand.scheduled_at <= now),
+            ),
         )
         .order_by(AgentDemand.created_at)
+        .with_for_update(skip_locked=True)
     )
     pending = list(result.scalars().all())
     now = datetime.now(timezone.utc)
@@ -629,7 +651,7 @@ async def _get_owned_incubation_or_error(
     agent's own decision surface, and one agent deciding another's thoughts
     would make "owner" meaningless. A wrong agent gets 403, not 404 -- the
     item does exist, it just isn't theirs to decide."""
-    demand = await _get_demand_or_404(db, demand_id)
+    demand = await _get_demand_or_404(db, demand_id, lock=True)
     if demand.origin_type != "incubation":
         raise HTTPException(400, "This message is not incubating -- only an incubation can be received or dropped")
     if demand.incubation_state in ("promoted", "dropped"):
@@ -668,26 +690,25 @@ async def reprocess_demand(
     many times this was tried, and resetting it would turn the limit below
     into something that can never be reached.
     """
-    demand = await _get_demand_or_404(db, demand_id)
+    demand = await _get_demand_or_404(db, demand_id, lock=True)
+    assert_execution_allowed(demand)
     if demand.dispatch_status != "failed":
         raise HTTPException(400, "Only a failed dispatch can be reprocessed")
-    if (demand.dispatch_attempts or 0) >= DISPATCH_MAX_ATTEMPTS:
+    if (demand.dispatch_attempts or 0) >= (demand.retry_limit or DISPATCH_MAX_ATTEMPTS):
         raise HTTPException(
             409,
             f"This message already failed {demand.dispatch_attempts} times "
-            f"(limit {DISPATCH_MAX_ATTEMPTS}). Fix the cause rather than retrying it again.",
+            f"(limit {demand.retry_limit or DISPATCH_MAX_ATTEMPTS}). Fix the cause rather than retrying it again.",
         )
     if demand.target_agent_id is None:
         raise HTTPException(400, "This message has no target agent to dispatch to")
-    if (
-        demand.agent_run_id is not None
-        and demand.dispatch_error == RECONCILIATION_REQUIRED_ERROR
-    ):
+    if requires_reconciliation(demand):
         raise HTTPException(
             409,
             "This message has an uncertain prior run. Reconcile that run before authorizing another attempt.",
         )
 
+    record_transition(db, demand, "reprocess", actor="api")
     demand.dispatch_status = None
     demand.agent_run_id = None
     demand.dispatch_deadline_at = None
@@ -783,6 +804,15 @@ async def create_demand(
     return await create_demand_and_notify(db, payload)
 
 
+@router.post("/consolidate", response_model=DemandOut)
+async def consolidate_messages(payload: DemandConsolidateIn, db: AsyncSession = Depends(get_db), admin=Depends(get_current_admin)):
+    from app.core.demand_consolidation import consolidate_demands
+    summary = await consolidate_demands(db, payload, actor=admin.username)
+    await db.commit()
+    await db.refresh(summary)
+    return summary
+
+
 @router.get("", response_model=list[DemandOut])
 async def list_demands(
     status_filter: str | None = None, db: AsyncSession = Depends(get_db)
@@ -792,6 +822,44 @@ async def list_demands(
         query = query.where(AgentDemand.status == status_filter)
     result = await db.execute(query)
     return list(result.scalars().all())
+
+
+@router.get("/agent-work")
+async def agent_work(view: str = "attention", search: str = "", agent_id: uuid.UUID | None = None,
+    context: str | None = None, created_from: datetime | None = None, created_to: datetime | None = None,
+    page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), db: AsyncSession = Depends(get_db)):
+    from app.core.demand_management import WORK_VIEWS, list_agent_work
+    if view not in WORK_VIEWS:
+        raise HTTPException(422, "Unknown work view")
+    if any(value and value.tzinfo is None for value in (created_from, created_to)):
+        raise HTTPException(422, "Dates must include a timezone")
+    return await list_agent_work(db, view=view, search=search, agent_id=agent_id, context=context,
+        created_from=created_from, created_to=created_to, page=page, page_size=page_size)
+
+
+@router.post("/agent-work/bulk")
+async def bulk_agent_work(payload: DemandBulkIn, db: AsyncSession = Depends(get_db), admin=Depends(get_current_admin)):
+    from app.core.demand_workflow import decide_demand
+    results = []
+    for item in payload.items:
+        demand = (await db.execute(select(AgentDemand).where(AgentDemand.id == item.id)
+            .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+        if demand is None:
+            await db.rollback()
+            results.append({"id": str(item.id), "status": "missing", "detail": "Message not found"})
+            continue
+        if demand.updated_at != item.updated_at:
+            await db.rollback()
+            results.append({"id": str(item.id), "status": "stale", "detail": "Message changed; review it again"})
+            continue
+        try:
+            await decide_demand(db, demand, DemandDecisionIn(action=payload.action, reason=payload.reason,
+                matures_at=payload.matures_at, expected_updated_at=item.updated_at), actor=admin.username)
+            results.append({"id": str(item.id), "status": "success", "detail": None})
+        except HTTPException as exc:
+            await db.rollback()
+            results.append({"id": str(item.id), "status": "blocked", "detail": exc.detail})
+    return {"results": results}
 
 
 @router.get("/groups", response_model=list[DemandGroupOut])
@@ -863,7 +931,12 @@ async def get_demand(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -
 async def update_demand(
     demand_id: uuid.UUID, payload: DemandUpdateIn, db: AsyncSession = Depends(get_db)
 ) -> AgentDemand:
-    demand = await _get_demand_or_404(db, demand_id)
+    demand = await _get_demand_or_404(db, demand_id, lock=True)
+    was_archived = demand.status == "archived"
+    if demand.consolidated_into_id and (payload.status not in (None, "archived") or payload.model_fields_set - {"status", "group_id"}):
+        raise HTTPException(409, "Open the current consolidated summary")
+    if (payload.status == "archived" or payload.group_id is not None) and (demand.dispatch_status in ("dispatched", "running") or (demand.agent_run_id and demand.dispatch_status is None)):
+        raise HTTPException(409, "An active execution cannot be archived")
     data = payload.model_dump(exclude_unset=True)
     if "group_id" in data:
         if data["group_id"] is not None:
@@ -971,6 +1044,8 @@ async def update_demand(
         and demand.target_agent_id is not None
         and demand.dispatch_status is None
         and demand.scheduled_at is None
+        and not was_archived
+        and not demand.requires_approval
     ):
         # Never dispatched and never scheduled -- auto-schedule now so the
         # background loop actually runs it, same reasoning as
@@ -978,6 +1053,11 @@ async def update_demand(
         # is no longer None, so a later unrelated edit won't re-trigger it.
         demand.scheduled_at = datetime.now(timezone.utc)
 
+    if was_archived and demand.status != "archived":
+        from app.core.demand_workflow import restore_demand, record_transition
+        restore_demand(demand, status=demand.status)
+        record_transition(db, demand, "restore", actor="api")
+    invalidate_changed_approval(demand)
     await db.commit()
     await db.refresh(demand)
     return demand
@@ -1004,10 +1084,12 @@ async def update_demand_as_agent(
     `receive_incubation`/`drop_incubation` already draw (403, not a silent
     no-op, so a caller can tell "not mine" from "nothing changed")."""
     _require_bridge_token(x_bridge_token)
-    demand = await _get_demand_or_404(db, demand_id)
+    demand = await _get_demand_or_404(db, demand_id, lock=True)
     caller = await _get_agent_by_slug_or_404(db, payload.agent)
     if demand.from_agent_id != caller.id:
         raise HTTPException(status_code=403, detail="Only the sender can edit this message")
+    if demand.consolidated_into_id:
+        raise HTTPException(409, "Consolidated source evidence is read-only; open the current summary")
 
     data = payload.model_dump(exclude_unset=True, exclude={"agent"})
     if "subject" in data:
@@ -1023,6 +1105,11 @@ async def update_demand_as_agent(
             demand.origin_type, demand.origin_id, demand.target_agent_id, demand.from_agent_id
         )
 
+    if payload.request_approval:
+        demand.requires_approval = True
+        demand.approval_status = "pending"
+        demand.approved_content_hash = None
+    invalidate_changed_approval(demand)
     await db.commit()
     await db.refresh(demand)
     return demand
@@ -1038,11 +1125,13 @@ async def archive_demand_as_agent(
     """Bridge-token archive (2026-08-15), same ownership boundary as
     update_demand_as_agent -- the other half of the MCP's CRUD gap."""
     _require_bridge_token(x_bridge_token)
-    demand = await _get_demand_or_404(db, demand_id)
+    demand = await _get_demand_or_404(db, demand_id, lock=True)
     caller = await _get_agent_by_slug_or_404(db, agent)
     if demand.from_agent_id != caller.id:
         raise HTTPException(status_code=403, detail="Only the sender can archive this message")
 
+    if demand.dispatch_status in ("dispatched", "running") or (demand.agent_run_id and demand.dispatch_status is None):
+        raise HTTPException(409, "An active execution cannot be archived")
     demand.status = "archived"
     await db.commit()
     await db.refresh(demand)
@@ -1058,7 +1147,11 @@ async def delete_demand(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)
     behind, so every deleted message leaked its attachments into the storage
     root forever. Files are removed before the row so a failure here surfaces
     instead of orphaning them silently; a file already gone is not an error."""
-    demand = await _get_demand_or_404(db, demand_id)
+    demand = await _get_demand_or_404(db, demand_id, lock=True)
+    if demand.dispatch_status in ("dispatched", "running") or (demand.agent_run_id and demand.dispatch_status is None) or requires_reconciliation(demand):
+        raise HTTPException(409, "Reconcile or finish the execution before deleting")
+    if await db.scalar(select(AgentDemand.id).where(AgentDemand.consolidated_into_id == demand.id).limit(1)):
+        raise HTTPException(409, "A summary with linked history cannot be deleted")
     attachments = (
         await db.execute(
             select(DemandAttachment).where(DemandAttachment.demand_id == demand_id)
@@ -1070,6 +1163,63 @@ async def delete_demand(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)
             target.unlink()
     await db.delete(demand)
     await db.commit()
+
+
+@router.post("/{demand_id}/decision", response_model=DemandOut)
+async def decide_message(demand_id: uuid.UUID, payload: DemandDecisionIn, db: AsyncSession = Depends(get_db), admin=Depends(get_current_admin)):
+    from app.core.demand_workflow import decide_demand
+    demand = (await db.execute(select(AgentDemand).where(AgentDemand.id == demand_id).with_for_update())).scalar_one_or_none()
+    if demand is None:
+        raise HTTPException(404, "Message not found")
+    return await decide_demand(db, demand, payload, actor=admin.username)
+
+
+@router.get("/{demand_id}/history")
+async def demand_history(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    from app.db.models.governance import AuditEvent
+    await _get_demand_or_404(db, demand_id)
+    events = (await db.execute(select(AuditEvent).where(AuditEvent.entity_type == "agent_demand",
+        AuditEvent.entity_id == demand_id).order_by(AuditEvent.created_at.desc(), AuditEvent.id).limit(500))).scalars().all()
+    return [{"id": str(event.id), "action": event.event_type, "actor": event.actor,
+        "created_at": event.created_at, "payload": event.payload} for event in events]
+
+
+@router.get("/{demand_id}/sources", response_model=list[DemandOut])
+async def demand_sources(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    await _get_demand_or_404(db, demand_id)
+    return list((await db.execute(select(AgentDemand).where(AgentDemand.consolidated_into_id == demand_id)
+        .order_by(AgentDemand.number))).scalars())
+
+
+@router.post("/{demand_id}/reconcile", response_model=DemandOut)
+async def reconcile_message(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db), admin=Depends(get_current_admin)):
+    from app.db.models.governance import AuditEvent
+    demand = await _get_demand_or_404(db, demand_id)
+    if not demand.agent_run_id:
+        raise HTTPException(409, "No recorded run to reconcile")
+    run_id = demand.agent_run_id
+    try:
+        run = await poll_agent_run(run_id)
+    except httpx.HTTPError as exc:
+        raise HTTPException(409, "The previous run cannot be verified; preserve its reconciliation pending") from exc
+    if run.get("status") not in ("starting", "running", "completed", "failed", "timed_out", "cancelled", "stale"):
+        raise HTTPException(409, "Runner returned an unknown state")
+    demand = (await db.execute(select(AgentDemand).where(AgentDemand.id == demand_id)
+        .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+    if demand is None or demand.agent_run_id != run_id:
+        raise HTTPException(409, "The execution changed while reconciling; refresh before trying again")
+    if demand.dispatch_status == "completed":
+        return demand
+    demand.dispatch_status = "running"
+    demand.dispatch_error = None
+    demand.dispatch_deadline_at = datetime.now(timezone.utc) + timedelta(minutes=DISPATCH_TIMEOUT_MINUTES)
+    await db.flush()
+    if run.get("status") not in ("starting", "running"):
+        await _finalize_dispatch(db, demand.id, run)
+    db.add(AuditEvent(entity_type="agent_demand", entity_id=demand.id, event_type="demand_reconciled", actor=admin.username, payload={"run_id": demand.agent_run_id, "state": run.get("status")}))
+    await db.commit()
+    await db.refresh(demand)
+    return demand
 
 
 def _resolve_attachment_file(attachment: DemandAttachment) -> Path | None:
@@ -1296,6 +1446,7 @@ async def _execute_dispatch(
     the manual POST .../dispatch route and the scheduled-send background
     loop (main.py's _scheduled_dispatch_poll_loop, triggered once
     AgentDemand.scheduled_at is reached). Caller commits."""
+    assert_execution_allowed(demand)
     await _ensure_demand_dependencies_satisfied(db, demand)
     agent = await _get_agent_or_404(db, target_agent_id)
 
@@ -1310,7 +1461,6 @@ async def _execute_dispatch(
         if origin is not None and origin.target_agent_id == target_agent_id:
             independent = False
 
-    prompt = build_thread_prompt(demand, command_text)
     # This path belongs to the host running the agent, not the API container.
     # Existence/access are validated by the bridge; never guess another cwd.
     project_path = (demand.working_path or "").strip()
@@ -1322,16 +1472,25 @@ async def _execute_dispatch(
     if agent.runtime_type == "hermes" and not agent.profile_slug:
         raise AgentRunDispatchError(f"Agent '{agent.name}' has no profile_slug for hermes dispatch")
 
-    run_id = str(uuid.uuid4())
+    run_id = await reserve_dispatch(db, demand, target_agent_id, command_text)
+    # Reservation refreshes the row under its lock. Build the runner input
+    # from that snapshot so a concurrent edit cannot leave stale work here.
+    prompt = build_thread_prompt(demand, command_text)
+    project_path = demand.working_path.strip()
     # This is the external-start boundary. Persist the caller-generated
     # identity before asking the bridge to start it: a read timeout or any
     # later local failure cannot prove that the bridge did not accept it.
     # The commit also makes newly-created task/channel associations durable.
     demand.target_agent_id = target_agent_id
     demand.command_text = command_text
-    demand.agent_run_id = run_id
-    await db.commit()
-    run = await dispatch_agent_run(run_id, agent, prompt, project_path)
+    try:
+        run = await dispatch_agent_run(run_id, agent, prompt, project_path)
+    except AgentRunDispatchError as exc:
+        demand.agent_run_id = None
+        demand.dispatch_attempts = (demand.dispatch_attempts or 0) + 1
+        await _fail_dispatch(db, demand, str(exc), title=f"Dispatch failed: {demand.subject}")
+        await db.commit()
+        raise
 
     demand.agent_run_id = run["run_id"]
     demand.dispatch_status = "dispatched"
@@ -1407,6 +1566,7 @@ def _assert_dispatchable(demand: AgentDemand) -> None:
     this check exists for Backlog specifically because that Tipo doesn't
     require an agent by default.
     """
+    assert_execution_allowed(demand)
     if demand.origin_type == "incubation":
         raise HTTPException(
             status_code=400,
@@ -1414,6 +1574,20 @@ def _assert_dispatchable(demand: AgentDemand) -> None:
                 "An Incubation item cannot be dispatched. Promote it to Task first."
             ),
         )
+
+
+def _in_flight_dispatch_filter():
+    return or_(
+        AgentDemand.dispatch_status.in_(("dispatched", "running")),
+        AgentDemand.agent_run_id.isnot(None) & or_(
+            AgentDemand.dispatch_status.is_(None),
+            (AgentDemand.dispatch_status == "failed") & or_(
+                AgentDemand.dispatch_error.is_(None),
+                AgentDemand.dispatch_error == "",
+                AgentDemand.dispatch_error.ilike("%uncertain%"),
+            ),
+        ),
+    )
 
 
 async def _dispatch_slots(db: AsyncSession) -> int:
@@ -1433,7 +1607,7 @@ async def _dispatch_slots(db: AsyncSession) -> int:
         await db.execute(
             select(func.count())
             .select_from(AgentDemand)
-            .where(AgentDemand.dispatch_status.in_(("dispatched", "running")))
+            .where(_in_flight_dispatch_filter())
         )
     ).scalar_one()
     return max(0, limit - int(in_flight))
@@ -1457,7 +1631,7 @@ async def _agents_already_running(db: AsyncSession) -> set[uuid.UUID]:
     rows = (
         await db.execute(
             select(AgentDemand.target_agent_id).where(
-                AgentDemand.dispatch_status.in_(("dispatched", "running")),
+                _in_flight_dispatch_filter(),
                 AgentDemand.target_agent_id.isnot(None),
             )
         )
@@ -1481,6 +1655,8 @@ async def _fail_dispatch(
     demand.dispatch_status = "failed"
     demand.dispatch_error = reason
     demand.dispatch_deadline_at = None
+    from app.core.demand_workflow import record_transition
+    record_transition(db, demand, "attempt_failed")
     await _add_dispatch_failed_notification(
         db,
         demand,
@@ -1535,7 +1711,8 @@ async def run_dispatch_timeout_pass(db: AsyncSession) -> int:
             select(AgentDemand).where(
                 AgentDemand.dispatch_deadline_at.isnot(None),
                 AgentDemand.dispatch_deadline_at <= now,
-                AgentDemand.dispatch_status.in_(("dispatched", "running")),
+                or_(AgentDemand.dispatch_status.in_(("dispatched", "running")),
+                    AgentDemand.dispatch_status.is_(None) & AgentDemand.agent_run_id.isnot(None)),
             )
         )
     ).scalars().all()
@@ -1613,7 +1790,10 @@ async def run_incubation_maturation_pass(db: AsyncSession) -> int:
     result = await db.execute(
         select(AgentDemand).where(
             AgentDemand.origin_type == "incubation",
-            AgentDemand.incubation_state == "incubating",
+            AgentDemand.status != "archived",
+            or_(AgentDemand.incubation_state == "incubating",
+                (AgentDemand.incubation_state == "decision_pending") &
+                or_(AgentDemand.decision_reminded_at.is_(None), AgentDemand.decision_reminded_at <= now - timedelta(days=1))),
             AgentDemand.matures_at.isnot(None),
             AgentDemand.matures_at <= now,
         )
@@ -1621,12 +1801,17 @@ async def run_incubation_maturation_pass(db: AsyncSession) -> int:
     matured = list(result.scalars().all())
     for demand in matured:
         demand.incubation_state = "decision_pending"
+        demand.decision_reminded_at = now
         # Back into the pull queue -- see this function's docstring.
         demand.agent_processed_at = None
         # Also surface it to the human, once per thought: event_key is
         # id-scoped so a re-run can never duplicate the row.
-        db.add(
-            Notification(
+        notice = await db.scalar(select(Notification).where(Notification.event_key == f"incubation-due:{demand.id}"))
+        if notice:
+            notice.read_at = None
+            notice.occurred_at = now
+        else:
+            db.add(Notification(
                 source="system",
                 severity="warning",
                 title=f"Decision due: {demand.subject}",
@@ -1637,8 +1822,7 @@ async def run_incubation_maturation_pass(db: AsyncSession) -> int:
                 ),
                 event_key=f"incubation-due:{demand.id}",
                 occurred_at=now,
-            )
-        )
+            ))
     if matured:
         await db.commit()
         logger.info("Incubation maturation: handed %d decision(s) to their owners", len(matured))
@@ -1660,6 +1844,7 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
             AgentDemand.scheduled_at.isnot(None),
             AgentDemand.scheduled_at <= now,
             AgentDemand.dispatch_status.is_(None),
+            AgentDemand.agent_run_id.is_(None),
             AgentDemand.target_agent_id.isnot(None),
             # Backlog with no registered sender stays parked -- see
             # _assert_dispatchable. Skipped, not failed: nothing was tried.
@@ -1690,8 +1875,9 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
             deferred += 1
             continue
         try:
+            await ensure_workflow_allowed(db, demand)
             await _ensure_demand_dependencies_satisfied(db, demand)
-        except TaskDependenciesBlocked:
+        except (TaskDependenciesBlocked, WorkflowBlocked):
             # Waiting is not a failed attempt and must not reserve the
             # agent's slot ahead of unrelated work that is ready to run.
             deferred += 1
@@ -1716,7 +1902,7 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
             await _execute_dispatch(db, demand, target_agent_id, demand.command_text)
             known_run_id = demand.agent_run_id
             await db.commit()
-        except TaskDependenciesBlocked:
+        except (TaskDependenciesBlocked, WorkflowBlocked):
             # A dependency may have changed after selection. Keep the item
             # queued instead of misclassifying this as an uncertain start.
             continue
@@ -1752,8 +1938,10 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
             if retry is None or retry.dispatch_status is not None:
                 continue
             retry.dispatch_attempts = (retry.dispatch_attempts or 0) + 1
+            retry.agent_run_id = None
+            retry.dispatch_deadline_at = None
             retry.dispatch_error = "Host bridge temporarily unavailable"
-            if retry.dispatch_attempts >= DISPATCH_MAX_ATTEMPTS:
+            if retry.dispatch_attempts >= (retry.retry_limit or DISPATCH_MAX_ATTEMPTS):
                 await _fail_dispatch(
                     db,
                     retry,
@@ -1939,6 +2127,9 @@ async def _finalize_dispatch(db: AsyncSession, demand_id: uuid.UUID, run: dict[s
     # #number, never Kanboard (2026-07-28, Marcelo: "remova o kanboard do
     # forgehub").
     locked.dispatch_result = _format_execution_header(locked, agent.name if agent else "agent") + reply_body
+    from app.core.demand_workflow import record_transition
+    record_transition(db, locked, "attempt_finished", extra={"evidence_ref": _extract_evidence_ref(reply_body),
+        "result": locked.dispatch_result})
 
     # Layered task-execution governance, Fase 1.3 (plan: resilient-twirling-
     # blossom): dispatch_status only ever meant "the host-bridge process
@@ -2057,7 +2248,9 @@ async def run_dispatch_completion_pass(db: AsyncSession) -> None:
     """
     result = await db.execute(
         select(AgentDemand).where(
-            AgentDemand.dispatch_status.in_(("dispatched", "running")),
+            or_(AgentDemand.dispatch_status.in_(("dispatched", "running")),
+                AgentDemand.dispatch_status.is_(None) &
+                (AgentDemand.dispatched_at <= datetime.now(timezone.utc) - timedelta(minutes=1))),
             AgentDemand.agent_run_id.isnot(None),
         )
     )
@@ -2089,6 +2282,8 @@ async def run_dispatch_completion_pass(db: AsyncSession) -> None:
             continue
 
         try:
+            if demand.dispatch_status is None:
+                demand.dispatch_attempts = (demand.dispatch_attempts or 0) + 1
             if run.get("status") in ("starting", "running"):
                 if demand.dispatch_status != "running":
                     demand.dispatch_status = "running"

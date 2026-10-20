@@ -4,11 +4,12 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.db.base import AsyncSessionLocal
 from app.db.models.demand import AgentDemand
 from app.db.models.governance import AuditEvent
+from app.db.models.notification import Notification
 
 
 @pytest.fixture
@@ -27,8 +28,18 @@ async def consolidation_db(test_suite_agent):
         )
         db.add_all([failed, incubated])
         await db.flush()
-        yield db, failed, incubated
-        await db.rollback()
+        ids = [failed.id, incubated.id]
+        try:
+            yield db, failed, incubated
+        finally:
+            await db.rollback()
+            async with AsyncSessionLocal() as cleanup:
+                await cleanup.execute(delete(Notification).where(
+                    Notification.event_key.in_([f"incubation-due:{i}" for i in ids])
+                ))
+                await cleanup.execute(delete(AgentDemand).where(AgentDemand.id.in_(ids)))
+                await cleanup.execute(delete(AuditEvent).where(AuditEvent.entity_id.in_(ids)))
+                await cleanup.commit()
 
 
 async def test_consolidation_archives_sources_and_preserves_uncertain_run(consolidation_db, test_suite_agent):
@@ -115,3 +126,162 @@ async def test_archived_failure_cannot_be_reprocessed(consolidation_db):
         await reprocess_demand(failed.id, db=db)
     assert exc.value.status_code == 409
     assert failed.dispatch_status == "failed"
+
+
+async def test_concurrent_dispatch_cannot_start_the_same_work_twice(consolidation_db, test_suite_agent, monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock
+    from app.api.routes import demand as routes
+
+    db, failed, _ = consolidation_db
+    failed.dispatch_status = None
+    failed.agent_run_id = None
+    failed.dispatch_error = None
+    failed.dispatch_attempts = 0
+    failed.working_path = "/tmp"
+    await db.commit()
+    demand_id = failed.id
+    entered, release = asyncio.Event(), asyncio.Event()
+    starts = []
+
+    async def runner(run_id, *args):
+        starts.append(run_id)
+        if len(starts) == 1:
+            entered.set()
+            await release.wait()
+        return {"run_id": run_id}
+
+    monkeypatch.setattr(routes, "dispatch_agent_run", runner)
+    monkeypatch.setattr(routes, "_send_notice", AsyncMock())
+    monkeypatch.setattr(routes, "_dispatch_slots", AsyncMock(return_value=1))
+
+    async def dispatch():
+        async with AsyncSessionLocal() as session:
+            item = await session.get(AgentDemand, demand_id)
+            await routes._execute_dispatch(session, item, test_suite_agent, None)
+            await session.commit()
+
+    first = asyncio.create_task(dispatch())
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        with pytest.raises(HTTPException) as exc:
+            await asyncio.wait_for(dispatch(), 5)
+        assert exc.value.status_code == 409
+    finally:
+        release.set()
+        await first
+    assert len(starts) == 1
+
+
+async def test_operator_retry_preserves_lifetime_attempts(consolidation_db):
+    from app.api.schemas.demand import DemandDecisionIn
+    from app.core.demand_workflow import decide_demand
+
+    db, failed, _ = consolidation_db
+    failed.agent_run_id = None
+    failed.dispatch_error = "The agent run ended as 'failed'."
+    failed.working_path = "/tmp"
+    result = await decide_demand(db, failed, DemandDecisionIn(
+        action="authorize_retry", reason="Runtime configuration fixed and verified", evidence_ref="docs/runtime-check.md",
+    ), actor="operator")
+    assert result.dispatch_attempts == 3
+    assert result.retry_limit == 6
+    assert result.dispatch_status is None
+    assert result.approval_status == "approved"
+    assert result.scheduled_at is None
+
+
+async def test_operator_approval_is_invalidated_by_later_edits(consolidation_db):
+    from app.api.schemas.demand import DemandDecisionIn, DemandUpdateIn
+    from app.api.routes.demand import update_demand
+    from app.core.demand_workflow import decide_demand
+
+    db, _, incubated = consolidation_db
+    incubated.working_path = "/tmp"
+    approved = await decide_demand(db, incubated, DemandDecisionIn(action="approve"), actor="operator")
+    assert approved.approval_status == "approved"
+    assert approved.origin_type == "task"
+    edited = await update_demand(incubated.id, DemandUpdateIn(body="Changed scope"), db=db)
+    assert edited.approval_status == "pending"
+    assert edited.approved_content_hash is None
+
+
+async def test_dispatch_uses_context_refreshed_under_reservation(consolidation_db, test_suite_agent, monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.api.routes import demand as routes
+    from app.core.demand_dispatch_guard import reserve_dispatch
+
+    db, failed, _ = consolidation_db
+    failed.dispatch_status = None
+    failed.agent_run_id = None
+    failed.dispatch_error = None
+    failed.dispatch_attempts = 0
+    failed.working_path = "/tmp/old-context"
+    await db.commit()
+    demand_id = failed.id
+
+    async def edited_reservation(*args):
+        async with AsyncSessionLocal() as writer:
+            latest = await writer.get(AgentDemand, demand_id)
+            latest.body = "Updated execution context"
+            latest.working_path = "/tmp/new-context"
+            await writer.commit()
+        return await reserve_dispatch(*args)
+
+    runner = AsyncMock(side_effect=lambda run_id, *args: {"run_id": run_id})
+    monkeypatch.setattr(routes, "reserve_dispatch", edited_reservation)
+    monkeypatch.setattr(routes, "dispatch_agent_run", runner)
+    monkeypatch.setattr(routes, "_send_notice", AsyncMock())
+    monkeypatch.setattr(routes, "_dispatch_slots", AsyncMock(return_value=1))
+    await routes._execute_dispatch(db, failed, test_suite_agent, None)
+    assert "Updated execution context" in runner.call_args.args[2]
+    assert runner.call_args.args[3] == "/tmp/new-context"
+
+
+async def test_reservation_rechecks_task_type_after_concurrent_edit(consolidation_db, test_suite_agent):
+    from app.core.demand_dispatch_guard import reserve_dispatch
+
+    db, failed, _ = consolidation_db
+    failed.dispatch_status = None
+    failed.agent_run_id = None
+    failed.dispatch_error = None
+    failed.dispatch_attempts = 0
+    failed.working_path = "/tmp"
+    await db.commit()
+    demand_id = failed.id
+    async with AsyncSessionLocal() as writer:
+        latest = await writer.get(AgentDemand, demand_id)
+        latest.origin_type = "incubation"
+        await writer.commit()
+    with pytest.raises(HTTPException) as exc:
+        await reserve_dispatch(db, failed, test_suite_agent, None)
+    assert exc.value.status_code == 409
+
+
+async def test_reconciliation_cannot_overwrite_a_newer_run(consolidation_db, monkeypatch):
+    from types import SimpleNamespace
+    from app.api.routes import demand as routes
+
+    db, failed, _ = consolidation_db
+    await db.commit()
+    demand_id = failed.id
+    newer_run = str(uuid.uuid4())
+
+    async def poll(run_id):
+        async with AsyncSessionLocal() as writer:
+            latest = await writer.get(AgentDemand, demand_id)
+            latest.agent_run_id = newer_run
+            await writer.commit()
+        return {"status": "running"}
+
+    monkeypatch.setattr(routes, "poll_agent_run", poll)
+    with pytest.raises(HTTPException) as exc:
+        await routes.reconcile_message(demand_id, db=db, admin=SimpleNamespace(username="operator"))
+    assert exc.value.status_code == 409
+
+
+async def test_uncertain_run_keeps_its_agent_occupied(consolidation_db, test_suite_agent):
+    from app.api.routes.demand import _agents_already_running
+
+    db, _, _ = consolidation_db
+    assert test_suite_agent in await _agents_already_running(db)

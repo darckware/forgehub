@@ -86,8 +86,35 @@
     "submit": "Enviar",
     "backlogNeedsSender": "Un pensamiento en incubación necesita un remitente (De) para poder despacharse — asigna De a un agente o promuévelo a Task."
   },
-  "attachment": {"download": "Descargar", "remove": "Quitar adjunto"},
-  "reading": {"deleteTitle": "Eliminar \"{{subject}}\"", "deleteDescription": "Elimina el mensaje definitivamente de la bandeja de entrada.", "archive": "Archivar", "delete": "Eliminar", "attachments": "Adjuntos", "convertedTo": "Completado — convertido en", "refreshInbox": "Actualizar bandeja de entrada", "loadInboxFailed": "Error al cargar la bandeja de entrada: {{error}}", "status": {"new": "Nuevo", "read": "Leído", "converted": "Convertido", "archived": "Archivado"}, "convertTargets": {"task": "Tarea", "doc": "Documento", "artifact": "Artefacto", "knowledge_base": "Base de conocimiento", "planning_item": "Elemento de planificación", "project_doc": "Documento del proyecto", "quick_task": "Tarea rápida"}},
+  "attachment": {
+    "download": "Descargar",
+    "remove": "Quitar adjunto"
+  },
+  "reading": {
+    "deleteTitle": "Eliminar \"{{subject}}\"",
+    "deleteDescription": "Elimina el mensaje definitivamente de la bandeja de entrada.",
+    "archive": "Archivar",
+    "delete": "Eliminar",
+    "attachments": "Adjuntos",
+    "convertedTo": "Completado — convertido en",
+    "refreshInbox": "Actualizar bandeja de entrada",
+    "loadInboxFailed": "Error al cargar la bandeja de entrada: {{error}}",
+    "status": {
+      "new": "Nuevo",
+      "read": "Leído",
+      "converted": "Convertido",
+      "archived": "Archivado"
+    },
+    "convertTargets": {
+      "task": "Tarea",
+      "doc": "Documento",
+      "artifact": "Artefacto",
+      "knowledge_base": "Base de conocimiento",
+      "planning_item": "Elemento de planificación",
+      "project_doc": "Documento del proyecto",
+      "quick_task": "Tarea rápida"
+    }
+  },
   "cleanup": {
     "daysShort": "{{count}}d",
     "keep30": "Mantener los últimos 30 días",
@@ -180,12 +207,28 @@
     "confirmGroupDescription": "Todo mensaje que esté en {{group}} se moverá a Archivados. Nada se elimina -- esto solo saca los mensajes de este grupo.",
     "confirmButton": "Archivar todos"
   },
-  "inbox": { "folderName": "Nombre de la carpeta" },
+  "inbox": {
+    "folderName": "Nombre de la carpeta"
+  },
   "reprocess": {
     "confirmTitle": "¿Reprocesar fallos?",
     "confirmDescription": "{{count}} mensaje(s) con fallo volverán a la cola de despacho. Se inician a medida que haya cupo, no todos a la vez.",
     "confirmButton": "Reprocesar",
     "itemButton": "Reprocesar",
     "itemTitle": "Intento {{attempts}} de {{max}} — devuelve este mensaje a la cola de despacho"
+  },
+  "workflow": {
+    "context": "Proyecto o área",
+    "allContexts": "Todos los proyectos y áreas",
+    "unclassified": "Sin proyecto ni área",
+    "summaries": "Resúmenes por contexto",
+    "pending": "Esperando tu decisión.",
+    "approved": "Contenido aprobado.",
+    "rejected": "Rechazada; requiere revisión.",
+    "deliberate": "Decidir en Personal",
+    "openSummary": "Abrir resumen #{{number}}",
+    "sourceCount": "{{count}} registros de origen archivados",
+    "uncertain": "Conciliación pendiente",
+    "requireApproval": "Exigir aprobación de Marcelo antes de ejecutar"
   }
 }

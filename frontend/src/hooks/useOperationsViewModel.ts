@@ -81,6 +81,7 @@ export interface OperationsPolicy {
   created_at: string;
 }
 export interface AgentQuestion {
+  origin_demand_id?: string | null;
   id: string;
   number: number;
   agent_id: string;

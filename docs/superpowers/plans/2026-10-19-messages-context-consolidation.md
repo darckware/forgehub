@@ -4,6 +4,10 @@
 
 **Objetivo:** substituir o contexto espalhado em falhas e incubações antigas por resumos rastreáveis em Incubação, sem reexecutar trabalho nem apagar o histórico.
 
+## Situação da implementação — 2026-10-20
+
+Código concluído e testado (serviço, endpoint administrativo `POST /demands/consolidate`, filtro por projeto/área, navegação resumo ↔ origens, guardas). Falta aplicar a consolidação dos 34 registros, o que exige as migrations em produção: rodar `scripts/consolidate_messages_20261020.py` (prévia somente leitura) e depois com `--apply`, após o deploy.
+
 ## Diagnóstico e desenho aprovado
 
 A triagem anterior deixou 34 registros: 22 falhas e 12 incubações. Todos estão sem `project_id`; os três projetos cadastrados não correspondem aos assuntos. Usar áreas operacionais nesses casos, sem criar projetos fictícios. Quando existir projeto vinculado, usar o projeto real.
@@ -41,10 +45,10 @@ Cada resumo informa objetivo, situação comprovada, entregas parciais, pendênc
 
 ## Etapas e critérios de aceite
 
-- [ ] Criar regressões da consolidação: atomicidade, idempotência, preservação de erro/run e recusa de execução ativa/contexto misturado.
-- [ ] Adicionar migração e serviço de consolidação, endpoint autenticado e guardas de execução/exclusão/maturação.
-- [ ] Implementar filtro contextual, detalhe e navegação por vínculo; testar o comportamento em React.
-- [ ] Executar testes backend afetados, testes frontend, build, linter e verificação visual em navegador.
+- [x] Criar regressões da consolidação: atomicidade, idempotência, preservação de erro/run e recusa de execução ativa/contexto misturado.
+- [x] Adicionar migração e serviço de consolidação, endpoint autenticado e guardas de execução/exclusão/maturação.
+- [x] Implementar filtro contextual, detalhe e navegação por vínculo; testar o comportamento em React.
+- [x] Executar testes backend afetados, testes frontend, build, linter e verificação visual em navegador.
 - [ ] Aplicar a consolidação dos 34 registros em cinco resumos; conferir origens arquivadas, auditoria, ausência de execução automática e preservação das sugestões pessoais.
 - [ ] Registrar os números dos novos resumos e o resultado real da publicação/validação.
 

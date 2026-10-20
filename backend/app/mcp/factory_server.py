@@ -228,6 +228,7 @@ async def report_governance_blocker(
         "channel": "factory",
         "channel_ref": f"planning-item:{planning_item_id}",
         "requires_response": True,
+        "requires_approval": True,
     }
     message = await messages._call("POST", "/api/v1/demands/submit", json=payload)
     return {

@@ -75,6 +75,13 @@ export const demandSchema = z.object({
   // "Controle" tab), independent of ConvertPayload.project_id below (that
   // one picks the project a *converted* entity lands in).
   project_id: z.string().nullable(),
+  context_area: z.string().nullable().default(null),
+  consolidated_into_id: z.string().nullable().default(null),
+  requires_approval: z.boolean().default(false),
+  approval_status: z.enum(["pending", "approved", "rejected"]).nullable().default(null),
+  decision_reminded_at: z.string().nullable().default(null),
+  decision_reason: z.string().nullable().default(null),
+  retry_limit: z.number().default(3),
   development_request_id: z.string().nullable().default(null),
   command_text: z.string().nullable(),
   // The cwd the recipient agent's run starts in for this message (2026-08-13,
@@ -133,6 +140,28 @@ export const demandSchema = z.object({
 });
 
 export type Demand = z.infer<typeof demandSchema>;
+
+export interface AgentWorkItem extends Demand {
+  work_state?: string;
+  failure_category?: string | null;
+  recovery_state?: string;
+  allowed_actions: string[];
+  blocked_actions: Record<string, string>;
+}
+
+export interface AgentWorkPage {
+  items: AgentWorkItem[]; total: number; page: number; page_size: number;
+  counts: Record<string, number>;
+  contexts: { project_id: string | null; area: string | null }[];
+}
+
+export function useAgentWork(filters: Record<string, string | number | undefined>) {
+  return useQuery({
+    queryKey: [...demandKeys.all, "agent-work", filters],
+    queryFn: ({ signal }) => apiClient.get<AgentWorkPage>("/api/v1/demands/agent-work", { params: filters, signal }),
+    refetchInterval: 30_000,
+  });
+}
 
 /** Entrada (2026-07-27, Marcelo: "a message é como se fosse uma carta, ela
  * anda em cada casa (grupo)", refined 2026-08-15): Incoming is work that
@@ -337,6 +366,7 @@ export function useCreateDemand() {
         projectId?: string;
         developmentRequestId?: string;
         requiresResponse?: boolean;
+        requiresApproval?: boolean;
         /** ISO datetime string -- backend 400s if set without targetAgentId. */
         scheduledAt?: string;
         /** Files straight into Notes (Archived) instead of Incoming --
@@ -355,6 +385,7 @@ export function useCreateDemand() {
         origin_type: payload.originType,
         origin_number: payload.originNumber,
         requires_response: payload.requiresResponse ?? false,
+        requires_approval: payload.requiresApproval ?? false,
         scheduled_at: payload.scheduledAt,
         status: payload.status,
       }),
@@ -491,10 +522,18 @@ export const DISPATCH_MAX_ATTEMPTS = 3;
 /** Uma falha pode ser reprocessada? Só falhas, e só enquanto restarem
  * tentativas. Mesmas condições que o backend valida (400/409) -- aqui apenas
  * para não oferecer um botão que já se sabe que será recusado. */
+export function requiresReconciliation(demand: Demand): boolean {
+  return Boolean(demand.dispatch_error?.toLowerCase().includes("uncertain") ||
+    (demand.dispatch_status === "failed" && demand.agent_run_id && !demand.dispatch_error));
+}
+
 export function canReprocess(demand: Demand): boolean {
   return (
+    demand.status !== "archived" && !demand.consolidated_into_id &&
+    (!demand.requires_approval || demand.approval_status === "approved") &&
+    !requiresReconciliation(demand) &&
     demand.dispatch_status === "failed" &&
-    (demand.dispatch_attempts ?? 0) < DISPATCH_MAX_ATTEMPTS &&
+    (demand.dispatch_attempts ?? 0) < (demand.retry_limit ?? DISPATCH_MAX_ATTEMPTS) &&
     Boolean(demand.target_agent_id)
   );
 }

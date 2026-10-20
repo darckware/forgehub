@@ -108,6 +108,13 @@ async def _dispatched(agent_id, *, deadline_in: timedelta, status: str = "runnin
         return d.id
 
 
+async def _mark_known_terminal(demand_id: uuid.UUID) -> None:
+    async with AsyncSessionLocal() as session:
+        row = await session.get(AgentDemand, demand_id)
+        row.dispatch_error = "The agent run ended as 'timed_out'."
+        await session.commit()
+
+
 async def test_a_hung_run_is_failed_when_its_deadline_passes(agent):
     demand_id = await _dispatched(agent, deadline_in=timedelta(minutes=-1))
 
@@ -255,6 +262,9 @@ async def test_reprocess_requeues_without_dispatching_inline(client: AsyncClient
     demand_id = await _dispatched(agent, deadline_in=timedelta(minutes=-1))
     async with AsyncSessionLocal() as session:
         await run_dispatch_timeout_pass(session)
+    # A timeout alone is uncertain (the run may still be going); reprocessing
+    # needs a known terminal outcome, as the runner reports after reconciling.
+    await _mark_known_terminal(demand_id)
 
     response = await client.post(f"/api/v1/demands/{demand_id}:reprocess")
     assert response.status_code == 200, response.text
@@ -573,6 +583,7 @@ async def test_reprocess_resets_failure_feedback_for_the_next_authorized_attempt
         )).scalars())
         assert len(first_replies) == 1
         assert (await session.get(AgentDemand, demand_id)).feedback_sent_at is not None
+    await _mark_known_terminal(demand_id)
 
     response = await client.post(f"/api/v1/demands/{demand_id}:reprocess")
     assert response.status_code == 200, response.text

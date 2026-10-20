@@ -220,6 +220,7 @@ export function DemandFormPanel({
   // this same message (2026-07-28, Marcelo: "preciso gerar... uma mensagem
   // de retorno quando solicitado pelo agente... e o padrão é não").
   const [requiresResponse, setRequiresResponse] = useState(demand?.requires_response ?? false);
+  const [requiresApproval, setRequiresApproval] = useState(demand?.requires_approval ?? false);
   const [scheduledAt, setScheduledAt] = useState(
     isoToDatetimeLocal(demand?.scheduled_at ?? (isEdit ? demand?.created_at : new Date().toISOString()))
   );
@@ -333,6 +334,7 @@ export function DemandFormPanel({
         const fromAgent = (agents ?? []).find((a) => a.id === fromAgentId);
         const created = await createDemand.mutateAsync({
           from_agent: fromAgent?.name ?? user?.username ?? "admin",
+          requiresApproval,
           fromAgentId: fromAgentId || undefined,
           subject,
           body,
@@ -481,6 +483,10 @@ export function DemandFormPanel({
           )}
         </div>
 
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={requiresApproval} disabled={isEdit} onChange={e => setRequiresApproval(e.target.checked)} />
+          {t("workflow.requireApproval")}
+        </label>
         <Input
           placeholder={t("subjectPlaceholder")}
           value={subject}

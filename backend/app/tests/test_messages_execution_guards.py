@@ -38,6 +38,7 @@ def test_incubation_with_sender_cannot_execute_before_promotion():
 
 @pytest.mark.parametrize("runtime", ["claude", "codex", "agy", "hermes"])
 async def test_dispatch_preserves_requested_directory(runtime, monkeypatch):
+    monkeypatch.setattr(routes, "reserve_dispatch", AsyncMock(return_value="isolated-run"))
     agent = Agent(
         id=uuid.uuid4(),
         name="Guard test",

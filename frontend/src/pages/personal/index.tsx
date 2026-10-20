@@ -48,6 +48,7 @@ import { cn } from "@/lib/utils";
 import { ContactsTab } from "./ContactsTab";
 import { SuggestionsTab } from "./SuggestionsTab";
 import { MaiaTab } from "./MaiaTab";
+import { AgentTasksTab } from "./AgentTasksTab";
 
 const RECURRENCES: Recurrence[] = ["", "daily", "weekly", "monthly", "yearly"];
 const fieldClass = "h-9 rounded-md border bg-background px-2 text-sm max-md:text-base";
@@ -77,6 +78,7 @@ export default function PersonalPage() {
       <PageHeader title={t("title")} description={t("description")} icon={<User className="h-6 w-6" />} />
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
+          <TabsTrigger value="agent-work"><Bot className="mr-1.5 h-4 w-4" />{t("tabs.agentWork")}</TabsTrigger>
           <TabsTrigger value="tasks"><ListTodo className="mr-1.5 h-4 w-4" />{t("tabs.tasks")}</TabsTrigger>
           <TabsTrigger value="agenda"><CalendarDays className="mr-1.5 h-4 w-4" />{t("tabs.agenda")}</TabsTrigger>
           <TabsTrigger value="notes"><NotebookPen className="mr-1.5 h-4 w-4" />{t("tabs.notes")}</TabsTrigger>
@@ -85,6 +87,7 @@ export default function PersonalPage() {
           <TabsTrigger value="maia"><Bot className="mr-1.5 h-4 w-4" />{t("tabs.maia")}</TabsTrigger>
           <TabsTrigger value="suggestions"><Lightbulb className="mr-1.5 h-4 w-4" />{t("tabs.suggestions")}</TabsTrigger>
         </TabsList>
+        <TabsContent value="agent-work"><AgentTasksTab /></TabsContent>
         <TabsContent value="tasks"><TasksTab onDelete={del.ask} /></TabsContent>
         <TabsContent value="agenda"><AgendaTab onDelete={del.ask} /></TabsContent>
         <TabsContent value="notes"><NotesTab onDelete={del.ask} /></TabsContent>

@@ -1,6 +1,6 @@
 # Planejamento: recuperação e gestão de tarefas dos agentes
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** permitir que Marcelo identifique e resolva tarefas com falha e incubações na tela Pessoal, preservando histórico e evitando execuções duplicadas.
 
@@ -9,6 +9,17 @@
 **Tech Stack:** FastAPI, SQLAlchemy assíncrono, PostgreSQL/schema `company`, React, TypeScript, TanStack Query, Vitest e pytest.
 
 **Spec:** requisitos de Marcelo nesta conversa em 19/10/2026: analisar falhas e incubação e planejar uma aba em Pessoal para arquivar, excluir ou executar. Este documento apresenta a proposta de comportamento e o plano de implementação para revisão; implementação e tratamento dos registros existentes são etapas posteriores.
+
+## Situação da implementação — 2026-10-20 (concluída no código)
+
+Etapas 1 a 4 implementadas e testadas; da Etapa 5 restam só as ações sobre os registros existentes, que dependem do deploy (migrations `d4f9a2c6e8b1`, `e6a1c8d3f9b2`) e da sua decisão item a item.
+
+- Proteções: reserva atômica (advisory lock + `agent_run_id` gravado antes do início externo) em todos os caminhos; arquivar/excluir recusados com execução ativa; excluir recusado com resultado incerto; restaurar limpa o agendamento e exige nova aprovação; incubação arquivada não amadurece.
+- Recuperação: `POST /demands/{id}/reconcile`; decisões `record_investigation` (só registra evidência, mantém o bloqueio) e `confirm_inactive` (exige motivo, evidência e o identificador da execução digitado; a falha passa a ser conhecida, nada executa); `authorize_retry` renova o orçamento do ciclo (`retry_limit`) sem zerar `dispatch_attempts`. Histórico durável em `AuditEvent(entity_type="agent_demand")`, exposto em `GET /demands/{id}/history`.
+- Incubação: aprovar (promove e enfileira), adiar (nova data futura; o lembrete repete no máximo 1×/dia pela mesma notificação reaberta), descartar com motivo, arquivar.
+- Aba Pessoal → Tarefas dos agentes: `GET /demands/agent-work` paginado com contagens, filtros por situação/contexto/agente/período/busca, `allowed_actions`/`blocked_actions` do backend, lote de arquivar/restaurar com resultado por item.
+
+Verificação: testes de Messages 204/204; backend completo 943 passed, 7 failed (todos `httpx.ConnectError` do bridge desligado de propósito no banco de teste isolado `forgehub_messages_resume_v2_test`); frontend 352/352 e build ok; navegador (Chromium headless, 1440px e 390px) sem erros nem rolagem horizontal, com o fluxo de confirmar execução inativa.
 
 ## Diagnóstico confirmado
 
@@ -94,12 +105,12 @@ Arquivar preserva o registro e o remove das filas operacionais. Descartar encerr
 
 **Interface:** manter `POST /api/v1/demands/{id}/dispatch` e `POST /api/v1/demands/{id}:reprocess`; as ações humanas de execução passam pela fila e pelo mesmo controle de concorrência do agendador. A resposta continua usando `DemandOut`, inclusive quando a tarefa aguarda capacidade.
 
-- [ ] Criar regressões para dispatch concorrente do mesmo item, agente ocupado e capacidade global esgotada; comprovar no máximo um início externo e permanência na fila quando sem capacidade.
-- [ ] Reservar atomicamente os itens antes do início externo e revisar todos os caminhos que podem chamar o runner. Definir a mesma proteção entre dispatch manual e worker, inclusive após reinício.
-- [ ] Recusar exclusão e arquivamento de execução ativa; recusar exclusão de resultado incerto. Validar também atualizações genéricas que alteram `status`, para impedir contorno pela API de edição.
-- [ ] Na restauração, limpar o agendamento operacional e exigir nova autorização para executar; testar que um agendamento vencido não basta para iniciar.
-- [ ] Filtrar arquivadas no sweep de maturação e testar que nenhuma notificação ou pendência é criada para elas.
-- [ ] Executar os testes de regressão e os testes existentes de guards antes de integrar.
+- [x] Criar regressões para dispatch concorrente do mesmo item, agente ocupado e capacidade global esgotada; comprovar no máximo um início externo e permanência na fila quando sem capacidade.
+- [x] Reservar atomicamente os itens antes do início externo e revisar todos os caminhos que podem chamar o runner. Definir a mesma proteção entre dispatch manual e worker, inclusive após reinício.
+- [x] Recusar exclusão e arquivamento de execução ativa; recusar exclusão de resultado incerto. Validar também atualizações genéricas que alteram `status`, para impedir contorno pela API de edição.
+- [x] Na restauração, limpar o agendamento operacional e exigir nova autorização para executar; testar que um agendamento vencido não basta para iniciar.
+- [x] Filtrar arquivadas no sweep de maturação e testar que nenhuma notificação ou pendência é criada para elas.
+- [x] Executar os testes de regressão e os testes existentes de guards antes de integrar.
 
 **Aceite:** nenhuma ação humana contorna a fila, duplica trabalho ou apaga uma execução ainda não resolvida.
 
@@ -113,12 +124,12 @@ Arquivar preserva o registro e o remove das filas operacionais. Descartar encerr
 - `POST /api/v1/demands/{id}/authorize-retry`: recebe motivo da correção e referência de evidência; autoriza novo ciclo somente após resolver incerteza e confirmar ausência de run ativo. Não dispara o trabalho por si só.
 - Histórico durável: ator, ação, data, run, motivo, referência de evidência, total histórico de tentativas e tentativas do ciclo atual. Reaproveitar os mecanismos existentes de auditoria quando atenderem a esses campos.
 
-- [ ] Testar reconciliação de run ativo, concluído, falho e ausente; um 404 mantém a situação incerta, sem liberar reenvio automático.
-- [ ] Implementar reconciliação usando o runner existente. Se faltarem evidências, permitir registrar a investigação, mantendo o bloqueio até confirmação operacional da ausência de execução ativa.
-- [ ] Introduzir categoria estruturada de falha e estado explícito de recuperação; preservar os textos atuais para leitura e migrar registros reconhecíveis sem inferir resolução.
-- [ ] Testar autorização após correção: conservar total histórico, renovar apenas o orçamento do ciclo e registrar ator/motivo/evidência. Manter três tentativas por ciclo como limite inicial.
-- [ ] Para falha sem texto, mostrar uma mensagem orientando inspeção do run; não inventar uma causa.
-- [ ] Executar os testes de recuperação, guards e reprocessamento existentes.
+- [x] Testar reconciliação de run ativo, concluído, falho e ausente; um 404 mantém a situação incerta, sem liberar reenvio automático.
+- [x] Implementar reconciliação usando o runner existente. Se faltarem evidências, permitir registrar a investigação, mantendo o bloqueio até confirmação operacional da ausência de execução ativa.
+- [x] Introduzir categoria estruturada de falha e estado explícito de recuperação; preservar os textos atuais para leitura e migrar registros reconhecíveis sem inferir resolução.
+- [x] Testar autorização após correção: conservar total histórico, renovar apenas o orçamento do ciclo e registrar ator/motivo/evidência. Manter três tentativas por ciclo como limite inicial.
+- [x] Para falha sem texto, mostrar uma mensagem orientando inspeção do run; não inventar uma causa.
+- [x] Executar os testes de recuperação, guards e reprocessamento existentes.
 
 **Aceite:** cada falha explica o próximo passo; as 11 execuções incertas podem ser investigadas e resolvidas sem reenvio cego, e o limite de tentativas não apaga o histórico.
 
@@ -128,12 +139,12 @@ Arquivar preserva o registro e o remove das filas operacionais. Descartar encerr
 
 **Interface proposta:** `POST /api/v1/demands/{id}/incubation-decision`, autenticada pela sessão, com `action` igual a `promote_and_queue`, `postpone` ou `drop`. Promoção recebe remetente, destino e diretório quando faltarem; adiamento recebe `matures_at`; descarte recebe `reason` obrigatório.
 
-- [ ] Testar promoção válida, dados faltantes, descarte sem motivo, adiamento no passado e decisão concorrente sobre item já resolvido.
-- [ ] Compartilhar regras de domínio com as rotas de agente, mantendo a autenticação e a autorização próprias de cada entrada.
-- [ ] Promover e enfileirar na mesma transação; acordar o worker somente após commit. Nunca iniciar o runner diretamente nessa rota.
-- [ ] Ao adiar, retornar para `incubating`, atualizar o prazo e permitir uma nova notificação na próxima maturação, sem duplicá-la no mesmo ciclo. Rever a chave atual `incubation-due:{id}` para comportar ciclos.
-- [ ] Registrar responsável, decisão e motivo. Arquivar uma incubação deve preservá-la sem transformar arquivamento em descarte implícito.
-- [ ] Executar os testes de decisões e maturação existentes e novos.
+- [x] Testar promoção válida, dados faltantes, descarte sem motivo, adiamento no passado e decisão concorrente sobre item já resolvido.
+- [x] Compartilhar regras de domínio com as rotas de agente, mantendo a autenticação e a autorização próprias de cada entrada.
+- [x] Promover e enfileirar na mesma transação; acordar o worker somente após commit. Nunca iniciar o runner diretamente nessa rota.
+- [x] Ao adiar, retornar para `incubating`, atualizar o prazo e permitir uma nova notificação na próxima maturação, sem duplicá-la no mesmo ciclo. Rever a chave atual `incubation-due:{id}` para comportar ciclos.
+- [x] Registrar responsável, decisão e motivo. Arquivar uma incubação deve preservá-la sem transformar arquivamento em descarte implícito.
+- [x] Executar os testes de decisões e maturação existentes e novos.
 
 **Aceite:** cada uma das 12 incubações vencidas oferece uma decisão humana explícita; só a promoção autoriza execução.
 
@@ -145,21 +156,21 @@ Arquivar preserva o registro e o remove das filas operacionais. Descartar encerr
 
 Cada item inclui `allowed_actions` e motivos de bloqueio calculados no backend. A execução de uma ação sempre revalida as condições atuais; a lista não funciona como autorização permanente.
 
-- [ ] Implementar a consulta paginada sem alterar o contrato da listagem atual de Messages. Testar classificação, sobreposição no filtro de atenção e exclusão de arquivadas dos filtros ativos.
-- [ ] Adicionar a aba e os filtros descritos, com contagens, responsável, erro resumido e detalhe navegável para Messages e tarefa de projeto.
-- [ ] Reaproveitar o cliente de API e hooks existentes; invalidar consultas de Pessoal, Messages e atividade após cada alteração.
-- [ ] Implementar confirmações específicas, motivo obrigatório quando previsto e bloqueios acompanhados de explicação visível.
-- [ ] Implementar seleção e ações em lote apenas sobre IDs selecionados, mostrando sucessos e recusas por item. Exclusão fica fora da primeira versão dos lotes.
-- [ ] Testar estados vazio, carregando, erro de consulta, tarefa alterada por outro operador e lote parcialmente recusado; verificar navegação por teclado e layout móvel.
-- [ ] Rodar os testes frontend afetados e `cd frontend && npm run build`.
+- [x] Implementar a consulta paginada sem alterar o contrato da listagem atual de Messages. Testar classificação, sobreposição no filtro de atenção e exclusão de arquivadas dos filtros ativos.
+- [x] Adicionar a aba e os filtros descritos, com contagens, responsável, erro resumido e detalhe navegável para Messages e tarefa de projeto.
+- [x] Reaproveitar o cliente de API e hooks existentes; invalidar consultas de Pessoal, Messages e atividade após cada alteração.
+- [x] Implementar confirmações específicas, motivo obrigatório quando previsto e bloqueios acompanhados de explicação visível.
+- [x] Implementar seleção e ações em lote apenas sobre IDs selecionados, mostrando sucessos e recusas por item. Exclusão fica fora da primeira versão dos lotes.
+- [x] Testar estados vazio, carregando, erro de consulta, tarefa alterada por outro operador e lote parcialmente recusado; verificar navegação por teclado e layout móvel.
+- [x] Rodar os testes frontend afetados e `cd frontend && npm run build`.
 
 **Aceite:** Marcelo consegue identificar e tratar falhas e incubações pela aba, com as mesmas regras usadas em Messages.
 
 ## Etapa 5 — validação integrada e tratamento do passivo (P2)
 
-- [ ] Executar testes backend afetados e `cd backend && ruff check app`; executar testes frontend afetados e build. Registrar comandos e resultados reais.
-- [ ] Validar com registros de teste: incubar → vencer → decidir → enfileirar → executar → concluir → arquivar → restaurar sem disparo.
-- [ ] Validar falha → reconciliar → corrigir → autorizar novo ciclo → tentar novamente; simular indisponibilidade e resultado incerto sem executar trabalho externo real.
+- [x] Executar testes backend afetados e `cd backend && ruff check app`; executar testes frontend afetados e build. Registrar comandos e resultados reais.
+- [x] Validar com registros de teste: incubar → vencer → decidir → enfileirar → executar → concluir → arquivar → restaurar sem disparo.
+- [x] Validar falha → reconciliar → corrigir → autorizar novo ciclo → tentar novamente; simular indisponibilidade e resultado incerto sem executar trabalho externo real.
 - [ ] Preparar relatório dos registros existentes por ID, agente, categoria e ação recomendada. Revisar primeiro os 11 casos incertos, depois as falhas com tentativas esgotadas e as demais falhas.
 - [ ] Apresentar as 12 incubações para decisão de promover, adiar, descartar ou arquivar. Vencimento sozinho não autoriza execução nem exclusão.
 - [ ] Após a aprovação das ações concretas sobre o passivo, aplicá-las com trilha de auditoria e conferir as contagens finais.

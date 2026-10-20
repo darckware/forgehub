@@ -320,6 +320,16 @@ class AgentDemand(Base, TimestampMixin):
     reply_to_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.agent_demands.id", ondelete="SET NULL"), nullable=True
     )
+    context_area: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    consolidated_into_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agent_demands.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    requires_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
+    approval_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    approved_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    decision_reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retry_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=3, server_default="3")
     # "Execução" -- when the work this message stands for actually finished
     # running. Two writers, both server-side (never the compose form, which
     # shows it as a disabled field):

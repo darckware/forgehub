@@ -86,8 +86,35 @@
     "submit": "Enviar",
     "backlogNeedsSender": "Um pensamento em incubação precisa de um remetente (De) para ser despachado — defina De como um agente, ou promova a Task."
   },
-  "attachment": {"download": "Baixar", "remove": "Remover anexo"},
-  "reading": {"deleteTitle": "Excluir \"{{subject}}\"", "deleteDescription": "Remove a mensagem permanentemente da caixa de entrada.", "archive": "Arquivar", "delete": "Excluir", "attachments": "Anexos", "convertedTo": "Concluído — convertido em", "refreshInbox": "Atualizar caixa de entrada", "loadInboxFailed": "Falha ao carregar a caixa de entrada: {{error}}", "status": {"new": "Nova", "read": "Lida", "converted": "Convertida", "archived": "Arquivada"}, "convertTargets": {"task": "Tarefa", "doc": "Documento", "artifact": "Artefato", "knowledge_base": "Base de Conhecimento", "planning_item": "Item de Planejamento", "project_doc": "Documento do Projeto", "quick_task": "Tarefa Rápida"}},
+  "attachment": {
+    "download": "Baixar",
+    "remove": "Remover anexo"
+  },
+  "reading": {
+    "deleteTitle": "Excluir \"{{subject}}\"",
+    "deleteDescription": "Remove a mensagem permanentemente da caixa de entrada.",
+    "archive": "Arquivar",
+    "delete": "Excluir",
+    "attachments": "Anexos",
+    "convertedTo": "Concluído — convertido em",
+    "refreshInbox": "Atualizar caixa de entrada",
+    "loadInboxFailed": "Falha ao carregar a caixa de entrada: {{error}}",
+    "status": {
+      "new": "Nova",
+      "read": "Lida",
+      "converted": "Convertida",
+      "archived": "Arquivada"
+    },
+    "convertTargets": {
+      "task": "Tarefa",
+      "doc": "Documento",
+      "artifact": "Artefato",
+      "knowledge_base": "Base de Conhecimento",
+      "planning_item": "Item de Planejamento",
+      "project_doc": "Documento do Projeto",
+      "quick_task": "Tarefa Rápida"
+    }
+  },
   "cleanup": {
     "daysShort": "{{count}}d",
     "keep30": "Manter últimos 30 dias",
@@ -180,12 +207,28 @@
     "confirmGroupDescription": "Toda mensagem que estiver em {{group}} será movida para Arquivadas. Nada é apagado -- isso só tira as mensagens deste grupo.",
     "confirmButton": "Arquivar todas"
   },
-  "inbox": { "folderName": "Nome da pasta" },
+  "inbox": {
+    "folderName": "Nome da pasta"
+  },
   "reprocess": {
     "confirmTitle": "Reprocessar falhas?",
     "confirmDescription": "{{count}} mensagem(ns) com falha voltarão para a fila de despacho. Elas iniciam conforme houver vaga, não todas de uma vez.",
     "confirmButton": "Reprocessar",
     "itemButton": "Reprocessar",
     "itemTitle": "Tentativa {{attempts}} de {{max}} — devolve esta mensagem à fila de despacho"
+  },
+  "workflow": {
+    "context": "Projeto ou área",
+    "allContexts": "Todos os projetos e áreas",
+    "unclassified": "Sem projeto ou área",
+    "summaries": "Resumos por contexto",
+    "pending": "Aguardando sua decisão.",
+    "approved": "Conteúdo aprovado.",
+    "rejected": "Reprovada; aguarda revisão.",
+    "deliberate": "Deliberar em Pessoal",
+    "openSummary": "Abrir resumo #{{number}}",
+    "sourceCount": "{{count}} registros de origem arquivados",
+    "uncertain": "Reconciliação pendente",
+    "requireApproval": "Exigir aprovação de Marcelo antes de executar"
   }
 }

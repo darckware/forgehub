@@ -86,8 +86,35 @@
     "submit": "Send",
     "backlogNeedsSender": "An incubating thought needs a sender (From) before it can be dispatched — set From to an agent, or promote it to Task."
   },
-  "attachment": {"download": "Download", "remove": "Remove attachment"},
-  "reading": {"deleteTitle": "Delete \"{{subject}}\"", "deleteDescription": "Permanently removes the message from the inbox.", "archive": "Archive", "delete": "Delete", "attachments": "Attachments", "convertedTo": "Done — converted to", "refreshInbox": "Refresh inbox", "loadInboxFailed": "Failed to load the inbox: {{error}}", "status": {"new": "New", "read": "Read", "converted": "Converted", "archived": "Archived"}, "convertTargets": {"task": "Task", "doc": "Document", "artifact": "Artifact", "knowledge_base": "Knowledge Base", "planning_item": "Planning Item", "project_doc": "Project Document", "quick_task": "Quick Task"}},
+  "attachment": {
+    "download": "Download",
+    "remove": "Remove attachment"
+  },
+  "reading": {
+    "deleteTitle": "Delete \"{{subject}}\"",
+    "deleteDescription": "Permanently removes the message from the inbox.",
+    "archive": "Archive",
+    "delete": "Delete",
+    "attachments": "Attachments",
+    "convertedTo": "Done — converted to",
+    "refreshInbox": "Refresh inbox",
+    "loadInboxFailed": "Failed to load the inbox: {{error}}",
+    "status": {
+      "new": "New",
+      "read": "Read",
+      "converted": "Converted",
+      "archived": "Archived"
+    },
+    "convertTargets": {
+      "task": "Task",
+      "doc": "Document",
+      "artifact": "Artifact",
+      "knowledge_base": "Knowledge Base",
+      "planning_item": "Planning Item",
+      "project_doc": "Project Document",
+      "quick_task": "Quick Task"
+    }
+  },
   "cleanup": {
     "daysShort": "{{count}}d",
     "keep30": "Keep last 30 days",
@@ -180,12 +207,28 @@
     "confirmGroupDescription": "Every message currently in {{group}} will be filed under Arquivadas. Nothing is deleted -- this only moves them out of this group.",
     "confirmButton": "Archive all"
   },
-  "inbox": { "folderName": "Folder name" },
+  "inbox": {
+    "folderName": "Folder name"
+  },
   "reprocess": {
     "confirmTitle": "Reprocess failures?",
     "confirmDescription": "{{count}} failed message(s) will be put back in the dispatch queue. They start as slots free up, not all at once.",
     "confirmButton": "Reprocess",
     "itemButton": "Reprocess",
     "itemTitle": "Attempt {{attempts}} of {{max}} — puts this back in the dispatch queue"
+  },
+  "workflow": {
+    "context": "Project or area",
+    "allContexts": "All projects and areas",
+    "unclassified": "No project or area",
+    "summaries": "Context summaries",
+    "pending": "Awaiting your decision.",
+    "approved": "Content approved.",
+    "rejected": "Rejected; awaiting revision.",
+    "deliberate": "Decide in Personal",
+    "openSummary": "Open summary #{{number}}",
+    "sourceCount": "{{count}} archived source records",
+    "uncertain": "Reconciliation pending",
+    "requireApproval": "Require Marcelo's approval before execution"
   }
 }

@@ -198,6 +198,7 @@ async def send_agent_message(
     channel: str | None = None,
     channel_ref: str | None = None,
     working_path: str | None = None,
+    requires_approval: bool = False,
 ) -> str:
     """Send a message through ForgeHub's Agent Message channel (the canonical
     agent-to-agent communication mechanism of the Hermes ecosystem).
@@ -264,6 +265,7 @@ async def send_agent_message(
             "subject": subject,
             "body": body,
             "requires_response": requires_response,
+            "requires_approval": requires_approval,
             # Default Tipo for every MCP-created message is Task (2026-07-28,
             # Marcelo: "criação MCP padrão é task") -- a plain note with no
             # to_agent is self-addressed by the backend when this runtime's
@@ -293,7 +295,9 @@ async def send_agent_message(
         return str(exc)
 
     lines = [f"Sent message #{demand.get('number')} ({demand.get('id')}) as {sender!r}."]
-    if to_agent:
+    if requires_approval:
+        lines.append("Awaiting Marcelo's decision in Pessoal → Tarefas dos agentes. Receipt is not execution authorization.")
+    elif to_agent:
         lines.append(
             f"Addressed to {to_agent!r} and scheduled for {payload['scheduled_at']} — "
             "the backend wakes its dispatch worker immediately to run the recipient's CLI."

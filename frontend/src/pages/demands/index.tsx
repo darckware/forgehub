@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 import {
   AlertCircle,
   Archive,
@@ -41,6 +42,9 @@ import { AgentCommsGraph } from "@/components/AgentCommsGraph";
 import { DemandsStatsPanel } from "@/components/DemandsStatsPanel";
 import { DemandsControlPanel } from "@/components/DemandsControlPanel";
 import { useAgents } from "@/hooks/useAgent";
+import { useProjects } from "@/hooks/useProject";
+import { contextKey } from "@/lib/demandContext";
+import { DemandContextPanel } from "./DemandContextPanel";
 import {
   computeInboxTotalCount,
   downloadDemandAttachment,
@@ -358,6 +362,9 @@ function ReadingPane({
   onEdit,
   awaitingResponse,
   canSendToOutgoing,
+  allDemands,
+  projectName,
+  onOpen,
 }: {
   demand: Demand;
   onEdit: () => void;
@@ -369,6 +376,9 @@ function ReadingPane({
    * target agent). Not shown from Outgoing/Notes: there's nothing incoming
    * left to relay onward from those views. */
   canSendToOutgoing: boolean;
+  allDemands: Demand[];
+  projectName?: string;
+  onOpen: (demand: Demand) => void;
 }) {
   const { t, i18n } = useTranslation("demands");
   const updateStatus = useUpdateDemandStatus();
@@ -422,6 +432,7 @@ function ReadingPane({
           <span className="font-medium text-foreground">{demand.from_agent}</span>
           <span>· {formatTimestamp(demand.created_at, i18n.language)}</span>
         </div>
+        <DemandContextPanel demand={demand} demands={allDemands} projectName={projectName} onOpen={onOpen} />
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <Button size="sm" variant="outline" className="gap-1.5" onClick={onEdit}>
             <Pencil className="h-3.5 w-3.5" /> {t("editButton")}
@@ -629,6 +640,10 @@ function DemandListRow({
 
 export default function DemandsPage() {
   const { t } = useTranslation("demands");
+  const [params, setParams] = useSearchParams();
+  const contextFilter = params.get("context") ?? "all";
+  const messageParam = params.get("message");
+  const { data: projects } = useProjects();
   const { data: demands, isLoading, isError, error, refetch, isFetching } = useDemands();
   const { data: groups } = useDemandGroups();
   const moveDemand = useMoveDemand();
@@ -649,7 +664,7 @@ export default function DemandsPage() {
   // Tipo é obrigatório e só tem dois valores desde 2026-07-28 (nunca
   // null/"demand") -- "Todos os tipos" continua existindo como o estado
   // sem filtro, não como um terceiro Tipo.
-  const [typeFilter, setTypeFilter] = useState<"all" | "task" | "incubation">("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | "task" | "incubation" | "summaries">("all");
   // Which top-level sidebar groups are expanded -- lifted out of each
   // group component (2026-07-25) so the toolbar's expand/collapse-all
   // toggle can drive all six at once; missing key = collapsed (matches
@@ -733,7 +748,25 @@ export default function DemandsPage() {
     );
   };
 
-  const typeMatches = (d: Demand) => typeFilter === "all" || d.origin_type === typeFilter;
+  const summaryIds = useMemo(() => new Set((demands ?? []).map(item => item.consolidated_into_id).filter(Boolean)), [demands]);
+  const typeMatches = (d: Demand) => typeFilter === "all" || (typeFilter === "summaries" ? summaryIds.has(d.id) && d.status !== "archived" : d.origin_type === typeFilter);
+  const contexts = useMemo(() => [...new Map((demands ?? []).map(item => [contextKey(item), {
+    key: contextKey(item), name: projects?.find(project => project.id === item.project_id)?.name ?? item.context_area,
+  }])).values()], [demands, projects]);
+  useEffect(() => {
+    if (!messageParam || !demands) return;
+    const item = demands.find(row => row.id === messageParam || String(row.number) === messageParam.replace(/^#/, ""));
+    if (!item) return;
+    setSelectedId(item.id);
+    setActiveTab("messages");
+    setFormMode(null);
+    if (item.status === "archived") setFolder({ kind: "archived", groupId: item.group_id, agentId: null });
+    else if (item.origin_type === "incubation") setFolder({ kind: "incubation" });
+    else if (item.dispatch_status === "failed") setFolder({ kind: "failed" });
+    else if (item.dispatch_status === "completed") setFolder({ kind: "completed", agentId: null });
+    else if (item.dispatch_status) setFolder({ kind: "running" });
+    else setFolder({ kind: "inbox", agentId: null });
+  }, [messageParam, demands]);
 
   /** Every message the current filters admit, before the folder cut. This is
    * the base for the whole screen -- the folder tree's counters, the other
@@ -741,9 +774,9 @@ export default function DemandsPage() {
    * not just the list in the middle. Counters that ignored it used to
    * advertise messages the user could no longer reach. */
   const visible = useMemo(
-    () => (demands ?? []).filter((d) => typeMatches(d) && searchMatches(d, search)),
+    () => (demands ?? []).filter((d) => typeMatches(d) && searchMatches(d, search) && (contextFilter === "all" || contextKey(d) === contextFilter)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [demands, search, typeFilter],
+    [demands, search, typeFilter, summaryIds, contextFilter],
   );
 
   const filtered = useMemo(() => {
@@ -954,6 +987,7 @@ export default function DemandsPage() {
    * outbox forwards, etc. would each need their own SelectedFolder logic
    * just for this one jump). */
   function openFromControl(demand: Demand) {
+    setParams(prev => { const next = new URLSearchParams(prev); next.set("message", demand.id); next.delete("context"); return next; });
     setActiveTab("messages");
     setFolder({ kind: "inbox", agentId: null });
     setSelectedId(demand.id);
@@ -961,6 +995,7 @@ export default function DemandsPage() {
   }
 
   function selectFolder(next: SelectedFolder) {
+    if (messageParam) setParams(prev => { const updated = new URLSearchParams(prev); updated.delete("message"); return updated; }, { replace: true });
     setFolder(next);
     setSelectedId(null);
     closeForm();
@@ -989,6 +1024,7 @@ export default function DemandsPage() {
         selected={selectedId === demand.id}
         awaitingResponse={isAwaitingResponse(demand)}
         onSelect={() => {
+          setParams(prev => { const next = new URLSearchParams(prev); next.set("message", demand.id); return next; }, { replace: true });
           setSelectedId(demand.id);
           closeForm();
         }}
@@ -1134,6 +1170,12 @@ export default function DemandsPage() {
             <option value="all">{t("filter.typeAll")}</option>
             <option value="task">{t("filter.typeTask")}</option>
             <option value="incubation">{t("filter.typeBacklog")}</option>
+            <option value="summaries">{t("workflow.summaries")}</option>
+          </Select>
+          <Select aria-label={t("workflow.context")} value={contextFilter} className="h-8 w-full py-0 sm:w-48"
+            onChange={e => { const value = e.target.value; setSelectedId(null); setParams(prev => { const next = new URLSearchParams(prev); next.delete("message"); if (value === "all") next.delete("context"); else next.set("context", value); return next; }, { replace: true }); }}>
+            <option value="all">{t("workflow.allContexts")}</option>
+            {contexts.map(item => <option key={item.key} value={item.key}>{item.name ?? t("workflow.unclassified")}</option>)}
           </Select>
           <Tabs
             value={activeTab}
@@ -1422,6 +1464,9 @@ export default function DemandsPage() {
             ) : selected ? (
               <ReadingPane
                 demand={selected}
+                allDemands={demands ?? []}
+                projectName={projects?.find(project => project.id === selected.project_id)?.name}
+                onOpen={openFromControl}
                 onEdit={() => openEdit(selected)}
                 awaitingResponse={isAwaitingResponse(selected)}
                 canSendToOutgoing={folder.kind === "inbox"}

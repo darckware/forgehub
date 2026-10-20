@@ -1,11 +1,73 @@
 """Pydantic schemas for the agent-demand inbox and its conversions."""
 import uuid
+from typing import Literal
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.conversions import CONVERT_TARGETS
 from app.db.models.demand import DEMAND_CHANNELS, DEMAND_ORIGIN_TYPES, DEMAND_STATUSES
+
+
+class DemandConsolidateIn(BaseModel):
+    source_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+    subject: str = Field(min_length=1, max_length=255)
+    body: str = Field(min_length=1)
+    owner_agent_id: uuid.UUID
+    project_id: uuid.UUID | None = None
+    context_area: str | None = Field(default=None, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_context(self):
+        self.context_area = (self.context_area or "").strip() or None
+        if (self.project_id is None) == (self.context_area is None):
+            raise ValueError("Choose a project or an area")
+        if len(set(self.source_ids)) != len(self.source_ids):
+            raise ValueError("Sources must be unique")
+        if not self.subject.strip() or not self.body.strip():
+            raise ValueError("Subject and summary must not be blank")
+        return self
+
+
+class DemandDecisionIn(BaseModel):
+    action: Literal["approve", "reject", "postpone", "archive", "restore", "drop", "request_approval", "authorize_retry",
+                    "record_investigation", "confirm_inactive"]
+    reason: str | None = Field(default=None, max_length=4000)
+    # confirm_inactive only: the run id typed back, so the confirmation names
+    # the exact run the operator checked (a stale screen can't confirm another).
+    confirmation: str | None = Field(default=None, max_length=100)
+    matures_at: datetime | None = None
+    evidence_ref: str | None = Field(default=None, max_length=2000)
+    expected_updated_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_reason(self):
+        if self.action in ("reject", "postpone", "drop", "authorize_retry", "record_investigation", "confirm_inactive") and not (self.reason or "").strip():
+            raise ValueError("A reason is required")
+        if self.action in ("authorize_retry", "record_investigation", "confirm_inactive") and not (self.evidence_ref or "").strip():
+            raise ValueError("A reference to the correction evidence is required")
+        if self.action == "postpone" and (self.matures_at is None or self.matures_at.tzinfo is None):
+            raise ValueError("A future date with timezone is required")
+        return self
+
+
+class DemandBulkItemIn(BaseModel):
+    id: uuid.UUID
+    updated_at: datetime
+
+
+class DemandBulkIn(BaseModel):
+    action: Literal["archive", "restore", "request_approval", "postpone"]
+    items: list[DemandBulkItemIn] = Field(min_length=1, max_length=100)
+    reason: str | None = Field(default=None, max_length=4000)
+    matures_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_items(self):
+        if len({item.id for item in self.items}) != len(self.items):
+            raise ValueError("Select each message only once")
+        DemandDecisionIn(action=self.action, reason=self.reason, matures_at=self.matures_at)
+        return self
 
 
 def _check_origin_type(v: str | None) -> str | None:
@@ -31,6 +93,8 @@ class DemandSubmitIn(BaseModel):
     and POST /demands (the "New note" panel)."""
 
     from_agent: str = Field(min_length=1, max_length=50)
+    requires_approval: bool = False
+    context_area: str | None = Field(default=None, max_length=100)
     subject: str = Field(min_length=1, max_length=255)
     body: str = Field(min_length=1)
     # Optional at creation time -- set the dispatch target right away
@@ -170,6 +234,7 @@ class AgentDemandUpdateIn(BaseModel):
     body: str | None = Field(default=None, min_length=1)
     target_agent: str | None = None
     requires_response: bool | None = None
+    request_approval: bool = False
 
 
 class DemandGroupCreateIn(BaseModel):
@@ -226,6 +291,13 @@ class DemandOut(BaseModel):
     target_agent_id: uuid.UUID | None
     from_agent_id: uuid.UUID | None
     project_id: uuid.UUID | None
+    context_area: str | None = None
+    consolidated_into_id: uuid.UUID | None = None
+    requires_approval: bool = False
+    approval_status: str | None = None
+    decision_reminded_at: datetime | None = None
+    decision_reason: str | None = None
+    retry_limit: int = 3
     development_request_id: uuid.UUID | None
     command_text: str | None
     # cwd the recipient agent's run starts in; None means fall back to the
