@@ -224,5 +224,96 @@
       "snapshots": "Rollback snapshots (state-snapshots)",
       "tmp_dumps": "Database dumps and archives in /tmp"
     }
+  },
+  "offsiteBackup": {
+    "title": "Off-site backup",
+    "summary_one": "{{count}} of {{total}} target enabled",
+    "summary_other": "{{count}} of {{total}} targets enabled",
+    "runningNow": "Backup running",
+    "refresh": "Refresh",
+    "add": "Add folders",
+    "runAll": "Run now",
+    "description": "Encrypted copy (restic) on Google Drive, one snapshot per project: its folders, its Postgres dump and whatever you add here. Runs daily from Athos' cron; every failure goes to notifications. node_modules, virtual environments, caches and builds are left out.",
+    "repository": "Repository",
+    "schedule": "Schedule",
+    "schedulePaused": "paused",
+    "nextRun": "next: {{when}}",
+    "notScheduled": "not scheduled in Athos' cron",
+    "scheduleUnknown": "could not read the cron ({{detail}})",
+    "maintenance": "Repository maintenance (Sunday)",
+    "maintenanceNever": "not run yet",
+    "loading": "Loading…",
+    "empty": "No target yet. Use \"Add folders\".",
+    "started_one": "Backup started for {{count}} target. Its status shows here as it progresses.",
+    "started_other": "Backup started for {{count}} targets. Their status shows here as they progress.",
+    "columns": {
+      "target": "Target",
+      "paths": "Folders",
+      "database": "Database (Postgres)",
+      "lastRun": "Last backup",
+      "actions": "Actions"
+    },
+    "status": {
+      "ok": "Completed",
+      "failed": "Failed",
+      "interrupted": "Interrupted",
+      "running": "Running"
+    },
+    "trigger": {
+      "schedule": "scheduled",
+      "manual": "manual"
+    },
+    "disabled": "Disabled",
+    "systemState": "Host state",
+    "excludesCount_one": "{{count}} exclusion",
+    "excludesCount_other": "{{count}} exclusions",
+    "added": "{{size}} new",
+    "never": "Never run",
+    "staleSince": "No complete backup since {{when}}",
+    "noSuccess": "No complete backup yet",
+    "runOne": "Run this target now",
+    "history": "History",
+    "edit": "Edit",
+    "disable": "Disable",
+    "enable": "Enable",
+    "delete": "Remove",
+    "deleteTitle": "Remove target from the off-site backup?",
+    "deleteDescription": "\"{{name}}\" stops being copied. Snapshots already on Google Drive stay there until retention expires them, and the history is kept.",
+    "deleteConfirm": "Remove",
+    "errors": {
+      "missing": "These folders don't exist on the server: {{detail}}",
+      "duplicate": "A target with this identifier already exists.",
+      "running": "An off-site backup is already running.",
+      "load": "Could not load the off-site backup: {{detail}}",
+      "generic": "{{detail}}"
+    },
+    "form": {
+      "createTitle": "Add to the off-site backup",
+      "editTitle": "Edit off-site backup target",
+      "label": "Name",
+      "name": "Identifier",
+      "nameHint": "Tags the snapshots in the repository; can't change once created.",
+      "paths": "Folders",
+      "pathsHint": "One folder or file per line, absolute path on the server.",
+      "excludes": "Exclude (optional)",
+      "excludesHint": "One restic pattern per line, e.g. *.log, /root/project/x/tmp.",
+      "container": "Postgres database (optional)",
+      "containerHint": "Every database in this container is dumped into the same snapshot.",
+      "containersFailed": "Could not list the containers right now.",
+      "noContainer": "None",
+      "systemState": "Include host state",
+      "systemStateHint": "Copies of Hermes' SQLite databases and the list of installed packages and services, to rebuild the server.",
+      "enabled": "Enabled (part of the daily backup)",
+      "cancel": "Cancel",
+      "save": "Save",
+      "create": "Add",
+      "errors": {
+        "required": "Required.",
+        "tooLong": "Too long.",
+        "badName": "Use lowercase letters, digits and hyphens.",
+        "absolute": "Each line must be an absolute path (starting with /).",
+        "root": "The whole root (/) can't be a target."
+      }
+    }
   }
 }

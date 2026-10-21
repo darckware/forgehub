@@ -65,6 +65,7 @@ from app.api.routes import (
     host_script,
     server,
     system_control,
+    offsite_backup,
     system_info,
     system_scope,
     systemstats,
@@ -150,6 +151,10 @@ _PUBLIC_API_PATHS = {
     "/api/v1/audit/run-internal",
     # Monthly client report trigger (Athos cron); self-guards with the bridge token.
     "/api/v1/client-ops/reports/run-internal",
+    # Off-site backup worker (Athos cron); each checks the bridge token itself.
+    "/api/v1/offsite-backup/internal/plan",
+    "/api/v1/offsite-backup/internal/runs",
+    "/api/v1/offsite-backup/internal/runs:finish",
     "/api/v1/demands/submit",
     # Agent runtime activity webhooks -- authenticated by the HMAC signature
     # over the body (AGENT_ACTIVITY_WEBHOOK_SECRET), checked in the route.
@@ -397,6 +402,7 @@ app.include_router(host_script.router)
 app.include_router(host_script.schedules_router)
 app.include_router(remote_access.router)
 app.include_router(system_control.router)
+app.include_router(offsite_backup.router)
 app.include_router(vpn.router)
 app.include_router(forgerouter.router)
 app.include_router(operations.router)

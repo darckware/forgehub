@@ -224,5 +224,96 @@
       "snapshots": "Instantâneos de reversão (state-snapshots)",
       "tmp_dumps": "Dumps de banco de dados e arquivos em /tmp"
     }
+  },
+  "offsiteBackup": {
+    "title": "Backup externo",
+    "summary_one": "{{count}} de {{total}} alvo ativo",
+    "summary_other": "{{count}} de {{total}} alvos ativos",
+    "runningNow": "Backup em andamento",
+    "refresh": "Atualizar",
+    "add": "Adicionar pastas",
+    "runAll": "Executar agora",
+    "description": "Cópia criptografada (restic) no Google Drive, um snapshot por projeto: as pastas, o dump do Postgres do projeto e o que você adicionar aqui. Roda todo dia pelo cron do Athos; cada falha vai para as notificações. node_modules, ambientes virtuais, caches e builds ficam de fora.",
+    "repository": "Repositório",
+    "schedule": "Agendamento",
+    "schedulePaused": "pausado",
+    "nextRun": "próxima: {{when}}",
+    "notScheduled": "não agendado no cron do Athos",
+    "scheduleUnknown": "não foi possível ler o cron ({{detail}})",
+    "maintenance": "Manutenção do repositório (domingo)",
+    "maintenanceNever": "ainda não executada",
+    "loading": "Carregando…",
+    "empty": "Nenhum alvo cadastrado. Use \"Adicionar pastas\".",
+    "started_one": "Backup iniciado para {{count}} alvo. O status aparece aqui conforme avança.",
+    "started_other": "Backup iniciado para {{count}} alvos. O status aparece aqui conforme avança.",
+    "columns": {
+      "target": "Alvo",
+      "paths": "Pastas",
+      "database": "Banco (Postgres)",
+      "lastRun": "Último backup",
+      "actions": "Ações"
+    },
+    "status": {
+      "ok": "Concluído",
+      "failed": "Falhou",
+      "interrupted": "Interrompido",
+      "running": "Em andamento"
+    },
+    "trigger": {
+      "schedule": "agendado",
+      "manual": "manual"
+    },
+    "disabled": "Desativado",
+    "systemState": "Estado do host",
+    "excludesCount_one": "{{count}} exclusão",
+    "excludesCount_other": "{{count}} exclusões",
+    "added": "{{size}} novos",
+    "never": "Nunca executado",
+    "staleSince": "Sem backup completo desde {{when}}",
+    "noSuccess": "Ainda sem nenhum backup completo",
+    "runOne": "Executar este alvo agora",
+    "history": "Histórico",
+    "edit": "Editar",
+    "disable": "Desativar",
+    "enable": "Ativar",
+    "delete": "Remover",
+    "deleteTitle": "Remover alvo do backup externo?",
+    "deleteDescription": "\"{{name}}\" deixa de ser copiado. Os snapshots que já estão no Google Drive continuam lá até a retenção expirá-los, e o histórico fica guardado.",
+    "deleteConfirm": "Remover",
+    "errors": {
+      "missing": "Estas pastas não existem no servidor: {{detail}}",
+      "duplicate": "Já existe um alvo com esse identificador.",
+      "running": "Já há um backup externo em andamento.",
+      "load": "Não foi possível carregar o backup externo: {{detail}}",
+      "generic": "{{detail}}"
+    },
+    "form": {
+      "createTitle": "Adicionar ao backup externo",
+      "editTitle": "Editar alvo do backup externo",
+      "label": "Nome",
+      "name": "Identificador",
+      "nameHint": "Marca os snapshots no repositório; não muda depois de criado.",
+      "paths": "Pastas",
+      "pathsHint": "Uma pasta ou arquivo por linha, caminho absoluto no servidor.",
+      "excludes": "Excluir (opcional)",
+      "excludesHint": "Um padrão do restic por linha, ex.: *.log, /root/project/x/tmp.",
+      "container": "Banco Postgres (opcional)",
+      "containerHint": "Todos os bancos desse container são exportados e entram no mesmo snapshot.",
+      "containersFailed": "Não foi possível listar os containers agora.",
+      "noContainer": "Nenhum",
+      "systemState": "Incluir estado do host",
+      "systemStateHint": "Cópias dos bancos SQLite do Hermes e a lista de pacotes e serviços instalados, para reconstruir o servidor.",
+      "enabled": "Ativo (entra no backup diário)",
+      "cancel": "Cancelar",
+      "save": "Salvar",
+      "create": "Adicionar",
+      "errors": {
+        "required": "Obrigatório.",
+        "tooLong": "Muito longo.",
+        "badName": "Use letras minúsculas, números e hífen.",
+        "absolute": "Cada linha precisa ser um caminho absoluto (começando com /).",
+        "root": "A raiz (/) inteira não pode ser um alvo."
+      }
+    }
   }
 }

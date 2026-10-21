@@ -32,6 +32,7 @@ import {
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { DockerCleanupCard } from "./DockerCleanupCard";
 import { BackupFilesCard } from "./BackupFilesCard";
+import { OffsiteBackupCard } from "./OffsiteBackupCard";
 
 function formatByteValue(bytes: number | null | undefined, locale: string): string {
   if (bytes == null) return "—";
@@ -438,6 +439,8 @@ export default function SystemControlPage() {
           </CardContent>
         </Card>
       </div>
+
+      <OffsiteBackupCard />
 
       <DockerCleanupCard />
 

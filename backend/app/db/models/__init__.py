@@ -108,6 +108,7 @@ from app.db.models.channel import (  # noqa: F401
     ChatChannelTask,
 )
 from app.db.models.file_explorer import ExplorerQuickAccessEntry  # noqa: F401
+from app.db.models.offsite_backup import OffsiteBackupRun, OffsiteBackupTarget  # noqa: F401
 from app.db.models.agent_activity_event import AgentActivityEvent  # noqa: F401
 from app.db.models.operations import (  # noqa: F401
     AgentCharter,

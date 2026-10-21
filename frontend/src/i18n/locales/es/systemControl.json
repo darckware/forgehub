@@ -224,5 +224,96 @@
       "snapshots": "Instantáneas de reversión (state-snapshots)",
       "tmp_dumps": "Volcados de bases de datos y archivos en /tmp"
     }
+  },
+  "offsiteBackup": {
+    "title": "Copia de seguridad externa",
+    "summary_one": "{{count}} de {{total}} destino activo",
+    "summary_other": "{{count}} de {{total}} destinos activos",
+    "runningNow": "Copia en curso",
+    "refresh": "Actualizar",
+    "add": "Agregar carpetas",
+    "runAll": "Ejecutar ahora",
+    "description": "Copia cifrada (restic) en Google Drive, una instantánea por proyecto: sus carpetas, el volcado de su Postgres y lo que agregue aquí. Se ejecuta a diario desde el cron de Athos; cada fallo llega a las notificaciones. node_modules, entornos virtuales, cachés y compilaciones quedan fuera.",
+    "repository": "Repositorio",
+    "schedule": "Programación",
+    "schedulePaused": "en pausa",
+    "nextRun": "próxima: {{when}}",
+    "notScheduled": "no programado en el cron de Athos",
+    "scheduleUnknown": "no se pudo leer el cron ({{detail}})",
+    "maintenance": "Mantenimiento del repositorio (domingo)",
+    "maintenanceNever": "aún no ejecutado",
+    "loading": "Cargando…",
+    "empty": "Ningún destino registrado. Use \"Agregar carpetas\".",
+    "started_one": "Copia iniciada para {{count}} destino. El estado aparece aquí a medida que avanza.",
+    "started_other": "Copia iniciada para {{count}} destinos. El estado aparece aquí a medida que avanza.",
+    "columns": {
+      "target": "Destino",
+      "paths": "Carpetas",
+      "database": "Base de datos (Postgres)",
+      "lastRun": "Última copia",
+      "actions": "Acciones"
+    },
+    "status": {
+      "ok": "Completada",
+      "failed": "Falló",
+      "interrupted": "Interrumpida",
+      "running": "En curso"
+    },
+    "trigger": {
+      "schedule": "programada",
+      "manual": "manual"
+    },
+    "disabled": "Desactivado",
+    "systemState": "Estado del host",
+    "excludesCount_one": "{{count}} exclusión",
+    "excludesCount_other": "{{count}} exclusiones",
+    "added": "{{size}} nuevos",
+    "never": "Nunca ejecutado",
+    "staleSince": "Sin copia completa desde {{when}}",
+    "noSuccess": "Aún sin ninguna copia completa",
+    "runOne": "Ejecutar este destino ahora",
+    "history": "Historial",
+    "edit": "Editar",
+    "disable": "Desactivar",
+    "enable": "Activar",
+    "delete": "Quitar",
+    "deleteTitle": "¿Quitar el destino de la copia externa?",
+    "deleteDescription": "\"{{name}}\" deja de copiarse. Las instantáneas que ya están en Google Drive siguen allí hasta que la retención las elimine, y el historial se conserva.",
+    "deleteConfirm": "Quitar",
+    "errors": {
+      "missing": "Estas carpetas no existen en el servidor: {{detail}}",
+      "duplicate": "Ya existe un destino con ese identificador.",
+      "running": "Ya hay una copia externa en curso.",
+      "load": "No se pudo cargar la copia externa: {{detail}}",
+      "generic": "{{detail}}"
+    },
+    "form": {
+      "createTitle": "Agregar a la copia externa",
+      "editTitle": "Editar destino de la copia externa",
+      "label": "Nombre",
+      "name": "Identificador",
+      "nameHint": "Marca las instantáneas en el repositorio; no cambia después de creado.",
+      "paths": "Carpetas",
+      "pathsHint": "Una carpeta o archivo por línea, ruta absoluta en el servidor.",
+      "excludes": "Excluir (opcional)",
+      "excludesHint": "Un patrón de restic por línea, p. ej.: *.log, /root/project/x/tmp.",
+      "container": "Base Postgres (opcional)",
+      "containerHint": "Todas las bases de ese contenedor se exportan y entran en la misma instantánea.",
+      "containersFailed": "No se pudieron listar los contenedores ahora.",
+      "noContainer": "Ninguno",
+      "systemState": "Incluir estado del host",
+      "systemStateHint": "Copias de las bases SQLite de Hermes y la lista de paquetes y servicios instalados, para reconstruir el servidor.",
+      "enabled": "Activo (entra en la copia diaria)",
+      "cancel": "Cancelar",
+      "save": "Guardar",
+      "create": "Agregar",
+      "errors": {
+        "required": "Obligatorio.",
+        "tooLong": "Demasiado largo.",
+        "badName": "Use minúsculas, números y guiones.",
+        "absolute": "Cada línea debe ser una ruta absoluta (que empiece por /).",
+        "root": "La raíz (/) entera no puede ser un destino."
+      }
+    }
   }
 }
