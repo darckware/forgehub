@@ -128,7 +128,9 @@
     "finished": "Envio concluído: {{done}} enviados, {{failed}} com falha, {{skipped}} pulados",
     "toggle": "Mostrar/ocultar detalhes do envio",
     "skipped": "pulado",
-    "failed": "falhou"
+    "failed": "falhou",
+    "moreRows_one": "+{{count}} arquivo não exibido",
+    "moreRows_other": "+{{count}} arquivos não exibidos"
   },
   "moveTo": {
     "titleOne": "Mover \"{{name}}\" para…",
@@ -145,5 +147,26 @@
     "titleOne": "Copiar \"{{name}}\" para…",
     "titleMany": "Copiar {{count}} itens para…",
     "confirm": "Copiar aqui"
+  },
+  "review": {
+    "title": "Revisar envio",
+    "description": "Destino: {{destination}}. Confira o que será enviado antes de começar.",
+    "send_one": "Enviar {{count}} arquivo",
+    "send_other": "Enviar {{count}} arquivos",
+    "files": "Arquivos",
+    "folders": "Pastas",
+    "size": "Tamanho",
+    "ofLimit": "limite {{limit}}",
+    "skipHeavy": "Ignorar pastas geradas (node_modules, .git, venv, __pycache__…) — recomendado",
+    "dirFiles_one": "{{count}} arquivo",
+    "dirFiles_other": "{{count}} arquivos",
+    "unreadDirs": "Pastas geradas ignoradas ao arrastar (não foram lidas). Para incluí-las, use \"Enviar pasta\".",
+    "oversized_one": "{{count}} arquivo acima de {{limit}} não será enviado:",
+    "oversized_other": "{{count}} arquivos acima de {{limit}} não serão enviados:",
+    "block": {
+      "empty": "Nada a enviar.",
+      "tooManyFiles": "São mais de {{files}} arquivos. Ignore as pastas geradas, envie uma subpasta por vez ou compacte em .zip.",
+      "tooLarge": "O total passa de {{total}}. Envie em partes ou compacte em .zip."
+    }
   }
 }

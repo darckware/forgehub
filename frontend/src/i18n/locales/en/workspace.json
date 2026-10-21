@@ -1,6 +1,8 @@
 {
   "toolbar": {
-    "openAgentTelegram": "Open agent Telegram", "vpsProduction": "VPS / Production (Darckware)", "semedClient": "SEMED (Client / Cloudflare)",
+    "openAgentTelegram": "Open agent Telegram",
+    "vpsProduction": "VPS / Production (Darckware)",
+    "semedClient": "SEMED (Client / Cloudflare)",
     "connectSsh": "Connect via SSH",
     "ssh": "SSH",
     "noServersRegistered": "No servers registered. See \"Servers\" in the sidebar menu.",
@@ -27,12 +29,6 @@
     "assistant": "Assistant",
     "uploadFiles": "Upload files to the working folder",
     "selectWorkingFolderFirst": "Select a working folder first",
-    "cliLaunchers": "Coding-assistant CLIs",
-    "cli": "CLI",
-    "runtimeLaunchers": "Agent runtimes/orchestrators",
-    "runtimes": "Runtimes",
-    "launchers": "Launchers",
-    "openLauncher": "Open {{label}}",
     "sshOnline": "Online",
     "sshOffline": "Offline",
     "sshKeyProblem": "Key issue",
@@ -54,7 +50,8 @@
     "terminateChatFailed": "Failed to terminate and delete chat session.",
     "noAgentAvailable": "No agent with a Hermes profile available to chat with yet.",
     "noTabsOpen": "No tabs open",
-    "noTabsOpenHelp": "Start a conversation or open a terminal using the buttons above."
+    "noTabsOpenHelp": "Start a conversation or open a terminal using the buttons above.",
+    "renameTerminal": "Double-click (or F2) to rename"
   },
   "workingDirPicker": {
     "workingDirectory": "Working directory: {{path}}",
@@ -70,7 +67,11 @@
     "useThisFolder": "Use this folder"
   },
   "terminal": {
-    "zoomOutTitle": "Decrease terminal zoom (-)", "zoomOut": "Zoom out", "zoomReset": "Current size: {{size}}px. Click to restore the default ({{defaultSize}}px).", "zoomInTitle": "Increase terminal zoom (+)", "zoomIn": "Zoom in",
+    "zoomOutTitle": "Decrease terminal zoom (-)",
+    "zoomOut": "Zoom out",
+    "zoomReset": "Current size: {{size}}px. Click to restore the default ({{defaultSize}}px).",
+    "zoomInTitle": "Increase terminal zoom (+)",
+    "zoomIn": "Zoom in",
     "authFailed": "Failed to authenticate terminal session.",
     "reconnecting": "Connection lost -- reconnecting in {{seconds}}s…",
     "imageUploadFailed": "Image upload failed. Try again.",
@@ -84,7 +85,7 @@
       "select": "Select text inside interactive applications",
       "copy": "Copy the selection (or use the copy button to copy the screen)",
       "paste": "Paste text into the terminal",
-      "linkButton": "↗ button",
+      "linkButton": "Terminal › link",
       "openLink": "Open the latest detected link",
       "splitVertical": "Split the screen vertically with tmux",
       "splitHorizontal": "Split the screen horizontally with tmux",
@@ -98,9 +99,11 @@
     "touchInputSend": "Send to terminal",
     "touchInputOpen": "Open typing bar",
     "touchInputClose": "Close typing bar",
-    "showControls": "Show terminal controls",
-    "hideControls": "Collapse terminal controls",
-    "jumpToBottom": "Jump to the last line"
+    "jumpToBottom": "Jump to the last line",
+    "controls": "Terminal controls",
+    "controlsLabel": "Terminal",
+    "zoom": "Zoom",
+    "serverUnavailable": "ForgeHub server unavailable (restart or deploy in progress)."
   },
   "webAppPane": {
     "back": "Back",

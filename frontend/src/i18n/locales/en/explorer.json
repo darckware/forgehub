@@ -128,7 +128,9 @@
     "finished": "Upload finished: {{done}} sent, {{failed}} failed, {{skipped}} skipped",
     "toggle": "Show/hide upload details",
     "skipped": "skipped",
-    "failed": "failed"
+    "failed": "failed",
+    "moreRows_one": "+{{count}} file not shown",
+    "moreRows_other": "+{{count}} files not shown"
   },
   "moveTo": {
     "titleOne": "Move \"{{name}}\" to…",
@@ -145,5 +147,26 @@
     "titleOne": "Copy \"{{name}}\" to…",
     "titleMany": "Copy {{count}} items to…",
     "confirm": "Copy here"
+  },
+  "review": {
+    "title": "Review upload",
+    "description": "Destination: {{destination}}. Check what will be sent before starting.",
+    "send_one": "Upload {{count}} file",
+    "send_other": "Upload {{count}} files",
+    "files": "Files",
+    "folders": "Folders",
+    "size": "Size",
+    "ofLimit": "limit {{limit}}",
+    "skipHeavy": "Skip generated folders (node_modules, .git, venv, __pycache__…) — recommended",
+    "dirFiles_one": "{{count}} file",
+    "dirFiles_other": "{{count}} files",
+    "unreadDirs": "Generated folders skipped on drop (not read). To include them, use \"Upload folder\".",
+    "oversized_one": "{{count}} file over {{limit}} will not be uploaded:",
+    "oversized_other": "{{count}} files over {{limit}} will not be uploaded:",
+    "block": {
+      "empty": "Nothing to upload.",
+      "tooManyFiles": "More than {{files}} files. Skip generated folders, upload one subfolder at a time, or compress into a .zip.",
+      "tooLarge": "The total exceeds {{total}}. Upload in parts or compress into a .zip."
+    }
   }
 }

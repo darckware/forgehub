@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 import {
   Bot,
   ChevronDown,
-  Feather,
   FolderOpen,
   Globe2,
   Loader2,
@@ -23,12 +22,6 @@ import {
   Users,
   X,
 } from "lucide-react";
-import claudeIcon from "@lobehub/icons-static-png/dark/claude-color.png";
-import codexIcon from "@lobehub/icons-static-png/dark/codex-color.png";
-import antigravityIcon from "@lobehub/icons-static-png/dark/antigravity-color.png";
-import opencodeIcon from "@lobehub/icons-static-png/light/opencode.png";
-import hermesIcon from "@lobehub/icons-static-png/light/hermesagent.png";
-import piIcon from "@/assets/icons/pi.svg";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { TerminalPane } from "@/components/TerminalPane";
@@ -81,40 +74,7 @@ const DEFAULT_APP_URL = "http://localhost:5174";
 // has its own participants/sidebar model (N agents + the human, shared
 // context), not a single agentId per tab, so folding it into the existing
 // tab persistence/reorder machinery would force an awkward shape onto both.
-type Launcher = { label: string; command: string; icon?: string; iconBg?: string };
-
-// "CLI" -- AI coding-assistant CLIs you'd run ad-hoc against this checkout.
-const CLI_LAUNCHERS: Launcher[] = [
-  { label: "Claude", command: "claude", icon: claudeIcon },
-  { label: "Codex", command: "codex", icon: codexIcon },
-  { label: "Antigravity", command: "agy", icon: antigravityIcon },
-  // pi's mark is a plain white glyph and opencode's is a plain black glyph
-  // (neither has a built-in background) -- unlike the color logos above,
-  // which read fine on both a light and a dark page theme on their own,
-  // these need a fixed backing chip so they don't wash out into whichever
-  // theme is active (a black glyph on the dark-mode toolbar is otherwise
-  // invisible, same reasoning as hermes below).
-  { label: "PI", command: "pi", icon: piIcon, iconBg: "bg-black" },
-  { label: "Opencode", command: "opencode", icon: opencodeIcon, iconBg: "bg-white" },
-];
-
-// "Runtimes" -- agent orchestration platforms (as opposed to one-shot
-// coding CLIs above).
-const RUNTIME_LAUNCHERS: Launcher[] = [
-  // hermes' mark is a plain black glyph, same dark-mode-invisibility issue
-  // as opencode's above. (OpenClaw left on 2026-10-14.)
-  { label: "Hermes", command: "hermes --tui", icon: hermesIcon, iconBg: "bg-white" },
-];
-
-function LauncherIcon({ icon, iconBg }: { icon?: string; iconBg?: string }) {
-  if (!icon) return <Feather className="h-4 w-4" />;
-  if (!iconBg) return <img src={icon} alt="" className="h-4 w-4" />;
-  return (
-    <span className={cn("flex h-4 w-4 items-center justify-center rounded-sm", iconBg)}>
-      <img src={icon} alt="" className="h-3 w-3" />
-    </span>
-  );
-}
+const TAB_LABEL_MAX = 40;
 
 function WorkspaceTabItem({
   tab,
@@ -129,6 +89,8 @@ function WorkspaceTabItem({
   onDrop,
   closeLabel,
   terminateLabel,
+  onRename,
+  renameLabel,
 }: {
   tab: WorkspaceTab;
   label: string;
@@ -142,7 +104,45 @@ function WorkspaceTabItem({
   onDrop: () => void;
   closeLabel: string;
   terminateLabel?: string;
+  /** Terminal tabs only: double-click (or F2) the name to rename it. */
+  onRename?: (label: string) => void;
+  renameLabel?: string;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(label);
+  const startEditing = () => {
+    if (!onRename) return;
+    setDraft(label);
+    setEditing(true);
+  };
+  const finishEditing = (save: boolean) => {
+    setEditing(false);
+    const next = draft.trim().slice(0, TAB_LABEL_MAX);
+    if (save && next && next !== label) onRename?.(next);
+  };
+
+  if (editing) {
+    return (
+      <div className="flex shrink-0 items-center gap-1.5 rounded-md bg-accent py-1 pl-3 pr-2 text-sm text-accent-foreground">
+        {icon}
+        <input
+          autoFocus
+          value={draft}
+          maxLength={TAB_LABEL_MAX}
+          aria-label={renameLabel}
+          className="w-36 rounded border border-border bg-background px-1 text-sm outline-none focus:border-primary max-md:text-base"
+          onFocus={(event) => event.target.select()}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => finishEditing(true)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") finishEditing(true);
+            else if (event.key === "Escape") finishEditing(false);
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       draggable
@@ -163,7 +163,16 @@ function WorkspaceTabItem({
         tabIndex={active ? 0 : -1}
         className="flex cursor-grab items-center gap-1.5 py-1 pl-3 active:cursor-grabbing"
         onClick={onSelect}
-        onKeyDown={onKeyDown}
+        onDoubleClick={startEditing}
+        title={onRename ? renameLabel : undefined}
+        onKeyDown={(event) => {
+          if (event.key === "F2" && onRename) {
+            event.preventDefault();
+            startEditing();
+            return;
+          }
+          onKeyDown(event);
+        }}
       >
         {icon}
         <span>{label}</span>
@@ -621,43 +630,10 @@ function ChatSessionsMenu({
   );
 }
 
-function LaunchersMenu({ onLaunch }: { onLaunch: (label: string, command: string) => void }) {
-  const { t } = useTranslation("workspace");
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  useClickOutside(containerRef, () => setOpen(false), open);
-  const menuStyle = usePhoneMenuStyle(containerRef, open);
-
-  return (
-    <div className="relative 2xl:hidden" ref={containerRef}>
-      <Button variant="outline" size="sm" className="h-8 gap-1.5 px-2" onClick={() => setOpen((value) => !value)}>
-        <Feather className="h-3.5 w-3.5" />
-        <span className="hidden lg:inline">{t("toolbar.launchers")}</span>
-        <ChevronDown className="h-3 w-3 opacity-60" />
-      </Button>
-      {open && (
-        <div className="absolute right-0 top-full z-30 mt-1 max-h-80 w-60 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md max-md:fixed max-md:inset-x-2 max-md:mr-0 max-md:w-auto" style={menuStyle}>
-          <p className="px-3 py-1 text-[10px] font-medium uppercase text-muted-foreground">{t("toolbar.cli")}</p>
-          {CLI_LAUNCHERS.map((launcher) => (
-            <button key={launcher.command} type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent" onClick={() => { onLaunch(launcher.label, launcher.command); setOpen(false); }}>
-              <LauncherIcon icon={launcher.icon} iconBg={launcher.iconBg} /> {launcher.label}
-            </button>
-          ))}
-          <p className="mt-1 border-t border-border px-3 py-1 pt-2 text-[10px] font-medium uppercase text-muted-foreground">{t("toolbar.runtimes")}</p>
-          {RUNTIME_LAUNCHERS.map((launcher) => (
-            <button key={launcher.command} type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent" onClick={() => { onLaunch(launcher.label, launcher.command); setOpen(false); }}>
-              <LauncherIcon icon={launcher.icon} iconBg={launcher.iconBg} /> {launcher.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function WorkspacePage() {
   const { t } = useTranslation("workspace");
   const { t: tExplorer } = useTranslation("explorer");
+  const [terminalControlsSlot, setTerminalControlsSlot] = useState<HTMLDivElement | null>(null);
   const { data: allAgents } = useAgents();
   const { data: products = [] } = useProducts();
   const { data: projects = [] } = useProjects();
@@ -791,6 +767,12 @@ export default function WorkspacePage() {
   // reusing that same id here -- instead of the fresh crypto.randomUUID()
   // every other open*Tab uses -- is what makes TerminalPane's connection
   // attach to the existing session rather than spawn a new one.
+  // Purely a local name (persisted with the tabs in localStorage): the host
+  // session is keyed by the tab id, so renaming never touches it.
+  function renameTerminalTab(tabId: string, label: string) {
+    setTabs((current) => current.map((tab) => (tab.id === tabId && tab.kind === "terminal" ? { ...tab, label } : tab)));
+  }
+
   function openTerminalSessionTab(sessionId: string, label: string) {
     const existing = tabs.find((tab) => tab.kind === "terminal" && tab.id === sessionId);
     if (existing) {
@@ -1233,11 +1215,11 @@ export default function WorkspacePage() {
       ) : (
       <>
       <div className="flex flex-col border-b border-border">
-        {/* Toolbar: static actions on the left, launchers on the right.
+        {/* Toolbar: static actions, then SSH and the terminal's controls.
             Wraps below md -- kept on one line, a phone clipped everything
-            past the SSH menu (launchers and runtimes). Not
+            past the SSH menu. Not
             overflow-x-auto: that would also clip the dropdowns hanging off
-            these buttons. Those dropdowns (SSH, launchers, runtimes, tabs,
+            these buttons. Those dropdowns (SSH, terminal controls, tabs,
             sessions) are `max-md:fixed max-md:inset-x-2` on a phone: anchored
             to a button that wrapped near either edge, a fixed-width menu ran
             off the screen (2026-09-27). Their `top` comes from
@@ -1325,44 +1307,9 @@ export default function WorkspacePage() {
             <FolderOpen className="h-4 w-4 text-amber-400" />
           </Button>
           <SshLauncherMenu onLaunch={(label, command, server) => openTerminalTab(label, command, undefined, server)} />
-          <LaunchersMenu onLaunch={openTerminalTab} />
-          <div className="flex-1" />
-          <div className="hidden items-center gap-1 2xl:flex">
-          <div className="mx-1 h-5 w-px bg-border" />
-          <span className="text-[10px] font-medium uppercase text-muted-foreground" title={t("toolbar.cliLaunchers")}>
-            {t("toolbar.cli")}
-          </span>
-          {CLI_LAUNCHERS.map((l) => (
-            <Button
-              key={l.command}
-              variant="outline"
-              size="icon"
-              className="h-7 w-7"
-              title={l.label}
-              aria-label={t("toolbar.openLauncher", { label: l.label })}
-              onClick={() => openTerminalTab(l.label, l.command)}
-            >
-              <LauncherIcon icon={l.icon} iconBg={l.iconBg} />
-            </Button>
-          ))}
-          <div className="mx-1 h-5 w-px bg-border" />
-          <span className="text-[10px] font-medium uppercase text-muted-foreground" title={t("toolbar.runtimeLaunchers")}>
-            {t("toolbar.runtimes")}
-          </span>
-          {RUNTIME_LAUNCHERS.map((l) => (
-            <Button
-              key={l.command}
-              variant="outline"
-              size="icon"
-              className="h-7 w-7"
-              title={l.label}
-              aria-label={t("toolbar.openLauncher", { label: l.label })}
-              onClick={() => openTerminalTab(l.label, l.command)}
-            >
-              <LauncherIcon icon={l.icon} iconBg={l.iconBg} />
-            </Button>
-          ))}
-          </div>
+          {/* The active terminal portals its controls menu in here
+              (TerminalPane's `controlsSlot`), right of SSH. */}
+          <div ref={setTerminalControlsSlot} className="contents" />
         </div>
 
         {/* Dedicated tab strip: sortable (drag-and-drop) + horizontal scroll. */}
@@ -1395,6 +1342,8 @@ export default function WorkspacePage() {
                 onDragStart={() => (dragTabIdRef.current = tab.id)}
                 onDrop={() => handleTabDrop(tab.id)}
                 closeLabel={tab.kind === "terminal" ? t("tabs.detachTerminal", { label }) : t("tabs.closeTab", { label })}
+                onRename={tab.kind === "terminal" ? (next) => renameTerminalTab(tab.id, next) : undefined}
+                renameLabel={t("tabs.renameTerminal")}
                 terminateLabel={
                   tab.kind === "chat"
                     ? t("tabs.terminateChat", { label })
@@ -1454,7 +1403,7 @@ export default function WorkspacePage() {
             </div>
           ) : tab.kind === "terminal" ? (
             <div key={tab.id} id={`workspace-panel-${tab.id}`} role="tabpanel" className={cn("absolute inset-0 p-2", tab.id !== activeTabId && "hidden")}>
-              <TerminalPane sessionId={tab.id} command={tab.command} cwd={tab.cwd} serverId={tab.server?.id} active={tab.id === activeTabId} />
+              <TerminalPane sessionId={tab.id} command={tab.command} cwd={tab.cwd} serverId={tab.server?.id} active={tab.id === activeTabId} controlsSlot={terminalControlsSlot} />
             </div>
           ) : tab.kind === "telegram" ? (
             <div key={tab.id} id={`workspace-panel-${tab.id}`} role="tabpanel" className={cn("absolute inset-0", tab.id !== activeTabId && "hidden")}>
