@@ -11,11 +11,22 @@ import { cn } from "@/lib/utils";
 interface SecretInputPopoverProps {
   onInsertSecret: (formattedText: string) => void;
   className?: string;
+  /** Controlled mode: the composer's "+" menu opens it, so no lock button of
+   * its own is rendered. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function SecretInputPopover({ onInsertSecret, className }: SecretInputPopoverProps) {
+export function SecretInputPopover({ onInsertSecret, className, open: openProp, onOpenChange }: SecretInputPopoverProps) {
   const { t } = useTranslation("chat");
-  const [open, setOpen] = useState(false);
+  const [openState, setOpenState] = useState(false);
+  const controlled = openProp !== undefined;
+  const open = controlled ? openProp : openState;
+  const setOpen = (next: boolean | ((v: boolean) => boolean)) => {
+    const value = typeof next === "function" ? next(open) : next;
+    if (!controlled) setOpenState(value);
+    onOpenChange?.(value);
+  };
   const [secretName, setSecretName] = useState("");
   const [environment, setEnvironment] = useState("production");
   const [secretValue, setSecretValue] = useState("");
@@ -49,20 +60,22 @@ export function SecretInputPopover({ onInsertSecret, className }: SecretInputPop
 
   return (
     <div className={cn("relative shrink-0", className)} ref={containerRef}>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className={cn(
-          "h-8 w-8 rounded-full transition-colors",
-          open ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"
-        )}
-        aria-label={t("secretInput.open")}
-        title={t("secretInput.open")}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <Lock className="h-4 w-4" />
-      </Button>
+      {!controlled && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "h-8 w-8 rounded-full transition-colors",
+            open ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"
+          )}
+          aria-label={t("secretInput.open")}
+          title={t("secretInput.open")}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <Lock className="h-4 w-4" />
+        </Button>
+      )}
 
       {open && (
         <div

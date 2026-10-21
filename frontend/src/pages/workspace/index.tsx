@@ -25,7 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { TerminalPane } from "@/components/TerminalPane";
-import { apiClient } from "@/lib/api";
+import { ApiError, apiClient } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   useServers,
@@ -1012,9 +1012,14 @@ export default function WorkspacePage() {
         closeTab(id);
         queryClient.invalidateQueries({ queryKey: ["terminal-sessions"] });
       } else {
-        const targetSessionId = sessionId || id;
-        if (targetSessionId) {
-          await apiClient.delete(`/api/v1/chat/sessions/${targetSessionId}`);
+        // A tab with no message yet has no session to delete -- falling back
+        // to the tab id 404'd. A session already gone counts as deleted.
+        if (sessionId) {
+          try {
+            await apiClient.delete(`/api/v1/chat/sessions/${sessionId}`);
+          } catch (error) {
+            if (!(error instanceof ApiError && error.status === 404)) throw error;
+          }
         }
         closeTab(id);
         queryClient.invalidateQueries({ queryKey: chatSessionsHostStatusKey });

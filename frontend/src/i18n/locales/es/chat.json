@@ -76,6 +76,8 @@
   "attachMenu": {
     "addAttachment": "Añadir adjunto",
     "sendFile": "Enviar archivo",
+    "insertSecret": "Insertar contraseña",
+    "availableMcps": "MCP disponibles",
     "hermesCommand": "Comando",
     "directoryFiles": "Directorios y archivos",
     "agents": "Agentes",
