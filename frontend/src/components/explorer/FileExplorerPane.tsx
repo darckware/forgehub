@@ -59,6 +59,7 @@ import {
   useQuickAccessViewModel,
   type ExplorerSortKey,
   type FileExplorerViewModel,
+  type UploadItem,
 } from "@/hooks/useFileExplorerViewModel";
 import { ExplorerDialogs } from "./ExplorerDialogs";
 import { ExplorerTree, type QuickAccessItem } from "./ExplorerTree";
@@ -186,8 +187,8 @@ function FileExplorerPaneContent({
       return;
     }
     if (isExternalFileDrag(event.dataTransfer)) {
-      const uploads = await filesFromDataTransfer(event.dataTransfer);
-      await vm.requestUpload(uploads, path);
+      const { uploads, unreadDirs } = await filesFromDataTransfer(event.dataTransfer);
+      vm.requestUpload(uploads, path, unreadDirs);
     }
   }
 
@@ -262,7 +263,7 @@ function FileExplorerPaneContent({
         onChange={(e) => {
           const uploads = filesFromInput(e.target.files);
           e.target.value = "";
-          void vm.requestUpload(uploads);
+          vm.requestUpload(uploads);
         }}
       />
       <input
@@ -275,7 +276,7 @@ function FileExplorerPaneContent({
         onChange={(e) => {
           const uploads = filesFromInput(e.target.files);
           e.target.value = "";
-          void vm.requestUpload(uploads);
+          vm.requestUpload(uploads);
         }}
       />
 
@@ -977,6 +978,10 @@ function CenterState({ icon, text, hint, action }: { icon: ReactNode; text: stri
   );
 }
 
+/** Rows the upload panel draws at once; the header still counts every file. */
+const UPLOAD_PANEL_ROWS = 200;
+const UPLOAD_ROW_ORDER: Record<UploadItem["status"], number> = { uploading: 0, error: 1, skipped: 2, queued: 3, done: 4 };
+
 function UploadPanel({ vm }: { vm: FileExplorerViewModel }) {
   const { t } = useTranslation("explorer");
   const [collapsed, setCollapsed] = useState(false);
@@ -988,6 +993,11 @@ function UploadPanel({ vm }: { vm: FileExplorerViewModel }) {
   const loaded = vm.uploads.reduce((s, u) => s + (u.status === "done" ? u.total : u.loaded), 0);
   const total = vm.uploads.reduce((s, u) => s + u.total, 0) || 1;
   const percent = Math.round((loaded / total) * 100);
+  // What needs attention first; a 1000-file batch never becomes 1000 rows.
+  const rows =
+    vm.uploads.length > UPLOAD_PANEL_ROWS
+      ? [...vm.uploads].sort((a, b) => UPLOAD_ROW_ORDER[a.status] - UPLOAD_ROW_ORDER[b.status]).slice(0, UPLOAD_PANEL_ROWS)
+      : vm.uploads;
 
   return (
     <div className="absolute bottom-10 right-4 z-20 w-96 max-w-[calc(100%-2rem)] overflow-hidden rounded-lg border border-border bg-card shadow-xl">
@@ -1018,7 +1028,7 @@ function UploadPanel({ vm }: { vm: FileExplorerViewModel }) {
       </div>
       {!collapsed && (
         <ul className="max-h-56 overflow-auto py-1 text-xs">
-          {vm.uploads.map((u) => (
+          {rows.map((u) => (
             <li key={u.id} className="flex items-center gap-2 px-3 py-1" title={u.error ?? u.destination}>
               {u.status === "done" ? (
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-500" />
@@ -1043,6 +1053,9 @@ function UploadPanel({ vm }: { vm: FileExplorerViewModel }) {
               </span>
             </li>
           ))}
+          {rows.length < vm.uploads.length && (
+            <li className="px-3 py-1 text-muted-foreground">{t("upload.moreRows", { count: vm.uploads.length - rows.length })}</li>
+          )}
         </ul>
       )}
     </div>

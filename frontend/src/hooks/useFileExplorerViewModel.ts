@@ -45,6 +45,7 @@ export type ExplorerDialog =
   | { kind: "newFile" }
   | { kind: "rename"; entry: ExplorerEntry }
   | { kind: "delete"; entries: ExplorerEntry[] }
+  | { kind: "uploadReview"; uploads: PendingUpload[]; destination: string; unreadDirs: string[] }
   | { kind: "uploadConflict"; uploads: PendingUpload[]; destination: string; conflicts: string[] }
   | { kind: "transferTo"; entries: ExplorerEntry[]; mode: "copy" | "move" }
   | { kind: "edit"; path: string }
@@ -419,9 +420,18 @@ export function useFileExplorerViewModel(initialPath: string, onPathChange?: (pa
 
   // ---- uploads -----------------------------------------------------------
 
-  /** Entry point for every upload (file picker, folder picker, drop).
-   * Asks first when anything at the top level would collide. */
-  async function requestUpload(pending: PendingUpload[], destination: string = path) {
+  /** Entry point for every upload (file picker, folder picker, drop): shows
+   * what would be sent -- files, folders, size, heavy folders, limits --
+   * before a single request goes out. `unreadDirs` are heavy folders a drop
+   * skipped without reading. */
+  function requestUpload(pending: PendingUpload[], destination: string = path, unreadDirs: string[] = []) {
+    if (pending.length === 0 && unreadDirs.length === 0) return;
+    setDialog({ kind: "uploadReview", uploads: pending, destination, unreadDirs });
+  }
+
+  /** After the review: asks first when anything at the top level would collide. */
+  async function confirmUpload(pending: PendingUpload[], destination: string) {
+    setDialog(null);
     if (pending.length === 0) return;
     let existing: Set<string>;
     try {
@@ -458,9 +468,15 @@ export function useFileExplorerViewModel(initialPath: string, onPathChange?: (pa
         const item = batch[index];
         update(item.id, { status: "uploading" });
         try {
-          await uploadExplorerFile(serverId, item.destination, pending[index].file, overwrite, (loaded, total) =>
-            update(item.id, { loaded, total })
-          );
+          // Re-render on whole-percent steps only: an update per progress
+          // event, across a big batch, is what froze the panel.
+          let shown = -1;
+          await uploadExplorerFile(serverId, item.destination, pending[index].file, overwrite, (loaded, total) => {
+            const percent = Math.floor((loaded / (total || 1)) * 100);
+            if (percent === shown) return;
+            shown = percent;
+            update(item.id, { loaded, total });
+          });
           update(item.id, { status: "done", loaded: item.total });
         } catch (error) {
           if (!overwrite && error instanceof ApiError && error.status === 409) {
@@ -529,6 +545,7 @@ export function useFileExplorerViewModel(initialPath: string, onPathChange?: (pa
     transferTo,
     download,
     requestUpload,
+    confirmUpload,
     startUpload,
     clearFinishedUploads,
     setViewMode,

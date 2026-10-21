@@ -128,7 +128,9 @@
     "finished": "Subida terminada: {{done}} enviados, {{failed}} con error, {{skipped}} omitidos",
     "toggle": "Mostrar/ocultar detalles de la subida",
     "skipped": "omitido",
-    "failed": "falló"
+    "failed": "falló",
+    "moreRows_one": "+{{count}} archivo no mostrado",
+    "moreRows_other": "+{{count}} archivos no mostrados"
   },
   "moveTo": {
     "titleOne": "Mover \"{{name}}\" a…",
@@ -145,5 +147,26 @@
     "titleOne": "Copiar \"{{name}}\" a…",
     "titleMany": "Copiar {{count}} elementos a…",
     "confirm": "Copiar aquí"
+  },
+  "review": {
+    "title": "Revisar envío",
+    "description": "Destino: {{destination}}. Revise lo que se enviará antes de empezar.",
+    "send_one": "Enviar {{count}} archivo",
+    "send_other": "Enviar {{count}} archivos",
+    "files": "Archivos",
+    "folders": "Carpetas",
+    "size": "Tamaño",
+    "ofLimit": "límite {{limit}}",
+    "skipHeavy": "Omitir carpetas generadas (node_modules, .git, venv, __pycache__…) — recomendado",
+    "dirFiles_one": "{{count}} archivo",
+    "dirFiles_other": "{{count}} archivos",
+    "unreadDirs": "Carpetas generadas omitidas al arrastrar (no se leyeron). Para incluirlas, use \"Subir carpeta\".",
+    "oversized_one": "{{count}} archivo de más de {{limit}} no se enviará:",
+    "oversized_other": "{{count}} archivos de más de {{limit}} no se enviarán:",
+    "block": {
+      "empty": "Nada que enviar.",
+      "tooManyFiles": "Son más de {{files}} archivos. Omita las carpetas generadas, envíe una subcarpeta a la vez o comprima en .zip.",
+      "tooLarge": "El total supera {{total}}. Envíe por partes o comprima en .zip."
+    }
   }
 }

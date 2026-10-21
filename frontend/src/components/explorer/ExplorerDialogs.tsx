@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -9,8 +9,17 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { isValidName, useExplorerFileContent } from "@/hooks/useFileExplorer";
+import { formatSize, isValidName, useExplorerFileContent } from "@/hooks/useFileExplorer";
 import { errorMessage, type FileExplorerViewModel } from "@/hooks/useFileExplorerViewModel";
+import {
+  summarizeUpload,
+  uploadBlock,
+  withoutHeavyDirs,
+  UPLOAD_MAX_FILES,
+  UPLOAD_MAX_FILE_BYTES,
+  UPLOAD_MAX_TOTAL_BYTES,
+  type PendingUpload,
+} from "./droppedFiles";
 import { FolderPickerDialog } from "./FolderPickerDialog";
 import type { QuickAccessItem } from "./ExplorerTree";
 
@@ -79,6 +88,18 @@ export function ExplorerDialogs({ vm, quickAccess }: { vm: FileExplorerViewModel
           </ul>
         )}
       </ConfirmDialog>
+    );
+  }
+
+  if (dialog.kind === "uploadReview") {
+    return (
+      <UploadReviewDialog
+        uploads={dialog.uploads}
+        destination={dialog.destination}
+        unreadDirs={dialog.unreadDirs}
+        onConfirm={(selected) => void vm.confirmUpload(selected, dialog.destination)}
+        onCancel={vm.closeDialog}
+      />
     );
   }
 
@@ -282,6 +303,118 @@ function EditorDialog({ path, vm }: { path: string; vm: FileExplorerViewModel })
         </div>
       </div>
     </Overlay>
+  );
+}
+
+/** What an upload would send, checked against the limits in droppedFiles.ts,
+ * before any request goes out. Heavy generated folders are left out by
+ * default; files over the per-file limit are always left out (nginx would
+ * refuse them only after the transfer). */
+function UploadReviewDialog({
+  uploads,
+  destination,
+  unreadDirs,
+  onConfirm,
+  onCancel,
+}: {
+  uploads: PendingUpload[];
+  destination: string;
+  unreadDirs: string[];
+  onConfirm: (selected: PendingUpload[]) => void;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation("explorer");
+  const all = useMemo(() => summarizeUpload(uploads), [uploads]);
+  const [skipHeavy, setSkipHeavy] = useState(true);
+  const chosen = useMemo(() => (skipHeavy ? withoutHeavyDirs(uploads) : uploads), [skipHeavy, uploads]);
+  const summary = useMemo(() => summarizeUpload(chosen), [chosen]);
+  const block = uploadBlock(summary);
+  const sendable = summary.files - summary.oversized.length;
+  const limits = { files: UPLOAD_MAX_FILES, total: formatSize(UPLOAD_MAX_TOTAL_BYTES), perFile: formatSize(UPLOAD_MAX_FILE_BYTES) };
+
+  return (
+    <ConfirmDialog
+      open
+      variant="default"
+      icon="warning"
+      title={t("review.title")}
+      description={t("review.description", { destination })}
+      confirmLabel={t("review.send", { count: sendable })}
+      confirmDisabled={block !== null}
+      onConfirm={() => {
+        const oversized = new Set(summary.oversized);
+        onConfirm(chosen.filter((u) => !oversized.has(u)));
+      }}
+      onCancel={onCancel}
+    >
+      <dl className="grid grid-cols-3 gap-2 text-center">
+        <ReviewStat label={t("review.files")} value={String(sendable)} limit={t("review.ofLimit", { limit: limits.files })} over={sendable > UPLOAD_MAX_FILES} />
+        <ReviewStat label={t("review.folders")} value={String(summary.folders)} />
+        <ReviewStat label={t("review.size")} value={formatSize(summary.bytes)} limit={t("review.ofLimit", { limit: limits.total })} over={block === "tooLarge"} />
+      </dl>
+
+      {all.heavyDirs.length > 0 && (
+        <div className="mt-3 rounded-md border border-border bg-muted/30 p-2 text-xs">
+          <label className="flex items-start gap-2 font-medium">
+            <input type="checkbox" className="mt-0.5" checked={skipHeavy} onChange={(e) => setSkipHeavy(e.target.checked)} />
+            <span>{t("review.skipHeavy")}</span>
+          </label>
+          <ul className="mt-1 max-h-28 overflow-auto pl-6 font-mono">
+            {all.heavyDirs.map((dir) => (
+              <li key={dir.path} className="flex gap-2">
+                <span className="min-w-0 flex-1 truncate">{dir.path}/</span>
+                <span className="shrink-0 tabular-nums text-muted-foreground">
+                  {t("review.dirFiles", { count: dir.files })} · {formatSize(dir.bytes)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {unreadDirs.length > 0 && (
+        <div className="mt-3 rounded-md border border-border bg-muted/30 p-2 text-xs">
+          <p className="font-medium">{t("review.unreadDirs")}</p>
+          <ul className="mt-1 max-h-24 overflow-auto font-mono">
+            {unreadDirs.map((dir) => (
+              <li key={dir} className="truncate">
+                {dir}/
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {summary.oversized.length > 0 && (
+        <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+          <p className="font-medium">{t("review.oversized", { count: summary.oversized.length, limit: limits.perFile })}</p>
+          <ul className="mt-1 max-h-24 overflow-auto font-mono">
+            {summary.oversized.map((u) => (
+              <li key={u.relativePath} className="flex gap-2">
+                <span className="min-w-0 flex-1 truncate">{u.relativePath}</span>
+                <span className="shrink-0 tabular-nums">{formatSize(u.file.size)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {block && (
+        <p role="alert" className="mt-3 text-sm text-destructive">
+          {t(`review.block.${block}`, limits)}
+        </p>
+      )}
+    </ConfirmDialog>
+  );
+}
+
+function ReviewStat({ label, value, limit, over }: { label: string; value: string; limit?: string; over?: boolean }) {
+  return (
+    <div className={`rounded-md border p-2 ${over ? "border-destructive/60 bg-destructive/10" : "border-border bg-muted/30"}`}>
+      <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className={`text-base font-semibold tabular-nums ${over ? "text-destructive" : ""}`}>{value}</dd>
+      {limit && <dd className="text-[11px] text-muted-foreground">{limit}</dd>}
+    </div>
   );
 }
 
