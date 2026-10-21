@@ -232,8 +232,8 @@
     "runningNow": "Copia en curso",
     "refresh": "Actualizar",
     "add": "Agregar carpetas",
-    "runAll": "Ejecutar ahora",
-    "description": "Copia cifrada (restic) en Google Drive, una instantánea por proyecto: sus carpetas, el volcado de su Postgres y lo que agregue aquí. Se ejecuta a diario desde el cron de Athos; cada fallo llega a las notificaciones. node_modules, entornos virtuales, cachés y compilaciones quedan fuera.",
+    "runAll": "Ejecutar todos",
+    "description": "Copia cifrada (restic) en Google Drive, una instantánea por proyecto: sus carpetas, el volcado de su Postgres y lo que agregue aquí. Se ejecuta a diario desde el cron de Athos, y puede ejecutar todos, los seleccionados o uno solo: las solicitudes entran en una cola y se ejecutan de a una. Cada fallo llega a las notificaciones. node_modules, entornos virtuales, cachés y compilaciones quedan fuera.",
     "repository": "Repositorio",
     "schedule": "Programación",
     "schedulePaused": "en pausa",
@@ -244,8 +244,6 @@
     "maintenanceNever": "aún no ejecutado",
     "loading": "Cargando…",
     "empty": "Ningún destino registrado. Use \"Agregar carpetas\".",
-    "started_one": "Copia iniciada para {{count}} destino. El estado aparece aquí a medida que avanza.",
-    "started_other": "Copia iniciada para {{count}} destinos. El estado aparece aquí a medida que avanza.",
     "columns": {
       "target": "Destino",
       "paths": "Carpetas",
@@ -257,7 +255,8 @@
       "ok": "Completada",
       "failed": "Falló",
       "interrupted": "Interrumpida",
-      "running": "En curso"
+      "running": "En curso",
+      "queued": "En cola"
     },
     "trigger": {
       "schedule": "programada",
@@ -271,7 +270,7 @@
     "never": "Nunca ejecutado",
     "staleSince": "Sin copia completa desde {{when}}",
     "noSuccess": "Aún sin ninguna copia completa",
-    "runOne": "Ejecutar este destino ahora",
+    "runOne": "Poner este destino en la cola ahora",
     "history": "Historial",
     "edit": "Editar",
     "disable": "Desactivar",
@@ -283,9 +282,9 @@
     "errors": {
       "missing": "Estas carpetas no existen en el servidor: {{detail}}",
       "duplicate": "Ya existe un destino con ese identificador.",
-      "running": "Ya hay una copia externa en curso.",
       "load": "No se pudo cargar la copia externa: {{detail}}",
-      "generic": "{{detail}}"
+      "generic": "{{detail}}",
+      "notQueued": "Solo se puede quitar de la cola una copia que aún no empezó."
     },
     "form": {
       "createTitle": "Agregar a la copia externa",
@@ -314,6 +313,18 @@
         "absolute": "Cada línea debe ser una ruta absoluta (que empiece por /).",
         "root": "La raíz (/) entera no puede ser un destino."
       }
-    }
+    },
+    "runSelected_one": "Ejecutar {{count}} seleccionado",
+    "runSelected_other": "Ejecutar {{count}} seleccionados",
+    "queuedCount_one": "{{count}} en cola",
+    "queuedCount_other": "{{count}} en cola",
+    "queuedNotice_one": "{{count}} destino entró en la cola.",
+    "queuedNotice_other": "{{count}} destinos entraron en la cola.",
+    "nothingQueued": "Nada nuevo entró en la cola.",
+    "alreadyQueued": "Ya estaban en la cola o en curso: {{names}}.",
+    "waitsTurn": "Ya hay una copia en curso; siguen en orden.",
+    "selectAll": "Seleccionar todos los destinos activos",
+    "select": "Seleccionar {{name}}",
+    "cancelQueued": "Quitar de la cola"
   }
 }

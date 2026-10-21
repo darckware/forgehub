@@ -232,8 +232,8 @@
     "runningNow": "Backup running",
     "refresh": "Refresh",
     "add": "Add folders",
-    "runAll": "Run now",
-    "description": "Encrypted copy (restic) on Google Drive, one snapshot per project: its folders, its Postgres dump and whatever you add here. Runs daily from Athos' cron; every failure goes to notifications. node_modules, virtual environments, caches and builds are left out.",
+    "runAll": "Run all",
+    "description": "Encrypted copy (restic) on Google Drive, one snapshot per project: its folders, its Postgres dump and whatever you add here. Runs daily from Athos' cron, and you can run all, the selected ones or a single one: requests join a queue and run one at a time. Every failure goes to notifications. node_modules, virtual environments, caches and builds are left out.",
     "repository": "Repository",
     "schedule": "Schedule",
     "schedulePaused": "paused",
@@ -244,8 +244,6 @@
     "maintenanceNever": "not run yet",
     "loading": "Loading…",
     "empty": "No target yet. Use \"Add folders\".",
-    "started_one": "Backup started for {{count}} target. Its status shows here as it progresses.",
-    "started_other": "Backup started for {{count}} targets. Their status shows here as they progress.",
     "columns": {
       "target": "Target",
       "paths": "Folders",
@@ -257,7 +255,8 @@
       "ok": "Completed",
       "failed": "Failed",
       "interrupted": "Interrupted",
-      "running": "Running"
+      "running": "Running",
+      "queued": "Queued"
     },
     "trigger": {
       "schedule": "scheduled",
@@ -271,7 +270,7 @@
     "never": "Never run",
     "staleSince": "No complete backup since {{when}}",
     "noSuccess": "No complete backup yet",
-    "runOne": "Run this target now",
+    "runOne": "Queue this target now",
     "history": "History",
     "edit": "Edit",
     "disable": "Disable",
@@ -283,9 +282,9 @@
     "errors": {
       "missing": "These folders don't exist on the server: {{detail}}",
       "duplicate": "A target with this identifier already exists.",
-      "running": "An off-site backup is already running.",
       "load": "Could not load the off-site backup: {{detail}}",
-      "generic": "{{detail}}"
+      "generic": "{{detail}}",
+      "notQueued": "Only a backup that hasn't started can be removed from the queue."
     },
     "form": {
       "createTitle": "Add to the off-site backup",
@@ -314,6 +313,18 @@
         "absolute": "Each line must be an absolute path (starting with /).",
         "root": "The whole root (/) can't be a target."
       }
-    }
+    },
+    "runSelected_one": "Run {{count}} selected",
+    "runSelected_other": "Run {{count}} selected",
+    "queuedCount_one": "{{count}} queued",
+    "queuedCount_other": "{{count}} queued",
+    "queuedNotice_one": "{{count}} target joined the queue.",
+    "queuedNotice_other": "{{count}} targets joined the queue.",
+    "nothingQueued": "Nothing new joined the queue.",
+    "alreadyQueued": "Already queued or running: {{names}}.",
+    "waitsTurn": "A backup is already running; these follow in order.",
+    "selectAll": "Select every enabled target",
+    "select": "Select {{name}}",
+    "cancelQueued": "Remove from queue"
   }
 }

@@ -91,7 +91,8 @@ class OffsiteBackupRunOut(BaseModel):
     target_name: str
     trigger: str
     status: str
-    started_at: datetime
+    created_at: datetime
+    started_at: datetime | None
     finished_at: datetime | None
     snapshot_id: str | None
     files_new: int | None
@@ -133,16 +134,22 @@ class OffsiteBackupOverview(BaseModel):
     schedule: OffsiteBackupSchedule | None
     schedule_error: str | None
     running: bool
+    # Targets waiting in the queue.
+    queued: int
     repository_maintenance: OffsiteBackupRunOut | None
     targets: list[OffsiteBackupTargetOut]
 
 
 class OffsiteBackupRunRequest(BaseModel):
-    # Empty = every enabled target.
+    # Empty = every enabled target. Queued in this order.
     targets: list[str] = Field(default_factory=list, max_length=100)
 
 
 # --- Internal (Athos' worker, bridge token) ---------------------------------
+
+
+class OffsiteBackupEnqueue(BaseModel):
+    trigger: Literal["schedule", "manual"] = "schedule"
 
 
 class OffsiteBackupRunStart(BaseModel):

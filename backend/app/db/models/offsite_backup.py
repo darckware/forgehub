@@ -19,7 +19,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
 
-OFFSITE_BACKUP_RUN_STATUSES = ("running", "ok", "failed", "interrupted")
+# "queued": asked for (schedule, "Run all", one row's button) and waiting for
+# the worker, which takes the queue oldest first, one target at a time.
+OFFSITE_BACKUP_RUN_STATUSES = ("queued", "running", "ok", "failed", "interrupted")
 OFFSITE_BACKUP_TRIGGERS = ("schedule", "manual")
 # Repository-wide maintenance (Sunday prune + integrity check) is recorded as a
 # run with no target and this name -- it belongs to no single project.
@@ -51,10 +53,11 @@ class OffsiteBackupRun(Base, TimestampMixin):
     __tablename__ = "offsite_backup_runs"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('running', 'ok', 'failed', 'interrupted')", name="ck_offsite_backup_run_status"
+            "status IN ('queued', 'running', 'ok', 'failed', 'interrupted')", name="ck_offsite_backup_run_status"
         ),
         CheckConstraint("trigger IN ('schedule', 'manual')", name="ck_offsite_backup_run_trigger"),
         Index("ix_offsite_backup_runs_target_started", "target_name", "started_at"),
+        Index("ix_offsite_backup_runs_status_created", "status", "created_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -65,8 +68,9 @@ class OffsiteBackupRun(Base, TimestampMixin):
     )
     target_name: Mapped[str] = mapped_column(String(64), nullable=False)
     trigger: Mapped[str] = mapped_column(String(20), nullable=False, default="schedule")
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    # NULL while queued; created_at is when it was asked for (the queue order).
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     snapshot_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     files_new: Mapped[int | None] = mapped_column(Integer, nullable=True)

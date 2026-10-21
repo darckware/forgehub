@@ -1,17 +1,23 @@
 """Off-site backup control (System Control -> "Backup externo", 2026-10-20).
 
 ForgeHub owns the list of what is backed up (one target per project, plus the
-system) and the history of every run; the backup itself runs on the host in
-Athos' worker (`backup_offsite_projects.sh` -> `backup_offsite_projects.py`),
-scheduled by `hermes cron` like every other ecosystem job. The worker pulls
-its plan from `/internal/plan` and reports each target through
-`/internal/runs` and `/internal/runs:finish`; those three are in main.py's
-_PUBLIC_API_PATHS and check the bridge token themselves, like
+system), the queue and the history of every run; the backup itself runs on the
+host in Athos' worker (`backup_offsite_projects.sh` -> `backup_offsite_projects.py`),
+scheduled by `hermes cron` like every other ecosystem job.
+
+Every run goes through one queue (2026-10-21, Marcelo: "posso fazer de todos em
+fila ou individual"): the nightly schedule, "Run all", "Run selected" and a
+row's own button each add `queued` runs -- never a second copy of a target that
+is already queued or running -- and wake the worker. The worker takes the queue
+oldest first, one target at a time, until it is empty, so a click while a
+backup is running waits its turn instead of being refused. The worker talks to
+`/internal/*` (bridge token, in main.py's _PUBLIC_API_PATHS), like
 /client-ops/reports/run-internal.
 
-"Run now" launches the same script through the host-bridge. The script
-detaches the worker and returns at once: a first backup takes hours, longer
-than both the bridge's exec timeout and Hermes' 1 h script timeout.
+The launcher detaches the worker and returns at once: a first backup takes
+hours, longer than both the bridge's exec timeout and Hermes' 1 h script
+timeout. It exits 75 when a worker is already draining the queue -- which then
+also picks up whatever was just queued.
 """
 from __future__ import annotations
 
@@ -28,6 +34,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.offsite_backup import (
+    OffsiteBackupEnqueue,
     OffsiteBackupOverview,
     OffsiteBackupRunFinish,
     OffsiteBackupRunOut,
@@ -81,7 +88,11 @@ def _run_out(run: OffsiteBackupRun | None) -> OffsiteBackupRunOut | None:
     if run is None:
         return None
     out = OffsiteBackupRunOut.model_validate(run)
-    if out.status == "running" and datetime.now(timezone.utc) - out.started_at > STALE_RUN_AFTER:
+    if (
+        out.status == "running"
+        and out.started_at is not None
+        and datetime.now(timezone.utc) - out.started_at > STALE_RUN_AFTER
+    ):
         out.status = "interrupted"
     return out
 
@@ -92,8 +103,8 @@ async def _latest_runs(db: AsyncSession) -> tuple[dict[str, OffsiteBackupRun], d
     rows = (
         await db.execute(
             select(OffsiteBackupRun)
-            .where(OffsiteBackupRun.started_at > datetime.now(timezone.utc) - timedelta(days=400))
-            .order_by(OffsiteBackupRun.started_at.desc())
+            .where(OffsiteBackupRun.created_at > datetime.now(timezone.utc) - timedelta(days=400))
+            .order_by(OffsiteBackupRun.created_at.desc())
         )
     ).scalars().all()
     last: dict[str, OffsiteBackupRun] = {}
@@ -169,6 +180,41 @@ def _target_out(
     return out
 
 
+async def _enqueue(db: AsyncSession, names: list[str] | None, trigger: str) -> tuple[list[str], list[str]]:
+    """Queue a run for each enabled target named (all of them when `names` is
+    None). A target already queued or running is skipped, not queued twice:
+    the run that is waiting will copy the same folders anyway."""
+    query = select(OffsiteBackupTarget).where(OffsiteBackupTarget.enabled.is_(True)).order_by(
+        OffsiteBackupTarget.sort_order, OffsiteBackupTarget.label
+    )
+    targets = (await db.execute(query)).scalars().all()
+    if names is not None:
+        order = {name: index for index, name in enumerate(names)}
+        targets = sorted((t for t in targets if t.name in order), key=lambda t: order[t.name])
+    # A "running" row older than STALE_RUN_AFTER is a dead worker's: it must
+    # not keep its target out of the queue forever (the claim closes it).
+    stale_before = datetime.now(timezone.utc) - STALE_RUN_AFTER
+    busy = set(
+        (
+            await db.execute(
+                select(OffsiteBackupRun.target_name).where(
+                    (OffsiteBackupRun.status == "queued")
+                    | ((OffsiteBackupRun.status == "running") & (OffsiteBackupRun.started_at > stale_before))
+                )
+            )
+        ).scalars()
+    )
+    queued, skipped = [], []
+    for target in targets:
+        if target.name in busy:
+            skipped.append(target.name)
+            continue
+        db.add(OffsiteBackupRun(target_id=target.id, target_name=target.name, trigger=trigger, status="queued"))
+        queued.append(target.name)
+    await db.commit()
+    return queued, skipped
+
+
 @router.get("/overview", response_model=OffsiteBackupOverview)
 async def overview(_admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)):
     targets = (
@@ -187,6 +233,7 @@ async def overview(_admin: User = Depends(get_current_admin), db: AsyncSession =
         schedule=schedule,
         schedule_error=schedule_error,
         running=running,
+        queued=sum(1 for t in target_outs if t.last_run and t.last_run.status == "queued"),
         repository_maintenance=maintenance,
         targets=target_outs,
     )
@@ -247,10 +294,26 @@ async def list_runs(
     _admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(OffsiteBackupRun).order_by(OffsiteBackupRun.started_at.desc()).limit(limit)
+    query = select(OffsiteBackupRun).order_by(OffsiteBackupRun.created_at.desc()).limit(limit)
     if target:
         query = query.where(OffsiteBackupRun.target_name == target)
     return [_run_out(run) for run in (await db.execute(query)).scalars().all()]
+
+
+@router.delete("/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_queued_run(
+    run_id: uuid.UUID, _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+) -> Response:
+    """Takes a run out of the queue. One already running is left alone: a
+    restic snapshot stopped halfway saves nothing and only wastes the upload."""
+    run = await db.get(OffsiteBackupRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown run")
+    if run.status != "queued":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only a queued run can be cancelled")
+    await db.delete(run)
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/postgres-containers")
@@ -268,6 +331,8 @@ async def postgres_containers(_admin: User = Depends(get_current_admin)) -> dict
 async def run_now(
     payload: OffsiteBackupRunRequest, _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
+    """Queue the named targets (every enabled one when the list is empty) and
+    wake the worker. A worker already draining the queue takes them in turn."""
     enabled = {
         t.name for t in (await db.execute(select(OffsiteBackupTarget).where(OffsiteBackupTarget.enabled.is_(True)))).scalars()
     }
@@ -278,51 +343,90 @@ async def run_now(
         )
     if not enabled:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No enabled backup target")
+    queued, skipped = await _enqueue(db, list(dict.fromkeys(payload.targets)) or None, "manual")
     command = f"{shlex.quote(f'{ATHOS_SCRIPTS}/{SCRIPT_NAME}')} --trigger manual"
-    if payload.targets:
-        command += " --targets " + shlex.quote(",".join(payload.targets))
     data = await _bridge_exec(command, timeout_seconds=30)
-    if data.get("exit_code") == ALREADY_RUNNING_EXIT:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An off-site backup is already running")
-    if data.get("exit_code") != 0:
+    if data.get("exit_code") not in (0, ALREADY_RUNNING_EXIT):
+        # The runs stay queued: the next launch (schedule or click) drains them.
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=((data.get("stderr") or data.get("stdout") or "").strip()[-500:]) or "Could not start the backup",
         )
-    return {"started": True, "targets": payload.targets or sorted(enabled)}
+    return {"queued": queued, "skipped": skipped, "worker_already_running": data.get("exit_code") == ALREADY_RUNNING_EXIT}
 
 
 # --- Internal: Athos' worker --------------------------------------------------
 
 
-@router.get("/internal/plan")
-async def internal_plan(
-    targets: str | None = Query(default=None, max_length=8000),
+@router.post("/internal/enqueue")
+async def internal_enqueue(
+    payload: OffsiteBackupEnqueue,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    """The nightly schedule: every enabled target joins the queue."""
     _check_bridge_token(x_bridge_token)
-    query = select(OffsiteBackupTarget).where(OffsiteBackupTarget.enabled.is_(True)).order_by(
-        OffsiteBackupTarget.sort_order, OffsiteBackupTarget.label
-    )
-    rows = (await db.execute(query)).scalars().all()
-    if targets:
-        wanted = {name.strip() for name in targets.split(",") if name.strip()}
-        rows = [t for t in rows if t.name in wanted]
-    return {
-        "repository": REPOSITORY,
-        "targets": [
-            {
-                "name": t.name,
-                "label": t.label,
-                "paths": t.paths,
-                "excludes": t.excludes,
-                "postgres_container": t.postgres_container,
-                "include_system_state": t.include_system_state,
-            }
-            for t in rows
-        ],
-    }
+    queued, skipped = await _enqueue(db, None, payload.trigger)
+    return {"repository": REPOSITORY, "queued": queued, "skipped": skipped}
+
+
+@router.post("/internal/runs:claim")
+async def internal_claim_run(
+    x_bridge_token: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Hand the worker the oldest queued run (and its target), now running;
+    `run: null` when the queue is empty."""
+    _check_bridge_token(x_bridge_token)
+    now = datetime.now(timezone.utc)
+    while True:
+        run = (
+            await db.execute(
+                select(OffsiteBackupRun)
+                .where(OffsiteBackupRun.status == "queued")
+                .order_by(OffsiteBackupRun.created_at)
+                .limit(1)
+                .with_for_update(skip_locked=True)
+            )
+        ).scalar_one_or_none()
+        if run is None:
+            await db.commit()
+            return {"repository": REPOSITORY, "run": None}
+        target = await db.get(OffsiteBackupTarget, run.target_id) if run.target_id else None
+        if target is None or not target.enabled:
+            # Removed or switched off while it waited.
+            run.status, run.finished_at = "interrupted", now
+            run.error = "The target was removed or disabled before its turn"
+            # Explicit: the session doesn't autoflush, and the next SELECT
+            # would hand back this same row (our own lock isn't skipped).
+            await db.flush()
+            continue
+        # The worker holds a host lock, so an older run of the same target
+        # still "running" here is one that died without reporting.
+        for stale in (
+            await db.execute(
+                select(OffsiteBackupRun).where(
+                    OffsiteBackupRun.target_name == run.target_name, OffsiteBackupRun.status == "running"
+                )
+            )
+        ).scalars():
+            stale.status = "interrupted"
+            stale.finished_at = now
+            stale.error = stale.error or "The worker stopped before reporting this run"
+        run.status, run.started_at = "running", now
+        await db.commit()
+        return {
+            "repository": REPOSITORY,
+            "run": {"run_id": str(run.id), "trigger": run.trigger},
+            "target": {
+                "name": target.name,
+                "label": target.label,
+                "paths": target.paths,
+                "excludes": target.excludes,
+                "postgres_container": target.postgres_container,
+                "include_system_state": target.include_system_state,
+            },
+        }
 
 
 @router.post("/internal/runs")
@@ -331,33 +435,13 @@ async def internal_start_run(
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
+    """A run that doesn't come from the queue: the repository maintenance."""
     _check_bridge_token(x_bridge_token)
-    target = None
     if payload.target_name != REPOSITORY_RUN_NAME:
-        target = (
-            await db.execute(select(OffsiteBackupTarget).where(OffsiteBackupTarget.name == payload.target_name))
-        ).scalar_one_or_none()
-        if target is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown backup target")
-    now = datetime.now(timezone.utc)
-    # The worker holds a host lock, so an older run of the same target still
-    # "running" here is one that died without reporting.
-    for stale in (
-        await db.execute(
-            select(OffsiteBackupRun).where(
-                OffsiteBackupRun.target_name == payload.target_name, OffsiteBackupRun.status == "running"
-            )
-        )
-    ).scalars():
-        stale.status = "interrupted"
-        stale.finished_at = now
-        stale.error = stale.error or "The worker stopped before reporting this run"
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Targets are run through the queue")
     run = OffsiteBackupRun(
-        target_id=target.id if target else None,
-        target_name=payload.target_name,
-        trigger=payload.trigger,
-        status="running",
-        started_at=now,
+        target_name=REPOSITORY_RUN_NAME, trigger=payload.trigger, status="running",
+        started_at=datetime.now(timezone.utc),
     )
     db.add(run)
     await db.commit()

@@ -5,7 +5,8 @@ import { apiClient } from "@/lib/api";
 /** Off-site backup (System Control -> "Backup externo", 2026-10-20): one
  * restic snapshot per target in the Google Drive repository. ForgeHub keeps
  * the list and the history; Athos' worker on the host does the backup. */
-export type OffsiteRunStatus = "running" | "ok" | "failed" | "interrupted";
+/** "queued": waiting its turn; the worker takes the queue oldest first, one at a time. */
+export type OffsiteRunStatus = "queued" | "running" | "ok" | "failed" | "interrupted";
 
 export interface OffsiteBackupRun {
   id: string;
@@ -13,7 +14,10 @@ export interface OffsiteBackupRun {
   target_name: string;
   trigger: "schedule" | "manual";
   status: OffsiteRunStatus;
-  started_at: string;
+  /** When it was asked for -- the queue order. */
+  created_at: string;
+  /** null while queued. */
+  started_at: string | null;
   finished_at: string | null;
   snapshot_id: string | null;
   files_new: number | null;
@@ -51,6 +55,8 @@ export interface OffsiteBackupOverview {
   /** "not_scheduled" when Athos has no cron job for the script yet. */
   schedule_error: string | null;
   running: boolean;
+  /** Targets waiting in the queue. */
+  queued: number;
   repository_maintenance: OffsiteBackupRun | null;
   targets: OffsiteBackupTarget[];
 }
@@ -133,7 +139,7 @@ export function useOffsiteBackupOverview() {
     queryFn: () => apiClient.get("/api/v1/offsite-backup/overview"),
     retry: false,
     // While a backup runs, each target's row changes as the worker reports.
-    refetchInterval: (query) => (query.state.data?.running ? 10_000 : 60_000),
+    refetchInterval: (query) => (query.state.data?.running || query.state.data?.queued ? 10_000 : 60_000),
   });
 }
 
@@ -181,10 +187,26 @@ export function useDeleteOffsiteTarget() {
   });
 }
 
+export interface OffsiteQueueResult {
+  queued: string[];
+  /** Already queued or running: not queued twice. */
+  skipped: string[];
+  worker_already_running: boolean;
+}
+
+/** Queues the targets (all enabled ones for an empty list) and wakes the worker. */
 export function useRunOffsiteBackup() {
   const invalidate = useInvalidateOverview();
-  return useMutation<{ started: boolean; targets: string[] }, Error, string[]>({
+  return useMutation<OffsiteQueueResult, Error, string[]>({
     mutationFn: (targets) => apiClient.post("/api/v1/offsite-backup/run", { targets }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useCancelQueuedRun() {
+  const invalidate = useInvalidateOverview();
+  return useMutation<void, Error, string>({
+    mutationFn: (runId) => apiClient.delete(`/api/v1/offsite-backup/runs/${runId}`),
     onSuccess: invalidate,
   });
 }

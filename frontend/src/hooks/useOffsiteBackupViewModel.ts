@@ -2,20 +2,24 @@ import { useState } from "react";
 import { ApiError } from "@/lib/api";
 import {
   toOffsiteTargetPayload,
+  useCancelQueuedRun,
   useDeleteOffsiteTarget,
   useOffsiteBackupOverview,
   useRunOffsiteBackup,
   useSaveOffsiteTarget,
   type OffsiteBackupOverview,
   type OffsiteBackupTarget,
+  type OffsiteQueueResult,
   type OffsiteTargetFormInput,
 } from "@/hooks/useOffsiteBackup";
 
 /** ViewModel Hook (§21) for System Control's "Backup externo" card (2026-10-20,
  * Marcelo: "adicione esse controle na tela Controle do sistema como backup
  * externo. onde posso adicionar outras pastas"). The card lists one target per
- * project, opens the form to add or edit one, confirms removal, and starts a
- * run of everything or of a single target. */
+ * project, opens the form to add or edit one, confirms removal, and queues runs:
+ * every enabled target, the selected ones, or one row (2026-10-21: "posso fazer
+ * de todos em fila ou individual"). A run asked for while a backup is going
+ * waits its turn in the queue rather than being refused. */
 export type OffsiteBackupStatus = "loading" | "ready" | "submitting" | "error";
 
 /** A target whose newest good snapshot is older than this is flagged: the
@@ -26,7 +30,7 @@ export type OffsiteDialog = { mode: "create" } | { mode: "edit"; target: Offsite
 
 /** `code` picks the translated message; `detail` carries what the server named. */
 export interface OffsiteError {
-  code: "missing" | "duplicate" | "running" | "load" | "generic";
+  code: "missing" | "duplicate" | "notQueued" | "load" | "generic";
   detail: string;
 }
 
@@ -40,11 +44,16 @@ export interface OffsiteBackupViewModel {
   saving: boolean;
   deleting: OffsiteBackupTarget | null;
   actionError?: OffsiteError;
-  startedTargets: string[] | null;
-  startingTarget: string | null | "all";
+  queueResult: OffsiteQueueResult | null;
+  /** "all", "selected" or a target name while that request is in flight. */
+  queueing: string | null;
   historyFor: string | null;
   enabledCount: number;
+  selected: Set<string>;
+  selectableNames: string[];
   isStale(target: OffsiteBackupTarget): boolean;
+  /** Queued or running: asking for it again would be a no-op. */
+  isInQueue(target: OffsiteBackupTarget): boolean;
   refresh(): void;
   openCreate(): void;
   openEdit(target: OffsiteBackupTarget): void;
@@ -54,8 +63,12 @@ export interface OffsiteBackupViewModel {
   requestDelete(target: OffsiteBackupTarget): void;
   cancelDelete(): void;
   confirmDelete(): Promise<void>;
+  toggleSelected(target: OffsiteBackupTarget): void;
+  toggleSelectAll(): void;
   runAll(): Promise<void>;
+  runSelected(): Promise<void>;
   runTarget(target: OffsiteBackupTarget): Promise<void>;
+  cancelQueued(target: OffsiteBackupTarget): Promise<void>;
   toggleHistory(target: OffsiteBackupTarget): void;
   dismissNotice(): void;
 }
@@ -68,7 +81,7 @@ export function toOffsiteError(error: unknown): OffsiteError {
     }
     if (error.status === 409) {
       const text = typeof detail === "string" ? detail : "";
-      return { code: /already running/i.test(text) ? "running" : "duplicate", detail: text };
+      return { code: /queued run/i.test(text) ? "notQueued" : "duplicate", detail: text };
     }
     if (typeof detail === "string") return { code: "generic", detail };
     if (Array.isArray(detail)) {
@@ -82,21 +95,31 @@ export function toOffsiteError(error: unknown): OffsiteError {
   return { code: "generic", detail: error instanceof Error ? error.message : String(error) };
 }
 
+function inQueue(target: OffsiteBackupTarget): boolean {
+  return target.last_run?.status === "queued" || target.last_run?.status === "running";
+}
+
 export function useOffsiteBackupViewModel(): OffsiteBackupViewModel {
   const overview = useOffsiteBackupOverview();
   const save = useSaveOffsiteTarget();
   const remove = useDeleteOffsiteTarget();
   const runBackup = useRunOffsiteBackup();
+  const cancelRun = useCancelQueuedRun();
   const [dialog, setDialog] = useState<OffsiteDialog | null>(null);
   const [formError, setFormError] = useState<OffsiteError>();
   const [deleting, setDeleting] = useState<OffsiteBackupTarget | null>(null);
   const [actionError, setActionError] = useState<OffsiteError>();
-  const [startedTargets, setStartedTargets] = useState<string[] | null>(null);
-  const [startingTarget, setStartingTarget] = useState<string | null | "all">(null);
+  const [queueResult, setQueueResult] = useState<OffsiteQueueResult | null>(null);
+  const [queueing, setQueueing] = useState<string | null>(null);
   const [historyFor, setHistoryFor] = useState<string | null>(null);
+  const [selectedRaw, setSelected] = useState<Set<string>>(new Set());
 
   const targets = overview.data?.targets ?? [];
-  const submitting = save.isPending || remove.isPending || runBackup.isPending;
+  // Only enabled targets can be queued; one that was disabled or removed
+  // after being ticked silently leaves the selection.
+  const selectableNames = targets.filter((t) => t.enabled).map((t) => t.name);
+  const selected = new Set([...selectedRaw].filter((name) => selectableNames.includes(name)));
+  const submitting = save.isPending || remove.isPending || runBackup.isPending || cancelRun.isPending;
 
   let status: OffsiteBackupStatus;
   if (overview.isLoading) status = "loading";
@@ -104,17 +127,17 @@ export function useOffsiteBackupViewModel(): OffsiteBackupViewModel {
   else if (actionError || overview.isError) status = "error";
   else status = "ready";
 
-  async function start(names: string[], marker: string | "all") {
+  async function enqueue(names: string[], marker: string) {
     setActionError(undefined);
-    setStartedTargets(null);
-    setStartingTarget(marker);
+    setQueueResult(null);
+    setQueueing(marker);
     try {
-      const result = await runBackup.mutateAsync(names);
-      setStartedTargets(result.targets);
+      setQueueResult(await runBackup.mutateAsync(names));
+      if (marker === "selected") setSelected(new Set());
     } catch (error) {
       setActionError(toOffsiteError(error));
     } finally {
-      setStartingTarget(null);
+      setQueueing(null);
     }
   }
 
@@ -128,15 +151,18 @@ export function useOffsiteBackupViewModel(): OffsiteBackupViewModel {
     saving: save.isPending,
     deleting,
     actionError,
-    startedTargets,
-    startingTarget,
+    queueResult,
+    queueing,
     historyFor,
-    enabledCount: targets.filter((t) => t.enabled).length,
+    enabledCount: selectableNames.length,
+    selected,
+    selectableNames,
     isStale(target) {
       if (!target.enabled) return false;
       const finished = target.last_success?.finished_at;
       return !finished || Date.now() - new Date(finished).getTime() > OFFSITE_STALE_AFTER_MS;
     },
+    isInQueue: inQueue,
     refresh: () => void overview.refetch(),
     openCreate() {
       setFormError(undefined);
@@ -156,7 +182,10 @@ export function useOffsiteBackupViewModel(): OffsiteBackupViewModel {
       try {
         await save.mutateAsync({
           id: dialog?.mode === "edit" ? dialog.target.id : undefined,
-          payload: { ...toOffsiteTargetPayload(input), sort_order: dialog?.mode === "edit" ? dialog.target.sort_order : nextSortOrder(targets) },
+          payload: {
+            ...toOffsiteTargetPayload(input),
+            sort_order: dialog?.mode === "edit" ? dialog.target.sort_order : nextSortOrder(targets),
+          },
         });
         setDialog(null);
       } catch (error) {
@@ -200,13 +229,36 @@ export function useOffsiteBackupViewModel(): OffsiteBackupViewModel {
         setActionError(toOffsiteError(error));
       }
     },
-    runAll: () => start([], "all"),
-    runTarget: (target) => start([target.name], target.name),
+    toggleSelected(target) {
+      if (!target.enabled) return;
+      setSelected((current) => {
+        const next = new Set(current);
+        if (next.has(target.name)) next.delete(target.name);
+        else next.add(target.name);
+        return next;
+      });
+    },
+    toggleSelectAll() {
+      setSelected(selected.size === selectableNames.length ? new Set() : new Set(selectableNames));
+    },
+    runAll: () => enqueue([], "all"),
+    // In the order the targets are listed, not the order they were ticked.
+    runSelected: () => enqueue(selectableNames.filter((name) => selected.has(name)), "selected"),
+    runTarget: (target) => enqueue([target.name], target.name),
+    async cancelQueued(target) {
+      if (target.last_run?.status !== "queued") return;
+      setActionError(undefined);
+      try {
+        await cancelRun.mutateAsync(target.last_run.id);
+      } catch (error) {
+        setActionError(toOffsiteError(error));
+      }
+    },
     toggleHistory(target) {
       setHistoryFor((current) => (current === target.name ? null : target.name));
     },
     dismissNotice() {
-      setStartedTargets(null);
+      setQueueResult(null);
       setActionError(undefined);
     },
   };

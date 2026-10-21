@@ -138,64 +138,113 @@ async def test_targets_require_an_admin(client, non_admin_headers, bridge):
     assert resp.status_code == 403
 
 
-async def test_worker_cycle_reports_status_and_notifies_failures(client, admin_headers, bridge, bridge_headers):
-    target = (await _create(client, admin_headers)).json()
-    name = target["name"]
+async def _claim(client, bridge_headers) -> dict:
+    resp = await client.post("/api/v1/offsite-backup/internal/runs:claim", headers=bridge_headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
 
-    assert (await client.get("/api/v1/offsite-backup/internal/plan")).status_code == 401
-    plan = (await client.get(f"/api/v1/offsite-backup/internal/plan?targets={name}", headers=bridge_headers)).json()
-    assert [t["name"] for t in plan["targets"]] == [name]
-    assert plan["targets"][0]["paths"] == ["/root/project/x"]
 
-    first = (await client.post(
-        "/api/v1/offsite-backup/internal/runs", json={"target_name": name, "trigger": "manual"}, headers=bridge_headers
-    )).json()["run_id"]
-    # A second start while the first is still "running" means the first died.
-    second = (await client.post(
-        "/api/v1/offsite-backup/internal/runs", json={"target_name": name}, headers=bridge_headers
-    )).json()["run_id"]
-    resp = await client.post(
-        "/api/v1/offsite-backup/internal/runs:finish",
-        json={"run_id": second, "status": "ok", "snapshot_id": "abcd1234", "data_added": 1024, "files_new": 3},
-        headers=bridge_headers,
-    )
-    assert resp.status_code == 200
+async def test_queue_cycle_reports_status_and_notifies_failures(client, admin_headers, bridge, bridge_headers):
+    first = (await _create(client, admin_headers, label="Primeiro")).json()["name"]
+    second = (await _create(client, admin_headers, label="Segundo")).json()["name"]
 
-    async with AsyncSessionLocal() as db:
-        assert (await db.get(OffsiteBackupRun, uuid.UUID(first))).status == "interrupted"
+    assert (await client.post("/api/v1/offsite-backup/internal/runs:claim")).status_code == 401
 
-    third = (await client.post(
-        "/api/v1/offsite-backup/internal/runs", json={"target_name": name}, headers=bridge_headers
-    )).json()["run_id"]
+    # Queued in the order asked, and the worker is woken.
+    resp = await client.post("/api/v1/offsite-backup/run", json={"targets": [second, first]}, headers=admin_headers)
+    assert resp.status_code == 202, resp.text
+    assert resp.json()["queued"] == [second, first]
+    assert bridge["commands"][-1] == "/root/.hermes/profiles/athos/scripts/backup_offsite_projects.sh --trigger manual"
+
+    overview = (await client.get("/api/v1/offsite-backup/overview", headers=admin_headers)).json()
+    assert overview["queued"] == 2
+    assert next(t for t in overview["targets"] if t["name"] == first)["last_run"]["status"] == "queued"
+
+    claim = await _claim(client, bridge_headers)
+    assert claim["target"]["name"] == second and claim["target"]["paths"] == ["/root/project/x"]
+    assert claim["run"]["trigger"] == "manual"
     await client.post(
         "/api/v1/offsite-backup/internal/runs:finish",
-        json={"run_id": third, "status": "failed", "error": "rateLimitExceeded"},
+        json={"run_id": claim["run"]["run_id"], "status": "ok", "snapshot_id": "abcd1234", "data_added": 1024},
+        headers=bridge_headers,
+    )
+
+    # Asking again for a target still waiting doesn't queue it twice.
+    resp = await client.post("/api/v1/offsite-backup/run", json={"targets": [first, second]}, headers=admin_headers)
+    assert resp.json() == {"queued": [second], "skipped": [first], "worker_already_running": False}
+
+    claim = await _claim(client, bridge_headers)
+    assert claim["target"]["name"] == first
+    await client.post(
+        "/api/v1/offsite-backup/internal/runs:finish",
+        json={"run_id": claim["run"]["run_id"], "status": "failed", "error": "rateLimitExceeded"},
         headers=bridge_headers,
     )
     async with AsyncSessionLocal() as db:
         note = (
-            await db.execute(select(Notification).where(Notification.event_key == f"offsite-backup:{third}"))
+            await db.execute(select(Notification).where(Notification.event_key == f"offsite-backup:{claim['run']['run_id']}"))
         ).scalar_one()
-        assert note.severity == "error" and "Projeto de teste" in note.title
+        assert note.severity == "error" and "Primeiro" in note.title
+
+    claim = await _claim(client, bridge_headers)
+    assert claim["target"]["name"] == second
+    assert (await _claim(client, bridge_headers))["run"] is None
 
     overview = (await client.get("/api/v1/offsite-backup/overview", headers=admin_headers)).json()
-    row = next(t for t in overview["targets"] if t["name"] == name)
-    assert row["last_run"]["status"] == "failed"
-    assert row["last_success"]["snapshot_id"] == "abcd1234"
+    row = next(t for t in overview["targets"] if t["name"] == first)
+    assert row["last_run"]["status"] == "failed" and row["last_success"] is None
+    assert next(t for t in overview["targets"] if t["name"] == second)["last_success"]["snapshot_id"] == "abcd1234"
+    assert overview["running"] is True and overview["queued"] == 0
     assert overview["schedule"] is None and overview["schedule_error"] == "not_scheduled"
 
+
+async def test_cancel_only_a_queued_run(client, admin_headers, bridge, bridge_headers):
+    name = (await _create(client, admin_headers)).json()["name"]
+    await client.post("/api/v1/offsite-backup/run", json={"targets": [name]}, headers=admin_headers)
     runs = (await client.get(f"/api/v1/offsite-backup/runs?target={name}", headers=admin_headers)).json()
-    assert [r["status"] for r in runs] == ["failed", "ok", "interrupted"]
+    assert [r["status"] for r in runs] == ["queued"] and runs[0]["started_at"] is None
+
+    resp = await client.delete(f"/api/v1/offsite-backup/runs/{runs[0]['id']}", headers=admin_headers)
+    assert resp.status_code == 204
+    assert (await client.get(f"/api/v1/offsite-backup/runs?target={name}", headers=admin_headers)).json() == []
+
+    await client.post("/api/v1/offsite-backup/run", json={"targets": [name]}, headers=admin_headers)
+    claim = await _claim(client, bridge_headers)
+    resp = await client.delete(f"/api/v1/offsite-backup/runs/{claim['run']['run_id']}", headers=admin_headers)
+    assert resp.status_code == 409
 
 
-async def test_unknown_target_cannot_start_a_run(client, bridge_headers):
-    resp = await client.post(
-        "/api/v1/offsite-backup/internal/runs", json={"target_name": f"{PREFIX}missing"}, headers=bridge_headers
+async def test_target_disabled_while_queued_is_skipped(client, admin_headers, bridge, bridge_headers):
+    target = (await _create(client, admin_headers)).json()
+    await client.post("/api/v1/offsite-backup/run", json={"targets": [target["name"]]}, headers=admin_headers)
+    await client.put(
+        f"/api/v1/offsite-backup/targets/{target['id']}",
+        json={"label": target["label"], "paths": target["paths"], "enabled": False},
+        headers=admin_headers,
     )
-    assert resp.status_code == 404
+    assert (await _claim(client, bridge_headers))["run"] is None
+    runs = (await client.get(f"/api/v1/offsite-backup/runs?target={target['name']}", headers=admin_headers)).json()
+    assert runs[0]["status"] == "interrupted" and "disabled" in runs[0]["error"]
 
 
-async def test_stale_running_run_reads_as_interrupted(client, admin_headers, bridge):
+async def test_schedule_queues_every_enabled_target(client, admin_headers, bridge, bridge_headers):
+    on = (await _create(client, admin_headers)).json()["name"]
+    off = (await _create(client, admin_headers, enabled=False)).json()["name"]
+    resp = await client.post("/api/v1/offsite-backup/internal/enqueue", json={"trigger": "schedule"}, headers=bridge_headers)
+    assert on in resp.json()["queued"] and off not in resp.json()["queued"]
+    async with AsyncSessionLocal() as db:
+        # Other enabled targets in this database were queued too; only ours are checked.
+        run = (await db.execute(select(OffsiteBackupRun).where(OffsiteBackupRun.target_name == on))).scalar_one()
+        assert run.trigger == "schedule"
+        await db.execute(
+            delete(OffsiteBackupRun).where(
+                OffsiteBackupRun.status == "queued", OffsiteBackupRun.target_name.not_like(f"{PREFIX}%")
+            )
+        )
+        await db.commit()
+
+
+async def test_a_dead_worker_run_is_closed_when_the_target_runs_again(client, admin_headers, bridge, bridge_headers):
     target = (await _create(client, admin_headers)).json()
     async with AsyncSessionLocal() as db:
         db.add(OffsiteBackupRun(
@@ -204,24 +253,35 @@ async def test_stale_running_run_reads_as_interrupted(client, admin_headers, bri
         ))
         await db.commit()
     overview = (await client.get("/api/v1/offsite-backup/overview", headers=admin_headers)).json()
-    row = next(t for t in overview["targets"] if t["name"] == target["name"])
-    assert row["last_run"]["status"] == "interrupted"
+    assert next(t for t in overview["targets"] if t["name"] == target["name"])["last_run"]["status"] == "interrupted"
+
+    await client.post("/api/v1/offsite-backup/run", json={"targets": [target["name"]]}, headers=admin_headers)
+    await _claim(client, bridge_headers)
+    runs = (await client.get(f"/api/v1/offsite-backup/runs?target={target['name']}", headers=admin_headers)).json()
+    assert [r["status"] for r in runs] == ["running", "interrupted"]
 
 
-async def test_run_now_launches_the_athos_script(client, admin_headers, bridge):
-    name = (await _create(client, admin_headers)).json()["name"]
-    resp = await client.post("/api/v1/offsite-backup/run", json={"targets": [name]}, headers=admin_headers)
-    assert resp.status_code == 202, resp.text
-    assert bridge["commands"][-1] == (
-        "/root/.hermes/profiles/athos/scripts/backup_offsite_projects.sh --trigger manual --targets " + name
+async def test_targets_run_only_through_the_queue(client, bridge_headers):
+    resp = await client.post(
+        "/api/v1/offsite-backup/internal/runs", json={"target_name": f"{PREFIX}x"}, headers=bridge_headers
     )
+    assert resp.status_code == 400
 
+
+async def test_run_now_validates_targets_and_tolerates_a_busy_worker(client, admin_headers, bridge):
+    name = (await _create(client, admin_headers)).json()["name"]
     bridge["exit_code"] = 75
     resp = await client.post("/api/v1/offsite-backup/run", json={"targets": [name]}, headers=admin_headers)
-    assert resp.status_code == 409
+    assert resp.status_code == 202
+    assert resp.json()["worker_already_running"] is True
 
     resp = await client.post("/api/v1/offsite-backup/run", json={"targets": [f"{PREFIX}nope"]}, headers=admin_headers)
     assert resp.status_code == 400
+
+    bridge["exit_code"] = 1
+    other = (await _create(client, admin_headers)).json()["name"]
+    resp = await client.post("/api/v1/offsite-backup/run", json={"targets": [other]}, headers=admin_headers)
+    assert resp.status_code == 500
 
 
 async def test_schedule_is_read_from_the_athos_cron_job(client, admin_headers, bridge):

@@ -152,7 +152,8 @@ _PUBLIC_API_PATHS = {
     # Monthly client report trigger (Athos cron); self-guards with the bridge token.
     "/api/v1/client-ops/reports/run-internal",
     # Off-site backup worker (Athos cron); each checks the bridge token itself.
-    "/api/v1/offsite-backup/internal/plan",
+    "/api/v1/offsite-backup/internal/enqueue",
+    "/api/v1/offsite-backup/internal/runs:claim",
     "/api/v1/offsite-backup/internal/runs",
     "/api/v1/offsite-backup/internal/runs:finish",
     "/api/v1/demands/submit",

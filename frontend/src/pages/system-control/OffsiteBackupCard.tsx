@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   CloudUpload,
+  ListPlus,
   History,
   Loader2,
   Pencil,
@@ -14,6 +15,7 @@ import {
   PowerOff,
   RefreshCw,
   Trash2,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -56,7 +58,8 @@ function formatDateTime(iso: string | null | undefined, locale: string): string 
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(locale, { dateStyle: "short", timeStyle: "short" });
 }
 
-const STATUS_VARIANT: Record<OffsiteBackupRun["status"], "success" | "destructive" | "warning" | "secondary"> = {
+const STATUS_VARIANT: Record<OffsiteBackupRun["status"], "success" | "destructive" | "warning" | "secondary" | "outline"> = {
+  queued: "outline",
   ok: "success",
   failed: "destructive",
   interrupted: "warning",
@@ -103,6 +106,7 @@ export function OffsiteBackupCard() {
                 <Loader2 className="h-3 w-3 animate-spin" /> {t("offsiteBackup.runningNow")}
               </Badge>
             )}
+            {data && data.queued > 0 && <Badge variant="outline">{t("offsiteBackup.queuedCount", { count: data.queued })}</Badge>}
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <Button size="sm" variant="outline" className="gap-2" onClick={vm.refresh} disabled={vm.refreshing}>
@@ -113,13 +117,14 @@ export function OffsiteBackupCard() {
               <Plus className="h-4 w-4" />
               {t("offsiteBackup.add")}
             </Button>
-            <Button
-              size="sm"
-              className="gap-2"
-              onClick={() => void vm.runAll()}
-              disabled={!data || busy || data.running || vm.enabledCount === 0}
-            >
-              {vm.startingTarget === "all" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            {vm.selected.size > 0 && (
+              <Button size="sm" variant="secondary" className="gap-2" onClick={() => void vm.runSelected()} disabled={busy}>
+                {vm.queueing === "selected" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListPlus className="h-4 w-4" />}
+                {t("offsiteBackup.runSelected", { count: vm.selected.size })}
+              </Button>
+            )}
+            <Button size="sm" className="gap-2" onClick={() => void vm.runAll()} disabled={!data || busy || vm.enabledCount === 0}>
+              {vm.queueing === "all" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
               {t("offsiteBackup.runAll")}
             </Button>
           </div>
@@ -155,7 +160,8 @@ export function OffsiteBackupCard() {
               <span className="text-muted-foreground">{t("offsiteBackup.maintenance")}: </span>
               {maintenance ? (
                 <span className="inline-flex flex-wrap items-center gap-1">
-                  <RunBadge run={maintenance} /> {formatDateTime(maintenance.finished_at ?? maintenance.started_at, i18n.language)}
+                  <RunBadge run={maintenance} />{" "}
+                  {formatDateTime(maintenance.finished_at ?? maintenance.started_at ?? maintenance.created_at, i18n.language)}
                   {maintenance.error && <span className="break-all text-destructive">{maintenance.error}</span>}
                 </span>
               ) : (
@@ -180,9 +186,17 @@ export function OffsiteBackupCard() {
             {errorText(t, vm.actionError)}
           </p>
         )}
-        {vm.startedTargets && (
+        {vm.queueResult && (
           <p className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-sm">
-            {t("offsiteBackup.started", { count: vm.startedTargets.length })}
+            {vm.queueResult.queued.length > 0
+              ? t("offsiteBackup.queuedNotice", { count: vm.queueResult.queued.length })
+              : t("offsiteBackup.nothingQueued")}
+            {vm.queueResult.skipped.length > 0 && (
+              <> {t("offsiteBackup.alreadyQueued", { names: vm.queueResult.skipped.join(", ") })}</>
+            )}
+            {vm.queueResult.worker_already_running && vm.queueResult.queued.length > 0 && (
+              <> {t("offsiteBackup.waitsTurn")}</>
+            )}
           </p>
         )}
 
@@ -192,6 +206,16 @@ export function OffsiteBackupCard() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-8">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    aria-label={t("offsiteBackup.selectAll")}
+                    checked={vm.selectableNames.length > 0 && vm.selected.size === vm.selectableNames.length}
+                    disabled={vm.selectableNames.length === 0}
+                    onChange={vm.toggleSelectAll}
+                  />
+                </TableHead>
                 <TableHead>{t("offsiteBackup.columns.target")}</TableHead>
                 <TableHead>{t("offsiteBackup.columns.paths")}</TableHead>
                 <TableHead>{t("offsiteBackup.columns.database")}</TableHead>
@@ -201,7 +225,7 @@ export function OffsiteBackupCard() {
             </TableHeader>
             <TableBody>
               {data.targets.map((target) => (
-                <TargetRows key={target.id} target={target} vm={vm} locale={i18n.language} running={data.running} />
+                <TargetRows key={target.id} target={target} vm={vm} locale={i18n.language} />
               ))}
             </TableBody>
           </Table>
@@ -224,17 +248,7 @@ export function OffsiteBackupCard() {
   );
 }
 
-function TargetRows({
-  target,
-  vm,
-  locale,
-  running,
-}: {
-  target: OffsiteBackupTarget;
-  vm: OffsiteBackupViewModel;
-  locale: string;
-  running: boolean;
-}) {
+function TargetRows({ target, vm, locale }: { target: OffsiteBackupTarget; vm: OffsiteBackupViewModel; locale: string }) {
   const { t } = useTranslation("systemControl");
   const last = target.last_run;
   const success = target.last_success;
@@ -245,6 +259,16 @@ function TargetRows({
   return (
     <>
       <TableRow className={cn(!target.enabled && "opacity-60")}>
+        <TableCell className="align-top">
+          <input
+            type="checkbox"
+            className="mt-1 h-4 w-4"
+            aria-label={t("offsiteBackup.select", { name: target.label })}
+            checked={vm.selected.has(target.name)}
+            disabled={!target.enabled}
+            onChange={() => vm.toggleSelected(target)}
+          />
+        </TableCell>
         <TableCell className="min-w-[9rem] align-top">
           <div className="font-medium">{target.label}</div>
           <div className="font-mono text-xs text-muted-foreground">{target.name}</div>
@@ -271,7 +295,9 @@ function TargetRows({
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-1">
                 <RunBadge run={last} />
-                <span className="text-muted-foreground">{formatDateTime(last.finished_at ?? last.started_at, locale)}</span>
+                <span className="text-muted-foreground">
+                  {formatDateTime(last.finished_at ?? last.started_at ?? last.created_at, locale)}
+                </span>
               </div>
               {last.status === "ok" && last.data_added !== null && (
                 <div className="text-muted-foreground">
@@ -299,16 +325,29 @@ function TargetRows({
         </TableCell>
         <TableCell className="align-top">
           <div className="flex justify-end gap-0.5">
-            <Button
-              size="icon"
-              variant="ghost"
-              title={t("offsiteBackup.runOne")}
-              aria-label={t("offsiteBackup.runOne")}
-              onClick={() => void vm.runTarget(target)}
-              disabled={!target.enabled || busy || running}
-            >
-              {vm.startingTarget === target.name ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            </Button>
+            {last?.status === "queued" ? (
+              <Button
+                size="icon"
+                variant="ghost"
+                title={t("offsiteBackup.cancelQueued")}
+                aria-label={t("offsiteBackup.cancelQueued")}
+                onClick={() => void vm.cancelQueued(target)}
+                disabled={busy}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button
+                size="icon"
+                variant="ghost"
+                title={t("offsiteBackup.runOne")}
+                aria-label={t("offsiteBackup.runOne")}
+                onClick={() => void vm.runTarget(target)}
+                disabled={!target.enabled || busy || vm.isInQueue(target)}
+              >
+                {vm.queueing === target.name ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              </Button>
+            )}
             <Button
               size="icon"
               variant={historyOpen ? "secondary" : "ghost"}
@@ -354,7 +393,7 @@ function TargetRows({
       </TableRow>
       {historyOpen && (
         <TableRow>
-          <TableCell colSpan={5} className="bg-muted/30">
+          <TableCell colSpan={6} className="bg-muted/30">
             <RunHistory target={target.name} locale={locale} />
           </TableCell>
         </TableRow>
@@ -379,7 +418,7 @@ function RunHistory({ target, locale }: { target: string; locale: string }) {
       {runs.data.map((run) => (
         <li key={run.id} className="flex flex-wrap items-center gap-2">
           <RunBadge run={run} />
-          <span>{formatDateTime(run.started_at, locale)}</span>
+          <span>{formatDateTime(run.started_at ?? run.created_at, locale)}</span>
           <span className="text-muted-foreground">{t(`offsiteBackup.trigger.${run.trigger}`)}</span>
           {run.status === "ok" && run.data_added !== null && (
             <span className="text-muted-foreground">

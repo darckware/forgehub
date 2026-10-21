@@ -6,6 +6,7 @@ import type { OffsiteBackupOverview, OffsiteBackupTarget } from "./useOffsiteBac
 const save = vi.fn();
 const remove = vi.fn();
 const run = vi.fn();
+const cancel = vi.fn();
 
 function target(overrides: Partial<OffsiteBackupTarget> = {}): OffsiteBackupTarget {
   return {
@@ -21,6 +22,7 @@ const data: OffsiteBackupOverview = {
   schedule: null,
   schedule_error: "not_scheduled",
   running: false,
+  queued: 0,
   repository_maintenance: null,
   targets: [target(), target({ id: "t2", name: "nexo", label: "Nexo", enabled: false, sort_order: 110 })],
 };
@@ -31,6 +33,7 @@ vi.mock("./useOffsiteBackup", async (importOriginal) => ({
   useSaveOffsiteTarget: () => ({ mutateAsync: save, isPending: false }),
   useDeleteOffsiteTarget: () => ({ mutateAsync: remove, isPending: false }),
   useRunOffsiteBackup: () => ({ mutateAsync: run, isPending: false }),
+  useCancelQueuedRun: () => ({ mutateAsync: cancel, isPending: false }),
 }));
 
 const { useOffsiteBackupViewModel, toOffsiteError } = await import("./useOffsiteBackupViewModel");
@@ -41,6 +44,7 @@ describe("useOffsiteBackupViewModel", () => {
     save.mockReset();
     remove.mockReset();
     run.mockReset();
+    cancel.mockReset();
   });
 
   it("creates a target from the form, one path per line, placed after the last one", async () => {
@@ -90,17 +94,42 @@ describe("useOffsiteBackupViewModel", () => {
     expect(result.current.deleting).toBeNull();
   });
 
-  it("runs everything or one target, and reports a backup already running", async () => {
-    run.mockResolvedValueOnce({ started: true, targets: ["forgehub"] });
+  it("queues everything, the selection in list order, or one target", async () => {
+    run.mockResolvedValue({ queued: ["forgehub"], skipped: [], worker_already_running: false });
     const { result } = renderHook(() => useOffsiteBackupViewModel());
     await act(() => result.current.runTarget(data.targets[0]));
-    expect(run).toHaveBeenCalledWith(["forgehub"]);
-    expect(result.current.startedTargets).toEqual(["forgehub"]);
+    expect(run).toHaveBeenLastCalledWith(["forgehub"]);
+    expect(result.current.queueResult?.queued).toEqual(["forgehub"]);
 
-    run.mockRejectedValueOnce(new ApiError("x", 409, { detail: "An off-site backup is already running" }));
     await act(() => result.current.runAll());
     expect(run).toHaveBeenLastCalledWith([]);
-    expect(result.current.actionError?.code).toBe("running");
+
+    // The disabled target can't be selected; "select all" means the enabled ones.
+    act(() => result.current.toggleSelected(data.targets[1]));
+    expect(result.current.selected.size).toBe(0);
+    act(() => result.current.toggleSelectAll());
+    expect([...result.current.selected]).toEqual(["forgehub"]);
+    await act(() => result.current.runSelected());
+    expect(run).toHaveBeenLastCalledWith(["forgehub"]);
+    expect(result.current.selected.size).toBe(0);
+  });
+
+  it("takes a queued run out of the queue, and only a queued one", async () => {
+    const queued = target({ last_run: { id: "r1", status: "queued" } as never });
+    const { result } = renderHook(() => useOffsiteBackupViewModel());
+    expect(result.current.isInQueue(queued)).toBe(true);
+    await act(() => result.current.cancelQueued(queued));
+    expect(cancel).toHaveBeenCalledWith("r1");
+
+    await act(() => result.current.cancelQueued(target({ last_run: { id: "r2", status: "running" } as never })));
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a failed request without losing the card", async () => {
+    run.mockRejectedValueOnce(new ApiError("x", 500, { detail: "Could not start the backup" }));
+    const { result } = renderHook(() => useOffsiteBackupViewModel());
+    await act(() => result.current.runAll());
+    expect(result.current.actionError).toEqual({ code: "generic", detail: "Could not start the backup" });
     expect(result.current.status).toBe("error");
   });
 
@@ -133,6 +162,7 @@ describe("off-site backup form", () => {
 
   it("maps server errors to messages", () => {
     expect(toOffsiteError(new ApiError("x", 409, { detail: "A target with this identifier already exists" })).code).toBe("duplicate");
+    expect(toOffsiteError(new ApiError("x", 409, { detail: "Only a queued run can be cancelled" })).code).toBe("notQueued");
     expect(toOffsiteError(new ApiError("x", 422, { detail: [{ msg: "Value error, bad" }] }))).toEqual({
       code: "generic", detail: "Value error, bad",
     });

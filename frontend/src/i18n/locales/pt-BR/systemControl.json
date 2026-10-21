@@ -232,8 +232,8 @@
     "runningNow": "Backup em andamento",
     "refresh": "Atualizar",
     "add": "Adicionar pastas",
-    "runAll": "Executar agora",
-    "description": "Cópia criptografada (restic) no Google Drive, um snapshot por projeto: as pastas, o dump do Postgres do projeto e o que você adicionar aqui. Roda todo dia pelo cron do Athos; cada falha vai para as notificações. node_modules, ambientes virtuais, caches e builds ficam de fora.",
+    "runAll": "Executar todos",
+    "description": "Cópia criptografada (restic) no Google Drive, um snapshot por projeto: as pastas, o dump do Postgres do projeto e o que você adicionar aqui. Roda todo dia pelo cron do Athos, e você pode executar todos, os selecionados ou um só: os pedidos entram numa fila e rodam um de cada vez. Cada falha vai para as notificações. node_modules, ambientes virtuais, caches e builds ficam de fora.",
     "repository": "Repositório",
     "schedule": "Agendamento",
     "schedulePaused": "pausado",
@@ -244,8 +244,6 @@
     "maintenanceNever": "ainda não executada",
     "loading": "Carregando…",
     "empty": "Nenhum alvo cadastrado. Use \"Adicionar pastas\".",
-    "started_one": "Backup iniciado para {{count}} alvo. O status aparece aqui conforme avança.",
-    "started_other": "Backup iniciado para {{count}} alvos. O status aparece aqui conforme avança.",
     "columns": {
       "target": "Alvo",
       "paths": "Pastas",
@@ -257,7 +255,8 @@
       "ok": "Concluído",
       "failed": "Falhou",
       "interrupted": "Interrompido",
-      "running": "Em andamento"
+      "running": "Em andamento",
+      "queued": "Na fila"
     },
     "trigger": {
       "schedule": "agendado",
@@ -271,7 +270,7 @@
     "never": "Nunca executado",
     "staleSince": "Sem backup completo desde {{when}}",
     "noSuccess": "Ainda sem nenhum backup completo",
-    "runOne": "Executar este alvo agora",
+    "runOne": "Colocar este alvo na fila agora",
     "history": "Histórico",
     "edit": "Editar",
     "disable": "Desativar",
@@ -283,9 +282,9 @@
     "errors": {
       "missing": "Estas pastas não existem no servidor: {{detail}}",
       "duplicate": "Já existe um alvo com esse identificador.",
-      "running": "Já há um backup externo em andamento.",
       "load": "Não foi possível carregar o backup externo: {{detail}}",
-      "generic": "{{detail}}"
+      "generic": "{{detail}}",
+      "notQueued": "Só dá para tirar da fila um backup que ainda não começou."
     },
     "form": {
       "createTitle": "Adicionar ao backup externo",
@@ -314,6 +313,18 @@
         "absolute": "Cada linha precisa ser um caminho absoluto (começando com /).",
         "root": "A raiz (/) inteira não pode ser um alvo."
       }
-    }
+    },
+    "runSelected_one": "Executar {{count}} selecionado",
+    "runSelected_other": "Executar {{count}} selecionados",
+    "queuedCount_one": "{{count}} na fila",
+    "queuedCount_other": "{{count}} na fila",
+    "queuedNotice_one": "{{count}} alvo entrou na fila.",
+    "queuedNotice_other": "{{count}} alvos entraram na fila.",
+    "nothingQueued": "Nada novo entrou na fila.",
+    "alreadyQueued": "Já estavam na fila ou em andamento: {{names}}.",
+    "waitsTurn": "Um backup já está rodando; eles seguem na ordem.",
+    "selectAll": "Selecionar todos os alvos ativos",
+    "select": "Selecionar {{name}}",
+    "cancelQueued": "Tirar da fila"
   }
 }
