@@ -563,8 +563,11 @@ async def test_task_cannot_complete_with_unfinished_dependency(
     blocked = await client.patch(f"/api/v1/tasks/{main_id}", json={"status": "done"})
     assert blocked.status_code == 409
 
+    from app.core.dispatch_signal import reset_scheduled_dispatch_signal, wait_for_scheduled_dispatch
+    reset_scheduled_dispatch_signal()
     finish_dep = await client.patch(f"/api/v1/tasks/{dep_id}", json={"status": "done"})
     assert finish_dep.status_code == 200
+    assert await wait_for_scheduled_dispatch(0.05)
 
     unblocked = await client.patch(f"/api/v1/tasks/{main_id}", json={"status": "done"})
     assert unblocked.status_code == 200

@@ -88,13 +88,14 @@ async def ensure_workflow_allowed(db, demand):
 async def decide_demand(db, demand, payload, *, actor):
     from app.core.dispatch_signal import wake_scheduled_dispatch
 
-    if demand.consolidated_into_id:
+    investigation = payload.action in ("record_investigation", "confirm_inactive")
+    if demand.consolidated_into_id and not investigation:
         raise WorkflowBlocked("This record was consolidated; deliberate on its summary")
     if demand.dispatch_status in ("dispatched", "running") or (demand.agent_run_id and demand.dispatch_status is None):
         raise WorkflowBlocked("An active or reserved execution must finish before deliberation")
     if payload.expected_updated_at is not None and demand.updated_at != payload.expected_updated_at:
         raise WorkflowBlocked("This message changed; refresh it before deciding")
-    if demand.status == "archived" and payload.action != "restore":
+    if demand.status == "archived" and payload.action != "restore" and not investigation:
         raise WorkflowBlocked("Archived work cannot be released implicitly")
     previous = {"previous_run_id": demand.agent_run_id, "previous_dispatch_status": demand.dispatch_status,
         "previous_error": demand.dispatch_error}

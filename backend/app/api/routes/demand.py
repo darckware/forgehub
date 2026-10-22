@@ -548,6 +548,15 @@ async def list_pending_for_agent(
     now = datetime.now(timezone.utc)
     for demand in pending:
         demand.agent_processed_at = now
+        # A completed return is informational, not another runnable task.
+        # Acknowledgement removes it from the inbox while preserving its
+        # result and thread. Pending tasks still belong to the dispatcher.
+        if demand.reply_to_id is not None and demand.dispatch_status == "completed":
+            demand.status = "archived"
+            demand.scheduled_at = None
+            demand.decision_reason = "Completed return acknowledged; no execution remains pending."
+            record_transition(db, demand, "archive", actor=agent,
+                extra={"reason": demand.decision_reason})
     await db.commit()
     for demand in pending:
         await db.refresh(demand)
@@ -2067,7 +2076,9 @@ def _extract_evidence_ref(text: str) -> str | None:
     return None
 
 
-async def _finalize_dispatch(db: AsyncSession, demand_id: uuid.UUID, run: dict[str, Any]) -> AgentDemand | None:
+async def _finalize_dispatch(
+    db: AsyncSession, demand_id: uuid.UUID, run: dict[str, Any], *, expected_run_id: str | None = None,
+) -> AgentDemand | None:
     """The terminal transition of a dispatch, shared by the frontend's
     GET .../dispatch-status and the background completion pass: flips
     dispatch_status, stamps the execution time, and records the agent's
@@ -2088,25 +2099,31 @@ async def _finalize_dispatch(db: AsyncSession, demand_id: uuid.UUID, run: dict[s
     app instance running its own copy of that pass. Without the lock each
     of them would create its own duplicate return message for the same run."""
     locked = (
-        await db.execute(select(AgentDemand).where(AgentDemand.id == demand_id).with_for_update())
+        await db.execute(select(AgentDemand).where(AgentDemand.id == demand_id)
+            .with_for_update().execution_options(populate_existing=True))
     ).scalar_one_or_none()
-    if locked is None or locked.dispatch_status in ("completed", "failed"):
+    if locked is None or (expected_run_id is not None and locked.agent_run_id != expected_run_id):
+        return None
+    if locked.dispatch_status == "completed" or (locked.dispatch_status == "failed" and not requires_reconciliation(locked)):
         return None
 
     run_status = run.get("status")
+    historical = locked.status == "archived" or locked.consolidated_into_id is not None
     # Terminal: completed / failed / timed_out / cancelled / stale.
     locked.dispatch_status = "completed" if run_status == "completed" else "failed"
+    locked.dispatch_error = None
     # Reached a terminal state, so the deadline no longer applies -- leaving
     # it set would let the timeout sweep re-fail an already-finished run.
     locked.dispatch_deadline_at = None
     if locked.dispatch_status == "failed":
         locked.dispatch_error = f"The agent run ended as {run_status!r}."
-        await _add_dispatch_failed_notification(
-            db,
-            locked,
-            title=f"Dispatch failed: {locked.subject}",
-            message=f"#{locked.number}: the agent run ended as {run_status!r}.",
-        )
+        if not historical:
+            await _add_dispatch_failed_notification(
+                db,
+                locked,
+                title=f"Dispatch failed: {locked.subject}",
+                message=f"#{locked.number}: the agent run ended as {run_status!r}.",
+            )
     # "Execução" -- when the recipient agent actually finished running this
     # message, stamped on either terminal outcome (a failed run still ran).
     # Deliberately NOT stamped by run_scheduled_dispatch_pass's
@@ -2153,6 +2170,10 @@ async def _finalize_dispatch(db: AsyncSession, demand_id: uuid.UUID, run: dict[s
             else:
                 execution.status = "reported"
                 execution.evidence_ref = _extract_evidence_ref(reply_body)
+
+    if historical:
+        # Reconcile execution evidence without reviving archived mail.
+        return None
 
     # Channel narration (see db/models/channel.py's module docstring): a
     # ChatChannel message can trigger a real dispatch via this exact
@@ -2240,32 +2261,35 @@ async def run_dispatch_completion_pass(db: AsyncSession) -> None:
     (run_scheduled_dispatch_pass), which fires messages with no human in the
     loop at all.
 
-    Failure handling mirrors that sibling pass: a run the host-bridge no
-    longer knows about (404 -- it restarted, or the run aged out of its
-    table) can never be polled again, so it's marked failed once with a bell
-    notification instead of being retried every 30s forever. Any other
-    host-bridge error is treated as transient and simply retried next pass.
+    Poll uncertain failures too: they reserve execution capacity until the
+    runner proves they have ended. A timeout must not permanently remove
+    them from reconciliation while leaving their agent occupied. A 404 is
+    not proof of inactivity; preserve that uncertainty for investigation.
     """
     result = await db.execute(
         select(AgentDemand).where(
-            or_(AgentDemand.dispatch_status.in_(("dispatched", "running")),
-                AgentDemand.dispatch_status.is_(None) &
-                (AgentDemand.dispatched_at <= datetime.now(timezone.utc) - timedelta(minutes=1))),
+            _in_flight_dispatch_filter(),
+            or_(AgentDemand.dispatch_status.isnot(None),
+                AgentDemand.dispatched_at.is_(None),
+                AgentDemand.dispatched_at <= datetime.now(timezone.utc) - timedelta(minutes=1)),
             AgentDemand.agent_run_id.isnot(None),
         )
     )
-    for demand in result.scalars().all():
+    pending_runs = [(item.id, item.agent_run_id, item.subject) for item in result.scalars().all()]
+    for demand_id, run_id, subject in pending_runs:
         # Captured up front for the same reason run_scheduled_dispatch_pass
         # does it: after a rollback, reading demand.id needs a lazy-load
         # that raises MissingGreenlet instead of logging the real failure.
-        demand_id = demand.id
-        run_id = demand.agent_run_id
-        subject = demand.subject
         try:
             run = await poll_agent_run(run_id)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code != 404:
                 logger.warning("Dispatch completion poll failed for demand %s: %s", demand_id, exc)
+                continue
+            demand = (await db.execute(select(AgentDemand).where(AgentDemand.id == demand_id)
+                .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+            if demand is None or demand.agent_run_id != run_id or demand.dispatch_status in ("completed", "failed"):
+                await db.rollback()
                 continue
             await _fail_dispatch(
                 db,
@@ -2282,14 +2306,31 @@ async def run_dispatch_completion_pass(db: AsyncSession) -> None:
             continue
 
         try:
+            demand = (await db.execute(select(AgentDemand).where(AgentDemand.id == demand_id)
+                .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+            if demand is None or demand.agent_run_id != run_id:
+                await db.rollback()
+                continue
+            if demand.dispatch_status == "completed" or (demand.dispatch_status == "failed" and not requires_reconciliation(demand)):
+                await db.rollback()
+                continue
+            if requires_reconciliation(demand):
+                record_transition(db, demand, "reconciled", extra={"runner_state": run.get("status")})
             if demand.dispatch_status is None:
                 demand.dispatch_attempts = (demand.dispatch_attempts or 0) + 1
             if run.get("status") in ("starting", "running"):
                 if demand.dispatch_status != "running":
                     demand.dispatch_status = "running"
-                    await db.commit()
+                    demand.dispatch_error = None
+                    demand.dispatch_deadline_at = datetime.now(timezone.utc) + timedelta(minutes=DISPATCH_TIMEOUT_MINUTES)
+                await db.commit()
                 continue
-            await _finalize_dispatch(db, demand_id, run)
+            if run.get("status") not in ("completed", "failed", "timed_out", "cancelled", "stale"):
+                logger.warning("Runner returned an unknown state for demand %s", demand_id)
+                await db.rollback()
+                continue
+            await db.flush()
+            await _finalize_dispatch(db, demand_id, run, expected_run_id=run_id)
             # Terminal now: send the outcome back to the channel that asked
             # (2026-08-13). In the same transaction as the state change, so a
             # crash between the two can't leave it delivered-but-unrecorded
@@ -2322,17 +2363,25 @@ async def get_dispatch_status(
     if demand.dispatch_status in ("completed", "failed"):
         return DispatchStatusOut(dispatch_status=demand.dispatch_status, agent_run_id=demand.agent_run_id)
 
+    run_id = demand.agent_run_id
     try:
-        run = await poll_agent_run(demand.agent_run_id)
+        run = await poll_agent_run(run_id)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"Host-bridge poll failed: {exc}") from exc
 
+    demand = await _get_demand_or_404(db, demand_id, lock=True)
+    await db.refresh(demand)
+    if demand.agent_run_id != run_id or demand.dispatch_status in ("completed", "failed"):
+        await db.commit()
+        return DispatchStatusOut(dispatch_status=demand.dispatch_status, agent_run_id=demand.agent_run_id)
     if run.get("status") in ("starting", "running"):
         demand.dispatch_status = "running"
         await db.commit()
         return DispatchStatusOut(dispatch_status=demand.dispatch_status, agent_run_id=demand.agent_run_id)
 
-    reply = await _finalize_dispatch(db, demand_id, run)
+    if run.get("status") not in ("completed", "failed", "timed_out", "cancelled", "stale"):
+        raise HTTPException(502, "Runner returned an unknown state")
+    reply = await _finalize_dispatch(db, demand_id, run, expected_run_id=run_id)
     await db.commit()
     await db.refresh(demand)
     if reply is not None:

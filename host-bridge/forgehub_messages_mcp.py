@@ -203,10 +203,9 @@ async def send_agent_message(
     """Send a message through ForgeHub's Agent Message channel (the canonical
     agent-to-agent communication mechanism of the Hermes ecosystem).
 
-    Two distinct uses:
-    - **Note** (no `to_agent`): files a note/discovery/"look at this later"
-      for the operator to triage on the Messages page. Nothing executes.
-    - **Message to another agent** (`to_agent` set): the recipient's CLI is
+    Tasks without `to_agent` execute as the sender. For a parked proposal,
+    use `propose_improvement` (Incubation), rather than a runnable Task.
+    With `to_agent` set, the recipient's CLI is
       really dispatched with this body as its prompt, automatically — by
       default scheduled for now and signalled to the backend's dispatch
       worker immediately, with no human involved. Set `requires_response=True` when
@@ -224,7 +223,7 @@ async def send_agent_message(
             contained, since the recipient sees no other context.
         to_agent: recipient's profile_slug (athos, atlas, themis, aegis,
             hephaestus, mnemosyne, scriba, daedalus, kairos, porthus, aramis,
-            dartan, vector). Omit to file a plain note instead.
+            dartan, lara, maia). Omit to execute as the sender.
             NOTE: the Claude Code agent's slug is "porthus", not "porthos" --
             the two names differ by one letter and are easy to confuse, but
             only "porthus" resolves; "porthos" 404s.
@@ -242,8 +241,8 @@ async def send_agent_message(
         requires_response: create a real return message once the recipient
             finishes, instead of only recording the result on this message.
         scheduled_at: ISO-8601 datetime to defer dispatch (e.g.
-            "2026-07-28T14:00:00-03:00"). Only meaningful with `to_agent`;
-            omit to dispatch now.
+            "2026-07-28T14:00:00-03:00"). Applies to self-addressed Tasks
+            too; omit to dispatch now.
         origin_task_number: ForgeHub task number (ProjectTask.number) this
             came from.
         development_request_id: DevelopmentRequest UUID for a pre-project
@@ -255,10 +254,7 @@ async def send_agent_message(
     """
     try:
         sender = _resolve_agent(from_agent)
-        if scheduled_at and not to_agent:
-            raise ForgeHubError(
-                "scheduled_at only applies to a message addressed to an agent (set to_agent)."
-            )
+        recipient = to_agent or sender
 
         payload: dict[str, Any] = {
             "from_agent": sender,
@@ -273,18 +269,12 @@ async def send_agent_message(
             # cannot be resolved, reconciliation safely leaves the item in
             # Incubation. Tipo is mandatory now (no None/"demand" values).
             "origin_type": "task",
-        "channel": channel,
-        "channel_ref": channel_ref,
+            "channel": channel,
+            "channel_ref": channel_ref,
         }
-        if to_agent:
-            payload["target_agent_slug"] = to_agent
-            # Automatic communication: a message addressed to an agent
-            # dispatches now unless the caller deliberately deferred it --
-            # matches send_agent_message.sh, so both front doors act alike.
-            payload["scheduled_at"] = scheduled_at or _utc_now_iso()
-            payload["working_path"] = working_path or "/root/project/forgehub"
-        elif working_path:
-            payload["working_path"] = working_path
+        payload["target_agent_slug"] = recipient
+        payload["scheduled_at"] = scheduled_at or _utc_now_iso()
+        payload["working_path"] = working_path or "/root/project/forgehub"
         if origin_task_number is not None:
             payload["origin_number"] = origin_task_number
         if development_request_id is not None:
@@ -297,19 +287,15 @@ async def send_agent_message(
     lines = [f"Sent message #{demand.get('number')} ({demand.get('id')}) as {sender!r}."]
     if requires_approval:
         lines.append("Awaiting Marcelo's decision in Pessoal → Tarefas dos agentes. Receipt is not execution authorization.")
-    elif to_agent:
+    else:
         lines.append(
-            f"Addressed to {to_agent!r} and scheduled for {payload['scheduled_at']} — "
+            f"Addressed to {recipient!r} and scheduled for {payload['scheduled_at']} — "
             "the backend wakes its dispatch worker immediately to run the recipient's CLI."
         )
         if requires_response:
             lines.append(
                 f"Its reply will land in {sender!r}'s inbox; read it with check_agent_inbox."
             )
-    else:
-        lines.append(
-            "Filed as a note for the operator to triage on the Messages page (nothing dispatched)."
-        )
     return "\n".join(lines)
 
 

@@ -447,6 +447,9 @@ async def update_task(
     await db.refresh(task)
     await _attach_project_ids(db, [task])
     await _attach_task_health(db, [task])
+    if data.get("status") in ("done", "deployed"):
+        from app.core.dispatch_signal import wake_scheduled_dispatch
+        wake_scheduled_dispatch()
     return task
 
 

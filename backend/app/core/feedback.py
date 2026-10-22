@@ -239,16 +239,22 @@ async def deliver_feedback(db: AsyncSession, demand: AgentDemand) -> bool:
     is already recorded, nor stop the other messages in the same sweep. It
     leaves `feedback_sent_at` NULL, so the delivery stays visibly owed.
     """
+    if demand.status == "archived" or demand.consolidated_into_id is not None:
+        return False
+    if demand.dispatch_status not in DEMAND_TERMINAL_DISPATCH_STATUSES:
+        return False
+    # Serialize every delivery with archive/consolidation and other pollers.
+    # Autoflush is disabled, so preserve the caller's terminal transition.
+    await db.flush()
+    demand = (await db.execute(
+        select(AgentDemand).where(AgentDemand.id == demand.id)
+        .with_for_update().execution_options(populate_existing=True)
+    )).scalar_one()
+    if demand.status == "archived" or demand.consolidated_into_id is not None:
+        return False
     if demand.dispatch_status not in DEMAND_TERMINAL_DISPATCH_STATUSES:
         return False
     if demand.dispatch_status == "failed" and demand.from_agent_id is not None:
-        # This app disables autoflush. Preserve the caller's terminal state
-        # and directory before refreshing under the delivery lock.
-        await db.flush()
-        demand = (await db.execute(
-            select(AgentDemand).where(AgentDemand.id == demand.id)
-            .with_for_update().execution_options(populate_existing=True)
-        )).scalar_one()
         if demand.feedback_sent_at is None:
             marker = f"failure-feedback:{demand.id}:{demand.dispatch_attempts}"
             existing = (await db.execute(select(AgentDemand.id).where(
@@ -351,6 +357,8 @@ async def run_feedback_pass(db: AsyncSession) -> int:
     owed = (
         await db.execute(
             select(AgentDemand).where(
+                AgentDemand.status != "archived",
+                AgentDemand.consolidated_into_id.is_(None),
                 AgentDemand.dispatch_status.in_(DEMAND_TERMINAL_DISPATCH_STATUSES),
                 AgentDemand.feedback_sent_at.is_(None),
                 # An agent's answer already routes back on its own path.
