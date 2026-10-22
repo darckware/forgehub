@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useHostReadiness, usePrepareHost, type HostPreparation } from "@/hooks/useHostInventory";
-import { useServers, type Server } from "@/hooks/useServers";
+import { serverFormSchema, useServers, type Server } from "@/hooks/useServers";
 
 /** "Prepare station" (Machines tab): pick a station that isn't ready yet,
  * then either run the preparation over SSH as the client's administrator or
@@ -29,6 +29,8 @@ export interface PreparationViewModel {
   adminUser: string;
   adminPassword: string;
   setAdminPassword: (value: string) => void;
+  sshPort: string;
+  setSshPort: (value: string) => void;
   disableAdmin: boolean;
   setDisableAdmin: (value: boolean) => void;
   canSubmit: boolean;
@@ -49,6 +51,7 @@ export function usePreparationViewModel(
   const [accountChoice, setAccountChoice] = useState<"registered" | "other">("registered");
   const [otherUser, setOtherUser] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
+  const [sshPortChoice, setSshPort] = useState<string | null>(null);
   const [disableAdminChoice, setDisableAdminChoice] = useState<boolean | null>(null);
 
   const notReady = useMemo(
@@ -68,6 +71,8 @@ export function usePreparationViewModel(
   const account = registeredUser ? accountChoice : "other";
   const adminUser = (account === "registered" ? registeredUser ?? "" : otherUser).trim();
   const disableAdmin = disableAdminChoice ?? selected?.kind === "workstation";
+  const sshPort = sshPortChoice ?? String(selected?.ssh_port ?? 22);
+  const validPort = serverFormSchema.shape.ssh_port.safeParse(Number(sshPort)).success;
 
   const status = prepare.isPending ? "submitting" : prepare.isError ? "error" : prepare.data?.script ? "copy_ready" : "idle";
   return {
@@ -80,6 +85,7 @@ export function usePreparationViewModel(
       setAccountChoice("registered");
       setAdminPassword("");
       setDisableAdminChoice(null);
+      setSshPort(null);
     },
     selected,
     mode,
@@ -95,14 +101,17 @@ export function usePreparationViewModel(
     adminUser,
     adminPassword,
     setAdminPassword,
+    sshPort,
+    setSshPort,
     disableAdmin,
     setDisableAdmin: setDisableAdminChoice,
-    canSubmit: Boolean(selected) && (mode === "copy" || (adminUser.length > 0 && adminPassword.length > 0)),
+    canSubmit: Boolean(selected) && (mode === "copy" || (validPort && adminUser.length > 0 && adminPassword.length > 0)),
     submit: () => {
-      if (!selected) return;
+      if (!selected || prepare.isPending || (mode === "ssh" && !validPort)) return;
       prepare.mutate(
         {
           serverId: selected.id,
+          ...(mode === "ssh" ? { ssh_port: Number(sshPort) } : {}),
           mode,
           admin_user: adminUser || null,
           admin_password: mode === "ssh" ? adminPassword : null,

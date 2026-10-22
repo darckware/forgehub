@@ -230,6 +230,7 @@ export interface HostPreparation {
 
 export interface HostPreparationInput {
   serverId: string;
+  ssh_port?: number;
   mode: "copy" | "ssh";
   admin_user: string | null;
   admin_password: string | null;
@@ -243,8 +244,11 @@ export interface HostPreparationInput {
 export function usePrepareHost() {
   const qc = useQueryClient();
   return useMutation<HostPreparation, Error, HostPreparationInput>({
-    mutationFn: ({ serverId, ...body }) => apiClient.post(`/api/v1/servers/${serverId}/preparation`, body),
-    onSuccess: () => {
+    mutationFn: async ({ serverId, ssh_port, ...body }) => {
+      if (ssh_port !== undefined) await apiClient.put(`/api/v1/servers/${serverId}`, { ssh_port });
+      return apiClient.post(`/api/v1/servers/${serverId}/preparation`, body);
+    },
+    onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["servers"] });
       void qc.invalidateQueries({ queryKey: ["host-executions"] });
     },

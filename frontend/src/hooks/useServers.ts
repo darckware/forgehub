@@ -280,15 +280,18 @@ export function useInstallServerKey() {
   return useMutation<
     ServerInstallKeyResult,
     Error,
-    { id: string; password: string; remote_user?: string; admin_user?: string | null }
+    { id: string; password: string; remote_user?: string; admin_user?: string | null; ssh_port?: number }
   >({
-    mutationFn: ({ id, password, remote_user, admin_user }) =>
-      apiClient.post(`/api/v1/servers/${id}/install-key`, {
+    mutationFn: async ({ id, password, remote_user, admin_user, ssh_port }) => {
+      // Persist first: installation, readiness probes and the terminal all read this port.
+      if (ssh_port !== undefined) await apiClient.put(`/api/v1/servers/${id}`, { ssh_port });
+      return apiClient.post(`/api/v1/servers/${id}/install-key`, {
         password,
         remote_user: remote_user ?? null,
         admin_user: admin_user ?? null,
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: SERVERS_KEY }),
+      });
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: SERVERS_KEY }),
   });
 }
 
