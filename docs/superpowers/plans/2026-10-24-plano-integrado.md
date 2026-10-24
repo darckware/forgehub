@@ -13,6 +13,7 @@
 - "o objetivo do Software Factory é o gerenciamento da documentação, manual do sistema, controle das tarefas, distribuição das demandas entre os agentes, para a pasta do projeto ficar organizada e bem descritiva, que eu possa administrar e auditar o desenvolvimento e ajudar no contexto do projeto: definição do escopo do sistema, banco de dados, deploy, metodologia e spec adotadas para implementação"
 - "adicione design system, logomarca, etc"
 - "queria evoluir software factory para service factory para englobar todos os serviços"
+- "como quero implementar uma missão para o grupo de agentes, eles precisam registrar isso como um projeto no Service Factory para poderem gerenciar as atividades e a documentação dos projetos em execução e a distribuição das tarefas"
 - "queria adicionar o controle do contexto: memória dos agentes, Hindsight (memória estendida), base de conhecimento e a documentação da Foundation"
 
 **Documentos ligados:** `docs/superpowers/specs/2026-10-24-missao-design.md` (frente Missão),
@@ -115,6 +116,41 @@ ao cliente, infraestrutura, documentação, marketing e captação, e missões.
 | S.5 | **Abrir trabalho pela linha:** "Novo serviço" escolhe a linha e já cria o projeto com pipeline, documentos obrigatórios e agentes padrão; o mesmo pelo MCP | Aramis + Dartan | S.1, P.1 | Projeto novo nasce completo para a linha escolhida |
 | S.6 | **Ligação com o Darckware:** contrato `suporte_horas` → linhas de suporte e manutenção, `desenvolvimento` → linha de software; o portal do cliente mostra os serviços em andamento por linha (E.2) | Aramis | S.1, E.1 | Horas e serviços do cliente batem nos dois lados |
 | S.7 | **Validação por linha:** o roteiro da Fase V ganha um fluxo curto por linha (um atendimento de manutenção, um ticket, um incidente simulado, um documento) | Claude Code + agente | S.5 | Relatório por linha |
+
+### 1.4 Missão = projeto no Service Factory: o que os agentes conseguem hoje
+
+Para um grupo de agentes executar uma missão, ela precisa existir como projeto no Service Factory.
+O projeto é onde eles gerenciam as atividades, a documentação e a distribuição das tarefas. Análise
+das ferramentas MCP de 24/10:
+
+| O grupo precisa | Hoje pelo MCP | Lacuna |
+|---|---|---|
+| Registrar a missão como projeto | Só pelo caminho de software novo: `create_conception_idea` (cria produto, conceito, blueprint) → aprovação do conceito → `authorize_project_delivery`. Pesado e errado para uma missão interna | **Criar projeto interno** sob um produto/versão existente, na linha "Missões", com objetivo e critério de sucesso |
+| Ter onde registrar (produto e ciclo) | Não há produto real cadastrado, só dados de teste | Produto "Ecossistema Foundation" com versão `2026.4` (B.1) |
+| Definir participantes e papéis | `ProjectAgentMembership` existe (13 registros), mas no módulo de Orquestração e sem ferramenta MCP | Ferramenta para gerenciar membros. **Atenção:** a R.1 aposenta a Orquestração e precisa preservar o `ProjectAgentMembership` |
+| Quebrar em fases e tarefas | `create_planning_item`, `create_project_task` | — |
+| Ordenar as tarefas | Não há ferramenta de dependência | `add_task_dependency` |
+| Distribuir as tarefas | `release_planning_for_execution` só grava o agente no item; não cria a atribuição da tarefa nem despacha | `assign_task` e `dispatch_task` (a rota já existe) |
+| Acompanhar | `list_project_tasks`, `update_task_status` | Linha do tempo (P.5) |
+| Provar a entrega | Só pela resposta do Messages | `report_task_execution` com evidência |
+| Documentar o projeto | `save_concept_document` (só no conceito) | Documento ligado ao projeto/fase/tarefa (`DocLink` + artefato) e a pasta `docs/missions/<slug>/` |
+| Receber o seu contexto | — | Anotações (P.2) e contexto herdado no despacho (P.4) |
+
+### Fase M0 — Caminho rápido: a primeira missão como projeto (logo após a V-a)
+
+Antes do módulo completo de Missão (M.1), o grupo já pode trabalhar numa missão registrada como
+projeto, por convenção. A camada de Missão vem depois e se apoia nesses mesmos projetos.
+
+| # | Tarefa | Dono | Depende | Aceite |
+|---|---|---|---|---|
+| M0.1 | Produto "Ecossistema Foundation" (interno, sem cliente) com versão `2026.4` | Claude Code (via API), Marcelo confirma | V-a | Aparece no Cockpit |
+| M0.2 | Ferramentas MCP mínimas para o grupo: `create_internal_project` (produto/versão, linha, objetivo, critério de sucesso, coordenador, pasta), `manage_project_members`, `add_task_dependency`, `assign_task`, `dispatch_task`, `report_task_execution` (evidência), `attach_project_document` (`DocLink`) | Aramis, Porthus revisa | V-a | Um agente cria e conduz um projeto de missão inteiro pelo MCP |
+| M0.3 | **Convenção de missão** até a M.1: projeto do tipo missão; o primeiro planning item é "Objetivo e critérios de sucesso"; fases = planning items; coordenador = dono do projeto (Athos por padrão); participantes = membros do projeto; documentos em `docs/missions/<slug>/` com `00-INDICE.md`; toda tarefa termina com `STATUS: DONE` e evidência | Athos (Foundation) + Scriba | M0.2 | Convenção publicada na skill `forgehub` e na Foundation |
+| M0.4 | **Skill "como conduzir uma missão"** na skill compartilhada `forgehub`: registrar, planejar, distribuir, acompanhar, documentar, consolidar | Athos + Claude Code | M0.3 | Os agentes seguem o mesmo roteiro |
+| M0.5 | **Primeira missão real:** o próprio plano integrado, registrado como projeto de missão (fases do plano = planning items, tarefas = tarefas), com o Athos coordenando e você acompanhando e anotando | Athos | M0.4 | O avanço do plano é visto no Cockpit, não em documento solto |
+
+A M.1 (módulo completo) passa a acrescentar o que a convenção não cobre: campos próprios de missão,
+consolidação automática, contexto por destinatário (M.2) e a tela `/missions`.
 
 ## 2. Componentes existentes e papel no conjunto
 
@@ -302,7 +338,7 @@ manutenção remota. **Não existe** anotação nas entidades do Service Factory
 
 | # | Tarefa | Dono | Depende | Aceite |
 |---|---|---|---|---|
-| R.1 | Aposentar Execution Waves/Work Packages/runner e o restante da Orquestração (rotas 410, telas e card simulado do Cockpit removidos; tabelas vazias removidas por migration) | Aramis + Dartan | V | Nenhuma rota de execução fora do Messages; testes ajustados |
+| R.1 | Aposentar Execution Waves/Work Packages/runner e o restante da Orquestração (rotas 410, telas e card simulado do Cockpit removidos; tabelas vazias removidas por migration), **preservando o `ProjectAgentMembership`** (membros do projeto, usados pela Missão e pela autorização de entrega), que passa para o domínio de projeto | Aramis + Dartan | V | Nenhuma rota de execução fora do Messages; membros do projeto intactos; testes ajustados |
 | R.2 | Templates de Pipeline por tipo de projeto (implementação, sustentação, serviço, missão) com estágios e artefatos obrigatórios | Atlas (conteúdo) + Aramis | V.13 | Projeto novo recebe o pipeline do seu tipo |
 | R.3 | Progresso governado: fundir no Pipeline ou aposentar, conforme V.13 | Aramis | V.13 | Uma só noção de "estágio concluído" |
 | R.4 | Revisão | Porthus | R.1–R.3 | Aprovação registrada |
@@ -491,7 +527,7 @@ novas implementações").
 
 ```
 Trilho principal:
-V-a ──► V-b ──► S ──► R ──► B ──► P.1/P.2 ──► I ──► Q ──► D ──► P.3–P.6 ──► M.1 ──► M.2 ──► M.4 ──► G
+V-a ──► M0 (primeira missão como projeto) ──► V-b ──► S ──► R ──► B ──► P.1/P.2 ──► I ──► Q ──► D ──► P.3–P.6 ──► M.1 ──► M.2 ──► M.4 ──► G
 
 Começam já, em paralelo:
 A.1/A.2 ──► A.3–A.5 (após I.5)
@@ -623,6 +659,8 @@ Os níveis M0–M3 da Missão passam a exigir os itens da Fase G:
     produção com rollback (Q.1–Q.5).
 12. **Service Factory (seção 1.3, Fase S):** confirmar o nome, as 9 linhas de serviço iniciais e a
     generalização (Produto = o que é atendido; Versão = o ciclo), mantendo rotas e tabelas.
-13. B.4: importar o estado atual dos produtos (pastas, documentos, pendências) antes de começar.
-14. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
+13. **M0:** registrar já a primeira missão como projeto (o próprio plano integrado), com as
+    ferramentas MCP mínimas e a convenção de missão, logo após a validação pela tela/API.
+14. B.4: importar o estado atual dos produtos (pastas, documentos, pendências) antes de começar.
+15. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
    pré-requisitos para subir qualquer nível de autonomia.
