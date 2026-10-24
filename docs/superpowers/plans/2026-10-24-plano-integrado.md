@@ -10,6 +10,7 @@
 - "a tela de atividades dos agentes precisa acompanhar todas as rotinas e monitorar todos os agentes"
 - "o Darckware precisa ser adicionado, ele é minha ponte com a internet para captação de cliente no nosso ecossistema"
 - "a ideia do Software Factory é que o agente use o módulo e eu monitore as atividades e adicione anotações e documentações adicionais para ajudar no contexto"
+- "o objetivo do Software Factory é o gerenciamento da documentação, manual do sistema, controle das tarefas, distribuição das demandas entre os agentes, para a pasta do projeto ficar organizada e bem descritiva, que eu possa administrar e auditar o desenvolvimento e ajudar no contexto do projeto: definição do escopo do sistema, banco de dados, deploy, metodologia e spec adotadas para implementação"
 - "queria adicionar o controle do contexto: memória dos agentes, Hindsight (memória estendida), base de conhecimento e a documentação da Foundation"
 
 **Documentos ligados:** `docs/superpowers/specs/2026-10-24-missao-design.md` (frente Missão),
@@ -48,6 +49,20 @@ Consequências para o plano:
 - toda ação da tela tem uma ferramenta MCP equivalente;
 - toda ação de agente é auditada com o nome do agente;
 - a anotação do Marcelo é a camada de maior precedência do contexto (Fase C, camada 1).
+
+### 1.2 Para que serve o Software Factory
+
+É o centro de gestão do desenvolvimento. O que ele gerencia, onde isso já existe e o que falta:
+
+| O Marcelo precisa | Já existe | Falta | Tarefas |
+|---|---|---|---|
+| **Documentação** do projeto organizada e com estado (rascunho, em revisão, aprovado) | Concepção gera `PRD.md`, `SPEC-TECNOLOGIA.md`, `SCREEN-TEMPLATES.md`, `DESIGN-SYSTEM.md` (padrão 18 da Foundation) e copia para `docs/` do projeto; Artefatos; `DocLink`; Pipelines | Conjunto completo de documentos por projeto, estado de cada um, documento obrigatório por estágio | D.1–D.5, D.7, D.11 |
+| **Manual do sistema** (uso e operação) | Telas e regras de negócio no Escopo | Manual gerado e atualizado a cada versão | D.9 |
+| **Controle das tarefas** | Planejamento, tarefas, dependências, status, evidência, Cockpit | Linha do tempo e supervisão | P.5, P.6 |
+| **Distribuição das demandas entre os agentes** | Atribuição, membros do projeto por tipo de solução, despacho pelo Messages | Sugestão de agente por skill/carta, MCP completo | I.11, P.1 |
+| **Pasta do projeto organizada e descritiva** | Navegador de arquivos do projeto; cópia dos documentos da Concepção para `docs/` | Estrutura padrão (padrão 19), índice, guia para agentes, verificação de divergência entre a pasta e o Software Factory | D.7, D.10, D.11 |
+| **Administrar e auditar** o desenvolvimento | Governança, `AuditEvent`, aprovações, fechamento de versão | Completude da documentação por projeto, auditoria de quem mudou o quê | D.11, P.5 |
+| **Contexto do projeto para os agentes:** escopo, banco, deploy, metodologia, specs | Escopo e telas; modelo de banco derivado (ERD); Deploy; padrões 01–19 da stack | Um **contrato do projeto** que declara metodologia, specs e padrões adotados, banco, ambientes de deploy, e vai junto em todo despacho | D.8, P.4 |
 
 ## 2. Componentes existentes e papel no conjunto
 
@@ -252,7 +267,7 @@ manutenção remota. **Não existe** anotação nas entidades do Software Factor
 | I.12 | Falhas operacionais viram trabalho no Sustentação do produto: cron/script órfão, backup externo, disco, provedor ForgeRouter, Hindsight | Aramis | B.2 | Dedupe por fonte; fecha sozinha quando a fonte volta ao normal |
 | I.9 | Revisão | Porthus | I.1–I.8, I.10–I.12 | Aprovação registrada |
 
-### Fase D — Documentação obrigatória
+### Fase D — Documentação, manual e pasta do projeto
 
 | # | Tarefa | Dono | Depende | Aceite |
 |---|---|---|---|---|
@@ -261,6 +276,11 @@ manutenção remota. **Não existe** anotação nas entidades do Software Factor
 | D.3 | Manutenção e serviço geram registro de atendimento (o quê, onde, evidência, horas) ligado à tarefa e, no cliente, ao ticket | Aramis | I.5, I.6 | Registro visível no projeto e no Darckware |
 | D.4 | Publicar versão gera notas da versão a partir das tarefas e documentos | Aramis | D.2 | `release_notes` preenchido; revisável antes de publicar |
 | D.5 | Aba "Documentos" no projeto e na fase (artefatos, versões, arquivos) | Dartan | D.2 | Celular; link para o Docs |
+| D.7 | **Estrutura padrão da pasta do projeto** (padrões 18 e 19 da Foundation), mantida pelo Software Factory em `<working_directory_path>/docs/`: `00-INDICE.md` (mapa com estado de cada documento), `PRD.md`, `ESCOPO.md` (telas e regras), `BANCO-DE-DADOS.md` (modelo e ERD derivados), `DEPLOY.md` (ambientes, instalações, como publicar e reverter), `METODOLOGIA.md` (padrões e specs adotados, D.8), `SPEC-TECNOLOGIA.md`, `adr/` (decisões), `MANUAL/` (D.9), `CHANGELOG.md` (notas de cada versão, D.4). Cada arquivo tem cabeçalho com estado, dono e data | Aramis + Scriba (conteúdo) | D.2, R.2 | Projeto novo nasce com a estrutura; o índice reflete o estado real |
+| D.8 | **Contrato do projeto:** no Software Factory, por projeto, declara metodologia, padrões da stack adotados (com versão e estado de cada um), stack técnica, banco, ambientes de deploy e restrições; gera `METODOLOGIA.md` e vai junto em todo despacho de tarefa do projeto (com as anotações, P.4) | Aramis + Dartan | P.4 | Tarefa despachada cita o contrato; mudar o contrato exige anotação ou aprovação |
+| D.9 | **Manual do sistema** por versão: gerado a partir do escopo (telas, regras, fluxos), revisado pelo Scriba e publicado em `docs/MANUAL/` e no portal do cliente quando for projeto de cliente (E.2) | Scriba + Aramis | D.7 | Publicar versão sem manual atualizado pede confirmação explícita |
+| D.10 | **Guia para os agentes na pasta** (`AGENTS.md`/`CLAUDE.md` do projeto), gerado do contrato, das anotações fixadas e da estrutura, para que Claude Code, Codex e agy leiam o contexto ao abrir a pasta | Aramis | D.8, P.2 | Guia atualizado a cada mudança do contrato; seção gerada delimitada (o resto do arquivo não é tocado) |
+| D.11 | **Tela "Documentação do projeto"** e auditoria: documentos exigidos × existentes, estado (rascunho/em revisão/aprovado), última atualização × última mudança de código, divergência entre a pasta e o Software Factory; check no Auditor por projeto | Aramis + Dartan | D.7 | Documento desatualizado ou divergente aparece na tela e vira tarefa |
 | D.6 | Publicar versão cria a Release, liga às instalações do Deploy e mostra a versão em produção | Aramis + Dartan | D.4 | Deploy exibe a versão; release com notas |
 
 ### Fase A — Agent Activity completo (seção 5)
