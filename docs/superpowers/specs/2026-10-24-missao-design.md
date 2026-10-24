@@ -126,6 +126,11 @@ Missão #N (objetivo, critério de sucesso, coordenador, participantes, autonomi
 
 ### 4.3 Modelo de dados novo (schema `company`)
 
+> **Ajuste de 24/10 (plano integrado, seção 0):** a missão passa a ser uma **extensão do Projeto**
+> (`project_type = mission`), não uma tabela `missions` separada. Os campos de missão (objetivo,
+> critérios de aceite, orquestrador, autonomia, brief, resultado) ficam no projeto ou em tabelas
+> ligadas a ele. A tabela abaixo continua válida como lista de campos, não como entidade nova.
+
 | Tabela | Campos principais |
 |---|---|
 | `missions` | `number`, `title`, `objective`, `success_criteria`, `project_id` (1:1, obrigatório), `coordinator_agent_id` (padrão Athos), `status` (`draft` → `planned` → `active` → `consolidating` → `done` / `cancelled`), `priority`, `due_at`, `autonomy` (`A0`/`A1`/`A2`, padrão `A2`), `summary` (resumo de continuidade, versionado por `AuditEvent`), `result` (consolidação final), `result_doc_path` |
