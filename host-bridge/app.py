@@ -1274,27 +1274,6 @@ class AgentRunRequest(BaseModel):
     work_package_hash: str | None = None
 
 
-def _antigravity_env(project_dir: Path) -> dict[str, str]:
-    """Read the project-scoped ForgeRouter env without invoking a shell."""
-    env = os.environ.copy()
-    env_file = project_dir / ".forgerouter" / "antigravity.env"
-    if not env_file.exists():
-        return env
-    for raw_line in env_file.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:]
-        if "=" not in line:
-            continue
-        key, raw_value = line.split("=", 1)
-        if re.fullmatch(r"[A-Z_][A-Z0-9_]*", key):
-            values = shlex.split(raw_value)
-            env[key] = values[0] if values else ""
-    return env
-
-
 def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[str], dict[str, str]]:
     if req.mode not in {"plan", "execute"}:
         raise HTTPException(status_code=400, detail="mode must be plan or execute")
@@ -1333,89 +1312,48 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
             hermes_env,
         )
 
-    routing_groups = {"auto", "simple", "standard", "complex", "reasoning", "vision", "audio", "code"}
-    if req.routing_group not in routing_groups:
-        raise HTTPException(status_code=400, detail="unsupported ForgeRouter routing_group")
-    # req.api_key is only set when the Agent row in ForgeHub has a
-    # ForgeRouter credential configured. Porthus/Aramis/Dartan each have
-    # their own native CLI auth already logged in on this host (Claude
-    # Code subscription, Codex's own auth.json, Antigravity's own OAuth
-    # token under ~/.gemini/antigravity-cli/) -- with no ForgeRouter key
-    # on file, dispatch falls back to that native auth instead of forcing
-    # ForgeRouter with an empty/invalid key (which would 401). Same
-    # "agent already has its own credential" pattern as runtime_type ==
-    # "hermes" above.
-    use_forgerouter = bool(req.api_key)
-    effective_model = (
-        f"forgerouter/{req.routing_group}"
-        if req.model_ref == "forgerouter/auto"
-        else req.model_ref
-    )
-    model_args = ["--model", effective_model] if use_forgerouter else []
-    agent_env = os.environ.copy()
-    if use_forgerouter:
-        agent_env.update({
-            "FORGEROUTER_API_KEY": req.api_key,
-            "FORGEROUTER_MODEL": effective_model,
-            "OPENAI_API_KEY": req.api_key,
-            "ANTHROPIC_AUTH_TOKEN": req.api_key,
-            "ANTHROPIC_API_KEY": req.api_key,
-        })
+    # Claude Code, Codex and agy always run on their own native login and
+    # default model (Claude Code subscription, Codex's auth.json, agy's OAuth
+    # token) -- never through ForgeRouter (Marcelo, 2026-10-24: "os modelos
+    # usados pelo codex, claude e agy são deles"). Routing them through
+    # `forgerouter/auto` handed Aramis's `codex exec` runs to free models
+    # (nemotron, command-r7b, ...) that ended the turn mid-task with exit 0,
+    # so the Messages dispatch was recorded as completed with the work half
+    # done. model_ref/routing_group/api_key stay on AgentRunRequest so older
+    # callers aren't rejected, but are ignored here.
     if req.runtime_type == "claude":
-        if use_forgerouter:
-            # Without this, ANTHROPIC_API_KEY above still points `claude` at
-            # the real Anthropic API with a ForgeRouter-issued key -> 401
-            # Invalid API key. Same fix
-            # /root/.claude/scripts/claude_fallback.sh already applies, and
-            # the same constant _configure_claude_forgerouter already uses
-            # for the project-settings.json flow -- just never wired into
-            # this ad hoc agent-runs dispatch path before now.
-            agent_env = {**agent_env, "ANTHROPIC_BASE_URL": FORGEROUTER_ANTHROPIC_BASE_URL}
         command = [
-            resolve_runtime_executable("claude", env=agent_env),
+            resolve_runtime_executable("claude"),
             "--print",
             "--output-format",
             "json",
             "--permission-mode",
             "plan" if req.mode == "plan" else "acceptEdits",
             "--no-session-persistence",
-            *model_args,
         ]
         if req.max_budget_usd is not None:
             command.extend(["--max-budget-usd", str(req.max_budget_usd)])
         command.append(req.prompt)
-        return command, agent_env
+        return command, _native_runtime_env()
 
     if req.runtime_type == "codex":
-        codex_overrides: list[str] = []
-        if use_forgerouter and effective_model.startswith("forgerouter/"):
-            # -c overrides, not the project's .codex/config.toml: Codex
-            # ignores model_provider/model_providers from project-local
-            # files (see FORGEROUTER_CODEX_OVERRIDES comment above). Skipped
-            # entirely when running on Codex's own native auth.json login
-            # (use_forgerouter False) -- those overrides would otherwise
-            # force Codex's provider back to ForgeRouter.
-            for override in FORGEROUTER_CODEX_OVERRIDES:
-                codex_overrides += ["-c", override]
         return (
             [
-                resolve_runtime_executable("codex", env=agent_env),
+                resolve_runtime_executable("codex"),
                 "exec",
                 "--json",
                 "--sandbox",
                 "read-only" if req.mode == "plan" else "workspace-write",
                 "-C",
                 str(project_dir),
-                *codex_overrides,
-                *model_args,
                 req.prompt,
             ],
-            agent_env,
+            _native_runtime_env(),
         )
 
     return (
         [
-            resolve_runtime_executable("agy", env=agent_env),
+            resolve_runtime_executable("agy"),
             "--print",
             req.prompt,
             "--mode",
@@ -1423,10 +1361,28 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
             "--sandbox",
             "--print-timeout",
             f"{req.max_seconds}s",
-
         ],
-        {**_antigravity_env(project_dir), **agent_env} if use_forgerouter else agent_env,
+        _native_runtime_env(),
     )
+
+
+def _native_runtime_env() -> dict[str, str]:
+    """The bridge's env minus anything that would point a CLI at ForgeRouter
+    instead of its own login (e.g. an inherited ANTHROPIC_BASE_URL)."""
+    env = os.environ.copy()
+    for key in _FORGEROUTER_ENV_KEYS:
+        env.pop(key, None)
+    return env
+
+
+_FORGEROUTER_ENV_KEYS = (
+    "FORGEROUTER_API_KEY",
+    "FORGEROUTER_MODEL",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+)
 
 
 def _monitor_agent_run(run_id: str, proc: subprocess.Popen, max_seconds: int) -> None:

@@ -12,7 +12,6 @@ import httpx
 
 from app.core.agent_profile_files import external_identity_preamble
 from app.core.config import settings
-from app.core.secrets import decrypt_secret
 from app.db.models.agent import Agent
 
 
@@ -39,17 +38,15 @@ async def dispatch_agent_run(
     agent can't be dispatched at all (no runtime_type/profile_slug); raises
     httpx.HTTPError if the host-bridge call itself fails.
 
-    A ForgeRouter credential (forgerouter_api_key_encrypted) is optional,
-    not required: Porthus/Aramis/Dartan each already have their own native
-    CLI auth logged in on the host (Claude Code subscription, Codex's own
-    auth.json, Antigravity's own OAuth token) independent of ForgeRouter.
-    When unset, host-bridge's _agent_run_command dispatches on that native
-    auth instead of forcing ForgeRouter with an empty/invalid key."""
+    Claude Code, Codex and agy always run on their own native login and
+    default model, never ForgeRouter (2026-10-24): `forgerouter/auto` sent
+    Aramis's runs to free models that stopped mid-task with exit 0. So no
+    ForgeRouter credential is decrypted or sent; the bridge ignores
+    `model_ref`/`routing_group`/`api_key` for these runtimes."""
     if not agent.runtime_type:
         raise AgentRunDispatchError(f"Agent '{agent.name}' has no runtime_type for CLI dispatch")
     if agent.runtime_type == "hermes" and not agent.profile_slug:
         raise AgentRunDispatchError(f"Agent '{agent.name}' has no profile_slug for hermes dispatch")
-    api_key = decrypt_secret(agent.forgerouter_api_key_encrypted) if agent.forgerouter_api_key_encrypted else ""
     # External runtimes only see the task text; their identity rides along.
     preamble = external_identity_preamble(agent)
     if preamble:
@@ -62,7 +59,7 @@ async def dispatch_agent_run(
         "prompt": prompt,
         "model_ref": model_ref,
         "routing_group": routing_group,
-        "api_key": api_key,
+        "api_key": "",
         "mode": mode,
         "max_seconds": max_seconds,
         "max_budget_usd": max_budget_usd,

@@ -78,3 +78,28 @@ def test_health_uses_codex_resolver_and_sanitizes_resolution_failure(monkeypatch
 
     codex = result["capabilities"]["adapters"]["codex"]
     assert codex == {"available": False, "reason": "runtime executable unavailable"}
+
+
+@pytest.mark.parametrize("runtime", ["claude", "codex", "agy"])
+def test_external_runtimes_ignore_forgerouter_credential(monkeypatch, tmp_path, runtime) -> None:
+    """A ForgeRouter key on the request must never route claude/codex/agy
+    away from their own login and default model."""
+    monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "test-token")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://localhost:2100")
+    bridge_app = importlib.import_module("app")
+    monkeypatch.setattr(bridge_app, "resolve_runtime_executable", lambda name, *, env=None: f"/bin/{name}")
+    req = bridge_app.AgentRunRequest(
+        run_id="00000000-0000-0000-0000-000000000001",
+        runtime_type=runtime,
+        project_path=str(tmp_path),
+        prompt="do it",
+        api_key="fr-secret",
+    )
+
+    command, env = bridge_app._agent_run_command(req, tmp_path)
+
+    assert "--model" not in command
+    assert not any("forgerouter" in part for part in command)
+    for key in ("FORGEROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
+        assert key not in env
+    assert "fr-secret" not in env.values()
