@@ -213,6 +213,13 @@ def localizacao_atual() -> dict[str, Any] | None:
     return _call("GET", "/location")
 
 
+def resumos_diarios(dias: int = 7) -> list[dict[str, Any]]:
+    """Os resumos da manhã gravados nos últimos ``dias`` dias, do mais recente ao mais antigo."""
+    hoje = agora().date()
+    inicio = hoje - timedelta(days=max(1, min(dias, 90)) - 1)
+    return _call("GET", "/daily-summaries", query={"start": inicio.isoformat(), "end": hoje.isoformat()})
+
+
 def gravar_resumo_diario(conteudo: str, dia: str = "") -> dict[str, Any]:
     """Grava no ForgeHub o resumo da manhã que a Maia enviou (um por dia; regravar substitui)."""
     if not conteudo.strip():
@@ -287,6 +294,19 @@ def register(mcp) -> None:
         except AgendaError as exc:
             return {"success": False, "error": str(exc)}
         return _safe(resumo_do_dia, dia)
+
+    @mcp.tool()
+    async def personal_location_get() -> dict[str, Any]:
+        """A localização GPS atual do Marcelo no ForgeHub: cidade, UF, coordenadas, de onde veio
+        (telegram, whatsapp ou browser) e quando foi atualizada. Só existe a última, sem histórico;
+        um pin que ele envia a você já a atualiza sozinho. resultado null = ele ainda não enviou."""
+        return _safe(localizacao_atual)
+
+    @mcp.tool()
+    async def personal_daily_summaries_list(dias: int = 7) -> dict[str, Any]:
+        """Os resumos da manhã já gravados (texto enviado e a localização usada na previsão) dos
+        últimos `dias` dias (máx. 90), do mais recente ao mais antigo."""
+        return _safe(resumos_diarios, dias)
 
     @mcp.tool()
     async def personal_daily_summary_save(conteudo: str, data: str = "") -> dict[str, Any]:
