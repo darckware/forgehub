@@ -20,13 +20,16 @@ import {
   useCreatePersonalTask,
   useDeletePersonalItem,
   usePersonalAgenda,
+  usePersonalLocations,
   usePersonalNotes,
+  useSavePersonalLocation,
   usePersonalTasks,
   useUpdatePersonalEvent,
   useUpdatePersonalNote,
   useUpdatePersonalTask,
   type AgendaItem,
   type PersonalDemand,
+  type PersonalLocation,
   type PersonalDemandType,
   type PersonalNote,
   type PersonalTask,
@@ -262,6 +265,84 @@ export function usePersonalNotesViewModel() {
     error,
     togglePin: (n: PersonalNote) => update.mutate({ id: n.id, body: { pinned: !n.pinned } }),
     toggleArchive: (n: PersonalNote) => update.mutate({ id: n.id, body: { archived: !n.archived } }),
+  };
+}
+
+/* ---------------------------------------------------------------- location */
+
+export interface LocationDraft {
+  day: string;
+  city: string;
+  state: string;
+  latitude: string;
+  longitude: string;
+  notes: string;
+}
+
+function parseCoordinate(value: string, limit: number): number | null {
+  const n = Number(value.trim().replace(",", "."));
+  return value.trim() && Number.isFinite(n) && Math.abs(n) <= limit ? n : null;
+}
+
+/** Where Marcelo was, day by day (the summary's weather uses it), and a form to set or correct a day. */
+export function usePersonalLocationViewModel() {
+  const [start, setStart] = useState(() => addDays(todayLocal(), -30));
+  const [end, setEnd] = useState(todayLocal);
+  const query = usePersonalLocations(start, end);
+  const saveMutation = useSavePersonalLocation();
+  const [editing, setEditing] = useState<LocationDraft | null>(null);
+  const [status, setStatus] = useState<FormStatus>("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  const latitude = editing ? parseCoordinate(editing.latitude, 90) : null;
+  const longitude = editing ? parseCoordinate(editing.longitude, 180) : null;
+  const valid = Boolean(editing && editing.day && editing.city.trim() && latitude !== null && longitude !== null);
+
+  function open(location?: PersonalLocation) {
+    setError(null);
+    setStatus("idle");
+    setEditing(
+      location
+        ? {
+            day: location.day, city: location.city, state: location.state ?? "",
+            latitude: String(location.latitude), longitude: String(location.longitude), notes: location.notes ?? "",
+          }
+        : { day: todayLocal(), city: "", state: "", latitude: "", longitude: "", notes: "" },
+    );
+  }
+
+  async function save() {
+    if (!editing || !valid || latitude === null || longitude === null) return;
+    setStatus("submitting");
+    setError(null);
+    try {
+      await saveMutation.mutateAsync({
+        day: editing.day, city: editing.city.trim(), state: editing.state.trim() || null,
+        latitude, longitude, notes: editing.notes.trim() || null,
+      });
+      setEditing(null);
+      setStatus("idle");
+    } catch (e) {
+      setError(errorText(e));
+      setStatus("error");
+    }
+  }
+
+  return {
+    query,
+    locations: query.data ?? [],
+    start,
+    setStart,
+    end,
+    setEnd,
+    editing,
+    change: (patch: Partial<LocationDraft>) => setEditing((d) => (d ? { ...d, ...patch } : d)),
+    cancel: () => setEditing(null),
+    open,
+    save,
+    valid,
+    status,
+    error,
   };
 }
 

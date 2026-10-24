@@ -12,9 +12,9 @@ Reminders are minutes before the moment (``[1440, 60]`` = a day and an hour befo
 and moving the moment re-arms them. Recurring items roll forward to their next occurrence.
 """
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -244,3 +244,37 @@ class PersonalAssistantSettings(Base, TimestampMixin):
     wait_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=5, server_default="5")
     #: Whether the context pass runs (context + suggestions after each message).
     capture_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+
+
+PERSONAL_LOCATION_SOURCES = ("maia", "manual")
+
+
+class PersonalLocation(Base, TimestampMixin):
+    """Where Marcelo is on a given day, for the summary's weather (2026-10-24).
+
+    One row per day: the Maia sends the location he shared (Telegram/WhatsApp pin), or
+    he sets it on the Pessoal screen; a second send the same day replaces the first.
+    Never the VPS's location. ``source`` comes from who called, not from the payload.
+    """
+
+    __tablename__ = "personal_locations"
+    __table_args__ = (
+        UniqueConstraint("day", name="uq_personal_locations_day"),
+        CheckConstraint(f"source IN {PERSONAL_LOCATION_SOURCES}", name="ck_personal_location_source"),
+        CheckConstraint("latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180",
+                        name="ck_personal_location_coordinates"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    #: São Paulo date the location applies to.
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    city: Mapped[str] = mapped_column(String(120), nullable=False)
+    state: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    country: Mapped[str] = mapped_column(String(80), nullable=False, default="Brasil", server_default="Brasil")
+    latitude: Mapped[float] = mapped_column(Float, nullable=False)
+    longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    #: "maia" (sent by the Maia) or "manual" (Marcelo on the screen).
+    source: Mapped[str] = mapped_column(String(30), nullable=False, default="maia", server_default="maia")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The actor that last wrote it ("marcelo" or the agent's profile slug).
+    created_by: Mapped[str] = mapped_column(String(50), nullable=False, default="maia", server_default="maia")

@@ -9,7 +9,8 @@
     "contacts": "Contactos",
     "maia": "Maia",
     "suggestions": "Sugerencias",
-    "agentWork": "Tareas de los agentes"
+    "agentWork": "Tareas de los agentes",
+    "location": "Ubicación"
   },
   "fields": {
     "date": "Fecha",
@@ -390,5 +391,24 @@
     "investigationHint": "Registra lo que se verificó. La reconciliación sigue pendiente hasta que confirmes que la ejecución no está activa.",
     "confirmInactiveHint": "Confirma solo si verificaste que esta ejecución no está corriendo. La falla pasa a ser conocida, no se ejecuta nada y un nuevo intento aún requiere autorización.",
     "typeRun": "Escribe el identificador de la ejecución para confirmar:"
+  },
+  "location": {
+    "title": "Dónde estuviste",
+    "description": "El pronóstico del resumen diario usa la ubicación del día, o la más reciente de los últimos 7 días. Sin ninguna, usa Río de Janeiro (RJ). Nunca la ubicación del VPS.",
+    "add": "Registrar ubicación",
+    "edit": "Corregir",
+    "city": "Ciudad",
+    "state": "Estado",
+    "latitude": "Latitud",
+    "longitude": "Longitud",
+    "notes": "Nota",
+    "replaceHint": "Un registro por día: guardar de nuevo el mismo día lo reemplaza.",
+    "from": "Desde",
+    "to": "Hasta",
+    "empty": "No hay ubicaciones registradas en este período.",
+    "source": {
+      "maia": "Enviada por Maia",
+      "manual": "Registrada por ti"
+    }
   }
 }

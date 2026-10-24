@@ -103,6 +103,7 @@ const keys = {
   notes: (q: string, archived: boolean) => ["personal", "notes", q, archived] as const,
   demands: (status: string) => ["personal", "demands", status] as const,
   demandTypes: ["personal", "demand-types"] as const,
+  locations: (start: string, end: string) => ["personal", "locations", start, end] as const,
 };
 
 function qs(params: Record<string, string | boolean | undefined>): string {
@@ -283,6 +284,41 @@ export function useDeletePersonalDemandType() {
   const invalidate = useInvalidatePersonal();
   return useMutation<void, Error, string>({
     mutationFn: (id) => apiClient.delete(`${BASE}/demand-types/${id}`),
+    onSettled: invalidate,
+  });
+}
+
+/** Where Marcelo was on a day -- sent by the Maia, or set by him ("manual"). Feeds the summary's weather. */
+export interface PersonalLocation {
+  id: string;
+  day: string;
+  city: string;
+  state: string | null;
+  country: string;
+  latitude: number;
+  longitude: number;
+  source: "maia" | "manual";
+  notes: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type LocationInput = Pick<PersonalLocation, "day" | "city" | "latitude" | "longitude"> &
+  Partial<Pick<PersonalLocation, "state" | "country" | "notes">>;
+
+export function usePersonalLocations(start: string, end: string) {
+  return useQuery<PersonalLocation[]>({
+    queryKey: keys.locations(start, end),
+    queryFn: () => apiClient.get(`${BASE}/locations${qs({ start, end })}`),
+  });
+}
+
+/** Records the location for its day; a second save the same day replaces it. */
+export function useSavePersonalLocation() {
+  const invalidate = useInvalidatePersonal();
+  return useMutation<PersonalLocation, Error, LocationInput>({
+    mutationFn: (body) => apiClient.post(`${BASE}/locations`, body),
     onSettled: invalidate,
   });
 }

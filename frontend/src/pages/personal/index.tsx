@@ -49,6 +49,7 @@ import { ContactsTab } from "./ContactsTab";
 import { SuggestionsTab } from "./SuggestionsTab";
 import { MaiaTab } from "./MaiaTab";
 import { AgentTasksTab } from "./AgentTasksTab";
+import { LocationTab } from "./LocationTab";
 
 const RECURRENCES: Recurrence[] = ["", "daily", "weekly", "monthly", "yearly"];
 const fieldClass = "h-9 rounded-md border bg-background px-2 text-sm max-md:text-base";
@@ -86,6 +87,7 @@ export default function PersonalPage() {
           <TabsTrigger value="contacts"><Contact className="mr-1.5 h-4 w-4" />{t("tabs.contacts")}</TabsTrigger>
           <TabsTrigger value="maia"><Bot className="mr-1.5 h-4 w-4" />{t("tabs.maia")}</TabsTrigger>
           <TabsTrigger value="suggestions"><Lightbulb className="mr-1.5 h-4 w-4" />{t("tabs.suggestions")}</TabsTrigger>
+          <TabsTrigger value="location"><MapPin className="mr-1.5 h-4 w-4" />{t("tabs.location")}</TabsTrigger>
         </TabsList>
         <TabsContent value="agent-work"><AgentTasksTab /></TabsContent>
         <TabsContent value="tasks"><TasksTab onDelete={del.ask} /></TabsContent>
@@ -95,6 +97,7 @@ export default function PersonalPage() {
         <TabsContent value="contacts"><ContactsTab /></TabsContent>
         <TabsContent value="maia"><MaiaTab /></TabsContent>
         <TabsContent value="suggestions"><SuggestionsTab /></TabsContent>
+        <TabsContent value="location"><LocationTab /></TabsContent>
       </Tabs>
       <ConfirmDialog
         open={Boolean(del.target)}

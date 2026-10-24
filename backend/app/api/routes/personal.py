@@ -12,7 +12,7 @@ summary.
 import uuid
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +35,9 @@ from app.api.schemas.personal import (
     PersonalTaskCreate,
     PersonalTaskOut,
     PersonalTaskUpdate,
+    PersonalLocationCreate,
+    PersonalLocationOut,
+    PersonalLocationUpdate,
     RemindersDueOut,
 )
 from app.core.config import settings
@@ -49,7 +52,7 @@ from app.core.personal_schedule import (
     task_moment,
 )
 from app.db.base import get_db
-from app.db.models.personal import PersonalDemand, PersonalDemandType, PersonalEvent, PersonalNote, PersonalTask
+from app.db.models.personal import PersonalDemand, PersonalDemandType, PersonalEvent, PersonalLocation, PersonalNote, PersonalTask
 
 router = APIRouter(prefix="/api/v1/personal", tags=["personal"])
 
@@ -410,6 +413,81 @@ async def delete_demands(payload: PersonalDemandsDelete, actor: str = Depends(pe
     await db.commit()
 
 
+
+
+# --- location -----------------------------------------------------------------------------------
+
+#: How long a shared location still stands in for later days with none of their own.
+LOCATION_VALID_DAYS = 7
+
+
+async def _location_for(db: AsyncSession, day: date) -> PersonalLocation | None:
+    """The location to use on ``day``: that day's, else the latest within LOCATION_VALID_DAYS.
+
+    None means the weather falls back to the configured/default city -- never the VPS's.
+    """
+    return (await db.execute(
+        select(PersonalLocation)
+        .where(PersonalLocation.day <= day, PersonalLocation.day > day - timedelta(days=LOCATION_VALID_DAYS))
+        .order_by(PersonalLocation.day.desc()).limit(1)
+    )).scalar_one_or_none()
+
+
+@router.post("/locations", response_model=PersonalLocationOut, status_code=status.HTTP_201_CREATED)
+async def save_location(payload: PersonalLocationCreate, response: Response, actor: str = Depends(personal_actor),
+                        db: AsyncSession = Depends(get_db)) -> PersonalLocation:
+    """Record where Marcelo is on ``day``; a second send for the same day replaces it (200).
+
+    ``source`` follows the caller: "manual" for Marcelo, "maia" for the agent.
+    """
+    source = "manual" if actor == OWNER else "maia"
+    location = (await db.execute(
+        select(PersonalLocation).where(PersonalLocation.day == payload.day)
+    )).scalar_one_or_none()
+    if location is None:
+        location = PersonalLocation(**payload.model_dump(), source=source, created_by=actor)
+        db.add(location)
+    else:
+        for key, value in payload.model_dump().items():
+            setattr(location, key, value)
+        location.source, location.created_by = source, actor
+        response.status_code = status.HTTP_200_OK
+    await db.commit()
+    await db.refresh(location)
+    return location
+
+
+@router.get("/locations", response_model=list[PersonalLocationOut])
+async def list_locations(start: date | None = None, end: date | None = None, actor: str = Depends(personal_actor),
+                         db: AsyncSession = Depends(get_db)) -> list[PersonalLocation]:
+    """Locations between ``start`` and ``end`` (default: the last 30 days), newest first."""
+    end = end or now_local().date()
+    start = start or end - timedelta(days=30)
+    return list((await db.execute(
+        select(PersonalLocation).where(PersonalLocation.day >= start, PersonalLocation.day <= end)
+        .order_by(PersonalLocation.day.desc())
+    )).scalars())
+
+
+@router.patch("/locations/{day}", response_model=PersonalLocationOut)
+async def update_location(day: date, payload: PersonalLocationUpdate, actor: str = Depends(personal_actor),
+                          db: AsyncSession = Depends(get_db)) -> PersonalLocation:
+    """Correct a day's location -- Marcelo only."""
+    if actor != OWNER:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Marcelo can correct a location")
+    location = (await db.execute(
+        select(PersonalLocation).where(PersonalLocation.day == day)
+    )).scalar_one_or_none()
+    if location is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No location for this day")
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        setattr(location, key, value)
+    location.source, location.created_by = "manual", actor
+    await db.commit()
+    await db.refresh(location)
+    return location
+
+
 # --- combined agenda, reminders, summary -------------------------------------------------------
 
 @router.get("/agenda", response_model=list[AgendaItemOut])
@@ -460,9 +538,11 @@ async def reminders_due(actor: str = Depends(personal_actor), db: AsyncSession =
 
 
 @router.get("/weather", response_model=WeatherOut)
-async def weather(day: date | None = None, actor: str = Depends(personal_actor)) -> WeatherOut:
+async def weather(day: date | None = None, actor: str = Depends(personal_actor),
+                  db: AsyncSession = Depends(get_db)) -> WeatherOut:
+    day = day or now_local().date()
     try:
-        return await get_weather(day or now_local().date())
+        return await get_weather(day, await _location_for(db, day))
     except WeatherError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
 
@@ -482,9 +562,9 @@ async def summary(day: date | None = None, actor: str = Depends(personal_actor),
     )))).scalars())
     text = day_summary(day, events, tasks)
     weather = None
-    if settings.WEATHER_ENABLED and settings.WEATHER_LATITUDE is not None and settings.WEATHER_LONGITUDE is not None:
+    if settings.WEATHER_ENABLED:
         try:
-            weather = await get_weather(day)
+            weather = await get_weather(day, await _location_for(db, day))
             text += "\n" + format_summary(weather)
         except WeatherError:
             # Weather is an optional enrichment; agenda summaries remain available.

@@ -1,4 +1,5 @@
 from datetime import date
+from types import SimpleNamespace
 
 import pytest
 
@@ -39,6 +40,14 @@ class _Client:
         return _Response()
 
 
+class _FallbackClient(_Client):
+    async def get(self, url, params):
+        assert url == weather.OPEN_METEO_URL
+        assert params["latitude"] == weather.DEFAULT_WEATHER_LATITUDE
+        assert params["longitude"] == weather.DEFAULT_WEATHER_LONGITUDE
+        return _Response()
+
+
 @pytest.mark.asyncio
 async def test_open_meteo_weather_is_normalized(monkeypatch):
     monkeypatch.setattr(settings, "WEATHER_ENABLED", True)
@@ -55,9 +64,34 @@ async def test_open_meteo_weather_is_normalized(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_weather_requires_configuration(monkeypatch):
+async def test_weather_uses_rio_fallback_without_gps(monkeypatch):
     monkeypatch.setattr(settings, "WEATHER_ENABLED", True)
     monkeypatch.setattr(settings, "WEATHER_LATITUDE", None)
     monkeypatch.setattr(settings, "WEATHER_LONGITUDE", None)
-    with pytest.raises(weather.WeatherError):
-        await weather.get_weather()
+    monkeypatch.setattr(settings, "WEATHER_LOCATION", "")
+    monkeypatch.setattr(weather.httpx, "AsyncClient", _FallbackClient)
+
+    result = await weather.get_weather(date(2030, 1, 10))
+
+    assert result["location"] == "Rio de Janeiro (RJ)"
+    assert result["latitude"] == weather.DEFAULT_WEATHER_LATITUDE
+
+
+class _LocationClient(_Client):
+    async def get(self, url, params):
+        assert (params["latitude"], params["longitude"]) == (-23.55, -46.63)
+        return _Response()
+
+
+@pytest.mark.asyncio
+async def test_weather_prefers_the_stored_location(monkeypatch):
+    monkeypatch.setattr(settings, "WEATHER_ENABLED", True)
+    monkeypatch.setattr(settings, "WEATHER_LATITUDE", -22.9)
+    monkeypatch.setattr(settings, "WEATHER_LONGITUDE", -43.2)
+    monkeypatch.setattr(weather.httpx, "AsyncClient", _LocationClient)
+    stored = SimpleNamespace(city="São Paulo", state="SP", latitude=-23.55, longitude=-46.63)
+
+    result = await weather.get_weather(date(2030, 1, 10), stored)
+
+    assert result["location"] == "São Paulo (SP)"
+    assert (result["latitude"], result["longitude"]) == (-23.55, -46.63)

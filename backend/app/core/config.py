@@ -135,7 +135,7 @@ class Settings(BaseSettings):
     PERSONAL_WHATSAPP_STATE_DIR: str = "/profiles/maia/whatsapp"
 
     # Optional Open-Meteo integration for Pessoal. No API key is required;
-    # leaving coordinates unset keeps weather out of summaries.
+    # missing coordinates use Rio de Janeiro as the temporary default.
     WEATHER_ENABLED: bool = False
     WEATHER_LATITUDE: float | None = None
     WEATHER_LONGITUDE: float | None = None

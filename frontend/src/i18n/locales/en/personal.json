@@ -9,7 +9,8 @@
     "contacts": "Contacts",
     "maia": "Maia",
     "suggestions": "Suggestions",
-    "agentWork": "Agent tasks"
+    "agentWork": "Agent tasks",
+    "location": "Location"
   },
   "fields": {
     "date": "Date",
@@ -390,5 +391,24 @@
     "investigationHint": "Records what was checked. Reconciliation stays pending until you confirm the run is not active.",
     "confirmInactiveHint": "Confirm only after checking this run is not running. The failure becomes known, nothing runs, and another attempt still needs authorization.",
     "typeRun": "Type the run identifier to confirm:"
+  },
+  "location": {
+    "title": "Where you were",
+    "description": "The daily summary's weather uses that day's location, or the latest from the last 7 days. With none, it uses Rio de Janeiro (RJ). Never the VPS's location.",
+    "add": "Record location",
+    "edit": "Correct",
+    "city": "City",
+    "state": "State",
+    "latitude": "Latitude",
+    "longitude": "Longitude",
+    "notes": "Note",
+    "replaceHint": "One record per day: saving again on the same day replaces it.",
+    "from": "From",
+    "to": "To",
+    "empty": "No location recorded in this period.",
+    "source": {
+      "maia": "Sent by Maia",
+      "manual": "Recorded by you"
+    }
   }
 }

@@ -4,7 +4,7 @@ Datetimes are naive America/Sao_Paulo wall time ("2026-10-08T15:00"), the same c
 model uses; a timezone-aware value is converted to São Paulo time and stripped.
 """
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -253,3 +253,39 @@ class PersonalDemandOut(BaseModel):
 
 class PersonalDemandsDelete(BaseModel):
     ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+
+
+class PersonalLocationCreate(BaseModel):
+    day: date
+    city: str = Field(min_length=1, max_length=120)
+    state: str | None = Field(default=None, max_length=80)
+    country: str = Field(default="Brasil", min_length=1, max_length=80)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    notes: str | None = None
+
+
+class PersonalLocationUpdate(BaseModel):
+    city: str | None = Field(default=None, min_length=1, max_length=120)
+    state: str | None = Field(default=None, max_length=80)
+    country: str | None = Field(default=None, min_length=1, max_length=80)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    notes: str | None = None
+
+
+class PersonalLocationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    day: date
+    city: str
+    state: str | None
+    country: str
+    latitude: float
+    longitude: float
+    source: str
+    notes: str | None
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
