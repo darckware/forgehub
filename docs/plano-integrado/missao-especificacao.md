@@ -2,7 +2,7 @@
 
 **Data:** 2026-10-24
 **Status:** proposta para aprovação do Marcelo. É a frente M do
-[plano integrado](../plans/2026-10-24-plano-integrado.md), que define a ordem: validar o Software
+[plano integrado](README.md), que define a ordem: validar o Software
 Factory, ligar os componentes e documentação, e só então a Missão.
 **Origem:** pedidos #39779, #39780, #39781 e #39784 (Maia → Aramis, 24/10, a pedido do Marcelo) e o
 diagnóstico de memória #39778 (Athos). Os quatro pedidos foram registrados como concluídos, mas o
@@ -78,8 +78,8 @@ contexto a memória ou a base de conhecimento vira uma **tarefa** para Mnemosyne
 
 Marcelo, 24/10: "a missão é a garantia que o serviço foi concluído, ela faz o controle e monitoramento
 da execução". O pipeline completo (Missão → Service Factory → Operação 24x7 → Atividades dos Agentes),
-os critérios de aceite comprovados um a um, a saúde da missão e os gates estão na seção 1.5 do
-[plano integrado](../plans/2026-10-24-plano-integrado.md) e nas tarefas M.1a–M.1d.
+os critérios de aceite comprovados um a um, a saúde da missão e os gates estão em
+[04 — Missão](04-missao-pipeline-e-papeis.md) e nas tarefas M.1a–M.1d.
 
 ### 4.1 Uma missão = um projeto do Service Factory + coordenação
 
@@ -126,7 +126,7 @@ Missão #N (objetivo, critério de sucesso, coordenador, participantes, autonomi
 
 ### 4.3 Modelo de dados novo (schema `company`)
 
-> **Ajuste de 24/10 (plano integrado, seção 0):** a missão passa a ser uma **extensão do Projeto**
+> **Ajuste de 24/10 ([01 — Diagnóstico](01-diagnostico-e-ondas.md)):** a missão passa a ser uma **extensão do Projeto**
 > (`project_type = mission`), não uma tabela `missions` separada. Os campos de missão (objetivo,
 > critérios de aceite, orquestrador, autonomia, brief, resultado) ficam no projeto ou em tabelas
 > ligadas a ele. A tabela abaixo continua válida como lista de campos, não como entidade nova.

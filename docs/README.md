@@ -5,6 +5,10 @@
 ```
 docs/
 ├── README.md                      ← este arquivo (índice)
+├── plano-integrado/                ← plano do ecossistema (2026-10-24): Service Factory, Missão,
+│   ├── README.md                  │   Operação 24x7, Atividades dos Agentes, contexto, Darckware,
+│   ├── 01…09-*.md                 │   fases em três ondas e decisões
+│   └── missao-especificacao.md
 ├── architecture/                  ← arquitetura e contrato operacional
 │   ├── ENGINEERING_LOOP.md
 │   ├── IMPLEMENTATION_READINESS.md
