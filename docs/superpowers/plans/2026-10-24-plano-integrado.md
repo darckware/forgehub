@@ -8,6 +8,7 @@
 - "eu ainda preciso validar o software factory, que ainda não foi testado. Esse módulo foi criado para o gerenciamento da implementação dos sistemas. O software factory também pode ser utilizado para manutenção de sistema e execução de serviços de manutenção, pois a VPN Tailscale possui o acesso a todas as estações de trabalho e servidores"
 - "preciso adicionar no planejamento da implementação em um conjunto completo, interligando todos os componentes criados"
 - "a tela de atividades dos agentes precisa acompanhar todas as rotinas e monitorar todos os agentes"
+- "o Darckware precisa ser adicionado, ele é minha ponte com a internet para captação de cliente no nosso ecossistema"
 - "queria adicionar o controle do contexto: memória dos agentes, Hindsight (memória estendida), base de conhecimento e a documentação da Foundation"
 
 **Documentos ligados:** `docs/superpowers/specs/2026-10-24-missao-design.md` (frente Missão),
@@ -21,6 +22,7 @@ Todo trabalho do ecossistema passa por um único caminho rastreável, seja ele i
 de sistema, serviço em estação ou servidor de cliente, documentação, incidente ou missão:
 
 ```
+Darckware (site, chat da Lara, portal) ─┐
 Entrada ──► Software Factory ──► Messages ──► Agente ──► Evidência ──► Documento ──► Aceite
 (pedido,     (Produto/Versão/     (único       (Hermes ou  (git/file/db/  (DocLink)     (Marcelo ou
  ticket,      Projeto/Fase/        executor)    externo)    execução                   delegação)
@@ -41,7 +43,7 @@ Entrada ──► Software Factory ──► Messages ──► Agente ──►
 | **Auditor / Crons** | **Detecção**: checks com dono; check falho → Task | Em produção (Task solta no Messages) |
 | **Agent Activity** | **Tempo real**: estado dos agentes, timeline, replay, alertas | Em produção; externos só aparecem quando rodam; não mostra rotinas |
 | **Acesso Remoto** (máquinas, scripts, execuções, delegações, "Pedir ao agente") | **Execução de manutenção** em estações e servidores pelo Tailscale | Em produção; tarefa do Messages autoriza o agente |
-| **Clientes (Darckware)** (tickets, demandas, horas, informe mensal, "criar projeto") | **Serviço ao cliente**: origem do trabalho e consumo da franquia | Em produção; já cria Projeto a partir de ticket/demanda |
+| **Clientes (Darckware)** no ForgeHub (`client_ops.py`: leads, conversões, cadastros, tickets, demandas, e-mails, contratos, horas, informe mensal, "criar projeto") | **Operação do cliente**: origem do trabalho e consumo da franquia | Em produção; ainda **não** cobre os projetos propostos ao cliente, a analytics do site nem as conversas da Lara |
 | **Docs** (`/docs` + `DocLink`) | **Registro documental** ligado a produto, versão, projeto, fase e tarefa | Em produção; nada obriga o vínculo |
 | **Governança** (`Approval`, `AuthorityDelegation`, `AuditEvent`) | **Aceite e autoridade** | Em produção |
 | **Deploy / System Control** | Entrega e operação da infraestrutura | Em produção |
@@ -52,6 +54,7 @@ Entrada ──► Software Factory ──► Messages ──► Agente ──►
 | **ForgeVault** | Segredos e credenciais: só pelo host-bridge, conta de serviço por finalidade | Em produção |
 | **Tailscale** | Rede: acesso da VPS a todas as estações e servidores (direto ou por sub-rede), base da manutenção remota | Em produção |
 | **RustDesk** | Acesso remoto assistido (tela) às estações, quando o SSH não basta ou o atendimento é visual | Em produção |
+| **Darckware** | **Porta de entrada na internet para captar clientes**: site institucional com analytics, chat da Lara, leads, orçamento, conversão em cliente, portal do cliente (tickets, demandas, contratos, equipe, projetos propostos para aprovação) e a fila de e-mails aprovados. "Darckware guarda, ForgeHub opera" | Em produção (repositório próprio) |
 | **Missão** | **Objetivo** acima de projetos: coordena agentes e contexto | Proposta (`2026-10-24-missao-design.md`) |
 
 ### 2.1 Outros componentes já existentes (inventário completo, 24/10)
@@ -245,6 +248,34 @@ Fase I. Entregável: relatório da validação (documento ligado ao projeto) com
 | O.3 | Rotinas do Scriba (fase sem documento), Atlas (dependências travadas) e Hephaestus/Aegis (manutenção preventiva via Sustentação) ligadas | Athos, Marcelo aprova | D.2, B.2 | Rodando dentro do orçamento |
 | O.4 | Evolução mede projetos e manutenção: lead time, retrabalho, DONE na 1ª, documentação em dia, horas de serviço | Aramis | D.3 | Tendência semanal |
 
+### Fase E — Captação de clientes (Darckware como porta de entrada)
+
+**O funil inteiro passa a ser rastreável** do primeiro acesso ao site até a entrega e a renovação:
+
+```
+Visita ao site ──► Conversa com a Lara ──► Lead ──► Orçamento / projeto proposto ──► Aprovação no portal
+ (analytics)        (chat do site)          (CRM)     (versão publicada ao cliente)      (vira contrato)
+                                                                                              │
+Renovação / novo projeto ◄── Informe mensal ◄── Horas na franquia ◄── Entrega aprovada ◄── Projeto no Software Factory
+ (Kairos, Lara)               (e-mail aprovado)    (Darckware)          (portal do cliente)    (execução pelos agentes)
+```
+
+Regras mantidas: o Darckware guarda os dados do cliente e o ForgeHub opera. Nenhum e-mail sai sem
+aprovação. A Lara não contata cliente por rotina. O cliente nunca vê nome interno, id interno nem valor
+que não seja dele.
+
+| # | Tarefa | Dono | Depende | Aceite |
+|---|---|---|---|---|
+| E.1 | **Projeto proposto ao cliente ↔ Software Factory:** ao publicar um projeto proposto no Darckware, o ForgeHub registra a oportunidade; quando o cliente aprova a versão (vira contrato de desenvolvimento), o ForgeHub cria o projeto do Software Factory com cliente, escopo da versão aprovada e origem `proposal` (novo valor em `darckware_origin_type`), idempotente | Aramis (ForgeHub) + Aramis/Darckware (evento) | V, B.1 | Aprovação no portal gera exatamente um projeto, com o escopo aprovado |
+| E.2 | **Acompanhamento no portal:** o cliente vê o andamento do projeto (fases concluídas, próxima entrega, documentos publicáveis) a partir de um resumo enviado pelo ForgeHub, sem ids nem nomes internos | Aramis + Dartan (Darckware) | E.1, D.2 | Resumo aprovado antes de publicar; nada interno vaza (teste) |
+| E.3 | **Entrega aprovada pelo cliente:** fechar uma fase/versão do projeto de cliente pede o aceite do cliente no portal (mesmo mecanismo de aprovar/pedir ajuste); pedido de ajuste vira change request no Software Factory | Aramis + Dartan | E.2, V.14 | Ajuste pedido no portal aparece como change request |
+| E.4 | **Funil no ForgeHub:** visitas (analytics), conversas da Lara, leads, propostas, conversões e tempo até a primeira resposta — no Dashboard/Clientes, no briefing do Athos e na Evolução | Aramis + Dartan | — | Números batem com o Darckware; sem dado pessoal na agregação |
+| E.5 | **Conversas da Lara no site:** sessão de chat ligada ao lead (já existe `link-conversation` no Darckware) e visível na ficha do cliente no ForgeHub; resumo por conversa, nunca o texto bruto no contexto de outros agentes (Fase C) | Aramis | C.1 | Lara e ForgeHub mostram a mesma ligação; teste de não vazamento |
+| E.6 | **Rotinas comerciais:** ligar a rotina do pipeline comercial interno da Lara e a de mercado/marketing do Kairos, alimentadas pelo funil (E.4); propostas de campanha e de conteúdo do site viram projeto no produto Darckware | Athos (rotinas), Marcelo aprova | E.4, O.3 | Rodando dentro do orçamento; nenhum contato automático com cliente |
+| E.7 | **Site como produto:** mudanças no site do Darckware entram como projeto no produto Darckware do Software Factory, respeitando a homologação de design do próprio Darckware (`docs/CONTROLE_DE_DESENVOLVIMENTO.md` e a skill `darckware-design`) | Dartan + Porthus (revisão) | B.1 | Toda mudança no site tem tarefa, evidência e homologação |
+| E.8 | **Segurança e LGPD da porta de entrada:** checks do Aegis para a exposição pública do Darckware (já há allow-list do Tailscale no catálogo v2) e da Themis para os dados de lead e de cliente (retenção, consentimento, autorização de contato) | Aegis + Themis | C.1 | Checks no Auditor; falha vira tarefa no Sustentação do Darckware |
+| E.9 | **Eventos do Darckware no fluxo único** (G.2): novo lead, conversa abandonada, proposta aprovada, ticket aberto, franquia perto do limite | Aramis | G.2 | Cada evento dispara a ação certa (tarefa, notificação ou rotina) |
+
 ### Fase C — Controle de contexto do ecossistema
 
 **O que é:** memória dos agentes, Hindsight (memória estendida), Base de Conhecimento e Foundation
@@ -298,7 +329,7 @@ C.0 e C.1 podem começar já, em paralelo à validação do Software Factory.
 
 | # | Tarefa | Depende |
 |---|---|---|
-| M.0 | Documento dos seis sistemas (Hermes, ForgeHub, ForgeRouter, ForgeVault, Tailscale, RustDesk). O isolamento do `knowledge_cycle.py` e a pasta da Maia passaram para a Fase C (C.2, C.3) | — (pode correr em paralelo desde já) |
+| M.0 | Documento dos sete sistemas (Hermes, ForgeHub, ForgeRouter, ForgeVault, Tailscale, RustDesk, Darckware). O isolamento do `knowledge_cycle.py` e a pasta da Maia passaram para a Fase C (C.2, C.3) | — (pode correr em paralelo desde já) |
 | M.1 | Núcleo: missão = projeto interno + coordenação, participantes, consolidação, tela `/missions`, MCP | V, B, D |
 | M.2 | Contexto da missão por destinatário, com testes de vazamento; promove itens para as camadas da Fase C | M.1, C.2 |
 | M.3 | Missão na Operação 24x7 e no Agent Activity | M.1, A.3, O.1 |
@@ -312,6 +343,7 @@ V ──► R ──► B ──► I ──► D ──► M.1 ──► M.2 �
             │      └──► O ┴──► M.3
 A.1/A.2 (em paralelo desde já) ──► A.3–A.5 (após I.5)
 M.0 (em paralelo desde já)
+E.4 (em paralelo desde já) · E.1 ──► E.2 ──► E.3 (após V e D) · E.5–E.9 conforme dependências
 C.0 ──► C.1 ──► C.2 ──► C.3/C.5/C.6 ──► C.4 ──► C.7 ──► C.8 ──► C.9 (começa já, em paralelo)
 ```
 
@@ -320,7 +352,7 @@ C.0 ──► C.1 ──► C.2 ──► C.3/C.5/C.6 ──► C.4 ──► C.
 ### 8.1 O que é realista
 
 Nenhuma integração de sistemas produz uma AGI geral, e o plano não promete isso. O que dá para
-construir com Hermes, ForgeHub, ForgeRouter, ForgeVault, Tailscale e RustDesk é uma **organização de
+construir com Hermes, ForgeHub, ForgeRouter, ForgeVault, Tailscale, RustDesk e Darckware é uma **organização de
 agentes autônoma e que melhora sozinha**:
 - recebe objetivos;
 - planeja e executa com evidência;
@@ -338,7 +370,7 @@ mensurável e segura.
 |---|---|---|---|
 | Agir no mundo | Messages, Acesso Remoto (Tailscale/RustDesk), Deploy, MCP, tools | — | — |
 | Planejar | Software Factory, Missão (proposta), cartas | Hierarquia de objetivos acima das missões | G.1 |
-| Perceber | Telemetria, Auditor, notificações, Messages, Darckware, canais | Um fluxo único de eventos que dispare iniciativa | G.2 |
+| Perceber | Telemetria, Auditor, notificações, Messages, canais, Darckware (site, chat, leads, portal) | Um fluxo único de eventos que dispare iniciativa | G.2 |
 | Lembrar | Hindsight, KB, Foundation, `MEMORY.md` | Controle das camadas com precedência, proveniência e isolamento | **Fase C** |
 | Conhecer o próprio ambiente | Blueprints, máquinas, deploy, checks, scripts — em telas separadas | Um mapa único do ecossistema (o que existe, depende de quê, quem é dono) | G.4 |
 | Verificar o próprio trabalho | `STATUS: DONE`, evidência `git:`/`file:`/`db:`, revisão do Porthus | Verificação independente do resultado por tipo de tarefa (não só "existe") | G.5 |
@@ -398,5 +430,7 @@ Os níveis M0–M3 da Missão passam a exigir os itens da Fase G:
 7. As decisões da spec da Missão (coordenador, quem cria, dono da documentação).
 8. Fase C: aprovar que C.0 (linha de base) e C.1 (política na Foundation, pelo Athos) comecem já, e
    que C.2 (isolamento do `knowledge_cycle.py`) seja feito pelo Porthus em modo observação primeiro.
-9. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
+9. Fase E (Darckware): projeto aprovado pelo cliente no portal vira projeto no Software Factory
+   automaticamente (E.1), e o funil (E.4) pode começar já.
+10. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
    pré-requisitos para subir qualquer nível de autonomia.

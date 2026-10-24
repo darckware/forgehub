@@ -191,9 +191,9 @@ Sem promessa de AGI geral. É a evolução da autonomia das missões, com crité
 
 Em nenhum nível o sistema altera carta de função, identidade, política comum ou Foundation sem A2.
 
-### 4.7 Arquitetura dos seis sistemas (documento a produzir)
+### 4.7 Arquitetura dos sete sistemas (documento a produzir)
 
-`docs/architecture/FOUNDATION_SYSTEMS.md` (Hermes, ForgeHub, ForgeRouter, ForgeVault, Tailscale, RustDesk), mapeando o que **já existe**:
+`docs/architecture/FOUNDATION_SYSTEMS.md` (Hermes, ForgeHub, ForgeRouter, ForgeVault, Tailscale, RustDesk, Darckware), mapeando o que **já existe**:
 
 | Contrato | Real hoje |
 |---|---|
@@ -206,6 +206,7 @@ Em nenhum nível o sistema altera carta de função, identidade, política comum
 | Aprovação humana | `Approval`, `AuthorityDelegation`, `ask_marcelo`, A2 |
 | ForgeHub → máquinas (Tailscale) | host-bridge `/v1/servers/exec` e `/v1/remote-fs/*` por SSH na tailnet; chave no ForgeVault (`ssh_key_ref`) |
 | Atendimento visual (RustDesk) | ID e senha da estação no ForgeVault (`rustdesk_password_ref`); servidor RustDesk em um segredo único |
+| Internet ↔ ecossistema (Darckware) | site, chat da Lara (o navegador fala com o Darckware, que chama o gateway), portal do cliente; ForgeHub opera pela API interna com dois tokens (agente e aprovador) |
 
 Lista também as lacunas reais (escopo do `knowledge_cycle.py`, falta de contexto por destinatário),
 sem inventar integração.
@@ -222,7 +223,7 @@ Aramis e Dartan.
 | # | Tarefa | Dono | Depende de | Aceite |
 |---|---|---|---|---|
 | 0.1 | Cadastrar os produtos internos (Ecossistema Foundation, ForgeHub, ForgeRouter, ForgeVault, Darckware) com versão aberta e **sem cliente** | Atlas (dados), Marcelo aprova | — | Aparecem no Cockpit como internos |
-| 0.2 | Documento dos seis sistemas (4.7) | Porthus | — | Cada contrato aponta arquivo/rota real; registrado por `DocLink` |
+| 0.2 | Documento dos sete sistemas (4.7) | Porthus | — | Cada contrato aponta arquivo/rota real; registrado por `DocLink` |
 | 0.3 | Isolamento do `knowledge_cycle.py` e pasta privada da Maia: movidos para a Fase C do plano integrado (C.2, C.3) | — | — | — |
 
 ### Fase 1 — Núcleo (M0)
