@@ -1,7 +1,9 @@
 # Missão — análise e planejamento
 
 **Data:** 2026-10-24
-**Status:** proposta para aprovação do Marcelo
+**Status:** proposta para aprovação do Marcelo. É a frente M do
+[plano integrado](../plans/2026-10-24-plano-integrado.md), que define a ordem: validar o Software
+Factory, ligar os componentes e documentação, e só então a Missão.
 **Origem:** pedidos #39779, #39780, #39781 e #39784 (Maia → Aramis, 24/10, a pedido do Marcelo) e o
 diagnóstico de memória #39778 (Athos). Os quatro pedidos foram registrados como concluídos, mas o
 Aramis parou no meio. O código parcial está no branch `wip/missao-aramis` (`3c7c609`), fora do

@@ -172,3 +172,10 @@ conforme `docs/PENDENCIAS.md`; observar o ciclo real Telegram pergunta →
 resposta → retomada antes de ativar os demais perfis; e retomar o primeiro
 snapshot externo e a restauração de amostra quando o problema do backup for
 resolvido, como solicitado pelo Marcelo.
+
+## Continuação (2026-10-24)
+
+O plano mestre passa a ser `docs/superpowers/plans/2026-10-24-plano-integrado.md`: validação do
+Software Factory, interligação de todos os componentes (Software Factory, Messages, Operação 24x7,
+Auditor, Agent Activity, Acesso Remoto, Clientes, Docs, Governança) e a Missão
+(`docs/superpowers/specs/2026-10-24-missao-design.md`).
