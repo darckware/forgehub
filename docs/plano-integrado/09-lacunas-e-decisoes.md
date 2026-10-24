@@ -30,6 +30,12 @@
 
 ## Decisões (padrões adotados; ver 0.2)
 
+**Novas (área de teste e identidade, [10](10-area-de-teste-e-identidade.md)):**
+- Área de teste na Onda 1, com banco separado e integrações simuladas.
+- ForgeVault como provedor de identidade dos agentes (token curto, assinado com chave assimétrica, por sistema e ambiente). A alternativa de só guardar os tokens atuais no ForgeVault fica apenas como transição.
+- Por padrão, os agentes só recebem acesso ao ambiente de teste; a produção exige concessão por papel ou por missão.
+
+
 As recomendações abaixo valem como padrão revisável. Só as três de 0.2 bloqueiam o início.
 
 1. Aposentar Execution Waves/Work Packages e o restante da Orquestração (R.1), que estão sem uso e

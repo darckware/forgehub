@@ -16,6 +16,7 @@
 - "como quero implementar uma missão para o grupo de agentes, eles precisam registrar isso como um projeto no Service Factory para poderem gerenciar as atividades e a documentação dos projetos em execução e a distribuição das tarefas"
 - "precisa criar um pipeline para missão, service factory, operação 24x7 e atividades dos agentes. A missão é a garantia que o serviço foi concluído, ele faz o controle e monitoramento da execução"
 - "na missão pode nomear os agentes, orquestrador, os executores; o contexto da missão; a validação da documentação e do plano"
+- "preciso criar uma área de teste; os agentes cadastrados no ForgeVault podem fazer login direto nos sistemas e serviços, para garantir a segurança e o acesso"
 - "queria adicionar o controle do contexto: memória dos agentes, Hindsight (memória estendida), base de conhecimento e a documentação da Foundation"
 
 **Documentos ligados:** [missao-especificacao.md](missao-especificacao.md) (frente Missão),
@@ -36,6 +37,7 @@
 | [07 — Fases de implementação](07-fases-de-implementacao.md) | Todas as fases e tarefas (V, P, R, B, I, D, Q, A, O, E, C, M) com dono, dependência e aceite |
 | [08 — Inteligência operacional](08-inteligencia-operacional.md) | O que é realista, o que falta para aprender e se corrigir, níveis de autonomia |
 | [09 — Lacunas e decisões](09-lacunas-e-decisoes.md) | Lacunas encontradas nas revisões, riscos abertos e as decisões com os padrões adotados |
+| [10 — Área de teste e identidade](10-area-de-teste-e-identidade.md) | Ambiente de teste isolado da produção e o ForgeVault como identidade única dos agentes em todos os sistemas (Fases T e F) |
 | [Roteiro de revisão crítica](revisao/ROTEIRO-DE-REVISAO.md) | Quem revisa cada camada, as perguntas, o formato do parecer e o processo, antes da implementação |
 | [Especificação da Missão](missao-especificacao.md) | Detalhe técnico da Missão (modelo, fluxo, autonomia, arquitetura dos sete sistemas) |
 
@@ -52,6 +54,7 @@
 | 6 (todas as fases) | [07](07-fases-de-implementacao.md) |
 | 7 e Fase G | [08](08-inteligencia-operacional.md) |
 | 8, 9 | [09](09-lacunas-e-decisoes.md) |
+| Fases T e F | [10](10-area-de-teste-e-identidade.md) |
 
 **Regra deste conjunto:** o escopo está congelado. Pedido novo vira item do projeto do plano no
 Service Factory (quando a M0 o registrar), não texto novo nestes documentos. Atualizações de estado
