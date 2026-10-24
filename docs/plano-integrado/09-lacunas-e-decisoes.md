@@ -18,6 +18,8 @@
 | 12 | Skills, `CLAUDE.md` e Foundation não acompanhavam cada fase | Regra transversal antes da ordem |
 | 13 | Numeração (faltava a seção 7) e diagrama de ordem com dependências invertidas | Corrigidos |
 
+**Achado em 24/10:** dois agentes de teste ("Global Owner 95d695fb", "Scoped Owner 95d695fb") estão ativos no banco de produção, sobra do teste `test_responsibility_area.py`, que falhou de forma intermitente na suíte e não limpou o que criou. Limpar os registros e corrigir a limpeza do teste.
+
 **Riscos que continuam abertos e precisam de acompanhamento:**
 - **Tamanho do plano.** São mais de 100 tarefas. Sem disciplina de uma tarefa pequena por vez, com
   `STATUS: DONE` e evidência, ele repete o que aconteceu com a Missão. O próprio plano vira o primeiro

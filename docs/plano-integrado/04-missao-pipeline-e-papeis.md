@@ -1,5 +1,80 @@
 # Missão: pipeline, papéis, contexto e validação
 
+## O essencial da Missão: começar, validar, concluir
+
+Marcelo, 24/10: "O importante na Missão é saber quando começar, validar o que foi entregue e marcar
+como concluída a missão." Tudo o mais neste documento serve a estas três regras.
+
+### Estados
+
+`rascunho` → `pronta` → `ativa` → `em verificação` → `aguardando aceite` → `concluída`
+(ou `cancelada` com motivo, de qualquer estado; `reaberta` volta para `ativa`)
+
+### 1. Quando começar (definição de "pronta")
+
+A missão só passa de `rascunho` para `pronta` quando **todos** os itens abaixo estão cumpridos. O
+sistema verifica e mostra o que falta:
+
+| # | Condição | Como se verifica |
+|---|---|---|
+| 1 | Brief aprovado (objetivo, escopo e fora de escopo, restrições, riscos) | Artefato `BRIEF.md` em `approved`, aprovado pelo Marcelo |
+| 2 | Critérios de aceite **verificáveis**: cada um diz o que prova, como se prova e quem verifica | Nenhum critério sem método de verificação e sem verificador |
+| 3 | Papéis nomeados e checados (orquestrador, executores, verificadores, documentador) | Regras da seção "Papéis" sem violação |
+| 4 | Plano validado: todo critério coberto por tarefa, dependências sem ciclo, prazo cabe, documento com dono, entrega com verificador | Checagem automática verde |
+| 5 | Pré-requisitos de execução prontos: acessos, delegações, ambiente de homologação, máquinas autorizadas (manutenção) | Lista de pré-requisitos do plano toda marcada |
+| 6 | Prazo e orçamento definidos | Campos preenchidos |
+
+**A largada** é a aprovação da baseline do plano pelo Marcelo (ou por delegação explícita). Ela leva
+a missão a `ativa` e despacha automaticamente as tarefas sem dependência. Antes disso, nenhuma tarefa
+da missão é despachada.
+
+### 2. Como validar o que foi entregue
+
+A validação acontece em dois níveis, e nenhum deles é feito por quem executou.
+
+**Por tarefa (entrega):**
+1. O executor termina com `STATUS: DONE` e evidência.
+2. A evidência é verificada automaticamente: commit e CI, execução remota com todas as máquinas `ok`,
+   arquivo, registro no banco.
+3. Um verificador independente confere, conforme o tipo: revisão de código, estado da máquina depois
+   do serviço, documento revisado.
+4. O documento do estágio está registrado.
+
+Faltou qualquer passo? A tarefa volta ao executor com o motivo. Não há "quase pronto".
+
+**Por critério de aceite:**
+- o verificador do critério marca `comprovado` citando a evidência, depois que todas as tarefas
+  ligadas a ele estão validadas;
+- ou marca `reprovado` com motivo, e o orquestrador replaneja (nova tarefa, ou change request se o
+  escopo muda).
+
+Quando todos os critérios estão `comprovados`, a missão passa a `em verificação` final.
+
+### 3. Quando marcar como concluída
+
+A missão só fica `concluída` quando:
+
+| # | Condição |
+|---|---|
+| 1 | Todos os critérios de aceite estão `comprovados`, cada um com a evidência citada |
+| 2 | Todos os documentos obrigatórios estão aprovados |
+| 3 | Nenhuma tarefa aberta (canceladas só com justificativa aprovada) |
+| 4 | Consolidação feita pelo orquestrador: resultado e documento final, revisados pelo documentador |
+| 5 | Aceite do cliente no portal, quando a missão é de cliente |
+| 6 | **Aceite do Marcelo** (ou de quem ele delegou para aquela missão) |
+
+**Quem marca:** só o Marcelo, ou um delegado nomeado na abertura. O sistema recusa o aceite enquanto
+qualquer item acima estiver pendente, e mostra qual.
+
+**Ao concluir, automaticamente:**
+- a autoridade do orquestrador sobre o projeto é revogada;
+- o canal da missão é arquivado;
+- as lições são registradas (o que funcionou, o que falhou);
+- as métricas vão para a Evolução;
+- o brief e os documentos ficam somente leitura.
+
+Reabrir exige motivo e volta a missão a `ativa`, com histórico.
+
 ## Missão = projeto no Service Factory: o que os agentes conseguem hoje
 
 Para um grupo de agentes executar uma missão, ela precisa existir como projeto no Service Factory.
