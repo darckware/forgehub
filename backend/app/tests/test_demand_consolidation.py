@@ -319,7 +319,7 @@ async def test_completion_recovers_uncertain_runs(recovery_db, test_suite_agent,
 
     async def poll(requested):
         assert requested == run_id
-        return {"run_id": run_id, "status": run_status, "output": "Checked security baseline.",
+        return {"run_id": run_id, "status": run_status, "output": "Checked security baseline.\nSTATUS: DONE",
                 "error": "", "exit_code": 0 if run_status == "completed" else None}
 
     monkeypatch.setattr(routes, "poll_agent_run", poll)
@@ -369,7 +369,7 @@ async def test_completion_does_not_finalize_a_replaced_run(recovery_db, monkeypa
             latest.dispatch_status = "running"
             latest.dispatch_error = None
             await writer.commit()
-        return {"status": "completed", "output": "Old result"}
+        return {"status": "completed", "output": "Old result\nSTATUS: DONE"}
 
     monkeypatch.setattr(routes, "poll_agent_run", poll)
     await routes.run_dispatch_completion_pass(db)
@@ -392,7 +392,7 @@ async def test_recovered_capacity_dispatches_a_self_addressed_task(recovery_db, 
 
     async def poll(run_id):
         assert run_id == failed.agent_run_id
-        return {"status": "completed", "output": "Previous work finished"}
+        return {"status": "completed", "output": "Previous work finished\nSTATUS: DONE"}
 
     async def start(run_id, agent, prompt, project_path):
         assert agent.id == test_suite_agent
@@ -473,7 +473,7 @@ async def test_historical_reconciliation_does_not_create_new_communication(recov
     await db.commit()
 
     async def poll(_):
-        return {"status": runner_state, "output": "Historical result"}
+        return {"status": runner_state, "output": "Historical result\nSTATUS: DONE"}
 
     monkeypatch.setattr(routes, "poll_agent_run", poll)
     await routes.run_dispatch_completion_pass(db)
@@ -502,7 +502,7 @@ async def test_frontend_poll_does_not_overwrite_a_newer_run(recovery_db, monkeyp
             latest.agent_run_id = newer_run
             latest.dispatch_status = "dispatched"
             await writer.commit()
-        return {"status": runner_state, "output": "Old result"}
+        return {"status": runner_state, "output": "Old result\nSTATUS: DONE"}
 
     monkeypatch.setattr(routes, "poll_agent_run", poll)
     result = await routes.get_dispatch_status(demand_id, db=db)
@@ -542,7 +542,7 @@ async def test_dependent_task_waits_for_predecessor_acceptance_then_dispatches(r
         return {"run_id": run_id, "status": "running"}
 
     async def poll(_):
-        return {"status": "completed", "output": "Work reported"}
+        return {"status": "completed", "output": "Work reported\nSTATUS: DONE"}
 
     monkeypatch.setattr(routes, "dispatch_agent_run", start)
     monkeypatch.setattr(routes, "poll_agent_run", poll)

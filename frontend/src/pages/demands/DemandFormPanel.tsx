@@ -502,6 +502,12 @@ export function DemandFormPanel({
         {/* Resultado do processamento -- gravado pelo backend na própria
             mensagem quando o despacho termina (2026-07-28), somente
             leitura. Só existe depois de completar/falhar. */}
+        {demand?.dispatch_status === "failed" && demand.dispatch_error && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">{t("form.dispatchError")}</label>
+            <p className="break-words text-sm text-destructive">{demand.dispatch_error}</p>
+          </div>
+        )}
         {demand?.dispatch_result && (
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">{t("form.dispatchResult")}</label>

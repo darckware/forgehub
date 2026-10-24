@@ -50,6 +50,7 @@
     "typeTaskIncoming": "Task",
     "taskExecutionAt": "Executed at",
     "dispatchResult": "Result",
+    "dispatchError": "Why it failed",
     "requiresResponse": "Return",
     "requiresResponseYes": "Yes",
     "requiresResponseNo": "No",

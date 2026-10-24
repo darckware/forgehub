@@ -140,13 +140,13 @@ async def test_finalize_dispatch_marks_execution_reported_on_success(project_and
     )
 
     async with AsyncSessionLocal() as session:
-        await _finalize_dispatch(session, demand_id, {"status": "completed", "output": "did the thing"})
+        await _finalize_dispatch(session, demand_id, {"status": "completed", "output": "did the thing\nSTATUS: DONE"})
         await session.commit()
 
     async with AsyncSessionLocal() as session:
         execution = await session.get(TaskExecution, execution_id)
         assert execution.status == "reported"
-        assert execution.outcome_summary == "did the thing"
+        assert execution.outcome_summary == "did the thing\nSTATUS: DONE"
         assert execution.finished_at is not None
 
 
@@ -175,7 +175,7 @@ async def test_finalize_dispatch_extracts_structured_evidence_line(project_and_t
         await _finalize_dispatch(
             session,
             demand_id,
-            {"status": "completed", "output": "Created the file.\nEVIDENCE: file:notes.txt\nDone."},
+            {"status": "completed", "output": "Created the file.\nEVIDENCE: file:notes.txt\nDone.\nSTATUS: DONE"},
         )
         await session.commit()
 

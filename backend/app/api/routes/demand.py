@@ -44,6 +44,11 @@ from app.core.config import settings
 from app.core.deps import get_current_admin
 from app.core.demand_workflow import WorkflowBlocked, assert_execution_allowed, ensure_workflow_allowed, invalidate_changed_approval, requires_reconciliation, record_transition
 from app.core.demand_dispatch_guard import reserve_dispatch
+from app.core.completion_report import (
+    completion_failure_reason,
+    parse_completion_status,
+    with_completion_contract,
+)
 from app.core.demand_thread import build_thread_prompt
 from app.core.feedback import deliver_feedback, wants_telegram_reply
 from app.core.localtime import format_local
@@ -1493,7 +1498,7 @@ async def _execute_dispatch(
     demand.target_agent_id = target_agent_id
     demand.command_text = command_text
     try:
-        run = await dispatch_agent_run(run_id, agent, prompt, project_path)
+        run = await dispatch_agent_run(run_id, agent, with_completion_contract(prompt), project_path)
     except AgentRunDispatchError as exc:
         demand.agent_run_id = None
         demand.dispatch_attempts = (demand.dispatch_attempts or 0) + 1
@@ -2109,21 +2114,26 @@ async def _finalize_dispatch(
 
     run_status = run.get("status")
     historical = locked.status == "archived" or locked.consolidated_into_id is not None
-    # Terminal: completed / failed / timed_out / cancelled / stale.
-    locked.dispatch_status = "completed" if run_status == "completed" else "failed"
-    locked.dispatch_error = None
+    reply_body = _extract_run_result_text(run)
+    # Terminal: completed / failed / timed_out / cancelled / stale. A clean
+    # exit is completed work only when the agent ended with STATUS: DONE --
+    # see core/completion_report.py.
+    if run_status == "completed":
+        failure_reason = completion_failure_reason(parse_completion_status(reply_body))
+    else:
+        failure_reason = f"The agent run ended as {run_status!r}."
+    locked.dispatch_status = "failed" if failure_reason else "completed"
+    locked.dispatch_error = failure_reason
     # Reached a terminal state, so the deadline no longer applies -- leaving
     # it set would let the timeout sweep re-fail an already-finished run.
     locked.dispatch_deadline_at = None
-    if locked.dispatch_status == "failed":
-        locked.dispatch_error = f"The agent run ended as {run_status!r}."
-        if not historical:
-            await _add_dispatch_failed_notification(
-                db,
-                locked,
-                title=f"Dispatch failed: {locked.subject}",
-                message=f"#{locked.number}: the agent run ended as {run_status!r}.",
-            )
+    if failure_reason and not historical:
+        await _add_dispatch_failed_notification(
+            db,
+            locked,
+            title=f"Dispatch failed: {locked.subject}",
+            message=f"#{locked.number}: {failure_reason}",
+        )
     # "Execução" -- when the recipient agent actually finished running this
     # message, stamped on either terminal outcome (a failed run still ran).
     # Deliberately NOT stamped by run_scheduled_dispatch_pass's
@@ -2134,7 +2144,6 @@ async def _finalize_dispatch(
     locked.task_execution_at = datetime.now(timezone.utc)
 
     agent = await db.get(Agent, locked.target_agent_id) if locked.target_agent_id else None
-    reply_body = _extract_run_result_text(run)
     # Always recorded, regardless of requires_response -- see
     # AgentDemand.dispatch_result's docstring. Prefixed with the canonical
     # execution-report header (Foundation's governance/athos-orchestration-

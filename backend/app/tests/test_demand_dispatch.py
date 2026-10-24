@@ -330,6 +330,44 @@ async def test_manual_ambiguous_start_persists_known_run_and_refuses_reprocess(
         await _delete_demand(demand["id"])
 
 
+async def test_runner_prompt_carries_completion_contract_but_notice_does_not(
+    client: AsyncClient, dispatchable_agent, monkeypatch
+):
+    """The agent is asked for STATUS: DONE | PARTIAL | BLOCKED; the Telegram
+    notice shows only what was asked (core/completion_report.py)."""
+    from app.api.routes import demand as demand_routes
+    from app.core.completion_report import COMPLETION_CONTRACT
+
+    prompts: list[str] = []
+    notices: list[str] = []
+
+    async def accepted(run_id, _agent, prompt, *_args):
+        prompts.append(prompt)
+        return {"run_id": run_id}
+
+    async def notice(text):
+        notices.append(text)
+
+    monkeypatch.setattr(demand_routes, "dispatch_agent_run", accepted)
+    monkeypatch.setattr(demand_routes, "_send_notice", notice)
+    demand = await _create_demand(
+        client,
+        origin_type="task",
+        target_agent_id=str(dispatchable_agent),
+        working_path="/root/project/test-fixture",
+    )
+    try:
+        response = await client.post(
+            f"/api/v1/demands/{demand['id']}/dispatch",
+            json={"target_agent_id": str(dispatchable_agent)},
+        )
+        assert response.status_code == 200, response.text
+        assert prompts == [f"Please do the thing.\n\n{COMPLETION_CONTRACT}"]
+        assert notices and all(COMPLETION_CONTRACT not in text for text in notices)
+    finally:
+        await _delete_demand(demand["id"])
+
+
 async def test_manual_post_acceptance_local_failure_retains_reserved_run(
     client: AsyncClient, dispatchable_agent, monkeypatch
 ):

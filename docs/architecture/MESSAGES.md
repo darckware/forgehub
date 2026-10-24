@@ -1,6 +1,6 @@
 # Messages execution and recovery
 
-Last updated: 2026-10-21
+Last updated: 2026-10-24
 
 This is the engineering reference for the AgentDemand dispatch pipeline. The ecosystem process
 contract is `/root/.hermes/foundation/30_docs/FORGEHUB_MESSAGE.md`; the sole general MCP usage
@@ -63,6 +63,18 @@ Historical records may be reconciled without restoration. Results and audit rema
 or consolidated demands create no new replies, channel narration, failure notifications, or external
 feedback during terminal reconciliation. Feedback rechecks eligibility after locking to avoid racing
 with archive/consolidation. No blanket purge or clearing of run IDs is a recovery mechanism.
+
+## Completion report (2026-10-24)
+
+A clean process exit is not completed work. The runner input ends with the contract in
+`backend/app/core/completion_report.py`, asking for a final `STATUS: DONE | PARTIAL | BLOCKED`
+line with evidence. `_finalize_dispatch` records `completed` only for `DONE`; `PARTIAL`,
+`BLOCKED` or a missing line (a reply cut short, an ignored contract) record `failed` with the reason
+in `dispatch_error`, keep `dispatch_result`, notify, create no return message and release no
+dependent work. That failure is known, not uncertain, so reprocessing stays available within the
+retry budget. The contract is added only to the runner input; the Telegram dispatch notice and
+the stored body stay as written. Cause: on 2026-10-24 runs that stopped mid-task ("Now let me...")
+with exit 0 were filed under Completed.
 
 TaskDependency gates linked message dispatch until predecessors are accepted `done`/`deployed`.
 A successful process moves execution evidence toward review; it cannot silently accept the

@@ -195,7 +195,7 @@ async def _dispatch_and_verify(client, world, tmp_path, monkeypatch, *, filename
     async with AsyncSessionLocal() as session:
         await _finalize_dispatch(
             session, demand_id,
-            {"status": "completed", "output": f"Done.\nEVIDENCE: file:{filename}"},
+            {"status": "completed", "output": f"Done.\nEVIDENCE: file:{filename}\nSTATUS: DONE"},
         )
         await session.commit()
 
@@ -270,7 +270,7 @@ async def test_no_binding_means_no_approval_request(client, world, tmp_path, mon
     demand_id = uuid.UUID(dispatched.json()["demand_id"])
     async with AsyncSessionLocal() as session:
         await _finalize_dispatch(
-            session, demand_id, {"status": "completed", "output": "Done.\nEVIDENCE: file:inert.txt"}
+            session, demand_id, {"status": "completed", "output": "Done.\nEVIDENCE: file:inert.txt\nSTATUS: DONE"}
         )
         await session.commit()
     (tmp_path / "inert.txt").write_text("work")
@@ -449,7 +449,7 @@ async def test_binding_scoped_to_one_project_does_not_affect_another(client, wor
         demand_id = uuid.UUID(dispatched.json()["demand_id"])
         async with AsyncSessionLocal() as session:
             await _finalize_dispatch(
-                session, demand_id, {"status": "completed", "output": "Done.\nEVIDENCE: file:other.txt"}
+                session, demand_id, {"status": "completed", "output": "Done.\nEVIDENCE: file:other.txt\nSTATUS: DONE"}
             )
             await session.commit()
         (other_tmp / "other.txt").write_text("real work, different project")
