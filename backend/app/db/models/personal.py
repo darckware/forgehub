@@ -246,35 +246,61 @@ class PersonalAssistantSettings(Base, TimestampMixin):
     capture_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
 
 
-PERSONAL_LOCATION_SOURCES = ("maia", "manual")
+PERSONAL_LOCATION_SOURCES = ("telegram", "whatsapp", "browser")
 
 
 class PersonalLocation(Base, TimestampMixin):
-    """Where Marcelo is on a given day, for the summary's weather (2026-10-24).
+    """Marcelo's current GPS location, for the daily summary's weather (2026-10-24).
 
-    One row per day: the Maia sends the location he shared (Telegram/WhatsApp pin), or
-    he sets it on the Pessoal screen; a second send the same day replaces the first.
-    Never the VPS's location. ``source`` comes from who called, not from the payload.
+    One row, replaced on every share -- there is no history of where he was (Marcelo: "o
+    conceito era registrar a localização GPS atual, não precisa o histórico"). It arrives as a
+    pin he sends the Maia on Telegram or WhatsApp, or from the browser's GPS on Pessoal →
+    Localização. Never the VPS's location. ``slot`` is a constant with a unique index, so a
+    second row can't exist. ``city``/``state`` are a best-effort reverse geocode; coordinates
+    alone are enough for the weather.
     """
 
-    __tablename__ = "personal_locations"
+    __tablename__ = "personal_location"
     __table_args__ = (
-        UniqueConstraint("day", name="uq_personal_locations_day"),
+        UniqueConstraint("slot", name="uq_personal_location_slot"),
+        CheckConstraint("slot = 'current'", name="ck_personal_location_slot"),
         CheckConstraint(f"source IN {PERSONAL_LOCATION_SOURCES}", name="ck_personal_location_source"),
         CheckConstraint("latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180",
                         name="ck_personal_location_coordinates"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    #: São Paulo date the location applies to.
-    day: Mapped[date] = mapped_column(Date, nullable=False)
-    city: Mapped[str] = mapped_column(String(120), nullable=False)
-    state: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    country: Mapped[str] = mapped_column(String(80), nullable=False, default="Brasil", server_default="Brasil")
+    slot: Mapped[str] = mapped_column(String(16), nullable=False, default="current", server_default="current")
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
-    #: "maia" (sent by the Maia) or "manual" (Marcelo on the screen).
-    source: Mapped[str] = mapped_column(String(30), nullable=False, default="maia", server_default="maia")
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    #: The actor that last wrote it ("marcelo" or the agent's profile slug).
-    created_by: Mapped[str] = mapped_column(String(50), nullable=False, default="maia", server_default="maia")
+    #: Reported by the browser's geolocation; pins carry none.
+    accuracy_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    #: "telegram"/"whatsapp" (a pin sent to the Maia) or "browser" (Marcelo on the screen).
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    shared_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PersonalDailySummary(Base, TimestampMixin):
+    """The morning summary the Maia sent Marcelo, one per day (2026-10-24).
+
+    The text is the one she actually delivered, saved by her through the MCP
+    (``personal_daily_summary_save``); a second save the same day replaces it. The location
+    is a snapshot of the current location at save time -- the one the weather used --
+    because the current location itself keeps no history.
+    """
+
+    __tablename__ = "personal_daily_summaries"
+    __table_args__ = (UniqueConstraint("day", name="uq_personal_daily_summaries_day"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    #: São Paulo date of the summary.
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    location_city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    location_state: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: The actor that saved it ("maia" or "marcelo").
+    created_by: Mapped[str] = mapped_column(String(50), nullable=False)

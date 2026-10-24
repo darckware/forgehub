@@ -10,7 +10,7 @@
     "maia": "Maia",
     "suggestions": "Suggestions",
     "agentWork": "Agent tasks",
-    "location": "Location"
+    "location": "Daily summary"
   },
   "fields": {
     "date": "Date",
@@ -393,22 +393,34 @@
     "typeRun": "Type the run identifier to confirm:"
   },
   "location": {
-    "title": "Where you were",
-    "description": "The daily summary's weather uses that day's location, or the latest from the last 7 days. With none, it uses Rio de Janeiro (RJ). Never the VPS's location.",
-    "add": "Record location",
-    "edit": "Correct",
-    "city": "City",
-    "state": "State",
-    "latitude": "Latitude",
-    "longitude": "Longitude",
-    "notes": "Note",
-    "replaceHint": "One record per day: saving again on the same day replaces it.",
+    "title": "Current location",
+    "description": "The weather in the Maia's daily summary uses this GPS location. Only the latest one is kept. Never the VPS's location.",
+    "useMine": "Use my current location",
+    "locating": "Getting GPS…",
+    "none": "No location yet. Without one, the forecast uses Rio de Janeiro (RJ).",
+    "unnamed": "GPS location",
+    "accuracy": "accuracy {{meters}} m",
+    "sharedAt": "Updated {{when}}",
+    "pinHint": "You can also send the Maia a location pin on Telegram or WhatsApp.",
+    "source": {
+      "telegram": "Telegram pin",
+      "whatsapp": "WhatsApp pin",
+      "browser": "Browser GPS"
+    },
+    "gpsError": {
+      "unsupported": "This browser has no GPS.",
+      "denied": "Location permission was denied. Allow it in the browser settings.",
+      "unavailable": "Couldn't get a GPS fix right now.",
+      "timeout": "GPS took too long to answer. Try again."
+    }
+  },
+  "dailySummary": {
+    "title": "Daily summaries",
+    "description": "The morning summary the Maia sent, with the location the weather used.",
     "from": "From",
     "to": "To",
-    "empty": "No location recorded in this period.",
-    "source": {
-      "maia": "Sent by Maia",
-      "manual": "Recorded by you"
-    }
+    "empty": "No summary recorded in this period.",
+    "locationUsed": "Location: {{place}}",
+    "noLocation": "No GPS location"
   }
 }

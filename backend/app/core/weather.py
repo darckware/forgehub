@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from app.db.models.personal import PersonalLocation
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 DEFAULT_WEATHER_LATITUDE = -22.9068
 DEFAULT_WEATHER_LONGITUDE = -43.1729
 DEFAULT_WEATHER_LOCATION = "Rio de Janeiro (RJ)"
@@ -41,10 +42,9 @@ def describe_code(code: int | None) -> str:
 
 
 def _coordinates(location: PersonalLocation | None = None) -> tuple[float, float, str]:
-    """Marcelo's stored location when given, else the configured one, else Rio de Janeiro."""
+    """Marcelo's current GPS location when given, else the configured one, else Rio de Janeiro."""
     if location is not None:
-        name = f"{location.city} ({location.state})" if location.state else location.city
-        return location.latitude, location.longitude, name
+        return location.latitude, location.longitude, place_name(location.city, location.state)
     if settings.WEATHER_LATITUDE is None or settings.WEATHER_LONGITUDE is None:
         return DEFAULT_WEATHER_LATITUDE, DEFAULT_WEATHER_LONGITUDE, DEFAULT_WEATHER_LOCATION
     return (
@@ -52,6 +52,34 @@ def _coordinates(location: PersonalLocation | None = None) -> tuple[float, float
         settings.WEATHER_LONGITUDE,
         settings.WEATHER_LOCATION or DEFAULT_WEATHER_LOCATION,
     )
+
+
+def place_name(city: str | None, state: str | None) -> str:
+    if city and state:
+        return f"{city} ({state})"
+    return city or state or "localização GPS atual"
+
+
+async def reverse_geocode(latitude: float, longitude: float) -> tuple[str | None, str | None]:
+    """City and state (UF for Brazil) of a GPS fix from OpenStreetMap's Nominatim.
+
+    Best effort: (None, None) when the service fails -- the coordinates alone still give
+    the weather, so a geocoding outage must never refuse a location.
+    """
+    params = {"lat": latitude, "lon": longitude, "format": "jsonv2", "zoom": 10, "addressdetails": 1}
+    headers = {"User-Agent": "ForgeHubPersonal/1.0 (daily summary weather)", "Accept-Language": "pt-BR"}
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            response = await client.get(NOMINATIM_REVERSE_URL, params=params, headers=headers)
+            response.raise_for_status()
+            address = response.json().get("address") or {}
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return None, None
+    city = (address.get("city") or address.get("town") or address.get("municipality")
+            or address.get("village"))
+    state_code = str(address.get("ISO3166-2-lvl4") or "")
+    state = state_code[3:] if state_code.startswith("BR-") else address.get("state")
+    return city, state
 
 
 def _params(day: date | None, latitude: float, longitude: float) -> dict[str, Any]:

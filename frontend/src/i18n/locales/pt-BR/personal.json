@@ -10,7 +10,7 @@
     "maia": "Maia",
     "suggestions": "Sugestões",
     "agentWork": "Tarefas dos agentes",
-    "location": "Localização"
+    "location": "Resumo diário"
   },
   "fields": {
     "date": "Data",
@@ -393,22 +393,34 @@
     "typeRun": "Digite o identificador da execução para confirmar:"
   },
   "location": {
-    "title": "Onde você esteve",
-    "description": "A previsão do tempo do resumo diário usa a localização do dia, ou a mais recente dos últimos 7 dias. Sem nenhuma, usa Rio de Janeiro (RJ). Nunca a localização da VPS.",
-    "add": "Registrar localização",
-    "edit": "Corrigir",
-    "city": "Cidade",
-    "state": "Estado (UF)",
-    "latitude": "Latitude",
-    "longitude": "Longitude",
-    "notes": "Observação",
-    "replaceHint": "Um registro por dia: salvar de novo no mesmo dia substitui o anterior.",
+    "title": "Localização atual",
+    "description": "A previsão do tempo do resumo diário da Maia usa esta localização GPS. Só a última é guardada. Nunca a localização da VPS.",
+    "useMine": "Usar minha localização atual",
+    "locating": "Obtendo o GPS…",
+    "none": "Nenhuma localização ainda. Sem ela, a previsão usa Rio de Janeiro (RJ).",
+    "unnamed": "Localização GPS",
+    "accuracy": "precisão de {{meters}} m",
+    "sharedAt": "Atualizada em {{when}}",
+    "pinHint": "Também dá para enviar um pin de localização à Maia no Telegram ou no WhatsApp.",
+    "source": {
+      "telegram": "Pin no Telegram",
+      "whatsapp": "Pin no WhatsApp",
+      "browser": "GPS do navegador"
+    },
+    "gpsError": {
+      "unsupported": "Este navegador não oferece GPS.",
+      "denied": "A permissão de localização foi negada. Libere-a nas configurações do navegador.",
+      "unavailable": "Não foi possível obter o GPS agora.",
+      "timeout": "O GPS demorou demais para responder. Tente de novo."
+    }
+  },
+  "dailySummary": {
+    "title": "Resumos diários",
+    "description": "O resumo da manhã que a Maia enviou, com a localização usada na previsão do tempo.",
     "from": "De",
     "to": "Até",
-    "empty": "Nenhuma localização registrada neste período.",
-    "source": {
-      "maia": "Enviada pela Maia",
-      "manual": "Registrada por você"
-    }
+    "empty": "Nenhum resumo registrado neste período.",
+    "locationUsed": "Localização: {{place}}",
+    "noLocation": "Sem localização GPS"
   }
 }

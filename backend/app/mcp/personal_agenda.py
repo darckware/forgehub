@@ -204,8 +204,21 @@ def resumo_do_dia(dia: str = "") -> str:
 
 
 def clima(dia: str = "") -> dict[str, Any]:
-    """Consulta a previsão Open-Meteo para a localização configurada no ForgeHub."""
+    """Consulta a previsão Open-Meteo para a localização GPS atual do Marcelo no ForgeHub."""
     return _call("GET", "/weather", query={"day": dia})
+
+
+def localizacao_atual() -> dict[str, Any] | None:
+    """A localização GPS atual do Marcelo no ForgeHub (None se ele ainda não enviou nenhuma)."""
+    return _call("GET", "/location")
+
+
+def gravar_resumo_diario(conteudo: str, dia: str = "") -> dict[str, Any]:
+    """Grava no ForgeHub o resumo da manhã que a Maia enviou (um por dia; regravar substitui)."""
+    if not conteudo.strip():
+        raise AgendaError("O resumo está vazio.")
+    dia = dia or agora().date().isoformat()
+    return _call("PUT", f"/daily-summaries/{dia}", {"content": conteudo})
 
 
 def register(mcp) -> None:
@@ -257,7 +270,7 @@ def register(mcp) -> None:
 
     @mcp.tool()
     async def personal_weather(data: str = "") -> dict[str, Any]:
-        """Consulta o clima do dia (ou hoje) na localização configurada no ForgeHub.
+        """Consulta o clima do dia (ou hoje) na localização GPS atual do Marcelo.
         data: dd/mm/aaaa. Só use quando Marcelo pedir previsão ou clima."""
         try:
             dia = _parse_quando(data)[0][:10] if data else ""
@@ -274,6 +287,17 @@ def register(mcp) -> None:
         except AgendaError as exc:
             return {"success": False, "error": str(exc)}
         return _safe(resumo_do_dia, dia)
+
+    @mcp.tool()
+    async def personal_daily_summary_save(conteudo: str, data: str = "") -> dict[str, Any]:
+        """Grava o resumo da manhã exatamente como foi enviado ao Marcelo (tela Pessoal →
+        Localização e resumos). Use uma vez, no cron do resumo, com o texto final. data:
+        dd/mm/aaaa (padrão: hoje). Gravar de novo no mesmo dia substitui."""
+        try:
+            dia = _parse_quando(data)[0][:10] if data else ""
+        except AgendaError as exc:
+            return {"success": False, "error": str(exc)}
+        return _safe(gravar_resumo_diario, conteudo, dia)
 
     @mcp.tool()
     async def tasks_list(lista: str = "", status: str = "pendente", busca: str = "") -> dict[str, Any]:

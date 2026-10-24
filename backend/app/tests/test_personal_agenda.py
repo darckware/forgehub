@@ -73,3 +73,14 @@ def test_sem_credencial(monkeypatch):
     monkeypatch.delenv("FORGEHUB_AGENT_TOKEN", raising=False)
     with pytest.raises(ag.AgendaError):
         ag.lembretes_devidos()
+
+
+def test_resumo_diario_grava_no_dia_informado_ou_hoje(calls):
+    ag.gravar_resumo_diario("Bom dia!", "2030-01-10")
+    method, url, body, _ = calls[0]
+    assert method == "PUT" and url.endswith("/api/v1/personal/daily-summaries/2030-01-10")
+    assert body == {"content": "Bom dia!"}
+    ag.gravar_resumo_diario("Bom dia de novo")
+    assert calls[1][1].endswith(f"/daily-summaries/{ag.agora().date().isoformat()}")
+    with pytest.raises(ag.AgendaError):
+        ag.gravar_resumo_diario("   ")

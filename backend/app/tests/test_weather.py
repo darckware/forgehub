@@ -95,3 +95,33 @@ async def test_weather_prefers_the_stored_location(monkeypatch):
 
     assert result["location"] == "São Paulo (SP)"
     assert (result["latitude"], result["longitude"]) == (-23.55, -46.63)
+
+
+def test_place_name_without_a_geocode():
+    assert weather.place_name("Niterói", "RJ") == "Niterói (RJ)"
+    assert weather.place_name(None, None) == "localização GPS atual"
+
+
+class _GeocodeClient(_Client):
+    def __init__(self, payload=None, fail=False, **kwargs):
+        super().__init__(**kwargs)
+        self.payload, self.fail = payload, fail
+
+    async def get(self, url, params, headers=None):
+        assert url == weather.NOMINATIM_REVERSE_URL
+        if self.fail:
+            raise weather.httpx.ConnectError("offline")
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: self.payload)
+
+
+@pytest.mark.asyncio
+async def test_reverse_geocode_returns_city_and_uf(monkeypatch):
+    payload = {"address": {"town": "Niterói", "state": "Rio de Janeiro", "ISO3166-2-lvl4": "BR-RJ"}}
+    monkeypatch.setattr(weather.httpx, "AsyncClient", lambda **kw: _GeocodeClient(payload, **kw))
+    assert await weather.reverse_geocode(-22.88, -43.1) == ("Niterói", "RJ")
+
+
+@pytest.mark.asyncio
+async def test_reverse_geocode_failure_never_blocks_the_location(monkeypatch):
+    monkeypatch.setattr(weather.httpx, "AsyncClient", lambda **kw: _GeocodeClient(fail=True, **kw))
+    assert await weather.reverse_geocode(-22.88, -43.1) == (None, None)

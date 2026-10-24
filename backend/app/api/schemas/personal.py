@@ -5,6 +5,7 @@ model uses; a timezone-aware value is converted to São Paulo time and stripped.
 """
 import uuid
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -255,37 +256,40 @@ class PersonalDemandsDelete(BaseModel):
     ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
 
 
-class PersonalLocationCreate(BaseModel):
-    day: date
-    city: str = Field(min_length=1, max_length=120)
-    state: str | None = Field(default=None, max_length=80)
-    country: str = Field(default="Brasil", min_length=1, max_length=80)
+class PersonalLocationSet(BaseModel):
+    """A GPS fix. ``source`` is only read from the Maia (telegram|whatsapp); Marcelo's is "browser"."""
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
-    notes: str | None = None
-
-
-class PersonalLocationUpdate(BaseModel):
-    city: str | None = Field(default=None, min_length=1, max_length=120)
-    state: str | None = Field(default=None, max_length=80)
-    country: str | None = Field(default=None, min_length=1, max_length=80)
-    latitude: float | None = Field(default=None, ge=-90, le=90)
-    longitude: float | None = Field(default=None, ge=-180, le=180)
-    notes: str | None = None
+    accuracy_m: float | None = Field(default=None, ge=0)
+    source: Literal["telegram", "whatsapp"] = "telegram"
 
 
 class PersonalLocationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
-    day: date
-    city: str
-    state: str | None
-    country: str
     latitude: float
     longitude: float
+    accuracy_m: float | None
+    city: str | None
+    state: str | None
     source: str
-    notes: str | None
+    shared_at: datetime
+
+
+class PersonalDailySummarySave(BaseModel):
+    content: str = Field(min_length=1, max_length=20000)
+
+
+class PersonalDailySummaryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    day: date
+    content: str
+    location_city: str | None
+    location_state: str | None
+    latitude: float | None
+    longitude: float | None
     created_by: str
     created_at: datetime
     updated_at: datetime

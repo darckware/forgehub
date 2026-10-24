@@ -20,16 +20,17 @@ import {
   useCreatePersonalTask,
   useDeletePersonalItem,
   usePersonalAgenda,
-  usePersonalLocations,
+  usePersonalDailySummaries,
+  usePersonalLocation,
   usePersonalNotes,
-  useSavePersonalLocation,
+  useSetPersonalLocation,
   usePersonalTasks,
   useUpdatePersonalEvent,
   useUpdatePersonalNote,
   useUpdatePersonalTask,
   type AgendaItem,
   type PersonalDemand,
-  type PersonalLocation,
+  type LocationFix,
   type PersonalDemandType,
   type PersonalNote,
   type PersonalTask,
@@ -268,81 +269,78 @@ export function usePersonalNotesViewModel() {
   };
 }
 
-/* ---------------------------------------------------------------- location */
+/* ---------------------------------------------------------------- location + daily summaries */
 
-export interface LocationDraft {
-  day: string;
-  city: string;
-  state: string;
-  latitude: string;
-  longitude: string;
-  notes: string;
+/** Why the browser gave no GPS fix -- each is an i18n key under location.gpsError. */
+export type GpsErrorKind = "unsupported" | "denied" | "unavailable" | "timeout";
+
+export class GpsError extends Error {
+  constructor(readonly kind: GpsErrorKind) {
+    super(kind);
+  }
 }
 
-function parseCoordinate(value: string, limit: number): number | null {
-  const n = Number(value.trim().replace(",", "."));
-  return value.trim() && Number.isFinite(n) && Math.abs(n) <= limit ? n : null;
+/** One high-accuracy fix from the browser (needs HTTPS and Marcelo's permission). */
+export function readCurrentPosition(geolocation: Geolocation | undefined = globalThis.navigator?.geolocation): Promise<LocationFix> {
+  return new Promise((resolve, reject) => {
+    if (!geolocation) {
+      reject(new GpsError("unsupported"));
+      return;
+    }
+    geolocation.getCurrentPosition(
+      (position) => resolve({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy_m: Number.isFinite(position.coords.accuracy) ? Math.round(position.coords.accuracy) : null,
+      }),
+      (err) => reject(new GpsError(err.code === 1 ? "denied" : err.code === 3 ? "timeout" : "unavailable")),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+    );
+  });
 }
 
-/** Where Marcelo was, day by day (the summary's weather uses it), and a form to set or correct a day. */
-export function usePersonalLocationViewModel() {
+export type LocationStatus = "idle" | "locating" | "submitting" | "error";
+
+/** Marcelo's current GPS location (one, replaced on each share) and the Maia's daily summaries. */
+export function usePersonalLocationViewModel(geolocation?: Geolocation) {
+  const location = usePersonalLocation();
+  const setLocation = useSetPersonalLocation();
+  const [status, setStatus] = useState<LocationStatus>("idle");
+  const [error, setError] = useState<{ gps: GpsErrorKind } | { message: string } | null>(null);
+
   const [start, setStart] = useState(() => addDays(todayLocal(), -30));
   const [end, setEnd] = useState(todayLocal);
-  const query = usePersonalLocations(start, end);
-  const saveMutation = useSavePersonalLocation();
-  const [editing, setEditing] = useState<LocationDraft | null>(null);
-  const [status, setStatus] = useState<FormStatus>("idle");
-  const [error, setError] = useState<string | null>(null);
+  const summaries = usePersonalDailySummaries(start, end);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
-  const latitude = editing ? parseCoordinate(editing.latitude, 90) : null;
-  const longitude = editing ? parseCoordinate(editing.longitude, 180) : null;
-  const valid = Boolean(editing && editing.day && editing.city.trim() && latitude !== null && longitude !== null);
-
-  function open(location?: PersonalLocation) {
+  async function shareMyLocation() {
     setError(null);
-    setStatus("idle");
-    setEditing(
-      location
-        ? {
-            day: location.day, city: location.city, state: location.state ?? "",
-            latitude: String(location.latitude), longitude: String(location.longitude), notes: location.notes ?? "",
-          }
-        : { day: todayLocal(), city: "", state: "", latitude: "", longitude: "", notes: "" },
-    );
-  }
-
-  async function save() {
-    if (!editing || !valid || latitude === null || longitude === null) return;
-    setStatus("submitting");
-    setError(null);
+    setStatus("locating");
     try {
-      await saveMutation.mutateAsync({
-        day: editing.day, city: editing.city.trim(), state: editing.state.trim() || null,
-        latitude, longitude, notes: editing.notes.trim() || null,
-      });
-      setEditing(null);
+      const fix = await readCurrentPosition(geolocation ?? globalThis.navigator?.geolocation);
+      setStatus("submitting");
+      await setLocation.mutateAsync(fix);
       setStatus("idle");
     } catch (e) {
-      setError(errorText(e));
+      setError(e instanceof GpsError ? { gps: e.kind } : { message: errorText(e) });
       setStatus("error");
     }
   }
 
   return {
-    query,
-    locations: query.data ?? [],
+    location,
+    current: location.data ?? null,
+    shareMyLocation,
+    status,
+    error,
+    summaries,
+    summaryList: summaries.data ?? [],
     start,
     setStart,
     end,
     setEnd,
-    editing,
-    change: (patch: Partial<LocationDraft>) => setEditing((d) => (d ? { ...d, ...patch } : d)),
-    cancel: () => setEditing(null),
-    open,
-    save,
-    valid,
-    status,
-    error,
+    expanded,
+    toggle: (id: string) => setExpanded((current) => (current === id ? null : id)),
   };
 }
 

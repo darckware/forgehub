@@ -103,7 +103,8 @@ const keys = {
   notes: (q: string, archived: boolean) => ["personal", "notes", q, archived] as const,
   demands: (status: string) => ["personal", "demands", status] as const,
   demandTypes: ["personal", "demand-types"] as const,
-  locations: (start: string, end: string) => ["personal", "locations", start, end] as const,
+  location: ["personal", "location"] as const,
+  dailySummaries: (start: string, end: string) => ["personal", "daily-summaries", start, end] as const,
 };
 
 function qs(params: Record<string, string | boolean | undefined>): string {
@@ -288,37 +289,57 @@ export function useDeletePersonalDemandType() {
   });
 }
 
-/** Where Marcelo was on a day -- sent by the Maia, or set by him ("manual"). Feeds the summary's weather. */
+/** Marcelo's current GPS location -- one, no history. A pin sent to the Maia (telegram/whatsapp)
+ * or this browser's GPS ("browser"). Feeds the daily summary's weather. */
 export interface PersonalLocation {
-  id: string;
-  day: string;
-  city: string;
-  state: string | null;
-  country: string;
   latitude: number;
   longitude: number;
-  source: "maia" | "manual";
-  notes: string | null;
+  accuracy_m: number | null;
+  city: string | null;
+  state: string | null;
+  source: "telegram" | "whatsapp" | "browser";
+  shared_at: string;
+}
+
+export interface LocationFix {
+  latitude: number;
+  longitude: number;
+  accuracy_m: number | null;
+}
+
+/** The morning summary the Maia sent, with the location its weather used. */
+export interface PersonalDailySummary {
+  id: string;
+  day: string;
+  content: string;
+  location_city: string | null;
+  location_state: string | null;
+  latitude: number | null;
+  longitude: number | null;
   created_by: string;
   created_at: string;
   updated_at: string;
 }
 
-export type LocationInput = Pick<PersonalLocation, "day" | "city" | "latitude" | "longitude"> &
-  Partial<Pick<PersonalLocation, "state" | "country" | "notes">>;
-
-export function usePersonalLocations(start: string, end: string) {
-  return useQuery<PersonalLocation[]>({
-    queryKey: keys.locations(start, end),
-    queryFn: () => apiClient.get(`${BASE}/locations${qs({ start, end })}`),
+export function usePersonalLocation() {
+  return useQuery<PersonalLocation | null>({
+    queryKey: keys.location,
+    queryFn: () => apiClient.get(`${BASE}/location`),
   });
 }
 
-/** Records the location for its day; a second save the same day replaces it. */
-export function useSavePersonalLocation() {
+/** Replaces the current location with a GPS fix from this browser. */
+export function useSetPersonalLocation() {
   const invalidate = useInvalidatePersonal();
-  return useMutation<PersonalLocation, Error, LocationInput>({
-    mutationFn: (body) => apiClient.post(`${BASE}/locations`, body),
+  return useMutation<PersonalLocation, Error, LocationFix>({
+    mutationFn: (body) => apiClient.put(`${BASE}/location`, body),
     onSettled: invalidate,
+  });
+}
+
+export function usePersonalDailySummaries(start: string, end: string) {
+  return useQuery<PersonalDailySummary[]>({
+    queryKey: keys.dailySummaries(start, end),
+    queryFn: () => apiClient.get(`${BASE}/daily-summaries${qs({ start, end })}`),
   });
 }

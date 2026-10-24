@@ -10,9 +10,9 @@ came due and marks them sent, so each one fires exactly once. ``GET /summary`` f
 summary.
 """
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,14 +35,15 @@ from app.api.schemas.personal import (
     PersonalTaskCreate,
     PersonalTaskOut,
     PersonalTaskUpdate,
-    PersonalLocationCreate,
+    PersonalDailySummaryOut,
+    PersonalDailySummarySave,
     PersonalLocationOut,
-    PersonalLocationUpdate,
+    PersonalLocationSet,
     RemindersDueOut,
 )
 from app.core.config import settings
 from app.core.deps import ActorPrincipal, get_actor_principal
-from app.core.weather import WeatherError, format_summary, get_weather
+from app.core.weather import WeatherError, format_summary, get_weather, reverse_geocode
 from app.core.personal_schedule import (
     DEFAULT_REMINDERS,
     collect_due,
@@ -52,7 +53,15 @@ from app.core.personal_schedule import (
     task_moment,
 )
 from app.db.base import get_db
-from app.db.models.personal import PersonalDemand, PersonalDemandType, PersonalEvent, PersonalLocation, PersonalNote, PersonalTask
+from app.db.models.personal import (
+    PersonalDailySummary,
+    PersonalDemand,
+    PersonalDemandType,
+    PersonalEvent,
+    PersonalLocation,
+    PersonalNote,
+    PersonalTask,
+)
 
 router = APIRouter(prefix="/api/v1/personal", tags=["personal"])
 
@@ -415,77 +424,83 @@ async def delete_demands(payload: PersonalDemandsDelete, actor: str = Depends(pe
 
 
 
-# --- location -----------------------------------------------------------------------------------
+# --- current location and daily summaries -----------------------------------------------------
 
-#: How long a shared location still stands in for later days with none of their own.
-LOCATION_VALID_DAYS = 7
-
-
-async def _location_for(db: AsyncSession, day: date) -> PersonalLocation | None:
-    """The location to use on ``day``: that day's, else the latest within LOCATION_VALID_DAYS.
-
-    None means the weather falls back to the configured/default city -- never the VPS's.
-    """
-    return (await db.execute(
-        select(PersonalLocation)
-        .where(PersonalLocation.day <= day, PersonalLocation.day > day - timedelta(days=LOCATION_VALID_DAYS))
-        .order_by(PersonalLocation.day.desc()).limit(1)
-    )).scalar_one_or_none()
+async def _current_location(db: AsyncSession) -> PersonalLocation | None:
+    """Marcelo's current GPS location; None means the weather falls back to the configured or
+    default city -- never the VPS's."""
+    return (await db.execute(select(PersonalLocation).limit(1))).scalar_one_or_none()
 
 
-@router.post("/locations", response_model=PersonalLocationOut, status_code=status.HTTP_201_CREATED)
-async def save_location(payload: PersonalLocationCreate, response: Response, actor: str = Depends(personal_actor),
-                        db: AsyncSession = Depends(get_db)) -> PersonalLocation:
-    """Record where Marcelo is on ``day``; a second send for the same day replaces it (200).
+@router.get("/location", response_model=PersonalLocationOut | None)
+async def get_location(actor: str = Depends(personal_actor),
+                       db: AsyncSession = Depends(get_db)) -> PersonalLocation | None:
+    return await _current_location(db)
 
-    ``source`` follows the caller: "manual" for Marcelo, "maia" for the agent.
-    """
-    source = "manual" if actor == OWNER else "maia"
-    location = (await db.execute(
-        select(PersonalLocation).where(PersonalLocation.day == payload.day)
-    )).scalar_one_or_none()
+
+@router.put("/location", response_model=PersonalLocationOut)
+async def set_location(payload: PersonalLocationSet, actor: str = Depends(personal_actor),
+                       db: AsyncSession = Depends(get_db)) -> PersonalLocation:
+    """Replace the current GPS location: a pin the Maia received (``source`` telegram|whatsapp)
+    or the browser's GPS when Marcelo calls. City and state come from a reverse geocode."""
+    city, state = await reverse_geocode(payload.latitude, payload.longitude)
+    values = {
+        "latitude": payload.latitude, "longitude": payload.longitude, "accuracy_m": payload.accuracy_m,
+        "city": city, "state": state, "source": "browser" if actor == OWNER else payload.source,
+        "shared_at": datetime.now(timezone.utc),
+    }
+    location = await _current_location(db)
     if location is None:
-        location = PersonalLocation(**payload.model_dump(), source=source, created_by=actor)
+        location = PersonalLocation(**values)
         db.add(location)
     else:
-        for key, value in payload.model_dump().items():
+        for key, value in values.items():
             setattr(location, key, value)
-        location.source, location.created_by = source, actor
-        response.status_code = status.HTTP_200_OK
     await db.commit()
     await db.refresh(location)
     return location
 
 
-@router.get("/locations", response_model=list[PersonalLocationOut])
-async def list_locations(start: date | None = None, end: date | None = None, actor: str = Depends(personal_actor),
-                         db: AsyncSession = Depends(get_db)) -> list[PersonalLocation]:
-    """Locations between ``start`` and ``end`` (default: the last 30 days), newest first."""
+@router.get("/daily-summaries", response_model=list[PersonalDailySummaryOut])
+async def list_daily_summaries(start: date | None = None, end: date | None = None,
+                               actor: str = Depends(personal_actor),
+                               db: AsyncSession = Depends(get_db)) -> list[PersonalDailySummary]:
+    """The Maia's morning summaries between ``start`` and ``end`` (default: the last 30 days), newest first."""
     end = end or now_local().date()
     start = start or end - timedelta(days=30)
     return list((await db.execute(
-        select(PersonalLocation).where(PersonalLocation.day >= start, PersonalLocation.day <= end)
-        .order_by(PersonalLocation.day.desc())
+        select(PersonalDailySummary)
+        .where(PersonalDailySummary.day >= start, PersonalDailySummary.day <= end)
+        .order_by(PersonalDailySummary.day.desc())
     )).scalars())
 
 
-@router.patch("/locations/{day}", response_model=PersonalLocationOut)
-async def update_location(day: date, payload: PersonalLocationUpdate, actor: str = Depends(personal_actor),
-                          db: AsyncSession = Depends(get_db)) -> PersonalLocation:
-    """Correct a day's location -- Marcelo only."""
-    if actor != OWNER:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Marcelo can correct a location")
-    location = (await db.execute(
-        select(PersonalLocation).where(PersonalLocation.day == day)
+@router.put("/daily-summaries/{day}", response_model=PersonalDailySummaryOut)
+async def save_daily_summary(day: date, payload: PersonalDailySummarySave, actor: str = Depends(personal_actor),
+                             db: AsyncSession = Depends(get_db)) -> PersonalDailySummary:
+    """Record the summary the Maia sent on ``day``; saving again the same day replaces it.
+    The current location is copied in, since it keeps no history of its own."""
+    location = await _current_location(db)
+    values = {
+        "content": payload.content,
+        "location_city": location.city if location else None,
+        "location_state": location.state if location else None,
+        "latitude": location.latitude if location else None,
+        "longitude": location.longitude if location else None,
+        "created_by": actor,
+    }
+    summary_row = (await db.execute(
+        select(PersonalDailySummary).where(PersonalDailySummary.day == day)
     )).scalar_one_or_none()
-    if location is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "No location for this day")
-    for key, value in payload.model_dump(exclude_unset=True).items():
-        setattr(location, key, value)
-    location.source, location.created_by = "manual", actor
+    if summary_row is None:
+        summary_row = PersonalDailySummary(day=day, **values)
+        db.add(summary_row)
+    else:
+        for key, value in values.items():
+            setattr(summary_row, key, value)
     await db.commit()
-    await db.refresh(location)
-    return location
+    await db.refresh(summary_row)
+    return summary_row
 
 
 # --- combined agenda, reminders, summary -------------------------------------------------------
@@ -542,7 +557,7 @@ async def weather(day: date | None = None, actor: str = Depends(personal_actor),
                   db: AsyncSession = Depends(get_db)) -> WeatherOut:
     day = day or now_local().date()
     try:
-        return await get_weather(day, await _location_for(db, day))
+        return await get_weather(day, await _current_location(db))
     except WeatherError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
 
@@ -564,7 +579,7 @@ async def summary(day: date | None = None, actor: str = Depends(personal_actor),
     weather = None
     if settings.WEATHER_ENABLED:
         try:
-            weather = await get_weather(day, await _location_for(db, day))
+            weather = await get_weather(day, await _current_location(db))
             text += "\n" + format_summary(weather)
         except WeatherError:
             # Weather is an optional enrichment; agenda summaries remain available.
