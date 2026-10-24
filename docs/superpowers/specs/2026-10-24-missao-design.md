@@ -223,8 +223,7 @@ Aramis e Dartan.
 |---|---|---|---|---|
 | 0.1 | Cadastrar os produtos internos (Ecossistema Foundation, ForgeHub, ForgeRouter, ForgeVault, Darckware) com versão aberta e **sem cliente** | Atlas (dados), Marcelo aprova | — | Aparecem no Cockpit como internos |
 | 0.2 | Documento dos seis sistemas (4.7) | Porthus | — | Cada contrato aponta arquivo/rota real; registrado por `DocLink` |
-| 0.3 | `knowledge_cycle.py` restrito à pasta do agente + `shared/` | Porthus (código), Mnemosyne valida | — | Teste: perfil A nunca recebe trecho da KB de B |
-| 0.4 | Pasta privada da Maia na Knowledge Base | Mnemosyne | — | Fora do alcance dos outros perfis |
+| 0.3 | Isolamento do `knowledge_cycle.py` e pasta privada da Maia: movidos para a Fase C do plano integrado (C.2, C.3) | — | — | — |
 
 ### Fase 1 — Núcleo (M0)
 

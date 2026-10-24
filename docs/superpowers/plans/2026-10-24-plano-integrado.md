@@ -8,6 +8,7 @@
 - "eu ainda preciso validar o software factory, que ainda não foi testado. Esse módulo foi criado para o gerenciamento da implementação dos sistemas. O software factory também pode ser utilizado para manutenção de sistema e execução de serviços de manutenção, pois a VPN Tailscale possui o acesso a todas as estações de trabalho e servidores"
 - "preciso adicionar no planejamento da implementação em um conjunto completo, interligando todos os componentes criados"
 - "a tela de atividades dos agentes precisa acompanhar todas as rotinas e monitorar todos os agentes"
+- "queria adicionar o controle do contexto: memória dos agentes, Hindsight (memória estendida), base de conhecimento e a documentação da Foundation"
 
 **Documentos ligados:** `docs/superpowers/specs/2026-10-24-missao-design.md` (frente Missão),
 `docs/superpowers/specs/2026-10-02-agent-operations-24x7-design.md` (Operação 24x7),
@@ -244,13 +245,62 @@ Fase I. Entregável: relatório da validação (documento ligado ao projeto) com
 | O.3 | Rotinas do Scriba (fase sem documento), Atlas (dependências travadas) e Hephaestus/Aegis (manutenção preventiva via Sustentação) ligadas | Athos, Marcelo aprova | D.2, B.2 | Rodando dentro do orçamento |
 | O.4 | Evolução mede projetos e manutenção: lead time, retrabalho, DONE na 1ª, documentação em dia, horas de serviço | Aramis | D.3 | Tendência semanal |
 
+### Fase C — Controle de contexto do ecossistema
+
+**O que é:** memória dos agentes, Hindsight (memória estendida), Base de Conhecimento e Foundation
+governados como um sistema só: o que cada camada guarda, quem pode ler, o que prevalece num conflito,
+quanto tempo vale, e prova de que um agente não recebe o que não devia.
+
+**Base já existente (não reinventar):**
+- Foundation `36_governance/agent-memory-model.md` e `COLLECTIVE_MEMORY_ARCHITECTURE.md` definem as camadas;
+- `KNOWLEDGE_ARCHITECTURE.md` define o fluxo de promoção da KB;
+- o diagnóstico do Athos (#39778, 24/10) traz a matriz de riscos, a classificação, a precedência e um plano por fases.
+
+O que falta é **controle**: hoje o ForgeHub só edita a Foundation, a KB e os arquivos de perfil, e do
+Hindsight só vê status, restart e log.
+
+**As camadas e a ordem de precedência** (diagnóstico #39778, §6.4):
+
+| # | Camada | Onde vive | Dono | Escreve | Validade |
+|---|---|---|---|---|---|
+| 1 | Instrução atual do Marcelo | conversa/tarefa | Marcelo | — | a da tarefa |
+| 2 | Estado real | sistemas (ForgeHub, máquinas, deploy) via ferramenta | cada sistema | — | sempre atual |
+| 3 | **Foundation** (canônica) | `/root/memory/foundation` | Athos | Athos, por tarefa revisada | versionada |
+| 4 | Identidade do agente | `SOUL.md`, `AGENTS.md`, `IDENTITY.md`, `TOOLS.md` | Athos + Marcelo (A2) | só por mudança A2 | versionada |
+| 5 | Documentação de projeto | `/docs` + Artefatos (Software Factory) | dono do projeto | tarefas `documentation` | versionada |
+| 6 | **Base de Conhecimento** | `knowledge_base/<agente>/`, `shared/approved/` | cada agente; Mnemosyne/Scriba revisam | o agente (inbox) → revisão → publicação | revisão periódica |
+| 7 | **Hindsight** (memória estendida) | bancos `hermes` (coletivo) e `maia` (privado) | Mnemosyne | retenção automática, com tags e redação | TTL por tipo |
+| 8 | **Memória nativa** | `memories/MEMORY.md` (2.200 caracteres), `USER.md` (1.375) | o agente | o agente | curta, revisada |
+| 9 | Resumo de sessão | compactação do Hermes | — | — | a sessão |
+
+Classificação de todo item (diagnóstico §6.1): `public`, `internal`, `confidential`, `personal` (só a
+Maia), `secret` (nunca guardado). Confiabilidade (§6.3): `canonical`, `verified`, `reviewed`,
+`observed`, `inferred`, `stale`. Só os três primeiros alimentam conhecimento compartilhado.
+
+| # | Tarefa | Dono | Depende | Aceite |
+|---|---|---|---|---|
+| C.0 | **Linha de base** (fase 0 do diagnóstico): matriz por perfil com memória nativa (uso × limite), banco e modos do Hindsight (`auto_retain`, `auto_recall`, `recall_budget`, tags), hook ativo, pasta da KB, compactação e limite real de contexto por rota | Mnemosyne (levantamento) + Aramis (coleta automática) | — | Matriz gerada sem nenhum segredo; vira a primeira aba da tela C.4 |
+| C.1 | **Política de classificação e retenção** na Foundation (`36_governance/MEMORY_CLASSIFICATION_AND_RETENTION.md`): classes, tipos, TTL, proveniência, confiabilidade, precedência, redação, consumidores, regras Maia/Lara. Complementa os documentos existentes, sem duplicar | Athos (Foundation) + Themis (LGPD) | C.0 | Aprovada pelo Marcelo; exemplos de permitido e proibido |
+| C.2 | **Isolamento da recuperação (P0):** `knowledge_cycle.py` passa a ler só a KB do próprio agente e `shared/approved/`, respeita `allowed_consumers`, rejeita documento sem metadados; primeiro em modo observação (registra o que seria excluído) | Porthus (código) + Mnemosyne (valida) | C.1 | Testes: Lara nunca recebe nota pessoal da Maia; Maia nunca recebe histórico de cliente; conteúdo não aprovado não entra no prompt |
+| C.3 | **Compartilhamento controlado Maia ↔ Lara** (e entre quaisquer agentes): `shared/approved/<consumidores>/`, fluxo candidato → revisão → publicação versionada; pasta privada da Maia na KB | Mnemosyne + Scriba | C.2 | Uma regra comercial não sensível chega à Lara; nenhuma conversa bruta é compartilhada |
+| C.4 | **Tela "Contexto"** no ForgeHub (Agentes & IA), com abas: **Agentes** (matriz C.0 viva, alerta de memória perto do limite); **Hindsight** (bancos, estatísticas, crescimento, busca por tag/agente/classe, histórico de uma memória, marcar `stale`/substituída, exportar — pela API do Hindsight via host-bridge); **Base de Conhecimento** (fila de revisão do `inbox/`, documentos sem metadados, publicação em `shared/approved`); **Foundation** (o editor atual, com histórico de versões e quem mudou); **Conflitos** (o mesmo fato com valores diferentes entre camadas) | Aramis (API) + Dartan (tela) | C.0 | Celular; nenhuma ação apaga sem `ConfirmDialog`; Hindsight nunca recebe escrita fora das ações listadas |
+| C.5 | **Metadados obrigatórios** na KB e na Foundation (front matter: classificação, dono, consumidores, validade, confiabilidade, origem, revisão) + verificador | Scriba (conteúdo) + Aramis (verificador) | C.1 | Documento novo sem metadados é apontado na tela e no Auditor |
+| C.6 | **Governança do Hindsight por perfil:** revisar `bank_id`, `auto_retain`, `recall_budget`, `retain_tags` (agente, domínio, classe, tipo) e `retain_source`; redação antes de reter; Maia segue no banco `maia` | Mnemosyne + Porthus (config) | C.1 | Teste: informação pessoal retida fica só no `maia`; a Lara não a recupera |
+| C.7 | **Checks do Auditor** para contexto: memória nativa > 90% do limite, documento sem metadados, crescimento anormal de banco, teste de vazamento entre agentes (rodado semanalmente), Foundation alterada fora de tarefa | Aramis + Aegis | C.2, C.5 | Check falho vira tarefa no Sustentação (I.7) para o dono da camada |
+| C.8 | **Compactação e limite de contexto** (fase 5 do diagnóstico): medir perda real, então ajustar `protect_last_n` de Maia e Lara, `threshold_tokens`, pruning e o limite de recall por perfil | Mnemosyne + Porthus | C.0 | Sessão longa compacta sem perder identidade; nada passa do limite do modelo em silêncio |
+| C.9 | **Saneamento** (fase 6 do diagnóstico, aprovação separada): deduplicar o Hindsight (25.080 fatos no `hermes`), marcar fatos antigos, promover os verificados, arquivar candidatos | Mnemosyne | C.6, C.7 | Relatório antes e depois; nada apagado sem exportação prévia |
+| C.10 | **Ligações com o resto do plano:** o contexto da Missão (M.2) promove itens para estas camadas por tarefa (Mnemosyne → Hindsight, Scriba → KB, Athos → Foundation); os evals (G.6) incluem testes de recuperação de memória; o Agent Activity mostra recall/retenção por agente | Aramis | M.2, G.6, A.3 | Toda promoção tem tarefa, revisão e registro |
+
+Ordem dentro da frente: C.0 → C.1 → C.2 (P0, o maior risco atual) → C.3/C.5/C.6 → C.4 → C.7 → C.8 → C.9.
+C.0 e C.1 podem começar já, em paralelo à validação do Software Factory.
+
 ### Fase M — Missão (spec `2026-10-24-missao-design.md`)
 
 | # | Tarefa | Depende |
 |---|---|---|
-| M.0 | Documento dos seis sistemas (Hermes, ForgeHub, ForgeRouter, ForgeVault, Tailscale, RustDesk); `knowledge_cycle.py` restrito à pasta do agente; pasta privada da Maia | — (pode correr em paralelo desde já) |
+| M.0 | Documento dos seis sistemas (Hermes, ForgeHub, ForgeRouter, ForgeVault, Tailscale, RustDesk). O isolamento do `knowledge_cycle.py` e a pasta da Maia passaram para a Fase C (C.2, C.3) | — (pode correr em paralelo desde já) |
 | M.1 | Núcleo: missão = projeto interno + coordenação, participantes, consolidação, tela `/missions`, MCP | V, B, D |
-| M.2 | Controle de contexto por destinatário, com testes de vazamento | M.1 |
+| M.2 | Contexto da missão por destinatário, com testes de vazamento; promove itens para as camadas da Fase C | M.1, C.2 |
 | M.3 | Missão na Operação 24x7 e no Agent Activity | M.1, A.3, O.1 |
 | M.4 | Autonomia M1 (coordenador propõe o plano) | M.2, O.4 |
 
@@ -262,6 +312,7 @@ V ──► R ──► B ──► I ──► D ──► M.1 ──► M.2 �
             │      └──► O ┴──► M.3
 A.1/A.2 (em paralelo desde já) ──► A.3–A.5 (após I.5)
 M.0 (em paralelo desde já)
+C.0 ──► C.1 ──► C.2 ──► C.3/C.5/C.6 ──► C.4 ──► C.7 ──► C.8 ──► C.9 (começa já, em paralelo)
 ```
 
 ## 8. Rumo à inteligência operacional própria ("nossa AGI")
@@ -288,7 +339,7 @@ mensurável e segura.
 | Agir no mundo | Messages, Acesso Remoto (Tailscale/RustDesk), Deploy, MCP, tools | — | — |
 | Planejar | Software Factory, Missão (proposta), cartas | Hierarquia de objetivos acima das missões | G.1 |
 | Perceber | Telemetria, Auditor, notificações, Messages, Darckware, canais | Um fluxo único de eventos que dispare iniciativa | G.2 |
-| Lembrar | Hindsight, KB, Foundation, `MEMORY.md` | Contrato de memória em camadas com precedência e proveniência (diagnóstico #39778) | G.3 |
+| Lembrar | Hindsight, KB, Foundation, `MEMORY.md` | Controle das camadas com precedência, proveniência e isolamento | **Fase C** |
 | Conhecer o próprio ambiente | Blueprints, máquinas, deploy, checks, scripts — em telas separadas | Um mapa único do ecossistema (o que existe, depende de quê, quem é dono) | G.4 |
 | Verificar o próprio trabalho | `STATUS: DONE`, evidência `git:`/`file:`/`db:`, revisão do Porthus | Verificação independente do resultado por tipo de tarefa (não só "existe") | G.5 |
 | **Medir a própria capacidade** | Evolução mede operação (falhas, prazos) | **Avaliações de capacidade (evals)**: tarefas-padrão por agente e domínio, repetidas, com nota. Sem isso não há como saber se uma mudança de modelo, skill ou prompt melhorou ou piorou | G.6 |
@@ -305,7 +356,7 @@ mensurável e segura.
 |---|---|---|---|---|
 | G.1 | **Objetivos** (trimestrais, com métrica) acima das missões: toda missão serve a um objetivo; o briefing mostra o avanço | Aramis + Dartan | M.1 | Missão sem objetivo só como exceção explícita |
 | G.2 | **Fluxo de eventos**: normalizar o que já chega (checks, alertas, Messages, tickets, telemetria, execuções remotas) num registro único que a triagem e as regras de iniciativa consomem | Aramis | A.5 | Toda iniciativa automática cita o evento que a disparou |
-| G.3 | **Contrato de memória** em camadas: precedência (Foundation > estado real > KB > Hindsight > sessão), proveniência obrigatória, retenção e revisão; aplicado pela Mnemosyne | Porthus (desenho) + Mnemosyne | M.0 | Documento na Foundation (via Athos) + verificação no Auditor |
+| G.3 | Coberto pela **Fase C** (controle de contexto) | — | — | — |
 | G.4 | **Mapa do ecossistema**: sistemas, máquinas (Tailscale), serviços, deploys, checks, donos e dependências num grafo consultável por MCP | Aramis + Dartan | B.1 | Um agente responde "o que depende do X e quem é o dono" pelo MCP |
 | G.5 | **Verificador por tipo de tarefa**: código (testes + revisão), manutenção (estado da máquina depois), documentação (artefato revisado); agente diferente do executor | Porthus + Aramis | I.5, D.2 | Tarefa só fica `done` com verificação do tipo |
 | G.6 | **Evals de capacidade**: conjunto de tarefas-padrão por agente e domínio (seguras e repetíveis, em ambiente de teste), rodadas por rotina semanal e a cada mudança de modelo, skill ou prompt; nota histórica no Agent Activity | Porthus (desenho) + Aramis | A.4 | Toda mudança A1/A2 de agente mostra a nota antes e depois |
@@ -345,5 +396,7 @@ Os níveis M0–M3 da Missão passam a exigir os itens da Fase G:
 5. Horas: lançar no Darckware na conclusão da tarefa (recomendado) ou só manualmente.
 6. A.1/A.2 e M.0 podem começar já, em paralelo à validação: autoriza?
 7. As decisões da spec da Missão (coordenador, quem cria, dono da documentação).
-8. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
+8. Fase C: aprovar que C.0 (linha de base) e C.1 (política na Foundation, pelo Athos) comecem já, e
+   que C.2 (isolamento do `knowledge_cycle.py`) seja feito pelo Porthus em modo observação primeiro.
+9. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
    pré-requisitos para subir qualquer nível de autonomia.
