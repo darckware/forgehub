@@ -49,7 +49,10 @@ não precisa operar o módulo. Ele:
 Consequências para o plano:
 - toda ação da tela tem uma ferramenta MCP equivalente;
 - toda ação de agente é auditada com o nome do agente;
-- a anotação do Marcelo é a camada de maior precedência do contexto (Fase C, camada 1).
+- a anotação do Marcelo é a camada de maior precedência do contexto (Fase C, camada 1);
+- **regra de uso:** trabalho com entrega (código, documento, manutenção, serviço) é tarefa do Software
+  Factory; o Messages é o executor e o canal de conversa entre agentes, não o lugar de registrar
+  trabalho. Uma Task solta no Messages só para pergunta, aviso ou algo que não deixa entrega.
 
 ### 1.2 Para que serve o Software Factory
 
@@ -157,6 +160,12 @@ cliente, herdado do ticket ou da demanda.
 | Software Factory → Operação 24x7 | triagem/briefing não olham tarefas de projeto | ❌ | O.1–O.3 |
 | Tudo → Evolução | métricas só de rotinas | 🔶 | O.4 |
 | Missão → tudo | nova camada | ❌ | M.* (spec da Missão) |
+| Anotação/contrato → despacho | anotações e contrato do projeto no corpo da tarefa | ❌ | P.4, D.8 |
+| Projeto proposto (Darckware) → Software Factory | aprovação no portal cria o projeto | ❌ | E.1 |
+| Software Factory → pasta do projeto | só a cópia dos documentos da Concepção | 🔶 | D.7, D.10 |
+| Tarefa de código → git/PR/CI | evidência `git:<sha>` sem branch, PR nem CI | 🔶 | Q.1–Q.3 |
+| Release → Deploy | releases não usadas | ❌ | D.6, Q.5 |
+| Hindsight/KB/Foundation → ForgeHub | edição de KB e Foundation; Hindsight só status | 🔶 | C.4 |
 
 ## 5. Agent Activity: acompanhar todas as rotinas e monitorar todos os agentes
 
@@ -194,7 +203,13 @@ código: Porthus revisa Aramis e Dartan.
 ### Fase V — Validação do Software Factory (agente opera, Marcelo acompanha, Claude Code corrige)
 
 Base automatizada: 107 testes do Software Factory passando em 24/10 (e2e, cockpit, MCP, escopo, versão,
-tarefas, evidência, aprovação governada, produto, projeto, backlog, governança). Falta o uso real pela tela.
+tarefas, evidência, aprovação governada, produto, projeto, backlog, governança). Falta o uso real.
+
+A validação tem duas passadas, para não depender de algo que ainda não existe:
+- **V-a, pela tela/API:** o roteiro abaixo inteiro, com o Marcelo acompanhando e o Claude Code
+  corrigindo os defeitos.
+- **V-b, um agente pelo MCP:** o mesmo roteiro, só com as ferramentas que o MCP já tem. O que o
+  agente não conseguir fazer vira a lista exata da P.1.
 
 | # | Roteiro | Resultado esperado |
 |---|---|---|
@@ -226,13 +241,14 @@ manutenção remota. **Não existe** anotação nas entidades do Software Factor
 
 | # | Tarefa | Dono | Depende | Aceite |
 |---|---|---|---|---|
-| P.1 | **Completar o MCP** para o ciclo inteiro sem a tela: dependências, atribuição, despacho, relatar execução com evidência, atualizar planning item e estágio do pipeline, change request, anexar documento/artefato (`DocLink`), criar item no Sustentação, ler a linha do tempo | Aramis | V, R.2 | Um agente percorre o roteiro da Fase V inteiro só pelo MCP |
+| P.1 | **Completar o MCP** para o ciclo inteiro sem a tela, a partir da lista da V-b: dependências, atribuição, despacho, relatar execução com evidência, atualizar planning item e estágio do pipeline, change request, anexar documento/artefato (`DocLink`), criar item no Sustentação, ler a linha do tempo | Aramis | V-b, R.2 | Um agente percorre o roteiro da Fase V inteiro só pelo MCP |
 | P.2 | **Anotações** (`annotations`, polimórfica como `AuditEvent`): em produto, versão, projeto, fase, tarefa, missão, máquina e cliente; tipos `instrução`, `contexto`, `decisão`, `correção`, `observação`; autor (Marcelo ou agente); fixar; validade; anexos por `DocLink` (upload vai para `/docs`). Agente nunca edita nem apaga anotação do Marcelo | Aramis | V | Testes de permissão; histórico auditado |
 | P.3 | **Painel "Anotações e documentos"** reutilizável em todas as telas de detalhe do Software Factory, da Missão e do Agent Activity; escrever em Markdown, anexar arquivo, fixar; pelo celular também | Dartan | P.2 | 390 px; `ConfirmDialog` para arquivar |
 | P.4 | **Contexto herdado no despacho:** ao despachar uma tarefa, o corpo inclui as anotações ativas da tarefa e dos níveis acima (missão → projeto → versão → produto), em ordem de precedência (instrução do Marcelo primeiro), resumidas e com os documentos citados; MCP `get_task_context` devolve o mesmo pacote | Aramis | P.2, C.2 | Teste: anotação do projeto chega a toda tarefa do projeto; anotação privada respeita o escopo da Fase C |
 | P.5 | **Linha do tempo por projeto/missão:** tudo o que os agentes fizeram (criações, mudanças de status, despachos, execuções, evidências, documentos, execuções remotas), filtrável por agente, com "o que mudou desde a sua última visita" | Aramis + Dartan | P.1 | Toda ação de agente aparece com autor e link |
 | P.6 | **Visão de supervisão** no Cockpit: o que espera o Marcelo (G.11), o que travou, o que os agentes mudaram nas últimas 24 h, e anotar com um toque a partir de qualquer item | Dartan | P.5, G.11 | Celular; um toque leva do item à anotação |
 | P.7 | **Anotação vira conhecimento:** promover uma anotação para documento do projeto, Base de Conhecimento ou Foundation, por tarefa (Scriba/Mnemosyne/Athos, Fase C) | Aramis | P.2, C.3 | Promoção registrada; a anotação aponta o destino |
+| P.9 | **Anotar pelo Telegram:** o Marcelo dita uma anotação ou instrução para um projeto/tarefa ("anota no projeto X: ...") ao Athos ou à Maia, que registram pelo MCP com ele como autor | Aramis + Athos (skill) | P.2 | Anotação aparece no projeto com origem Telegram |
 | P.8 | Agentes também anotam (`observação`, `decisão`) quando algo for útil para o próximo agente ou para o Marcelo; skill `forgehub` ensina quando anotar e quando abrir tarefa | Aramis + Athos (skill) | P.2 | Skill atualizada; anotações de agente distinguíveis das do Marcelo |
 
 ### Fase R — Racionalização (um caminho para cada coisa)
@@ -248,9 +264,10 @@ manutenção remota. **Não existe** anotação nas entidades do Software Factor
 
 | # | Tarefa | Dono | Aceite |
 |---|---|---|---|
-| B.1 | Produtos internos sem cliente: Ecossistema Foundation, ForgeHub, ForgeRouter, ForgeVault, Darckware, CoreTI, Serviços de Manutenção; versão em produção de cada um | Atlas, Marcelo aprova | No Cockpit como "Interno" |
+| B.1 | Produtos a partir dos repositórios reais em `/root/project`: Ecossistema Foundation (inclui Hermes, Tailscale, RustDesk), ForgeHub, ForgeRouter, ForgeVault, Darckware, CoreTI, Duplica, SAEDAS, FileNest, OsintKey, Marketing, Serviços de Manutenção; internos sem cliente, os de cliente com o cliente; versão em produção de cada um | Atlas, Marcelo aprova a lista | No Cockpit; interno marcado |
 | B.2 | Projeto permanente "Sustentação" por produto (manutenção corretiva, preventiva, atualização) | Atlas | Um por produto, sem cliente |
 | B.3 | Marcar "Interno" na tela e no Cockpit para projeto sem cliente | Dartan | Visível na lista e no detalhe |
+| B.4 | **Importar o estado atual** de cada produto: pasta e repositório (`working_directory_path`, remoto git), documentos existentes (`docs/`, `CLAUDE.md`, specs e planos), pendências abertas (`docs/PENDENCIAS.md`, Messages em aberto, Incubação) como planning items, e o que está em produção (Deploy) | Atlas + Scriba, Marcelo revisa | O Software Factory reflete o que existe hoje, não começa vazio |
 
 ### Fase I — Interligações de execução
 
@@ -267,7 +284,8 @@ manutenção remota. **Não existe** anotação nas entidades do Software Factor
 | I.10 | Agendamento de script de manutenção → tarefa recorrente no Sustentação: cada execução vira evidência; falha abre tarefa para o dono | Aramis | B.2, I.5 | Execução agendada aparece na tarefa; falha gera tarefa |
 | I.11 | Sugestão de responsável no planejamento pelas skills/tools/MCP do agente e pela carta (`TaskRequiredSkill`) | Aramis + Dartan | V | Tarefa mostra agentes compatíveis |
 | I.12 | Falhas operacionais viram trabalho no Sustentação do produto: cron/script órfão, backup externo, disco, provedor ForgeRouter, Hindsight | Aramis | B.2 | Dedupe por fonte; fecha sozinha quando a fonte volta ao normal |
-| I.9 | Revisão | Porthus | I.1–I.8, I.10–I.12 | Aprovação registrada |
+| I.13 | **Incidente:** tipo de item `incident` com severidade; incidente crítico fura o silêncio noturno do Telegram, abre tarefa no Sustentação para o dono, e só fecha com causa, correção, evidência e relatório pós-incidente (documento da fase e lição na G.7) | Aramis + Hephaestus | I.7 | Incidente simulado percorre o fluxo inteiro |
+| I.9 | Revisão | Porthus | I.1–I.8, I.10–I.13 | Aprovação registrada |
 
 ### Fase D — Documentação, manual e pasta do projeto
 
@@ -286,6 +304,23 @@ manutenção remota. **Não existe** anotação nas entidades do Software Factor
 | D.12 | **Identidade visual do projeto** no Software Factory, materializada em `docs/design/`: logomarca (variações horizontal, vertical, símbolo, monocromática, fundo claro e escuro, em SVG e PNG), favicon e ícone de app; paleta de cores com tokens claro/escuro e contraste verificado (WCAG AA); tipografia; ícones; tom de voz; `DESIGN-SYSTEM.md` (componentes, espaçamentos, estados); `SCREEN-TEMPLATES.md`; protótipos de tela (o MCP já salva HTML); e um arquivo de tokens aplicável no código (variáveis CSS / tema Tailwind do padrão 02) | Dartan + Aramis (upload e geração) | D.7 | Projeto com tela não libera tarefa de UI sem identidade aprovada; contraste reprovado aparece na tela |
 | D.13 | **Homologação de design** como estágio do pipeline (R.2) antes de implementar telas: o Marcelo aprova logomarca, paleta e protótipos; tarefas de UI despachadas ao Dartan levam os tokens, a logomarca e o protótipo aprovado no contexto; no produto Darckware vale também a homologação própria (`docs/CONTROLE_DE_DESENVOLVIMENTO.md` e skill `darckware-design`) | Dartan + Porthus (revisão) | D.12, R.2, P.4 | Tela implementada diferente do protótipo aprovado é apontada na revisão |
 | D.6 | Publicar versão cria a Release, liga às instalações do Deploy e mostra a versão em produção | Aramis + Dartan | D.4 | Deploy exibe a versão; release com notas |
+
+### Fase Q — Qualidade, ambientes e entrega do código
+
+Lacuna encontrada na revisão: não há CI, não há branch/worktree por tarefa (dois agentes podem editar o
+mesmo repositório ao mesmo tempo) e não há ambiente de homologação (o `dev.sh` usa o mesmo banco da
+produção). Para os agentes desenvolverem com segurança e o Marcelo auditar, cada entrega de código
+precisa de um caminho fixo até a produção.
+
+| # | Tarefa | Dono | Depende | Aceite |
+|---|---|---|---|---|
+| Q.1 | **Git por tarefa:** toda tarefa de código roda num worktree/branch próprio (`task/<numero>-<slug>`), commits citam o número da tarefa, e a entrega é um PR ligado à tarefa (evidência `git:` passa a apontar o PR/merge) | Porthus (desenho) + Aramis | V | Dois agentes no mesmo repositório não se atropelam; toda mudança no `main` vem de PR ligado a tarefa |
+| Q.2 | **Trava por repositório e área:** o despacho não manda duas tarefas que mexem no mesmo repositório e na mesma área ao mesmo tempo sem worktree separado | Aramis | Q.1 | Teste de concorrência |
+| Q.3 | **CI por repositório** (padrões 08 e 10 da Foundation): testes, lint, build, varredura de segurança (Aegis) e verificação de migrations; resultado anexado à tarefa | Aramis + Aegis | Q.1 | PR sem CI verde não pode ser aceito |
+| Q.4 | **Ambiente de homologação** por produto (banco separado, URL própria, dados de teste), usado pelos agentes para testar e pelos evals (G.6); o `dev.sh` deixa de apontar para o banco de produção | Hephaestus + Aramis | B.1 | Nenhum teste de agente toca dado de produção |
+| Q.5 | **Gate de produção:** deploy só com CI verde, revisão (Porthus), homologação aprovada e, para produção, aprovação do Marcelo ou delegação; o Hephaestus executa; rollback documentado e testado; a Release (D.6) registra o que subiu | Hephaestus + Aramis | Q.3, Q.4, D.6 | Deploy fora do gate é apontado pelo Auditor |
+| Q.6 | **Segredos por projeto** no ForgeVault (variáveis de ambiente por ambiente), referenciados no contrato do projeto (D.8), nunca no repositório nem no contexto | Aramis + Aegis | D.8 | Varredura não encontra segredo em repositório |
+| Q.7 | **Custo por projeto:** orçamento por projeto/missão; consumo de ForgeRouter e horas de agente somados no projeto; alerta ao passar do limite (os runtimes externos sem custo medido aparecem como "não medido", nunca zero) | Aramis | O.4 | Projeto acima do orçamento gera alerta e decisão |
 
 ### Fase A — Agent Activity completo (seção 5)
 
@@ -393,22 +428,39 @@ C.0 e C.1 podem começar já, em paralelo à validação do Software Factory.
 | M.3 | Missão na Operação 24x7 e no Agent Activity | M.1, A.3, O.1 |
 | M.4 | Autonomia M1 (coordenador propõe o plano) | M.2, O.4 |
 
+### Regra transversal — o sistema se documenta a cada fase
+
+Toda fase só fecha quando:
+- a skill compartilhada `forgehub` e as skills dos agentes afetados ensinam as ferramentas e os
+  processos novos;
+- o `CLAUDE.md` do ForgeHub está atualizado;
+- a Foundation (pelo Athos) registra o que mudou de processo.
+
+É o que mantém os agentes alinhados com o sistema, que eles mesmos vão manter e evoluir
+(Marcelo, 24/10: "atualizar as skills dos sistemas porque o próprio sistema pode fazer manutenção e
+novas implementações").
+
 ### Ordem e paralelismo
 
 ```
-V ──► R ──► B ──► I ──► D ──► M.1
-      └──► P.1/P.2 ──► P.3/P.4 ──► P.5 ──► P.6 (P.7/P.8 depois de C.3) ──► M.2 ──► M.4
-            │      │      │
-            │      └──► O ┴──► M.3
-A.1/A.2 (em paralelo desde já) ──► A.3–A.5 (após I.5)
-M.0 (em paralelo desde já)
-E.4 (em paralelo desde já) · E.1 ──► E.2 ──► E.3 (após V e D) · E.5–E.9 conforme dependências
-C.0 ──► C.1 ──► C.2 ──► C.3/C.5/C.6 ──► C.4 ──► C.7 ──► C.8 ──► C.9 (começa já, em paralelo)
+Trilho principal:
+V-a ──► V-b ──► R ──► B ──► P.1/P.2 ──► I ──► Q ──► D ──► P.3–P.6 ──► M.1 ──► M.2 ──► M.4 ──► G
+
+Começam já, em paralelo:
+A.1/A.2 ──► A.3–A.5 (após I.5)
+C.0 ──► C.1 ──► C.2 ──► C.3/C.5/C.6 ──► C.4 ──► C.7 ──► C.8 ──► C.9
+M.0 (documento dos sete sistemas)
+E.4 (funil)
+
+Depois das dependências:
+E.1 ──► E.2 ──► E.3 (após V, B e D) · E.5–E.9
+O.1–O.4 (após I.3 e D.2) ──► M.3
+P.7/P.8/P.9 (após C.3)
 ```
 
-## 8. Rumo à inteligência operacional própria ("nossa AGI")
+## 7. Rumo à inteligência operacional própria ("nossa AGI")
 
-### 8.1 O que é realista
+### 7.1 O que é realista
 
 Nenhuma integração de sistemas produz uma AGI geral, e o plano não promete isso. O que dá para
 construir com Hermes, ForgeHub, ForgeRouter, ForgeVault, Tailscale, RustDesk e Darckware é uma **organização de
@@ -419,11 +471,11 @@ agentes autônoma e que melhora sozinha**:
 - aprende com o resultado;
 - melhora o próprio software, dentro de limites que o Marcelo controla.
 
-O plano até a seção 7 cobre o **corpo** desse sistema: executar, registrar, vigiar e coordenar. A
+O plano até a seção 6 cobre o **corpo** desse sistema: executar, registrar, vigiar e coordenar. A
 análise abaixo mostra o que ainda falta para que ele **aprenda, se avalie e se corrija** de forma
 mensurável e segura.
 
-### 8.2 O que já existe e o que falta
+### 7.2 O que já existe e o que falta
 
 | Capacidade | Já existe | Falta | Fase |
 |---|---|---|---|
@@ -441,7 +493,7 @@ mensurável e segura.
 | Decisões do Marcelo | Aprovações, dúvidas, A2, incubação, aceite de missão — em telas diferentes | **Uma fila única de decisões**, com resumo e recomendação, também no Telegram | G.11 |
 | Continuidade | Backup externo (pendente de snapshot), gateway único | Recuperação testada do estado dos agentes (perfis, memória, banco) | G.12 |
 
-### 8.3 Fase G — Capacidade de aprender (depois de M.1)
+### 7.3 Fase G — Capacidade de aprender (depois de M.1)
 
 | # | Tarefa | Dono | Depende | Aceite |
 |---|---|---|---|---|
@@ -458,7 +510,7 @@ mensurável e segura.
 | G.11 | **Fila única de decisões** do Marcelo (aprovações, A2, dúvidas, aceite de missão, incubação madura), na tela e no Telegram | Aramis + Dartan | O.2 | Nenhuma decisão pendente fora da fila |
 | G.12 | **Recuperação testada** do estado dos agentes (perfis Hermes, memória, banco do ForgeHub) a partir do backup externo | Hephaestus (rotina) + Aramis | backup externo com snapshot | Teste de restauração trimestral registrado |
 
-### 8.4 Níveis de autonomia revistos
+### 7.4 Níveis de autonomia revistos
 
 Os níveis M0–M3 da Missão passam a exigir os itens da Fase G:
 
@@ -468,12 +520,38 @@ Os níveis M0–M3 da Missão passam a exigir os itens da Fase G:
 | M2 (tarefas de baixo risco sem aprovação item a item) | G.5 (verificador) e G.6 (evals) com nota estável por 30 dias |
 | M3 (o sistema propõe missões) | G.1, G.2, G.7 e G.8 funcionando; suíte de segurança G.10 verde |
 
-### 8.5 Ordem
+### 7.5 Ordem
 
 ```
 ... M.1 ──► G.10 ──► G.11 ──► G.5 ──► G.6 ──► G.7 ──► G.8
              G.1, G.2, G.3, G.4, G.12 em paralelo, conforme as dependências da tabela
 ```
+
+## 8. Lacunas encontradas na revisão do plano (24/10)
+
+| # | Lacuna | Onde foi tratada |
+|---|---|---|
+| 1 | A validação pelo agente dependia de ferramentas MCP que só viriam depois (ciclo) | V dividida em V-a (tela/API) e V-b (MCP); a V-b gera a lista da P.1 |
+| 2 | Não havia regra de quando usar tarefa do Software Factory e quando usar Task do Messages | Regra em 1.1 |
+| 3 | Sem git por tarefa, sem PR, sem CI, sem trava de repositório | Q.1–Q.3 |
+| 4 | Sem ambiente de homologação; `dev.sh` e produção dividem o banco | Q.4 |
+| 5 | Deploy sem gate formal nem rollback testado | Q.5 |
+| 6 | Segredos de cada projeto fora do contrato do projeto | Q.6 |
+| 7 | Custo e orçamento por projeto/missão | Q.7 |
+| 8 | "Incidente" estava no objetivo mas sem fluxo | I.13 |
+| 9 | O Software Factory começaria vazio: faltava importar projetos, documentos e pendências atuais | B.4 |
+| 10 | Produtos reais ausentes da lista (Duplica, SAEDAS, FileNest, OsintKey, Marketing, Hermes) | B.1 |
+| 11 | Anotar exigia a tela; o Marcelo também supervisiona pelo Telegram | P.9 |
+| 12 | Skills, `CLAUDE.md` e Foundation não acompanhavam cada fase | Regra transversal antes da ordem |
+| 13 | Numeração (faltava a seção 7) e diagrama de ordem com dependências invertidas | Corrigidos |
+
+**Riscos que continuam abertos e precisam de acompanhamento:**
+- **Tamanho do plano.** São mais de 100 tarefas. Sem disciplina de uma tarefa pequena por vez, com
+  `STATUS: DONE` e evidência, ele repete o que aconteceu com a Missão. O próprio plano vira o primeiro
+  projeto do Software Factory e é acompanhado por ele.
+- **Backup externo sem snapshot aceito** (roadmap de 02/10): a G.12 depende dele.
+- **Só 3 de 18 rotinas ligadas:** a Operação 24x7 só vigia de fato quando as rotinas da O.3 forem ligadas.
+- **Dependência do ForgeRouter** para a seleção de modelo (G.9), que está fora deste plano.
 
 ## 9. Decisões pendentes do Marcelo
 
@@ -494,5 +572,8 @@ Os níveis M0–M3 da Missão passam a exigir os itens da Fase G:
    completo para os agentes operarem o módulo sem a tela.
 10. Fase E (Darckware): projeto aprovado pelo cliente no portal vira projeto no Software Factory
    automaticamente (E.1), e o funil (E.4) pode começar já.
-11. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
+11. Fase Q: git por tarefa com PR, CI por repositório, ambiente de homologação separado e gate de
+    produção com rollback (Q.1–Q.5).
+12. B.4: importar o estado atual dos produtos (pastas, documentos, pendências) antes de começar.
+13. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
    pré-requisitos para subir qualquer nível de autonomia.
