@@ -9,6 +9,7 @@
 - "preciso adicionar no planejamento da implementação em um conjunto completo, interligando todos os componentes criados"
 - "a tela de atividades dos agentes precisa acompanhar todas as rotinas e monitorar todos os agentes"
 - "o Darckware precisa ser adicionado, ele é minha ponte com a internet para captação de cliente no nosso ecossistema"
+- "a ideia do Software Factory é que o agente use o módulo e eu monitore as atividades e adicione anotações e documentações adicionais para ajudar no contexto"
 - "queria adicionar o controle do contexto: memória dos agentes, Hindsight (memória estendida), base de conhecimento e a documentação da Foundation"
 
 **Documentos ligados:** `docs/superpowers/specs/2026-10-24-missao-design.md` (frente Missão),
@@ -32,6 +33,21 @@ Entrada ──► Software Factory ──► Messages ──► Agente ──►
                      └──── Operação 24x7 vigia, cobra e escala ◄────────────────┘
                            Agent Activity mostra tudo em tempo real
 ```
+
+### 1.1 Princípio de uso: o agente opera, o Marcelo supervisiona e dá contexto
+
+O Software Factory é **operado pelos agentes** pelo MCP `forgehub`: eles criam o planejamento, as
+tarefas e as dependências, despacham, registram evidência e documentos e fecham as fases. O Marcelo
+não precisa operar o módulo. Ele:
+- **monitora** o que os agentes fizeram (linha do tempo, Cockpit, Agent Activity);
+- **decide** o que é dele (fila única de decisões);
+- **acrescenta contexto**: anotações e documentos em qualquer nível (produto, versão, projeto, fase,
+  tarefa, missão), que passam a acompanhar automaticamente toda tarefa abaixo daquele nível.
+
+Consequências para o plano:
+- toda ação da tela tem uma ferramenta MCP equivalente;
+- toda ação de agente é auditada com o nome do agente;
+- a anotação do Marcelo é a camada de maior precedência do contexto (Fase C, camada 1).
 
 ## 2. Componentes existentes e papel no conjunto
 
@@ -158,7 +174,7 @@ Cada linha vira uma ProjectTask com dependência (`TaskDependency`) no projeto i
 integrado" (produto ForgeHub), assim que a Fase V estiver aprovada. Quem escreve não revisa o próprio
 código: Porthus revisa Aramis e Dartan.
 
-### Fase V — Validação do Software Factory (Marcelo + Claude Code)
+### Fase V — Validação do Software Factory (agente opera, Marcelo acompanha, Claude Code corrige)
 
 Base automatizada: 107 testes do Software Factory passando em 24/10 (e2e, cockpit, MCP, escopo, versão,
 tarefas, evidência, aprovação governada, produto, projeto, backlog, governança). Falta o uso real pela tela.
@@ -183,6 +199,24 @@ tarefas, evidência, aprovação governada, produto, projeto, backlog, governan�
 
 Cada defeito encontrado vira tarefa no projeto "Validação do Software Factory" e é corrigido antes da
 Fase I. Entregável: relatório da validação (documento ligado ao projeto) com o que passou e o que foi corrigido.
+
+### Fase P — Agentes operam o Software Factory; Marcelo supervisiona e anota (seção 1.1)
+
+Hoje o MCP já cobre: listar e ler projetos, planning items, tarefas, telas e ERD; criar ideia de
+concepção, documento de conceito, escopo, telas, modelo de banco, planning item e tarefa; atualizar
+status de tarefa; reportar bloqueio de governança; liberar execução; criar e publicar versão; e a
+manutenção remota. **Não existe** anotação nas entidades do Software Factory.
+
+| # | Tarefa | Dono | Depende | Aceite |
+|---|---|---|---|---|
+| P.1 | **Completar o MCP** para o ciclo inteiro sem a tela: dependências, atribuição, despacho, relatar execução com evidência, atualizar planning item e estágio do pipeline, change request, anexar documento/artefato (`DocLink`), criar item no Sustentação, ler a linha do tempo | Aramis | V, R.2 | Um agente percorre o roteiro da Fase V inteiro só pelo MCP |
+| P.2 | **Anotações** (`annotations`, polimórfica como `AuditEvent`): em produto, versão, projeto, fase, tarefa, missão, máquina e cliente; tipos `instrução`, `contexto`, `decisão`, `correção`, `observação`; autor (Marcelo ou agente); fixar; validade; anexos por `DocLink` (upload vai para `/docs`). Agente nunca edita nem apaga anotação do Marcelo | Aramis | V | Testes de permissão; histórico auditado |
+| P.3 | **Painel "Anotações e documentos"** reutilizável em todas as telas de detalhe do Software Factory, da Missão e do Agent Activity; escrever em Markdown, anexar arquivo, fixar; pelo celular também | Dartan | P.2 | 390 px; `ConfirmDialog` para arquivar |
+| P.4 | **Contexto herdado no despacho:** ao despachar uma tarefa, o corpo inclui as anotações ativas da tarefa e dos níveis acima (missão → projeto → versão → produto), em ordem de precedência (instrução do Marcelo primeiro), resumidas e com os documentos citados; MCP `get_task_context` devolve o mesmo pacote | Aramis | P.2, C.2 | Teste: anotação do projeto chega a toda tarefa do projeto; anotação privada respeita o escopo da Fase C |
+| P.5 | **Linha do tempo por projeto/missão:** tudo o que os agentes fizeram (criações, mudanças de status, despachos, execuções, evidências, documentos, execuções remotas), filtrável por agente, com "o que mudou desde a sua última visita" | Aramis + Dartan | P.1 | Toda ação de agente aparece com autor e link |
+| P.6 | **Visão de supervisão** no Cockpit: o que espera o Marcelo (G.11), o que travou, o que os agentes mudaram nas últimas 24 h, e anotar com um toque a partir de qualquer item | Dartan | P.5, G.11 | Celular; um toque leva do item à anotação |
+| P.7 | **Anotação vira conhecimento:** promover uma anotação para documento do projeto, Base de Conhecimento ou Foundation, por tarefa (Scriba/Mnemosyne/Athos, Fase C) | Aramis | P.2, C.3 | Promoção registrada; a anotação aponta o destino |
+| P.8 | Agentes também anotam (`observação`, `decisão`) quando algo for útil para o próximo agente ou para o Marcelo; skill `forgehub` ensina quando anotar e quando abrir tarefa | Aramis + Athos (skill) | P.2 | Skill atualizada; anotações de agente distinguíveis das do Marcelo |
 
 ### Fase R — Racionalização (um caminho para cada coisa)
 
@@ -338,7 +372,8 @@ C.0 e C.1 podem começar já, em paralelo à validação do Software Factory.
 ### Ordem e paralelismo
 
 ```
-V ──► R ──► B ──► I ──► D ──► M.1 ──► M.2 ──► M.4
+V ──► R ──► B ──► I ──► D ──► M.1
+      └──► P.1/P.2 ──► P.3/P.4 ──► P.5 ──► P.6 (P.7/P.8 depois de C.3) ──► M.2 ──► M.4
             │      │      │
             │      └──► O ┴──► M.3
 A.1/A.2 (em paralelo desde já) ──► A.3–A.5 (após I.5)
@@ -420,8 +455,9 @@ Os níveis M0–M3 da Missão passam a exigir os itens da Fase G:
 
 1. Aposentar Execution Waves/Work Packages e o restante da Orquestração (R.1), que estão sem uso e
    duplicam o Messages como executor.
-2. Começar pela **Fase V** com você validando na tela e o Claude Code acompanhando e corrigindo os
-   defeitos, ou a validação ser feita por um agente com o roteiro acima e você revisa o relatório.
+2. Fase V: pelo princípio 1.1, a validação natural é **um agente operando o Software Factory pelo
+   MCP** com o roteiro acima, com você acompanhando, anotando e revisando o relatório; o Claude Code
+   corrige os defeitos. Alternativa: você na tela.
 3. Produtos internos da Fase B (lista proposta) e "Sustentação" permanente por produto.
 4. Serviço a cliente: projeto por ticket/demanda (como o `:create-project` já faz, recomendado) ou um
    projeto por cliente com uma fase por ticket.
@@ -430,7 +466,9 @@ Os níveis M0–M3 da Missão passam a exigir os itens da Fase G:
 7. As decisões da spec da Missão (coordenador, quem cria, dono da documentação).
 8. Fase C: aprovar que C.0 (linha de base) e C.1 (política na Foundation, pelo Athos) comecem já, e
    que C.2 (isolamento do `knowledge_cycle.py`) seja feito pelo Porthus em modo observação primeiro.
-9. Fase E (Darckware): projeto aprovado pelo cliente no portal vira projeto no Software Factory
+9. Fase P: anotações em todos os níveis do Software Factory, herdadas no despacho das tarefas, e o MCP
+   completo para os agentes operarem o módulo sem a tela.
+10. Fase E (Darckware): projeto aprovado pelo cliente no portal vira projeto no Software Factory
    automaticamente (E.1), e o funil (E.4) pode começar já.
-10. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
+11. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
    pré-requisitos para subir qualquer nível de autonomia.
