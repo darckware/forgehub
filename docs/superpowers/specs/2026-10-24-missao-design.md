@@ -74,6 +74,13 @@ contexto a memória ou a base de conhecimento vira uma **tarefa** para Mnemosyne
 
 ## 4. Desenho
 
+### 4.0 Papel: a Missão é a garantia de conclusão
+
+Marcelo, 24/10: "a missão é a garantia que o serviço foi concluído, ela faz o controle e monitoramento
+da execução". O pipeline completo (Missão → Service Factory → Operação 24x7 → Atividades dos Agentes),
+os critérios de aceite comprovados um a um, a saúde da missão e os gates estão na seção 1.5 do
+[plano integrado](../plans/2026-10-24-plano-integrado.md) e nas tarefas M.1a–M.1d.
+
 ### 4.1 Uma missão = um projeto do Service Factory + coordenação
 
 ```

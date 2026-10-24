@@ -14,6 +14,7 @@
 - "adicione design system, logomarca, etc"
 - "queria evoluir software factory para service factory para englobar todos os serviços"
 - "como quero implementar uma missão para o grupo de agentes, eles precisam registrar isso como um projeto no Service Factory para poderem gerenciar as atividades e a documentação dos projetos em execução e a distribuição das tarefas"
+- "precisa criar um pipeline para missão, service factory, operação 24x7 e atividades dos agentes. A missão é a garantia que o serviço foi concluído, ele faz o controle e monitoramento da execução"
 - "queria adicionar o controle do contexto: memória dos agentes, Hindsight (memória estendida), base de conhecimento e a documentação da Foundation"
 
 **Documentos ligados:** `docs/superpowers/specs/2026-10-24-missao-design.md` (frente Missão),
@@ -145,12 +146,86 @@ projeto, por convenção. A camada de Missão vem depois e se apoia nesses mesmo
 |---|---|---|---|---|
 | M0.1 | Produto "Ecossistema Foundation" (interno, sem cliente) com versão `2026.4` | Claude Code (via API), Marcelo confirma | V-a | Aparece no Cockpit |
 | M0.2 | Ferramentas MCP mínimas para o grupo: `create_internal_project` (produto/versão, linha, objetivo, critério de sucesso, coordenador, pasta), `manage_project_members`, `add_task_dependency`, `assign_task`, `dispatch_task`, `report_task_execution` (evidência), `attach_project_document` (`DocLink`) | Aramis, Porthus revisa | V-a | Um agente cria e conduz um projeto de missão inteiro pelo MCP |
-| M0.3 | **Convenção de missão** até a M.1: projeto do tipo missão; o primeiro planning item é "Objetivo e critérios de sucesso"; fases = planning items; coordenador = dono do projeto (Athos por padrão); participantes = membros do projeto; documentos em `docs/missions/<slug>/` com `00-INDICE.md`; toda tarefa termina com `STATUS: DONE` e evidência | Athos (Foundation) + Scriba | M0.2 | Convenção publicada na skill `forgehub` e na Foundation |
+| M0.3 | **Convenção de missão** até a M.1: projeto do tipo missão; o primeiro planning item é "Objetivo e critérios de aceite" (um critério por linha, cada um com a tarefa e a evidência que o comprovam); fases = planning items; coordenador = dono do projeto (Athos por padrão); participantes = membros do projeto; documentos em `docs/missions/<slug>/` com `00-INDICE.md`; toda tarefa termina com `STATUS: DONE` e evidência | Athos (Foundation) + Scriba | M0.2 | Convenção publicada na skill `forgehub` e na Foundation |
 | M0.4 | **Skill "como conduzir uma missão"** na skill compartilhada `forgehub`: registrar, planejar, distribuir, acompanhar, documentar, consolidar | Athos + Claude Code | M0.3 | Os agentes seguem o mesmo roteiro |
 | M0.5 | **Primeira missão real:** o próprio plano integrado, registrado como projeto de missão (fases do plano = planning items, tarefas = tarefas), com o Athos coordenando e você acompanhando e anotando | Athos | M0.4 | O avanço do plano é visto no Cockpit, não em documento solto |
 
 A M.1 (módulo completo) passa a acrescentar o que a convenção não cobre: campos próprios de missão,
 consolidação automática, contexto por destinatário (M.2) e a tela `/missions`.
+
+### 1.5 Pipeline de ponta a ponta: Missão → Service Factory → Operação 24x7 → Atividades dos Agentes
+
+**A Missão é a garantia de que o serviço foi concluído.** Ela define o que é "concluído", controla e
+monitora a execução, e só se encerra quando cada critério está comprovado. Os outros três componentes
+executam e observam. Ninguém além da Missão declara um serviço terminado.
+
+```
+ MISSÃO (garantia)          SERVICE FACTORY (gestão)       OPERAÇÃO 24x7 (vigilância)    ATIVIDADES DOS AGENTES (visão)
+ ─────────────────          ────────────────────────       ──────────────────────────    ──────────────────────────────
+ 1 Abertura ───────────────► 2 Planejamento
+   objetivo, critérios        projetos por linha,
+   de aceite, prazo,          fases, tarefas,
+   coordenador                dependências, docs,
+        ▲                     agentes
+        │                          │
+        │                          ▼
+        │                     3 Execução ─────────────────► vigia prazos, falhas,  ──► tempo real de cada agente,
+        │                       despacho pelo Messages,       bloqueios; cobra,          rotina e execução, com a
+        │                       STATUS + evidência            escala, pergunta           origem (missão/projeto/tarefa)
+        │                          │                               │                          │
+        │                          ▼                               ▼                          ▼
+ 5 Verificação ◄──────────── 4 Entrega por tarefa ◄────── sinais de saúde ◄─────────── eventos e indicadores
+   cada critério × evidência   evidência verificada,
+   documentação aprovada       documento registrado
+        │
+        ▼
+ 6 Aceite e encerramento ──► lições (G.7) e melhoria
+   cliente (portal) e Marcelo
+```
+
+**Estágios, responsáveis e gates**
+
+| # | Estágio | Componente | Entra | Sai | Gate para avançar |
+|---|---|---|---|---|---|
+| 1 | **Abertura** | Missão | Pedido do Marcelo, ticket/proposta do cliente, proposta da retrospectiva | Objetivo, **critérios de aceite** (cada um verificável), prazo, coordenador, linhas de serviço, orçamento | Marcelo aprova (ou delegação) |
+| 2 | **Planejamento** | Service Factory | Missão aprovada | Projeto(s) por linha com pipeline da linha, fases, tarefas, dependências, documentos obrigatórios, agentes; **cada critério de aceite ligado às tarefas que o cumprem** | Coordenador confirma que todo critério tem tarefa; Marcelo aprova o plano (até o nível M1) |
+| 3 | **Execução** | Service Factory + Messages | Tarefa pronta (dependências concluídas) | Despacho com contexto (contrato, anotações, missão); resultado com `STATUS` e evidência | `STATUS: DONE` |
+| 4 | **Entrega por tarefa** | Service Factory | Resultado da execução | Evidência verificada (`git:`/CI, `host_execution`, `file:`, `db:`), documento registrado; `PARTIAL`/`BLOCKED` voltam à execução com motivo | Evidência verificada + documento do estágio |
+| — | **Vigilância contínua** (estágios 3 e 4) | Operação 24x7 | Sinais de todas as tarefas da missão | Cobrança ao agente, reatribuição, pergunta ao Marcelo, escalada ao coordenador | — |
+| — | **Visibilidade contínua** | Atividades dos Agentes | Eventos de execução, rotinas, telemetria | Quem está fazendo o quê, para qual missão, e há quanto tempo | — |
+| 5 | **Verificação** | Missão | Tarefas entregues | Cada critério de aceite marcado como cumprido, com a evidência que prova; verificador independente (G.5) quando o tipo exige | **Todos** os critérios comprovados; nenhum documento obrigatório pendente |
+| 6 | **Aceite e encerramento** | Missão | Verificação completa | Resultado consolidado, documento final, aceite do cliente no portal (se houver) e do Marcelo; lições registradas | Aceite explícito; sem aceite, a missão volta ao estágio que falhou |
+
+**Como a Missão monitora (o "controle da execução")**
+
+A missão calcula continuamente a própria **saúde** a partir das tarefas dos seus projetos, e a mostra
+como um semáforo:
+
+| Sinal | Fonte | Vira alerta quando |
+|---|---|---|
+| Avanço por critério de aceite | tarefas ligadas a cada critério | um critério não tem tarefa, ou nenhuma tarefa dele avançou em N dias |
+| Prazo | datas das tarefas × prazo da missão | caminho crítico passa do prazo |
+| Bloqueios e falhas | `blocked`, `PARTIAL`, `BLOCKED`, falha no Messages | qualquer bloqueio > 24 h, ou 2 falhas na mesma tarefa |
+| Evidência pendente | tarefas `reported` sem verificação | entrega sem prova > 24 h |
+| Documentação | documentos obrigatórios do pipeline | estágio concluído sem documento |
+| Rotinas e agentes | Operação 24x7 e Atividades dos Agentes | agente da missão degradado, rotina de vigilância perdida |
+| Custo | ForgeRouter e horas (Q.7) | consumo acima do orçamento |
+| Cliente | portal Darckware (E.2/E.3) | ajuste pedido ou aceite pendente |
+
+Cada alerta vai para quem age:
+- ao **coordenador**, como tarefa de triagem;
+- ao **Marcelo**, pela fila de decisões (G.11), só quando a decisão é dele;
+- ao **agente responsável**, como cobrança pela Operação 24x7.
+
+A saúde da missão aparece no Cockpit, no briefing do Athos e no painel da própria missão.
+
+**Regras do pipeline**
+1. Só a Missão declara um serviço concluído. Tarefa `done` e fase concluída são etapas, não o fim.
+2. Todo critério de aceite precisa de evidência verificável. Critério sem prova não fecha.
+3. Todo trabalho de missão passa pelo Service Factory. Execução fora dele não conta para a missão.
+4. A Operação 24x7 nunca encerra nada: ela cobra, reatribui e escala.
+5. As Atividades dos Agentes nunca decidem nada: elas mostram, com a origem de cada execução.
+6. Falha em qualquer estágio volta ao estágio anterior, com motivo registrado. Nada é apagado.
 
 ## 2. Componentes existentes e papel no conjunto
 
@@ -507,6 +582,10 @@ C.0 e C.1 podem começar já, em paralelo à validação do Service Factory.
 |---|---|---|
 | M.0 | Documento dos sete sistemas (Hermes, ForgeHub, ForgeRouter, ForgeVault, Tailscale, RustDesk, Darckware). O isolamento do `knowledge_cycle.py` e a pasta da Maia passaram para a Fase C (C.2, C.3) | — (pode correr em paralelo desde já) |
 | M.1 | Núcleo: missão = projeto interno + coordenação, participantes, consolidação, tela `/missions`, MCP | V, B, D |
+| M.1a | **Critérios de aceite** da missão (tabela própria): cada critério com descrição verificável, tarefas que o cumprem, evidência que o prova, quem verifica e estado (`aberto`, `em andamento`, `comprovado`, `reprovado`) | M.1 |
+| M.1b | **Saúde da missão** (seção 1.5): semáforo calculado dos sinais (critérios, prazo, bloqueios, evidência, documentação, agentes, custo, cliente), com alerta ao coordenador, ao agente ou ao Marcelo conforme o caso | M.1a, A.3, O.1 |
+| M.1c | **Gates do pipeline da missão** (estágios 1–6) como pipeline da linha "Missões" (R.2): abertura aprovada, plano com todo critério coberto, verificação completa, aceite explícito; falha volta ao estágio anterior | M.1a, R.2 |
+| M.1d | **Painel da missão:** o pipeline com o estágio atual, os critérios e suas provas, a saúde, a linha do tempo (P.5), as anotações (P.3) e os agentes em atividade agora | M.1b, M.1c |
 | M.2 | Contexto da missão por destinatário, com testes de vazamento; promove itens para as camadas da Fase C | M.1, C.2 |
 | M.3 | Missão na Operação 24x7 e no Agent Activity | M.1, A.3, O.1 |
 | M.4 | Autonomia M1 (coordenador propõe o plano) | M.2, O.4 |
@@ -659,8 +738,10 @@ Os níveis M0–M3 da Missão passam a exigir os itens da Fase G:
     produção com rollback (Q.1–Q.5).
 12. **Service Factory (seção 1.3, Fase S):** confirmar o nome, as 9 linhas de serviço iniciais e a
     generalização (Produto = o que é atendido; Versão = o ciclo), mantendo rotas e tabelas.
-13. **M0:** registrar já a primeira missão como projeto (o próprio plano integrado), com as
+13. **Pipeline (seção 1.5):** a Missão como garantia de conclusão — só ela declara um serviço
+    concluído, com critérios de aceite comprovados um a um, saúde monitorada e aceite explícito.
+14. **M0:** registrar já a primeira missão como projeto (o próprio plano integrado), com as
     ferramentas MCP mínimas e a convenção de missão, logo após a validação pela tela/API.
-14. B.4: importar o estado atual dos produtos (pastas, documentos, pendências) antes de começar.
-15. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
+15. B.4: importar o estado atual dos produtos (pastas, documentos, pendências) antes de começar.
+16. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
    pré-requisitos para subir qualquer nível de autonomia.
