@@ -15,6 +15,7 @@
 - "queria evoluir software factory para service factory para englobar todos os serviços"
 - "como quero implementar uma missão para o grupo de agentes, eles precisam registrar isso como um projeto no Service Factory para poderem gerenciar as atividades e a documentação dos projetos em execução e a distribuição das tarefas"
 - "precisa criar um pipeline para missão, service factory, operação 24x7 e atividades dos agentes. A missão é a garantia que o serviço foi concluído, ele faz o controle e monitoramento da execução"
+- "na missão pode nomear os agentes, orquestrador, os executores; o contexto da missão; a validação da documentação e do plano"
 - "queria adicionar o controle do contexto: memória dos agentes, Hindsight (memória estendida), base de conhecimento e a documentação da Foundation"
 
 **Documentos ligados:** `docs/superpowers/specs/2026-10-24-missao-design.md` (frente Missão),
@@ -145,8 +146,8 @@ projeto, por convenção. A camada de Missão vem depois e se apoia nesses mesmo
 | # | Tarefa | Dono | Depende | Aceite |
 |---|---|---|---|---|
 | M0.1 | Produto "Ecossistema Foundation" (interno, sem cliente) com versão `2026.4` | Claude Code (via API), Marcelo confirma | V-a | Aparece no Cockpit |
-| M0.2 | Ferramentas MCP mínimas para o grupo: `create_internal_project` (produto/versão, linha, objetivo, critério de sucesso, coordenador, pasta), `manage_project_members`, `add_task_dependency`, `assign_task`, `dispatch_task`, `report_task_execution` (evidência), `attach_project_document` (`DocLink`) | Aramis, Porthus revisa | V-a | Um agente cria e conduz um projeto de missão inteiro pelo MCP |
-| M0.3 | **Convenção de missão** até a M.1: projeto do tipo missão; o primeiro planning item é "Objetivo e critérios de aceite" (um critério por linha, cada um com a tarefa e a evidência que o comprovam); fases = planning items; coordenador = dono do projeto (Athos por padrão); participantes = membros do projeto; documentos em `docs/missions/<slug>/` com `00-INDICE.md`; toda tarefa termina com `STATUS: DONE` e evidência | Athos (Foundation) + Scriba | M0.2 | Convenção publicada na skill `forgehub` e na Foundation |
+| M0.2 | Ferramentas MCP mínimas para o grupo: `create_internal_project` (produto/versão, linha, objetivo, critérios de aceite, orquestrador, pasta), `manage_project_members` (com função), `submit_project_plan` (Plano do projeto para aprovação), `add_task_dependency`, `assign_task`, `dispatch_task`, `report_task_execution` (evidência), `attach_project_document` (`DocLink`) | Aramis, Porthus revisa | V-a | Um agente cria e conduz um projeto de missão inteiro pelo MCP |
+| M0.3 | **Convenção de missão** até a M.1: projeto do tipo missão; o primeiro planning item é "Objetivo e critérios de aceite" (um critério por linha, cada um com a tarefa e a evidência que o comprovam); fases = planning items; orquestrador = Athos (`coordinator`); executores, verificadores, planejador e documentador como membros do projeto com a função; `BRIEF.md` e documentos em `docs/missions/<slug>/` com `00-INDICE.md`; plano no Plano do projeto, aprovado pelo Marcelo antes de despachar; toda tarefa termina com `STATUS: DONE` e evidência | Athos (Foundation) + Scriba | M0.2 | Convenção publicada na skill `forgehub` e na Foundation |
 | M0.4 | **Skill "como conduzir uma missão"** na skill compartilhada `forgehub`: registrar, planejar, distribuir, acompanhar, documentar, consolidar | Athos + Claude Code | M0.3 | Os agentes seguem o mesmo roteiro |
 | M0.5 | **Primeira missão real:** o próprio plano integrado, registrado como projeto de missão (fases do plano = planning items, tarefas = tarefas), com o Athos coordenando e você acompanhando e anotando | Athos | M0.4 | O avanço do plano é visto no Cockpit, não em documento solto |
 
@@ -226,6 +227,94 @@ A saúde da missão aparece no Cockpit, no briefing do Athos e no painel da pró
 4. A Operação 24x7 nunca encerra nada: ela cobra, reatribui e escala.
 5. As Atividades dos Agentes nunca decidem nada: elas mostram, com a origem de cada execução.
 6. Falha em qualquer estágio volta ao estágio anterior, com motivo registrado. Nada é apagado.
+
+### 1.6 Papéis, contexto e validação na missão
+
+#### Papéis (nomeados na abertura da missão)
+
+Reaproveitam o vocabulário único de funções que já existe (`PROJECT_AGENT_ROLES`, usado por membros
+de projeto, agentes e canais). Nada de lista nova.
+
+| Papel na missão | Função existente | Quantos | Quem (padrão) | Faz | Nunca faz |
+|---|---|---|---|---|---|
+| **Patrocinador / aprovador** | — (pessoa) | 1 | Marcelo | Aprova abertura, plano, documentos-chave e aceite final; anota | — |
+| **Orquestrador** | `coordinator` | exatamente 1 | Athos | Planeja com o planejador, distribui, acompanha a saúde, resolve bloqueios, consolida | Executar código (é agente Hermes); verificar a própria consolidação |
+| **Planejador** | `planner` | 0–1 | Atlas | Monta o plano (fases, tarefas, dependências, critérios × tarefas) | Aprovar o próprio plano |
+| **Executores** | `developer`, `designer`, `data_engineer`, `architect`, `release_manager`, `compliance`, `knowledge_management` | 1 ou mais | Por linha e carta: código só Aramis, Porthus, Dartan | Executam as tarefas e entregam evidência | Verificar a própria entrega |
+| **Verificadores** | `reviewer`, `qa`, `security_reviewer` | 1 ou mais | Porthus (código), Aegis (segurança), outro agente da área | Comprovam entregas e critérios de aceite | Verificar o que eles mesmos executaram |
+| **Documentador** | `documentation` | 1 | Scriba | Mantém o brief, os documentos obrigatórios e o resultado final | Aprovar o próprio documento |
+
+**Regras checadas automaticamente ao nomear:**
+- exatamente um orquestrador;
+- código só com executor de runtime externo;
+- verificador nunca é o executor da mesma tarefa;
+- o papel respeita o "nunca faz" da carta do agente;
+- o agente está ativo e com canal saudável;
+- há limite de missões simultâneas por orquestrador e de carga por executor.
+
+#### Contexto da missão (o "brief")
+
+Um documento único, versionado, `docs/missions/<slug>/BRIEF.md`, registrado como Artefato. Contém:
+- objetivo;
+- histórico e motivação;
+- escopo e fora de escopo;
+- critérios de aceite;
+- restrições;
+- decisões já tomadas;
+- referências: contrato do projeto (D.8), documentos do produto, Foundation, Base de Conhecimento;
+- riscos;
+- glossário;
+- papéis.
+
+O brief é a base do contexto enviado em cada despacho, junto com as anotações do Marcelo (P.4) e os
+itens de contexto filtrados por destinatário (M.2). Mudou o brief? Sai uma nova versão, os membros são
+avisados e as próximas tarefas já recebem a versão nova.
+
+#### Validação do plano
+
+O plano da missão usa o **Plano do projeto que já existe** (`ProjectPlan`: rascunho → aprovado →
+baseline → substituído) e o **change request** para mudanças depois da baseline.
+
+1. **Checagem automática**, antes de pedir aprovação:
+   - todo critério de aceite tem tarefa;
+   - toda tarefa tem papel e agente compatíveis;
+   - as dependências não formam ciclo;
+   - o caminho crítico cabe no prazo;
+   - todo documento obrigatório tem dono;
+   - toda entrega tem verificador;
+   - o orçamento cabe;
+   - os riscos estão listados.
+2. **Revisão:** o orquestrador revisa o que o planejador montou.
+3. **Aprovação:** o Marcelo aprova, e o plano vira baseline. **A aprovação do plano autoriza a execução
+   das tarefas daquela baseline.** Não é preciso aprovar tarefa por tarefa, o que concilia com a regra
+   dos canais "a execução real fica com o Marcelo" (`CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md` §3.3).
+4. **Depois da baseline:** só por change request aprovado. Mudança de prazo, escopo ou critério reabre a validação.
+
+#### Validação da documentação
+
+- **Ciclo por documento:** autor → revisão por outro agente → aprovação. Os estados seguem o padrão 18
+  da Foundation (rascunho, em revisão, aprovado), mapeados nos estados do Artefato
+  (`draft`, `submitted`, `approved`) e das versões (`draft`, `final`, `superseded`).
+- **Documentos-chave aprovados pelo Marcelo:** brief, escopo/PRD, plano, resultado final. Os demais são
+  aprovados pelo verificador ou pelo documentador.
+- **Checagem automática:** cabeçalho com estado/dono/data, links válidos, nenhum segredo, nenhum nome
+  ou id interno em documento visível ao cliente.
+- **Regra:** a missão só passa da verificação (estágio 5) com todos os documentos obrigatórios aprovados.
+
+#### Lacunas encontradas
+
+| # | Lacuna | Tarefa |
+|---|---|---|
+| 1 | Os papéis existem por projeto (`ProjectAgentMembership`), mas não por tarefa: não há verificador nomeado por entrega | M.1e |
+| 2 | Nenhuma regra é checada ao nomear (independência, runtime de código, "nunca faz" da carta, carga) | M.1e |
+| 3 | O orquestrador não recebe autoridade sobre o projeto; a delegação pode ser limitada a projeto, mas nada a concede | M.1f |
+| 4 | Não há substituto quando o orquestrador fica indisponível | M.1f |
+| 5 | Não existe o brief da missão nem o seu ciclo de versão e validação | M.1g |
+| 6 | O Plano do projeto existe (1 registro) mas não é usado; não há checagem automática do plano | M.1h |
+| 7 | A independência na revisão de documentos não é exigida; não há checagem automática de documento | M.1i |
+| 8 | A missão não ganha um canal de coordenação, embora canais já aceitem projeto e membros com função | M.1j |
+| 9 | O agente não tem como perguntar "qual é o meu papel e as minhas tarefas nesta missão" pelo MCP | M.1k |
+| 10 | A regra dos canais "execução real só com o Marcelo" não diz como fica numa missão com plano aprovado | Resolvida acima (aprovação da baseline autoriza as tarefas dela); registrar na Foundation (M.1l) |
 
 ## 2. Componentes existentes e papel no conjunto
 
@@ -585,6 +674,14 @@ C.0 e C.1 podem começar já, em paralelo à validação do Service Factory.
 | M.1a | **Critérios de aceite** da missão (tabela própria): cada critério com descrição verificável, tarefas que o cumprem, evidência que o prova, quem verifica e estado (`aberto`, `em andamento`, `comprovado`, `reprovado`) | M.1 |
 | M.1b | **Saúde da missão** (seção 1.5): semáforo calculado dos sinais (critérios, prazo, bloqueios, evidência, documentação, agentes, custo, cliente), com alerta ao coordenador, ao agente ou ao Marcelo conforme o caso | M.1a, A.3, O.1 |
 | M.1c | **Gates do pipeline da missão** (estágios 1–6) como pipeline da linha "Missões" (R.2): abertura aprovada, plano com todo critério coberto, verificação completa, aceite explícito; falha volta ao estágio anterior | M.1a, R.2 |
+| M.1e | **Papéis por missão e por tarefa:** membros com função (vocabulário existente) e, por tarefa, executor e verificador; checagem automática das regras ao nomear (seção 1.6) | M.1 |
+| M.1f | **Autoridade do orquestrador:** ao nomear, concede uma `AuthorityDelegation` limitada ao projeto da missão (criar, atribuir, despachar, propor change request), com risco máximo da missão; revogada no encerramento; substituto definido (padrão: Atlas, depois o Marcelo) quando o orquestrador fica indisponível | M.1e |
+| M.1g | **Brief da missão:** gerado na abertura, versionado como Artefato, validado antes do planejamento; mudança gera versão nova, aviso aos membros e contexto atualizado no despacho | M.1, P.4 |
+| M.1h | **Validação do plano:** plano da missão como `ProjectPlan` gerado das fases, tarefas, papéis e critérios; checagem automática (seção 1.6); revisão do orquestrador; aprovação do Marcelo vira baseline; change request depois disso | M.1a, M.1e |
+| M.1i | **Validação da documentação:** autor ≠ revisor exigido; estados do padrão 18; documentos-chave aprovados pelo Marcelo; checagem automática (cabeçalho, links, segredos, nomes internos em documento de cliente) | D.2, M.1e |
+| M.1j | **Canal da missão:** canal de coordenação criado com o projeto e os membros com suas funções (canais já suportam isso) | M.1e |
+| M.1k | **MCP por papel:** `get_my_mission_role`, minhas tarefas, o que espera minha verificação, o brief vigente | M.1e, M.1g |
+| M.1l | **Foundation:** registrar os papéis, a regra "aprovação da baseline autoriza as tarefas dela" e a validação de plano e documentação (pelo Athos) | M.1h, M.1i |
 | M.1d | **Painel da missão:** o pipeline com o estágio atual, os critérios e suas provas, a saúde, a linha do tempo (P.5), as anotações (P.3) e os agentes em atividade agora | M.1b, M.1c |
 | M.2 | Contexto da missão por destinatário, com testes de vazamento; promove itens para as camadas da Fase C | M.1, C.2 |
 | M.3 | Missão na Operação 24x7 e no Agent Activity | M.1, A.3, O.1 |
@@ -738,10 +835,13 @@ Os níveis M0–M3 da Missão passam a exigir os itens da Fase G:
     produção com rollback (Q.1–Q.5).
 12. **Service Factory (seção 1.3, Fase S):** confirmar o nome, as 9 linhas de serviço iniciais e a
     generalização (Produto = o que é atendido; Versão = o ciclo), mantendo rotas e tabelas.
-13. **Pipeline (seção 1.5):** a Missão como garantia de conclusão — só ela declara um serviço
+13. **Papéis e validação (seção 1.6):** orquestrador, planejador, executores, verificadores e
+    documentador nomeados na missão; aprovação da baseline do plano autoriza as tarefas dela;
+    documentos-chave (brief, escopo, plano, resultado) aprovados por você.
+14. **Pipeline (seção 1.5):** a Missão como garantia de conclusão — só ela declara um serviço
     concluído, com critérios de aceite comprovados um a um, saúde monitorada e aceite explícito.
-14. **M0:** registrar já a primeira missão como projeto (o próprio plano integrado), com as
+15. **M0:** registrar já a primeira missão como projeto (o próprio plano integrado), com as
     ferramentas MCP mínimas e a convenção de missão, logo após a validação pela tela/API.
-15. B.4: importar o estado atual dos produtos (pastas, documentos, pendências) antes de começar.
-16. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
+16. B.4: importar o estado atual dos produtos (pastas, documentos, pendências) antes de começar.
+17. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
    pré-requisitos para subir qualquer nível de autonomia.
