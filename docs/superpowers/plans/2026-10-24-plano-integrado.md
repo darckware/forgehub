@@ -1,4 +1,4 @@
-# Plano integrado — todos os componentes do ForgeHub interligados
+# Plano integrado — todos os componentes do ForgeHub interligados (Service Factory)
 
 **Data:** 2026-10-24
 **Status:** proposta para aprovação do Marcelo
@@ -12,6 +12,7 @@
 - "a ideia do Software Factory é que o agente use o módulo e eu monitore as atividades e adicione anotações e documentações adicionais para ajudar no contexto"
 - "o objetivo do Software Factory é o gerenciamento da documentação, manual do sistema, controle das tarefas, distribuição das demandas entre os agentes, para a pasta do projeto ficar organizada e bem descritiva, que eu possa administrar e auditar o desenvolvimento e ajudar no contexto do projeto: definição do escopo do sistema, banco de dados, deploy, metodologia e spec adotadas para implementação"
 - "adicione design system, logomarca, etc"
+- "queria evoluir software factory para service factory para englobar todos os serviços"
 - "queria adicionar o controle do contexto: memória dos agentes, Hindsight (memória estendida), base de conhecimento e a documentação da Foundation"
 
 **Documentos ligados:** `docs/superpowers/specs/2026-10-24-missao-design.md` (frente Missão),
@@ -26,7 +27,7 @@ de sistema, serviço em estação ou servidor de cliente, documentação, incide
 
 ```
 Darckware (site, chat da Lara, portal) ─┐
-Entrada ──► Software Factory ──► Messages ──► Agente ──► Evidência ──► Documento ──► Aceite
+Entrada ──► Service Factory ──► Messages ──► Agente ──► Evidência ──► Documento ──► Aceite
 (pedido,     (Produto/Versão/     (único       (Hermes ou  (git/file/db/  (DocLink)     (Marcelo ou
  ticket,      Projeto/Fase/        executor)    externo)    execução                   delegação)
  check,       Tarefa)                                       remota)
@@ -38,7 +39,7 @@ Entrada ──► Software Factory ──► Messages ──► Agente ──►
 
 ### 1.1 Princípio de uso: o agente opera, o Marcelo supervisiona e dá contexto
 
-O Software Factory é **operado pelos agentes** pelo MCP `forgehub`: eles criam o planejamento, as
+O Service Factory é **operado pelos agentes** pelo MCP `forgehub`: eles criam o planejamento, as
 tarefas e as dependências, despacham, registram evidência e documentos e fecham as fases. O Marcelo
 não precisa operar o módulo. Ele:
 - **monitora** o que os agentes fizeram (linha do tempo, Cockpit, Agent Activity);
@@ -54,7 +55,7 @@ Consequências para o plano:
   Factory; o Messages é o executor e o canal de conversa entre agentes, não o lugar de registrar
   trabalho. Uma Task solta no Messages só para pergunta, aviso ou algo que não deixa entrega.
 
-### 1.2 Para que serve o Software Factory
+### 1.2 Para que serve o Service Factory
 
 É o centro de gestão do desenvolvimento. O que ele gerencia, onde isso já existe e o que falta:
 
@@ -64,16 +65,62 @@ Consequências para o plano:
 | **Manual do sistema** (uso e operação) | Telas e regras de negócio no Escopo | Manual gerado e atualizado a cada versão | D.9 |
 | **Controle das tarefas** | Planejamento, tarefas, dependências, status, evidência, Cockpit | Linha do tempo e supervisão | P.5, P.6 |
 | **Distribuição das demandas entre os agentes** | Atribuição, membros do projeto por tipo de solução, despacho pelo Messages | Sugestão de agente por skill/carta, MCP completo | I.11, P.1 |
-| **Pasta do projeto organizada e descritiva** | Navegador de arquivos do projeto; cópia dos documentos da Concepção para `docs/` | Estrutura padrão (padrão 19), índice, guia para agentes, verificação de divergência entre a pasta e o Software Factory | D.7, D.10, D.11 |
+| **Pasta do projeto organizada e descritiva** | Navegador de arquivos do projeto; cópia dos documentos da Concepção para `docs/` | Estrutura padrão (padrão 19), índice, guia para agentes, verificação de divergência entre a pasta e o Service Factory | D.7, D.10, D.11 |
 | **Administrar e auditar** o desenvolvimento | Governança, `AuditEvent`, aprovações, fechamento de versão | Completude da documentação por projeto, auditoria de quem mudou o quê | D.11, P.5 |
 | **Identidade visual:** design system, logomarca, cores, tipografia, ícones, templates de tela, protótipos | Concepção gera `DESIGN-SYSTEM.md` e `SCREEN-TEMPLATES.md`; MCP salva protótipo HTML de tela; padrão 02 da Foundation (UI e design system); o Darckware tem homologação de design própria | Logomarca e ativos guardados no projeto, tokens de design aplicáveis no código, homologação antes de implementar tela | D.12, D.13 |
 | **Contexto do projeto para os agentes:** escopo, banco, deploy, metodologia, specs | Escopo e telas; modelo de banco derivado (ERD); Deploy; padrões 01–19 da stack | Um **contrato do projeto** que declara metodologia, specs e padrões adotados, banco, ambientes de deploy, e vai junto em todo despacho | D.8, P.4 |
+
+### 1.3 De Software Factory a Service Factory
+
+O módulo deixa de ser só a fábrica de software e passa a ser a **fábrica de todos os serviços** do
+ecossistema: desenvolvimento, sustentação de sistemas, manutenção de estações e servidores, suporte
+ao cliente, infraestrutura, documentação, marketing e captação, e missões.
+
+**O que muda e o que não muda:**
+- **A regra central do ForgeHub continua** (todo trabalho rastreável até produto, versão, projeto,
+  planejamento, dono, status e auditoria). O que se generaliza é o significado:
+  - **Produto** passa a ser *o que é atendido*: um sistema, um serviço ou o parque de TI de um cliente;
+  - **Versão** passa a ser *o ciclo*: a versão do software, ou o período e contrato do serviço (ex.: `2026.4`, `Contrato 2026`).
+- **Linhas de serviço (catálogo):** cada linha define o próprio fluxo (estágios do pipeline),
+  os documentos obrigatórios, o tipo de evidência, os agentes padrão (pelas cartas), o prazo (SLA) e
+  a ligação com o contrato do Darckware.
+- **O fluxo de 6 etapas atual** (Concepção, Telas e regras, Banco e ERD, Projetos e backlog, Gate de
+  governança, Fechamento de versão) **continua igual**: vira o fluxo da linha "Desenvolvimento de
+  software". As outras linhas têm fluxos mais curtos.
+- **Nada quebra por baixo:** rotas (`/api/v1/factory`, `/projects`, `/tasks`), tabelas e ferramentas
+  MCP mantêm os nomes. Muda o que se lê na tela, na documentação, nas skills e na Foundation.
+
+**Linhas de serviço iniciais (proposta):**
+
+| Linha | Exemplos | Fluxo (estágios) | Evidência típica | Agentes padrão | Contrato Darckware |
+|---|---|---|---|---|---|
+| **Desenvolvimento de software** | Sistema novo, evolução, site | As 6 etapas atuais + homologação de design (D.13) | `git:` + CI + documento | Porthus, Aramis, Dartan | desenvolvimento |
+| **Sustentação de sistemas** | Correção, atualização, dependências | Triagem → correção → verificação → registro | `git:` ou `host_execution` | Daedalus (pedido), Aramis | suporte_horas |
+| **Manutenção de estações e servidores** | Script, configuração, acesso remoto | Pedido → autorização (máquinas/scripts) → execução → verificação → registro de atendimento | `host_execution` + horas | Hephaestus, Aegis, agente delegado | suporte_horas |
+| **Suporte ao cliente** | Ticket, dúvida, demanda | Triagem → atendimento → resposta aprovada → encerramento | e-mail aprovado + horas | Lara (triagem), dono da área | suporte_horas |
+| **Infraestrutura e operação** | VPS, backup, rede, segurança, deploy | Detecção → ação → verificação → runbook | `host_execution` / `db:` + runbook | Hephaestus, Aegis | interno |
+| **Documentação e conhecimento** | Manual, KB, Foundation | Rascunho → revisão → publicação | `file:` + artefato | Scriba, Mnemosyne, Athos | interno |
+| **Marketing e captação** | Campanha, conteúdo do site, análise de mercado | Proposta → aprovação → execução → medição pelo funil | artefato + métrica do funil (E.4) | Kairos, Lara | interno |
+| **Missões** | Objetivo que atravessa várias linhas | Planejamento → fases → consolidação | resultado consolidado | Athos (coordenador) | — |
+| **Incidentes** | Sistema fora do ar, falha crítica | Detecção → contenção → correção → pós-incidente | evidência + relatório | Hephaestus + dono | — |
+
+### Fase S — Service Factory (antes da Fase B, depois da V)
+
+| # | Tarefa | Dono | Depende | Aceite |
+|---|---|---|---|---|
+| S.1 | **Catálogo de linhas de serviço** (tabela): nome, descrição, template de pipeline (R.2), documentos obrigatórios, tipos de evidência aceitos, agentes padrão, SLA, tipo de contrato Darckware, visível ao cliente | Aramis | V | As 9 linhas iniciais cadastradas; cada projeto pertence a uma linha |
+| S.2 | **Generalizar o modelo sem quebrar:** `products.kind` (`software`, `service`, `infrastructure`, `client_it`); `project_type` passa de `creation`/`maintenance` para os tipos das linhas; o fluxo de 6 etapas só é exigido na linha de software | Aramis | S.1 | Migration com backfill (projetos atuais = Desenvolvimento); 107 testes atuais seguem verdes |
+| S.3 | **Renomear para Service Factory** na tela (seção do menu, i18n pt-BR/en/es), no `CLAUDE.md`, nos documentos, na skill `forgehub` e na Foundation (pelo Athos); rotas, tabelas e ferramentas MCP mantêm o nome | Dartan + Scriba + Athos | S.2 | Nenhum "Software Factory" visível; nenhuma integração quebrada |
+| S.4 | **Cockpit por linha de serviço:** árvore Linha → Produto/Serviço → Projeto, filtros por cliente e interno, indicadores por linha (abertos, atrasados, fora do SLA, horas) | Dartan + Aramis | S.1 | Celular; números batem com as tarefas |
+| S.5 | **Abrir trabalho pela linha:** "Novo serviço" escolhe a linha e já cria o projeto com pipeline, documentos obrigatórios e agentes padrão; o mesmo pelo MCP | Aramis + Dartan | S.1, P.1 | Projeto novo nasce completo para a linha escolhida |
+| S.6 | **Ligação com o Darckware:** contrato `suporte_horas` → linhas de suporte e manutenção, `desenvolvimento` → linha de software; o portal do cliente mostra os serviços em andamento por linha (E.2) | Aramis | S.1, E.1 | Horas e serviços do cliente batem nos dois lados |
+| S.7 | **Validação por linha:** o roteiro da Fase V ganha um fluxo curto por linha (um atendimento de manutenção, um ticket, um incidente simulado, um documento) | Claude Code + agente | S.5 | Relatório por linha |
 
 ## 2. Componentes existentes e papel no conjunto
 
 | Componente | Papel no conjunto | Estado |
 |---|---|---|
-| **Software Factory** (Produto, Versão, Concepção, Mapa do Sistema, Escopo, Planejamento, Tarefas, Governança, Fechamento de Versão, Cockpit) | **Registro e gestão** de todo trabalho: o que, por quê, quem, em que ordem, com que evidência | Construído, 107 testes automatizados verdes, **sem uso real** (só 4 projetos de teste) |
+| **Service Factory** (Produto, Versão, Concepção, Mapa do Sistema, Escopo, Planejamento, Tarefas, Governança, Fechamento de Versão, Cockpit) | **Registro e gestão** de todo trabalho: o que, por quê, quem, em que ordem, com que evidência | Construído, 107 testes automatizados verdes, **sem uso real** (só 4 projetos de teste) |
 | **Messages** (+ Incubação) | **Único executor**: fila, teto por agente, prazo, `STATUS: DONE`, reprocesso, retorno | Em produção |
 | **Operação 24x7** (cartas, rotinas, dúvidas, Evolução) | **Vigilância e iniciativa**: rotinas, triagem, briefing, autonomia A0/A1/A2 | Em produção; só 3 de 18 rotinas ligadas |
 | **Auditor / Crons** | **Detecção**: checks com dono; check falho → Task | Em produção (Task solta no Messages) |
@@ -84,7 +131,7 @@ Consequências para o plano:
 | **Governança** (`Approval`, `AuthorityDelegation`, `AuditEvent`) | **Aceite e autoridade** | Em produção |
 | **Deploy / System Control** | Entrega e operação da infraestrutura | Em produção |
 | **Canais / Workspace** | Conversa que pode virar tarefa (`:dispatch-task`) | Em produção |
-| **Pessoal (Maia)** | Trabalho pessoal do Marcelo; fora do Software Factory | Em produção (sem ligação, por desenho) |
+| **Pessoal (Maia)** | Trabalho pessoal do Marcelo; fora do Service Factory | Em produção (sem ligação, por desenho) |
 | **Hermes** | Runtime dos agentes: perfis, gateway único, canais (Telegram, WhatsApp), skills, cron, memória | Em produção |
 | **ForgeRouter** | Camada de modelos: roteamento, fallback, custo (free e pagos); os runtimes externos usam o modelo nativo | Em produção (projeto próprio) |
 | **ForgeVault** | Segredos e credenciais: só pelo host-bridge, conta de serviço por finalidade | Em produção |
@@ -118,11 +165,11 @@ uma decisão no conjunto, para não haver dois caminhos para a mesma coisa.
 | **Canais, Chat, Workspace, Terminal, Explorer, Navegador compartilhado** | em uso | Ferramentas do operador; Canal → tarefa em I.8; o resto fica fora do fluxo | I.8 |
 | **Usuários, perfis, TOTP** | em uso | Cada tela nova (Missões, Sustentação) ganha a chave de permissão do módulo | M.1, B.3 |
 | **Database, Systemstats, Tool versions, System info, Remote access (túnel)** | em uso | Utilitários; fora do fluxo de trabalho | — |
-| **Pessoal (Maia)** | em uso | Fora do Software Factory por desenho (vida pessoal) | — |
+| **Pessoal (Maia)** | em uso | Fora do Service Factory por desenho (vida pessoal) | — |
 
 ## 3. Tipos de trabalho e como cada um entra
 
-| Tipo | Entrada | Onde fica no Software Factory | Evidência de conclusão |
+| Tipo | Entrada | Onde fica no Service Factory | Evidência de conclusão |
 |---|---|---|---|
 | **Implementação** | Concepção/escopo, missão, pedido do Marcelo | Produto do sistema → versão em desenvolvimento → projeto da evolução | `git:<sha>` + teste, documento da fase |
 | **Manutenção de sistema** (corretiva, preventiva, atualização) | Check do Auditor, rotina, incidente, pedido | Produto do sistema → versão em produção → **projeto permanente "Sustentação"** | `git:` ou `host_execution` + documento/runbook |
@@ -156,13 +203,13 @@ cliente, herdado do ticket ou da demanda.
 | Publicar versão → notas | `release_notes` existe, sem geração | 🔶 | D.4 |
 | Rotina → Agent Activity | rotinas não aparecem | ❌ | A.2 |
 | Agente externo → Agent Activity | só aparece rodando | 🔶 | A.1 |
-| Software Factory → Agent Activity | a execução não mostra tarefa/projeto | 🔶 | A.3 |
-| Software Factory → Operação 24x7 | triagem/briefing não olham tarefas de projeto | ❌ | O.1–O.3 |
+| Service Factory → Agent Activity | a execução não mostra tarefa/projeto | 🔶 | A.3 |
+| Service Factory → Operação 24x7 | triagem/briefing não olham tarefas de projeto | ❌ | O.1–O.3 |
 | Tudo → Evolução | métricas só de rotinas | 🔶 | O.4 |
 | Missão → tudo | nova camada | ❌ | M.* (spec da Missão) |
 | Anotação/contrato → despacho | anotações e contrato do projeto no corpo da tarefa | ❌ | P.4, D.8 |
-| Projeto proposto (Darckware) → Software Factory | aprovação no portal cria o projeto | ❌ | E.1 |
-| Software Factory → pasta do projeto | só a cópia dos documentos da Concepção | 🔶 | D.7, D.10 |
+| Projeto proposto (Darckware) → Service Factory | aprovação no portal cria o projeto | ❌ | E.1 |
+| Service Factory → pasta do projeto | só a cópia dos documentos da Concepção | 🔶 | D.7, D.10 |
 | Tarefa de código → git/PR/CI | evidência `git:<sha>` sem branch, PR nem CI | 🔶 | Q.1–Q.3 |
 | Release → Deploy | releases não usadas | ❌ | D.6, Q.5 |
 | Hindsight/KB/Foundation → ForgeHub | edição de KB e Foundation; Hindsight só status | 🔶 | C.4 |
@@ -195,14 +242,14 @@ rotinas, cartas, execuções remotas) e da telemetria que os runtimes enviam.
 
 ## 6. Plano de implementação (conjunto completo)
 
-Ordem: **validar o Software Factory primeiro**, racionalizar o que está duplicado, ligar os componentes nele, depois a Missão.
+Ordem: **validar o Service Factory primeiro**, racionalizar o que está duplicado, ligar os componentes nele, depois a Missão.
 Cada linha vira uma ProjectTask com dependência (`TaskDependency`) no projeto interno "Plano
 integrado" (produto ForgeHub), assim que a Fase V estiver aprovada. Quem escreve não revisa o próprio
 código: Porthus revisa Aramis e Dartan.
 
-### Fase V — Validação do Software Factory (agente opera, Marcelo acompanha, Claude Code corrige)
+### Fase V — Validação do Service Factory (agente opera, Marcelo acompanha, Claude Code corrige)
 
-Base automatizada: 107 testes do Software Factory passando em 24/10 (e2e, cockpit, MCP, escopo, versão,
+Base automatizada: 107 testes do Service Factory passando em 24/10 (e2e, cockpit, MCP, escopo, versão,
 tarefas, evidência, aprovação governada, produto, projeto, backlog, governança). Falta o uso real.
 
 A validação tem duas passadas, para não depender de algo que ainda não existe:
@@ -229,21 +276,21 @@ A validação tem duas passadas, para não depender de algo que ainda não exist
 | V.14 | Plano do projeto, baseline, change request e WBS | Baseline congela; change request altera o escopo com aprovação |
 | V.15 | "Gerar via IA" nas fases | Rascunho gerado, nunca aplicado sem revisão |
 
-Cada defeito encontrado vira tarefa no projeto "Validação do Software Factory" e é corrigido antes da
+Cada defeito encontrado vira tarefa no projeto "Validação do Service Factory" e é corrigido antes da
 Fase I. Entregável: relatório da validação (documento ligado ao projeto) com o que passou e o que foi corrigido.
 
-### Fase P — Agentes operam o Software Factory; Marcelo supervisiona e anota (seção 1.1)
+### Fase P — Agentes operam o Service Factory; Marcelo supervisiona e anota (seção 1.1)
 
 Hoje o MCP já cobre: listar e ler projetos, planning items, tarefas, telas e ERD; criar ideia de
 concepção, documento de conceito, escopo, telas, modelo de banco, planning item e tarefa; atualizar
 status de tarefa; reportar bloqueio de governança; liberar execução; criar e publicar versão; e a
-manutenção remota. **Não existe** anotação nas entidades do Software Factory.
+manutenção remota. **Não existe** anotação nas entidades do Service Factory.
 
 | # | Tarefa | Dono | Depende | Aceite |
 |---|---|---|---|---|
 | P.1 | **Completar o MCP** para o ciclo inteiro sem a tela, a partir da lista da V-b: dependências, atribuição, despacho, relatar execução com evidência, atualizar planning item e estágio do pipeline, change request, anexar documento/artefato (`DocLink`), criar item no Sustentação, ler a linha do tempo | Aramis | V-b, R.2 | Um agente percorre o roteiro da Fase V inteiro só pelo MCP |
 | P.2 | **Anotações** (`annotations`, polimórfica como `AuditEvent`): em produto, versão, projeto, fase, tarefa, missão, máquina e cliente; tipos `instrução`, `contexto`, `decisão`, `correção`, `observação`; autor (Marcelo ou agente); fixar; validade; anexos por `DocLink` (upload vai para `/docs`). Agente nunca edita nem apaga anotação do Marcelo | Aramis | V | Testes de permissão; histórico auditado |
-| P.3 | **Painel "Anotações e documentos"** reutilizável em todas as telas de detalhe do Software Factory, da Missão e do Agent Activity; escrever em Markdown, anexar arquivo, fixar; pelo celular também | Dartan | P.2 | 390 px; `ConfirmDialog` para arquivar |
+| P.3 | **Painel "Anotações e documentos"** reutilizável em todas as telas de detalhe do Service Factory, da Missão e do Agent Activity; escrever em Markdown, anexar arquivo, fixar; pelo celular também | Dartan | P.2 | 390 px; `ConfirmDialog` para arquivar |
 | P.4 | **Contexto herdado no despacho:** ao despachar uma tarefa, o corpo inclui as anotações ativas da tarefa e dos níveis acima (missão → projeto → versão → produto), em ordem de precedência (instrução do Marcelo primeiro), resumidas e com os documentos citados; MCP `get_task_context` devolve o mesmo pacote | Aramis | P.2, C.2 | Teste: anotação do projeto chega a toda tarefa do projeto; anotação privada respeita o escopo da Fase C |
 | P.5 | **Linha do tempo por projeto/missão:** tudo o que os agentes fizeram (criações, mudanças de status, despachos, execuções, evidências, documentos, execuções remotas), filtrável por agente, com "o que mudou desde a sua última visita" | Aramis + Dartan | P.1 | Toda ação de agente aparece com autor e link |
 | P.6 | **Visão de supervisão** no Cockpit: o que espera o Marcelo (G.11), o que travou, o que os agentes mudaram nas últimas 24 h, e anotar com um toque a partir de qualquer item | Dartan | P.5, G.11 | Celular; um toque leva do item à anotação |
@@ -267,7 +314,7 @@ manutenção remota. **Não existe** anotação nas entidades do Software Factor
 | B.1 | Produtos a partir dos repositórios reais em `/root/project`: Ecossistema Foundation (inclui Hermes, Tailscale, RustDesk), ForgeHub, ForgeRouter, ForgeVault, Darckware, CoreTI, Duplica, SAEDAS, FileNest, OsintKey, Marketing, Serviços de Manutenção; internos sem cliente, os de cliente com o cliente; versão em produção de cada um | Atlas, Marcelo aprova a lista | No Cockpit; interno marcado |
 | B.2 | Projeto permanente "Sustentação" por produto (manutenção corretiva, preventiva, atualização) | Atlas | Um por produto, sem cliente |
 | B.3 | Marcar "Interno" na tela e no Cockpit para projeto sem cliente | Dartan | Visível na lista e no detalhe |
-| B.4 | **Importar o estado atual** de cada produto: pasta e repositório (`working_directory_path`, remoto git), documentos existentes (`docs/`, `CLAUDE.md`, specs e planos), pendências abertas (`docs/PENDENCIAS.md`, Messages em aberto, Incubação) como planning items, e o que está em produção (Deploy) | Atlas + Scriba, Marcelo revisa | O Software Factory reflete o que existe hoje, não começa vazio |
+| B.4 | **Importar o estado atual** de cada produto: pasta e repositório (`working_directory_path`, remoto git), documentos existentes (`docs/`, `CLAUDE.md`, specs e planos), pendências abertas (`docs/PENDENCIAS.md`, Messages em aberto, Incubação) como planning items, e o que está em produção (Deploy) | Atlas + Scriba, Marcelo revisa | O Service Factory reflete o que existe hoje, não começa vazio |
 
 ### Fase I — Interligações de execução
 
@@ -296,12 +343,12 @@ manutenção remota. **Não existe** anotação nas entidades do Software Factor
 | D.3 | Manutenção e serviço geram registro de atendimento (o quê, onde, evidência, horas) ligado à tarefa e, no cliente, ao ticket | Aramis | I.5, I.6 | Registro visível no projeto e no Darckware |
 | D.4 | Publicar versão gera notas da versão a partir das tarefas e documentos | Aramis | D.2 | `release_notes` preenchido; revisável antes de publicar |
 | D.5 | Aba "Documentos" no projeto e na fase (artefatos, versões, arquivos) | Dartan | D.2 | Celular; link para o Docs |
-| D.7 | **Estrutura padrão da pasta do projeto** (padrões 18 e 19 da Foundation), mantida pelo Software Factory em `<working_directory_path>/docs/`: `00-INDICE.md` (mapa com estado de cada documento), `PRD.md`, `ESCOPO.md` (telas e regras), `BANCO-DE-DADOS.md` (modelo e ERD derivados), `DEPLOY.md` (ambientes, instalações, como publicar e reverter), `METODOLOGIA.md` (padrões e specs adotados, D.8), `SPEC-TECNOLOGIA.md`, `adr/` (decisões), `design/` (D.12), `MANUAL/` (D.9), `CHANGELOG.md` (notas de cada versão, D.4). Cada arquivo tem cabeçalho com estado, dono e data | Aramis + Scriba (conteúdo) | D.2, R.2 | Projeto novo nasce com a estrutura; o índice reflete o estado real |
-| D.8 | **Contrato do projeto:** no Software Factory, por projeto, declara metodologia, padrões da stack adotados (com versão e estado de cada um), stack técnica, design system e identidade visual (D.12), banco, ambientes de deploy e restrições; gera `METODOLOGIA.md` e vai junto em todo despacho de tarefa do projeto (com as anotações, P.4) | Aramis + Dartan | P.4 | Tarefa despachada cita o contrato; mudar o contrato exige anotação ou aprovação |
+| D.7 | **Estrutura padrão da pasta do projeto** (padrões 18 e 19 da Foundation), mantida pelo Service Factory em `<working_directory_path>/docs/`: `00-INDICE.md` (mapa com estado de cada documento), `PRD.md`, `ESCOPO.md` (telas e regras), `BANCO-DE-DADOS.md` (modelo e ERD derivados), `DEPLOY.md` (ambientes, instalações, como publicar e reverter), `METODOLOGIA.md` (padrões e specs adotados, D.8), `SPEC-TECNOLOGIA.md`, `adr/` (decisões), `design/` (D.12), `MANUAL/` (D.9), `CHANGELOG.md` (notas de cada versão, D.4). Cada arquivo tem cabeçalho com estado, dono e data | Aramis + Scriba (conteúdo) | D.2, R.2 | Projeto novo nasce com a estrutura; o índice reflete o estado real |
+| D.8 | **Contrato do projeto:** no Service Factory, por projeto, declara metodologia, padrões da stack adotados (com versão e estado de cada um), stack técnica, design system e identidade visual (D.12), banco, ambientes de deploy e restrições; gera `METODOLOGIA.md` e vai junto em todo despacho de tarefa do projeto (com as anotações, P.4) | Aramis + Dartan | P.4 | Tarefa despachada cita o contrato; mudar o contrato exige anotação ou aprovação |
 | D.9 | **Manual do sistema** por versão: gerado a partir do escopo (telas, regras, fluxos), revisado pelo Scriba e publicado em `docs/MANUAL/` e no portal do cliente quando for projeto de cliente (E.2) | Scriba + Aramis | D.7 | Publicar versão sem manual atualizado pede confirmação explícita |
 | D.10 | **Guia para os agentes na pasta** (`AGENTS.md`/`CLAUDE.md` do projeto), gerado do contrato, das anotações fixadas e da estrutura, para que Claude Code, Codex e agy leiam o contexto ao abrir a pasta | Aramis | D.8, P.2 | Guia atualizado a cada mudança do contrato; seção gerada delimitada (o resto do arquivo não é tocado) |
-| D.11 | **Tela "Documentação do projeto"** e auditoria: documentos exigidos × existentes, estado (rascunho/em revisão/aprovado), última atualização × última mudança de código, divergência entre a pasta e o Software Factory; check no Auditor por projeto | Aramis + Dartan | D.7 | Documento desatualizado ou divergente aparece na tela e vira tarefa |
-| D.12 | **Identidade visual do projeto** no Software Factory, materializada em `docs/design/`: logomarca (variações horizontal, vertical, símbolo, monocromática, fundo claro e escuro, em SVG e PNG), favicon e ícone de app; paleta de cores com tokens claro/escuro e contraste verificado (WCAG AA); tipografia; ícones; tom de voz; `DESIGN-SYSTEM.md` (componentes, espaçamentos, estados); `SCREEN-TEMPLATES.md`; protótipos de tela (o MCP já salva HTML); e um arquivo de tokens aplicável no código (variáveis CSS / tema Tailwind do padrão 02) | Dartan + Aramis (upload e geração) | D.7 | Projeto com tela não libera tarefa de UI sem identidade aprovada; contraste reprovado aparece na tela |
+| D.11 | **Tela "Documentação do projeto"** e auditoria: documentos exigidos × existentes, estado (rascunho/em revisão/aprovado), última atualização × última mudança de código, divergência entre a pasta e o Service Factory; check no Auditor por projeto | Aramis + Dartan | D.7 | Documento desatualizado ou divergente aparece na tela e vira tarefa |
+| D.12 | **Identidade visual do projeto** no Service Factory, materializada em `docs/design/`: logomarca (variações horizontal, vertical, símbolo, monocromática, fundo claro e escuro, em SVG e PNG), favicon e ícone de app; paleta de cores com tokens claro/escuro e contraste verificado (WCAG AA); tipografia; ícones; tom de voz; `DESIGN-SYSTEM.md` (componentes, espaçamentos, estados); `SCREEN-TEMPLATES.md`; protótipos de tela (o MCP já salva HTML); e um arquivo de tokens aplicável no código (variáveis CSS / tema Tailwind do padrão 02) | Dartan + Aramis (upload e geração) | D.7 | Projeto com tela não libera tarefa de UI sem identidade aprovada; contraste reprovado aparece na tela |
 | D.13 | **Homologação de design** como estágio do pipeline (R.2) antes de implementar telas: o Marcelo aprova logomarca, paleta e protótipos; tarefas de UI despachadas ao Dartan levam os tokens, a logomarca e o protótipo aprovado no contexto; no produto Darckware vale também a homologação própria (`docs/CONTROLE_DE_DESENVOLVIMENTO.md` e skill `darckware-design`) | Dartan + Porthus (revisão) | D.12, R.2, P.4 | Tela implementada diferente do protótipo aprovado é apontada na revisão |
 | D.6 | Publicar versão cria a Release, liga às instalações do Deploy e mostra a versão em produção | Aramis + Dartan | D.4 | Deploy exibe a versão; release com notas |
 
@@ -349,7 +396,7 @@ precisa de um caminho fixo até a produção.
 Visita ao site ──► Conversa com a Lara ──► Lead ──► Orçamento / projeto proposto ──► Aprovação no portal
  (analytics)        (chat do site)          (CRM)     (versão publicada ao cliente)      (vira contrato)
                                                                                               │
-Renovação / novo projeto ◄── Informe mensal ◄── Horas na franquia ◄── Entrega aprovada ◄── Projeto no Software Factory
+Renovação / novo projeto ◄── Informe mensal ◄── Horas na franquia ◄── Entrega aprovada ◄── Projeto no Service Factory
  (Kairos, Lara)               (e-mail aprovado)    (Darckware)          (portal do cliente)    (execução pelos agentes)
 ```
 
@@ -359,13 +406,13 @@ que não seja dele.
 
 | # | Tarefa | Dono | Depende | Aceite |
 |---|---|---|---|---|
-| E.1 | **Projeto proposto ao cliente ↔ Software Factory:** ao publicar um projeto proposto no Darckware, o ForgeHub registra a oportunidade; quando o cliente aprova a versão (vira contrato de desenvolvimento), o ForgeHub cria o projeto do Software Factory com cliente, escopo da versão aprovada e origem `proposal` (novo valor em `darckware_origin_type`), idempotente | Aramis (ForgeHub) + Aramis/Darckware (evento) | V, B.1 | Aprovação no portal gera exatamente um projeto, com o escopo aprovado |
+| E.1 | **Projeto proposto ao cliente ↔ Service Factory:** ao publicar um projeto proposto no Darckware, o ForgeHub registra a oportunidade; quando o cliente aprova a versão (vira contrato de desenvolvimento), o ForgeHub cria o projeto do Service Factory com cliente, escopo da versão aprovada e origem `proposal` (novo valor em `darckware_origin_type`), idempotente | Aramis (ForgeHub) + Aramis/Darckware (evento) | V, B.1 | Aprovação no portal gera exatamente um projeto, com o escopo aprovado |
 | E.2 | **Acompanhamento no portal:** o cliente vê o andamento do projeto (fases concluídas, próxima entrega, documentos publicáveis) a partir de um resumo enviado pelo ForgeHub, sem ids nem nomes internos | Aramis + Dartan (Darckware) | E.1, D.2 | Resumo aprovado antes de publicar; nada interno vaza (teste) |
-| E.3 | **Entrega aprovada pelo cliente:** fechar uma fase/versão do projeto de cliente pede o aceite do cliente no portal (mesmo mecanismo de aprovar/pedir ajuste); pedido de ajuste vira change request no Software Factory | Aramis + Dartan | E.2, V.14 | Ajuste pedido no portal aparece como change request |
+| E.3 | **Entrega aprovada pelo cliente:** fechar uma fase/versão do projeto de cliente pede o aceite do cliente no portal (mesmo mecanismo de aprovar/pedir ajuste); pedido de ajuste vira change request no Service Factory | Aramis + Dartan | E.2, V.14 | Ajuste pedido no portal aparece como change request |
 | E.4 | **Funil no ForgeHub:** visitas (analytics), conversas da Lara, leads, propostas, conversões e tempo até a primeira resposta — no Dashboard/Clientes, no briefing do Athos e na Evolução | Aramis + Dartan | — | Números batem com o Darckware; sem dado pessoal na agregação |
 | E.5 | **Conversas da Lara no site:** sessão de chat ligada ao lead (já existe `link-conversation` no Darckware) e visível na ficha do cliente no ForgeHub; resumo por conversa, nunca o texto bruto no contexto de outros agentes (Fase C) | Aramis | C.1 | Lara e ForgeHub mostram a mesma ligação; teste de não vazamento |
 | E.6 | **Rotinas comerciais:** ligar a rotina do pipeline comercial interno da Lara e a de mercado/marketing do Kairos, alimentadas pelo funil (E.4); propostas de campanha e de conteúdo do site viram projeto no produto Darckware | Athos (rotinas), Marcelo aprova | E.4, O.3 | Rodando dentro do orçamento; nenhum contato automático com cliente |
-| E.7 | **Site como produto:** mudanças no site do Darckware entram como projeto no produto Darckware do Software Factory, respeitando a homologação de design do próprio Darckware (`docs/CONTROLE_DE_DESENVOLVIMENTO.md` e a skill `darckware-design`) | Dartan + Porthus (revisão) | B.1 | Toda mudança no site tem tarefa, evidência e homologação |
+| E.7 | **Site como produto:** mudanças no site do Darckware entram como projeto no produto Darckware do Service Factory, respeitando a homologação de design do próprio Darckware (`docs/CONTROLE_DE_DESENVOLVIMENTO.md` e a skill `darckware-design`) | Dartan + Porthus (revisão) | B.1 | Toda mudança no site tem tarefa, evidência e homologação |
 | E.8 | **Segurança e LGPD da porta de entrada:** checks do Aegis para a exposição pública do Darckware (já há allow-list do Tailscale no catálogo v2) e da Themis para os dados de lead e de cliente (retenção, consentimento, autorização de contato) | Aegis + Themis | C.1 | Checks no Auditor; falha vira tarefa no Sustentação do Darckware |
 | E.9 | **Eventos do Darckware no fluxo único** (G.2): novo lead, conversa abandonada, proposta aprovada, ticket aberto, franquia perto do limite | Aramis | G.2 | Cada evento dispara a ação certa (tarefa, notificação ou rotina) |
 
@@ -391,7 +438,7 @@ Hindsight só vê status, restart e log.
 | 2 | Estado real | sistemas (ForgeHub, máquinas, deploy) via ferramenta | cada sistema | — | sempre atual |
 | 3 | **Foundation** (canônica) | `/root/memory/foundation` | Athos | Athos, por tarefa revisada | versionada |
 | 4 | Identidade do agente | `SOUL.md`, `AGENTS.md`, `IDENTITY.md`, `TOOLS.md` | Athos + Marcelo (A2) | só por mudança A2 | versionada |
-| 5 | Documentação de projeto | `/docs` + Artefatos (Software Factory) | dono do projeto | tarefas `documentation` | versionada |
+| 5 | Documentação de projeto | `/docs` + Artefatos (Service Factory) | dono do projeto | tarefas `documentation` | versionada |
 | 6 | **Base de Conhecimento** | `knowledge_base/<agente>/`, `shared/approved/` | cada agente; Mnemosyne/Scriba revisam | o agente (inbox) → revisão → publicação | revisão periódica |
 | 7 | **Hindsight** (memória estendida) | bancos `hermes` (coletivo) e `maia` (privado) | Mnemosyne | retenção automática, com tags e redação | TTL por tipo |
 | 8 | **Memória nativa** | `memories/MEMORY.md` (2.200 caracteres), `USER.md` (1.375) | o agente | o agente | curta, revisada |
@@ -416,7 +463,7 @@ Maia), `secret` (nunca guardado). Confiabilidade (§6.3): `canonical`, `verified
 | C.10 | **Ligações com o resto do plano:** o contexto da Missão (M.2) promove itens para estas camadas por tarefa (Mnemosyne → Hindsight, Scriba → KB, Athos → Foundation); os evals (G.6) incluem testes de recuperação de memória; o Agent Activity mostra recall/retenção por agente | Aramis | M.2, G.6, A.3 | Toda promoção tem tarefa, revisão e registro |
 
 Ordem dentro da frente: C.0 → C.1 → C.2 (P0, o maior risco atual) → C.3/C.5/C.6 → C.4 → C.7 → C.8 → C.9.
-C.0 e C.1 podem começar já, em paralelo à validação do Software Factory.
+C.0 e C.1 podem começar já, em paralelo à validação do Service Factory.
 
 ### Fase M — Missão (spec `2026-10-24-missao-design.md`)
 
@@ -444,7 +491,7 @@ novas implementações").
 
 ```
 Trilho principal:
-V-a ──► V-b ──► R ──► B ──► P.1/P.2 ──► I ──► Q ──► D ──► P.3–P.6 ──► M.1 ──► M.2 ──► M.4 ──► G
+V-a ──► V-b ──► S ──► R ──► B ──► P.1/P.2 ──► I ──► Q ──► D ──► P.3–P.6 ──► M.1 ──► M.2 ──► M.4 ──► G
 
 Começam já, em paralelo:
 A.1/A.2 ──► A.3–A.5 (após I.5)
@@ -480,7 +527,7 @@ mensurável e segura.
 | Capacidade | Já existe | Falta | Fase |
 |---|---|---|---|
 | Agir no mundo | Messages, Acesso Remoto (Tailscale/RustDesk), Deploy, MCP, tools | — | — |
-| Planejar | Software Factory, Missão (proposta), cartas | Hierarquia de objetivos acima das missões | G.1 |
+| Planejar | Service Factory, Missão (proposta), cartas | Hierarquia de objetivos acima das missões | G.1 |
 | Perceber | Telemetria, Auditor, notificações, Messages, canais, Darckware (site, chat, leads, portal) | Um fluxo único de eventos que dispare iniciativa | G.2 |
 | Lembrar | Hindsight, KB, Foundation, `MEMORY.md` | Controle das camadas com precedência, proveniência e isolamento | **Fase C** |
 | Conhecer o próprio ambiente | Blueprints, máquinas, deploy, checks, scripts — em telas separadas | Um mapa único do ecossistema (o que existe, depende de quê, quem é dono) | G.4 |
@@ -532,14 +579,14 @@ Os níveis M0–M3 da Missão passam a exigir os itens da Fase G:
 | # | Lacuna | Onde foi tratada |
 |---|---|---|
 | 1 | A validação pelo agente dependia de ferramentas MCP que só viriam depois (ciclo) | V dividida em V-a (tela/API) e V-b (MCP); a V-b gera a lista da P.1 |
-| 2 | Não havia regra de quando usar tarefa do Software Factory e quando usar Task do Messages | Regra em 1.1 |
+| 2 | Não havia regra de quando usar tarefa do Service Factory e quando usar Task do Messages | Regra em 1.1 |
 | 3 | Sem git por tarefa, sem PR, sem CI, sem trava de repositório | Q.1–Q.3 |
 | 4 | Sem ambiente de homologação; `dev.sh` e produção dividem o banco | Q.4 |
 | 5 | Deploy sem gate formal nem rollback testado | Q.5 |
 | 6 | Segredos de cada projeto fora do contrato do projeto | Q.6 |
 | 7 | Custo e orçamento por projeto/missão | Q.7 |
 | 8 | "Incidente" estava no objetivo mas sem fluxo | I.13 |
-| 9 | O Software Factory começaria vazio: faltava importar projetos, documentos e pendências atuais | B.4 |
+| 9 | O Service Factory começaria vazio: faltava importar projetos, documentos e pendências atuais | B.4 |
 | 10 | Produtos reais ausentes da lista (Duplica, SAEDAS, FileNest, OsintKey, Marketing, Hermes) | B.1 |
 | 11 | Anotar exigia a tela; o Marcelo também supervisiona pelo Telegram | P.9 |
 | 12 | Skills, `CLAUDE.md` e Foundation não acompanhavam cada fase | Regra transversal antes da ordem |
@@ -548,7 +595,7 @@ Os níveis M0–M3 da Missão passam a exigir os itens da Fase G:
 **Riscos que continuam abertos e precisam de acompanhamento:**
 - **Tamanho do plano.** São mais de 100 tarefas. Sem disciplina de uma tarefa pequena por vez, com
   `STATUS: DONE` e evidência, ele repete o que aconteceu com a Missão. O próprio plano vira o primeiro
-  projeto do Software Factory e é acompanhado por ele.
+  projeto do Service Factory e é acompanhado por ele.
 - **Backup externo sem snapshot aceito** (roadmap de 02/10): a G.12 depende dele.
 - **Só 3 de 18 rotinas ligadas:** a Operação 24x7 só vigia de fato quando as rotinas da O.3 forem ligadas.
 - **Dependência do ForgeRouter** para a seleção de modelo (G.9), que está fora deste plano.
@@ -557,7 +604,7 @@ Os níveis M0–M3 da Missão passam a exigir os itens da Fase G:
 
 1. Aposentar Execution Waves/Work Packages e o restante da Orquestração (R.1), que estão sem uso e
    duplicam o Messages como executor.
-2. Fase V: pelo princípio 1.1, a validação natural é **um agente operando o Software Factory pelo
+2. Fase V: pelo princípio 1.1, a validação natural é **um agente operando o Service Factory pelo
    MCP** com o roteiro acima, com você acompanhando, anotando e revisando o relatório; o Claude Code
    corrige os defeitos. Alternativa: você na tela.
 3. Produtos internos da Fase B (lista proposta) e "Sustentação" permanente por produto.
@@ -568,12 +615,14 @@ Os níveis M0–M3 da Missão passam a exigir os itens da Fase G:
 7. As decisões da spec da Missão (coordenador, quem cria, dono da documentação).
 8. Fase C: aprovar que C.0 (linha de base) e C.1 (política na Foundation, pelo Athos) comecem já, e
    que C.2 (isolamento do `knowledge_cycle.py`) seja feito pelo Porthus em modo observação primeiro.
-9. Fase P: anotações em todos os níveis do Software Factory, herdadas no despacho das tarefas, e o MCP
+9. Fase P: anotações em todos os níveis do Service Factory, herdadas no despacho das tarefas, e o MCP
    completo para os agentes operarem o módulo sem a tela.
-10. Fase E (Darckware): projeto aprovado pelo cliente no portal vira projeto no Software Factory
+10. Fase E (Darckware): projeto aprovado pelo cliente no portal vira projeto no Service Factory
    automaticamente (E.1), e o funil (E.4) pode começar já.
 11. Fase Q: git por tarefa com PR, CI por repositório, ambiente de homologação separado e gate de
     produção com rollback (Q.1–Q.5).
-12. B.4: importar o estado atual dos produtos (pastas, documentos, pendências) antes de começar.
-13. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
+12. **Service Factory (seção 1.3, Fase S):** confirmar o nome, as 9 linhas de serviço iniciais e a
+    generalização (Produto = o que é atendido; Versão = o ciclo), mantendo rotas e tabelas.
+13. B.4: importar o estado atual dos produtos (pastas, documentos, pendências) antes de começar.
+14. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
    pré-requisitos para subir qualquer nível de autonomia.

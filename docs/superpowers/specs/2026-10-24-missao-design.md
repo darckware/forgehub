@@ -34,7 +34,7 @@ gerenciar as tarefas e registro das implementações e da documentação".
 
 | Peça pedida | Já existe | Onde |
 |---|---|---|
-| Organizar o trabalho em fases e tarefas com dependência | Software Factory: Produto → Versão → Projeto → Planning Item → ProjectTask, `TaskDependency` | `factory.py`, `backlog.py`, `task.py` |
+| Organizar o trabalho em fases e tarefas com dependência | Service Factory: Produto → Versão → Projeto → Planning Item → ProjectTask, `TaskDependency` | `factory.py`, `backlog.py`, `task.py` |
 | Atribuir a tarefa a um agente e executá-la | `TaskAssignment` + `POST /tasks/{id}/dispatch`, que vira mensagem no Messages (único executor) | `task.py` → `demand.py` |
 | Saber se a tarefa foi realmente feita | `STATUS: DONE` no Messages (desde 24/10) e `TaskExecution.evidence_ref` (`file:`, `git:`, `db:`) verificada automaticamente | `core/completion_report.py`, `core/task_evidence.py` |
 | Registrar documentação ligada ao trabalho | `DocLink`: documento em `/docs` ligado a produto, versão, projeto, planning item, tarefa ou artefato | `db/models/doc_link.py`, `docs.py` |
@@ -46,8 +46,8 @@ gerenciar as tarefas e registro das implementações e da documentação".
 | Segredos, modelos | ForgeVault (só pelo host-bridge); ForgeRouter (Hermes) e modelos nativos (Claude Code, Codex, agy) | `forgevault_proxy.py`, `core/agent_runs.py` |
 | Memória | Hindsight (`hermes` coletivo, `maia` privado), `MEMORY.md`/`USER.md`, Knowledge Base, hook `knowledge_cycle.py` | diagnóstico #39778 |
 
-**Uso real hoje:** o Software Factory só tem 4 projetos de teste e nenhum produto real. A Missão passa
-a ser a forma de usar o Software Factory no dia a dia do ecossistema.
+**Uso real hoje:** o Service Factory só tem 4 projetos de teste e nenhum produto real. A Missão passa
+a ser a forma de usar o Service Factory no dia a dia do ecossistema.
 
 **O que de fato falta:**
 1. Um objetivo acima do projeto: critério de sucesso, coordenador, agentes participantes com papel,
@@ -74,11 +74,11 @@ contexto a memória ou a base de conhecimento vira uma **tarefa** para Mnemosyne
 
 ## 4. Desenho
 
-### 4.1 Uma missão = um projeto do Software Factory + coordenação
+### 4.1 Uma missão = um projeto do Service Factory + coordenação
 
 ```
 Missão #N (objetivo, critério de sucesso, coordenador, participantes, autonomia, contexto)
- └─ Projeto (Software Factory)            ← 1:1, criado junto com a missão
+ └─ Projeto (Service Factory)            ← 1:1, criado junto com a missão
      ├─ Planning Item "Fase 1 …"          ← fases da missão
      │   ├─ ProjectTask (agente X)         ← etapa; despachada pelo Messages
      │   │   └─ TaskExecution + evidência verificada + DocLink
@@ -173,9 +173,9 @@ Os tipos de contexto pedidos em #39780, mapeados para o que existe:
 | Evolução | Métricas por missão: tempo por fase, retrabalho (reprocessos), taxa de `DONE` na primeira tentativa, documentação em dia |
 | Monitoramento → ação | Um check que falha pode abrir tarefa dentro de uma missão existente do domínio, em vez de uma Task solta |
 | Agent Activity | A execução mostra a missão e a tarefa; um clique leva à missão |
-| Cockpit (Software Factory) | O projeto de missão aparece na árvore com a marca da missão |
+| Cockpit (Service Factory) | O projeto de missão aparece na árvore com a marca da missão |
 
-Resumindo: a Missão define o objetivo, o Software Factory organiza e registra, o Messages executa,
+Resumindo: a Missão define o objetivo, o Service Factory organiza e registra, o Messages executa,
 a Operação 24x7 vigia e escala, e o Agent Activity mostra o tempo real.
 
 ### 4.6 Inteligência operacional própria (roadmap de autonomia)
@@ -215,7 +215,7 @@ sem inventar integração.
 
 O próprio plano é a primeira missão: depois da Fase 1 ele é cadastrado como Missão #1, "Missão",
 no produto ForgeHub. Antes disso (Fase 0 e Fase 1), segue como ProjectTasks de um projeto comum no
-Software Factory, com `TaskDependency`. Quem escreve não revisa o próprio código: Porthus revisa
+Service Factory, com `TaskDependency`. Quem escreve não revisa o próprio código: Porthus revisa
 Aramis e Dartan.
 
 ### Fase 0 — Base
@@ -272,7 +272,7 @@ Aramis e Dartan.
 
 - **Escopo grande de uma vez:** foi o que fez a primeira tentativa parar. Mitigação: tarefas pequenas,
   uma por vez por agente, `STATUS: DONE` com evidência verificada.
-- **Software Factory pouco usado até agora:** a Missão vai exercitar fluxos que só têm dados de teste
+- **Service Factory pouco usado até agora:** a Missão vai exercitar fluxos que só têm dados de teste
   (dispatch de ProjectTask, verificação de evidência, `DocLink`). Esperar ajustes na Fase 1.
 - **Sobreposição:** a Missão não repete Projeto (ela usa um) nem rotina (recorrente). Missão é objetivo único com fim.
 - **Vazamento de contexto:** filtro no despacho (2.2) e `knowledge_cycle.py` (0.3), ambos com teste dedicado.
