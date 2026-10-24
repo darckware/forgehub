@@ -46,8 +46,39 @@ Entrada ──► Software Factory ──► Messages ──► Agente ──►
 | **Deploy / System Control** | Entrega e operação da infraestrutura | Em produção |
 | **Canais / Workspace** | Conversa que pode virar tarefa (`:dispatch-task`) | Em produção |
 | **Pessoal (Maia)** | Trabalho pessoal do Marcelo; fora do Software Factory | Em produção (sem ligação, por desenho) |
-| **ForgeRouter / ForgeVault / Hermes** | Modelos, segredos e runtime dos agentes | Em produção |
+| **Hermes** | Runtime dos agentes: perfis, gateway único, canais (Telegram, WhatsApp), skills, cron, memória | Em produção |
+| **ForgeRouter** | Camada de modelos: roteamento, fallback, custo (free e pagos); os runtimes externos usam o modelo nativo | Em produção (projeto próprio) |
+| **ForgeVault** | Segredos e credenciais: só pelo host-bridge, conta de serviço por finalidade | Em produção |
+| **Tailscale** | Rede: acesso da VPS a todas as estações e servidores (direto ou por sub-rede), base da manutenção remota | Em produção |
+| **RustDesk** | Acesso remoto assistido (tela) às estações, quando o SSH não basta ou o atendimento é visual | Em produção |
 | **Missão** | **Objetivo** acima de projetos: coordena agentes e contexto | Proposta (`2026-10-24-missao-design.md`) |
+
+### 2.1 Outros componentes já existentes (inventário completo, 24/10)
+
+Levantamento de todos os módulos (`backend/app/api/routes/*`) com o uso real no banco. Cada um tem
+uma decisão no conjunto, para não haver dois caminhos para a mesma coisa.
+
+| Componente | Uso real | Decisão | Tarefa |
+|---|---|---|---|
+| **Pipelines** (estágios, templates, artefatos obrigatórios, gates — SPEC 6.2) | 0 pipelines, 1 template | **Reaproveitar** como as fases de cada tipo de projeto: um template por tipo (implementação, sustentação, serviço, missão), com os documentos obrigatórios de cada estágio. Substitui a "tarefa de documentação" inventada | R.2, D.1 |
+| **Artefatos** versionados (SPEC 4.7) | 7 artefatos, 7 versões | **Reaproveitar** como o registro formal de cada entrega documental (versão, autor, estágio); o `DocLink` aponta o arquivo | D.2 |
+| **Execution Waves / Work Packages / runner** (`execution.py`) | 0 ondas, 0 pacotes | **Aposentar**: é um segundo executor e contraria "Messages é o único executor". O card simulado do Cockpit sai junto | R.1 |
+| **Orquestração** (`orchestration.py`) | despacho direto já retirado (410) | **Aposentar** o restante, mantendo só o que o Cockpit ainda lê | R.1 |
+| **Progresso governado** (`progress.py`: checkpoints, recuperação, conclusão de estágio) | 0 checkpoints | **Avaliar na validação**: se a conclusão de estágio do Pipeline cobre, aposentar; senão, fundir no Pipeline | V.13, R.3 |
+| **Plano do projeto, baseline, change request, WBS** (`project.py`) | 1 plano, 0 baselines, 0 CRs, 0 nós | **Validar** (V.14). Change request passa a ser o caminho para mudar o escopo de versão publicada | V.14 |
+| **Gerar via IA** (`ai_draft.py`, nas 5 fases) | — | **Validar** (V.15) | V.15 |
+| **Scripts e agendamentos de manutenção** (`host_script.py`) | 18 scripts, 0 agendamentos, 24 execuções | **Integrar**: execução agendada registra evidência na tarefa recorrente do projeto Sustentação; falha abre tarefa para o dono | I.10 |
+| **Máquinas e grupos** (`server.py`, `host_group.py`) | 22 máquinas, 1 grupo | **Integrar**: grupo de máquinas ↔ cliente Darckware ↔ projeto de serviço; tarefa de manutenção escolhe máquinas do grupo | I.2 |
+| **Deploy** (`deploy.py`) + **Releases** (`product.py`) | 19 instalações, 0 releases | **Integrar**: publicar versão cria a Release e a liga às instalações implantadas; o Deploy mostra a versão em produção | D.6 |
+| **Tools dos agentes** (`tool.py`), **skills**, **catálogo MCP** (`mcp_catalog.py`) | 21 tools, 10 MCP | **Integrar** no planejamento: `TaskRequiredSkill` já existe; sugerir o agente pelas skills/tools e pela carta | I.11 |
+| **Auditor** (`audit.py`), **Crons/Scripts** (`cron_scripts.py`, `foundation_script.py`) | 59 checks, 79 scripts de cron, 37 scripts Foundation | **Integrar**: check falho → Sustentação (I.7); script órfão ou cron falho → tarefa para o dono | I.7, I.12 |
+| **Backup externo, System Control, Hindsight, ForgeRouter** | em uso | **Integrar** as falhas como trabalho: backup falho, disco cheio, provedor de modelo com erro → tarefa no Sustentação do produto | I.12 |
+| **Notificações** (`notifications.py`) | 1027 | **Manter como caixa única**: todo evento novo do conjunto chega aqui com dedupe por `event_key` | todas |
+| **Foundation docs**, **Knowledge Base** (`vault.py`), **Docs** | em uso | **Destinos da documentação**: projeto → `/docs`; regra/política → Foundation (pelo Athos); conhecimento → KB (pelo Scriba/Mnemosyne) | D.3 |
+| **Canais, Chat, Workspace, Terminal, Explorer, Navegador compartilhado** | em uso | Ferramentas do operador; Canal → tarefa em I.8; o resto fica fora do fluxo | I.8 |
+| **Usuários, perfis, TOTP** | em uso | Cada tela nova (Missões, Sustentação) ganha a chave de permissão do módulo | M.1, B.3 |
+| **Database, Systemstats, Tool versions, System info, Remote access (túnel)** | em uso | Utilitários; fora do fluxo de trabalho | — |
+| **Pessoal (Maia)** | em uso | Fora do Software Factory por desenho (vida pessoal) | — |
 
 ## 3. Tipos de trabalho e como cada um entra
 
@@ -118,7 +149,7 @@ rotinas, cartas, execuções remotas) e da telemetria que os runtimes enviam.
 
 ## 6. Plano de implementação (conjunto completo)
 
-Ordem: **validar o Software Factory primeiro**, depois ligar os componentes nele, depois a Missão.
+Ordem: **validar o Software Factory primeiro**, racionalizar o que está duplicado, ligar os componentes nele, depois a Missão.
 Cada linha vira uma ProjectTask com dependência (`TaskDependency`) no projeto interno "Plano
 integrado" (produto ForgeHub), assim que a Fase V estiver aprovada. Quem escreve não revisa o próprio
 código: Porthus revisa Aramis e Dartan.
@@ -142,9 +173,21 @@ tarefas, evidência, aprovação governada, produto, projeto, backlog, governan�
 | V.10 | Cockpit e Telemetria | Fases, custo por projeto, telemetria por agente coerentes |
 | V.11 | Ticket Darckware → "Criar projeto" | Projeto com cliente e origem; idempotente |
 | V.12 | Celular (390 px) nas telas acima | Sem corte nem rolagem lateral |
+| V.13 | Pipeline do projeto: estágios, artefatos obrigatórios, gate; e o Progresso governado | Estágio não conclui sem artefato; definir se o Progresso é redundante |
+| V.14 | Plano do projeto, baseline, change request e WBS | Baseline congela; change request altera o escopo com aprovação |
+| V.15 | "Gerar via IA" nas fases | Rascunho gerado, nunca aplicado sem revisão |
 
 Cada defeito encontrado vira tarefa no projeto "Validação do Software Factory" e é corrigido antes da
 Fase I. Entregável: relatório da validação (documento ligado ao projeto) com o que passou e o que foi corrigido.
+
+### Fase R — Racionalização (um caminho para cada coisa)
+
+| # | Tarefa | Dono | Depende | Aceite |
+|---|---|---|---|---|
+| R.1 | Aposentar Execution Waves/Work Packages/runner e o restante da Orquestração (rotas 410, telas e card simulado do Cockpit removidos; tabelas vazias removidas por migration) | Aramis + Dartan | V | Nenhuma rota de execução fora do Messages; testes ajustados |
+| R.2 | Templates de Pipeline por tipo de projeto (implementação, sustentação, serviço, missão) com estágios e artefatos obrigatórios | Atlas (conteúdo) + Aramis | V.13 | Projeto novo recebe o pipeline do seu tipo |
+| R.3 | Progresso governado: fundir no Pipeline ou aposentar, conforme V.13 | Aramis | V.13 | Uma só noção de "estágio concluído" |
+| R.4 | Revisão | Porthus | R.1–R.3 | Aprovação registrada |
 
 ### Fase B — Base cadastral
 
@@ -166,17 +209,21 @@ Fase I. Entregável: relatório da validação (documento ligado ao projeto) com
 | I.6 | Tarefa de projeto de cliente concluída → lançar horas no Darckware (mesma regra do `:resolve`, minutos obrigatórios) | Aramis | B.1 | Horas aparecem na franquia; auditadas |
 | I.7 | Check do Auditor falho → tarefa no projeto Sustentação do produto do dono (dedupe por check), não Task solta | Aramis | B.2 | Check verde fecha a tarefa com evidência |
 | I.8 | Incubação "promover" e Canal `:dispatch-task` com opção de criar Planning Item/ProjectTask | Aramis + Dartan | V | Origem registrada na tarefa |
-| I.9 | Revisão | Porthus | I.1–I.8 | Aprovação registrada |
+| I.10 | Agendamento de script de manutenção → tarefa recorrente no Sustentação: cada execução vira evidência; falha abre tarefa para o dono | Aramis | B.2, I.5 | Execução agendada aparece na tarefa; falha gera tarefa |
+| I.11 | Sugestão de responsável no planejamento pelas skills/tools/MCP do agente e pela carta (`TaskRequiredSkill`) | Aramis + Dartan | V | Tarefa mostra agentes compatíveis |
+| I.12 | Falhas operacionais viram trabalho no Sustentação do produto: cron/script órfão, backup externo, disco, provedor ForgeRouter, Hindsight | Aramis | B.2 | Dedupe por fonte; fecha sozinha quando a fonte volta ao normal |
+| I.9 | Revisão | Porthus | I.1–I.8, I.10–I.12 | Aprovação registrada |
 
 ### Fase D — Documentação obrigatória
 
 | # | Tarefa | Dono | Depende | Aceite |
 |---|---|---|---|---|
-| D.1 | Toda fase (Planning Item) ganha tarefa `documentation` (Scriba por padrão) | Aramis | V | Fase sem ela não fecha |
-| D.2 | Fase só vai a `done` com documento ligado por `DocLink`; pastas `/docs/<produto>/<projeto>/` | Aramis | D.1 | Teste: fase não fecha sem vínculo |
+| D.1 | Documentos obrigatórios vêm do estágio do Pipeline do projeto (R.2); cada um gera uma tarefa `documentation` (Scriba por padrão) | Aramis | R.2 | Estágio sem o documento não conclui |
+| D.2 | Documento entregue = Artefato versionado + `DocLink` ao arquivo em `/docs/<produto>/<projeto>/`; fase só vai a `done` com os artefatos do estágio | Aramis | D.1 | Teste: fase não fecha sem artefato |
 | D.3 | Manutenção e serviço geram registro de atendimento (o quê, onde, evidência, horas) ligado à tarefa e, no cliente, ao ticket | Aramis | I.5, I.6 | Registro visível no projeto e no Darckware |
 | D.4 | Publicar versão gera notas da versão a partir das tarefas e documentos | Aramis | D.2 | `release_notes` preenchido; revisável antes de publicar |
-| D.5 | Aba "Documentos" no projeto e na fase | Dartan | D.2 | Celular; link para o Docs |
+| D.5 | Aba "Documentos" no projeto e na fase (artefatos, versões, arquivos) | Dartan | D.2 | Celular; link para o Docs |
+| D.6 | Publicar versão cria a Release, liga às instalações do Deploy e mostra a versão em produção | Aramis + Dartan | D.4 | Deploy exibe a versão; release com notas |
 
 ### Fase A — Agent Activity completo (seção 5)
 
@@ -201,7 +248,7 @@ Fase I. Entregável: relatório da validação (documento ligado ao projeto) com
 
 | # | Tarefa | Depende |
 |---|---|---|
-| M.0 | Documento dos quatro sistemas; `knowledge_cycle.py` restrito à pasta do agente; pasta privada da Maia | — (pode correr em paralelo desde já) |
+| M.0 | Documento dos seis sistemas (Hermes, ForgeHub, ForgeRouter, ForgeVault, Tailscale, RustDesk); `knowledge_cycle.py` restrito à pasta do agente; pasta privada da Maia | — (pode correr em paralelo desde já) |
 | M.1 | Núcleo: missão = projeto interno + coordenação, participantes, consolidação, tela `/missions`, MCP | V, B, D |
 | M.2 | Controle de contexto por destinatário, com testes de vazamento | M.1 |
 | M.3 | Missão na Operação 24x7 e no Agent Activity | M.1, A.3, O.1 |
@@ -210,20 +257,93 @@ Fase I. Entregável: relatório da validação (documento ligado ao projeto) com
 ### Ordem e paralelismo
 
 ```
-V ──► B ──► I ──► D ──► M.1 ──► M.2 ──► M.4
+V ──► R ──► B ──► I ──► D ──► M.1 ──► M.2 ──► M.4
             │      │      │
             │      └──► O ┴──► M.3
 A.1/A.2 (em paralelo desde já) ──► A.3–A.5 (após I.5)
 M.0 (em paralelo desde já)
 ```
 
-## 7. Decisões pendentes do Marcelo
+## 8. Rumo à inteligência operacional própria ("nossa AGI")
 
-1. Começar pela **Fase V** com você validando na tela e o Claude Code acompanhando e corrigindo os
+### 8.1 O que é realista
+
+Nenhuma integração de sistemas produz uma AGI geral, e o plano não promete isso. O que dá para
+construir com Hermes, ForgeHub, ForgeRouter, ForgeVault, Tailscale e RustDesk é uma **organização de
+agentes autônoma e que melhora sozinha**:
+- recebe objetivos;
+- planeja e executa com evidência;
+- mantém sistemas e máquinas;
+- aprende com o resultado;
+- melhora o próprio software, dentro de limites que o Marcelo controla.
+
+O plano até a seção 7 cobre o **corpo** desse sistema: executar, registrar, vigiar e coordenar. A
+análise abaixo mostra o que ainda falta para que ele **aprenda, se avalie e se corrija** de forma
+mensurável e segura.
+
+### 8.2 O que já existe e o que falta
+
+| Capacidade | Já existe | Falta | Fase |
+|---|---|---|---|
+| Agir no mundo | Messages, Acesso Remoto (Tailscale/RustDesk), Deploy, MCP, tools | — | — |
+| Planejar | Software Factory, Missão (proposta), cartas | Hierarquia de objetivos acima das missões | G.1 |
+| Perceber | Telemetria, Auditor, notificações, Messages, Darckware, canais | Um fluxo único de eventos que dispare iniciativa | G.2 |
+| Lembrar | Hindsight, KB, Foundation, `MEMORY.md` | Contrato de memória em camadas com precedência e proveniência (diagnóstico #39778) | G.3 |
+| Conhecer o próprio ambiente | Blueprints, máquinas, deploy, checks, scripts — em telas separadas | Um mapa único do ecossistema (o que existe, depende de quê, quem é dono) | G.4 |
+| Verificar o próprio trabalho | `STATUS: DONE`, evidência `git:`/`file:`/`db:`, revisão do Porthus | Verificação independente do resultado por tipo de tarefa (não só "existe") | G.5 |
+| **Medir a própria capacidade** | Evolução mede operação (falhas, prazos) | **Avaliações de capacidade (evals)**: tarefas-padrão por agente e domínio, repetidas, com nota. Sem isso não há como saber se uma mudança de modelo, skill ou prompt melhorou ou piorou | G.6 |
+| **Aprender com o resultado** | Hindsight retém conversa; curator de skills; Evolução registra mudanças | **Lições estruturadas**: cada falha ou retrabalho gera uma lição com causa e evidência, que vira proposta de skill, carta ou rotina, avaliada pelos evals antes de valer | G.7 |
+| **Melhorar o próprio software** | Retrospectiva propõe; A2 vai ao Marcelo | O laço completo: proposta → Missão → projeto → implementação pelos externos → evals → deploy → medição, de ponta a ponta | G.8 |
+| Escolher o modelo certo | ForgeRouter (roteamento, fallback) | Seleção guiada pelos evals por tipo de tarefa — **no projeto ForgeRouter**, não no ForgeHub | G.9 (fora) |
+| Segurança da autonomia | A0/A1/A2, delegações, redação de segredos, "dados não são instruções" | **Parada global** (pausar toda autonomia, ou a de um agente, num toque), orçamento de autonomia, testes de injeção de prompt vindos de WhatsApp/e-mail/web, registro de toda ação autônoma reversível | G.10 |
+| Decisões do Marcelo | Aprovações, dúvidas, A2, incubação, aceite de missão — em telas diferentes | **Uma fila única de decisões**, com resumo e recomendação, também no Telegram | G.11 |
+| Continuidade | Backup externo (pendente de snapshot), gateway único | Recuperação testada do estado dos agentes (perfis, memória, banco) | G.12 |
+
+### 8.3 Fase G — Capacidade de aprender (depois de M.1)
+
+| # | Tarefa | Dono | Depende | Aceite |
+|---|---|---|---|---|
+| G.1 | **Objetivos** (trimestrais, com métrica) acima das missões: toda missão serve a um objetivo; o briefing mostra o avanço | Aramis + Dartan | M.1 | Missão sem objetivo só como exceção explícita |
+| G.2 | **Fluxo de eventos**: normalizar o que já chega (checks, alertas, Messages, tickets, telemetria, execuções remotas) num registro único que a triagem e as regras de iniciativa consomem | Aramis | A.5 | Toda iniciativa automática cita o evento que a disparou |
+| G.3 | **Contrato de memória** em camadas: precedência (Foundation > estado real > KB > Hindsight > sessão), proveniência obrigatória, retenção e revisão; aplicado pela Mnemosyne | Porthus (desenho) + Mnemosyne | M.0 | Documento na Foundation (via Athos) + verificação no Auditor |
+| G.4 | **Mapa do ecossistema**: sistemas, máquinas (Tailscale), serviços, deploys, checks, donos e dependências num grafo consultável por MCP | Aramis + Dartan | B.1 | Um agente responde "o que depende do X e quem é o dono" pelo MCP |
+| G.5 | **Verificador por tipo de tarefa**: código (testes + revisão), manutenção (estado da máquina depois), documentação (artefato revisado); agente diferente do executor | Porthus + Aramis | I.5, D.2 | Tarefa só fica `done` com verificação do tipo |
+| G.6 | **Evals de capacidade**: conjunto de tarefas-padrão por agente e domínio (seguras e repetíveis, em ambiente de teste), rodadas por rotina semanal e a cada mudança de modelo, skill ou prompt; nota histórica no Agent Activity | Porthus (desenho) + Aramis | A.4 | Toda mudança A1/A2 de agente mostra a nota antes e depois |
+| G.7 | **Lições**: falha, `PARTIAL`, reprocesso ou rejeição de revisão → lição (causa, evidência, recomendação) → proposta de skill/carta/rotina → avaliada por G.6 → aplicada pelo nível de autonomia | Aramis + Athos | G.6 | Lição repetida não gera proposta duplicada; nenhuma skill muda sem eval |
+| G.8 | **Laço de autoaperfeiçoamento do software**: proposta A2 aprovada vira Missão automaticamente, com projeto, tarefas para os externos, evals e medição pós-deploy | Aramis | G.6, M.1 | Uma melhoria percorre o laço inteiro com registro em cada etapa |
+| G.9 | Seleção de modelo guiada por evals | projeto **ForgeRouter** | G.6 | Fora deste plano; o ForgeHub só fornece as notas |
+| G.10 | **Segurança da autonomia**: parada global e por agente; orçamento de ações autônomas; suíte de injeção de prompt (WhatsApp, e-mail, web, documento); toda ação autônoma com desfazer ou registro de irreversível | Porthus + Aegis | A.1 | Parada testada; suíte verde antes de subir qualquer nível M |
+| G.11 | **Fila única de decisões** do Marcelo (aprovações, A2, dúvidas, aceite de missão, incubação madura), na tela e no Telegram | Aramis + Dartan | O.2 | Nenhuma decisão pendente fora da fila |
+| G.12 | **Recuperação testada** do estado dos agentes (perfis Hermes, memória, banco do ForgeHub) a partir do backup externo | Hephaestus (rotina) + Aramis | backup externo com snapshot | Teste de restauração trimestral registrado |
+
+### 8.4 Níveis de autonomia revistos
+
+Os níveis M0–M3 da Missão passam a exigir os itens da Fase G:
+
+| Nível | Exige |
+|---|---|
+| M1 (coordenador propõe o plano) | G.10 (parada global) e G.11 (fila de decisões) |
+| M2 (tarefas de baixo risco sem aprovação item a item) | G.5 (verificador) e G.6 (evals) com nota estável por 30 dias |
+| M3 (o sistema propõe missões) | G.1, G.2, G.7 e G.8 funcionando; suíte de segurança G.10 verde |
+
+### 8.5 Ordem
+
+```
+... M.1 ──► G.10 ──► G.11 ──► G.5 ──► G.6 ──► G.7 ──► G.8
+             G.1, G.2, G.3, G.4, G.12 em paralelo, conforme as dependências da tabela
+```
+
+## 9. Decisões pendentes do Marcelo
+
+1. Aposentar Execution Waves/Work Packages e o restante da Orquestração (R.1), que estão sem uso e
+   duplicam o Messages como executor.
+2. Começar pela **Fase V** com você validando na tela e o Claude Code acompanhando e corrigindo os
    defeitos, ou a validação ser feita por um agente com o roteiro acima e você revisa o relatório.
-2. Produtos internos da Fase B (lista proposta) e "Sustentação" permanente por produto.
-3. Serviço a cliente: projeto por ticket/demanda (como o `:create-project` já faz, recomendado) ou um
+3. Produtos internos da Fase B (lista proposta) e "Sustentação" permanente por produto.
+4. Serviço a cliente: projeto por ticket/demanda (como o `:create-project` já faz, recomendado) ou um
    projeto por cliente com uma fase por ticket.
-4. Horas: lançar no Darckware na conclusão da tarefa (recomendado) ou só manualmente.
-5. A.1/A.2 e M.0 podem começar já, em paralelo à validação: autoriza?
-6. As decisões da spec da Missão (coordenador, quem cria, dono da documentação).
+5. Horas: lançar no Darckware na conclusão da tarefa (recomendado) ou só manualmente.
+6. A.1/A.2 e M.0 podem começar já, em paralelo à validação: autoriza?
+7. As decisões da spec da Missão (coordenador, quem cria, dono da documentação).
+8. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
+   pré-requisitos para subir qualquer nível de autonomia.

@@ -191,9 +191,9 @@ Sem promessa de AGI geral. É a evolução da autonomia das missões, com crité
 
 Em nenhum nível o sistema altera carta de função, identidade, política comum ou Foundation sem A2.
 
-### 4.7 Arquitetura dos quatro sistemas (documento a produzir)
+### 4.7 Arquitetura dos seis sistemas (documento a produzir)
 
-`docs/architecture/FOUNDATION_FOUR_SYSTEMS.md`, mapeando o que **já existe**:
+`docs/architecture/FOUNDATION_SYSTEMS.md` (Hermes, ForgeHub, ForgeRouter, ForgeVault, Tailscale, RustDesk), mapeando o que **já existe**:
 
 | Contrato | Real hoje |
 |---|---|
@@ -204,6 +204,8 @@ Em nenhum nível o sistema altera carta de função, identidade, política comum
 | Auditoria | `AuditEvent` (ForgeHub), auditoria do ForgeVault, logs do ForgeRouter |
 | Falhas | prazo e incerteza com run id no Messages, gateway único, alertas do Agent Activity |
 | Aprovação humana | `Approval`, `AuthorityDelegation`, `ask_marcelo`, A2 |
+| ForgeHub → máquinas (Tailscale) | host-bridge `/v1/servers/exec` e `/v1/remote-fs/*` por SSH na tailnet; chave no ForgeVault (`ssh_key_ref`) |
+| Atendimento visual (RustDesk) | ID e senha da estação no ForgeVault (`rustdesk_password_ref`); servidor RustDesk em um segredo único |
 
 Lista também as lacunas reais (escopo do `knowledge_cycle.py`, falta de contexto por destinatário),
 sem inventar integração.
@@ -220,7 +222,7 @@ Aramis e Dartan.
 | # | Tarefa | Dono | Depende de | Aceite |
 |---|---|---|---|---|
 | 0.1 | Cadastrar os produtos internos (Ecossistema Foundation, ForgeHub, ForgeRouter, ForgeVault, Darckware) com versão aberta e **sem cliente** | Atlas (dados), Marcelo aprova | — | Aparecem no Cockpit como internos |
-| 0.2 | Documento dos quatro sistemas (4.7) | Porthus | — | Cada contrato aponta arquivo/rota real; registrado por `DocLink` |
+| 0.2 | Documento dos seis sistemas (4.7) | Porthus | — | Cada contrato aponta arquivo/rota real; registrado por `DocLink` |
 | 0.3 | `knowledge_cycle.py` restrito à pasta do agente + `shared/` | Porthus (código), Mnemosyne valida | — | Teste: perfil A nunca recebe trecho da KB de B |
 | 0.4 | Pasta privada da Maia na Knowledge Base | Mnemosyne | — | Fora do alcance dos outros perfis |
 
