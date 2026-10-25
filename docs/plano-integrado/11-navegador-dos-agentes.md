@@ -87,21 +87,9 @@ O conteúdo das páginas é tratado como dado, nunca como instrução, para evit
 - **Linha "Marketing e captação":** gestão de redes sociais e coleta de dados passam a ser serviços dessa
   linha, com o funil do Darckware (E.4) medindo o resultado.
 
-## 3. Fase N — Navegador dos agentes
+## 3. Fase N
 
-| # | Tarefa | Dono | Onda | Depende | Aceite |
-|---|---|---|---|---|---|
-| N.0 | Validar o navegador atual do Workspace (ligar, navegar, uma rotina, um teste em segundo plano) e registrar o que falha | Claude Code | 1 (junto da V-a) | — | Relatório do que funciona e do que falta |
-| N.1 | **Serviço de navegação com sessões isoladas** (um navegador por sessão, contêiner próprio, limite de sessões, tempo máximo), substituindo o navegador único compartilhado; o Workspace passa a listar as sessões | Porthus (desenho) + Aramis | 2 | N.0, T.2 | Duas sessões em paralelo não interferem; sessão encerrada não deixa processo |
-| N.2 | **Visão ao vivo** (screencast do CDP em vez de capturas periódicas) e **assumir/devolver o controle** no Workspace, com aviso no Telegram quando o agente pede ajuda (2FA, captcha) | Dartan + Aramis | 2 | N.1 | Visão fluida; o controle passa e volta sem perder a sessão |
-| N.3 | **Modo teste:** sessões presas à área de teste; testes de tela (Playwright) por tarefa com vídeo e trilha como evidência; as rotinas e testes em segundo plano atuais passam a rodar aqui | Dartan + Aramis | 2 | N.1, T.2 | Teste de regressão de uma tela do ForgeHub roda na área de teste e anexa evidência à tarefa |
-| N.4 | **Modo internet com política de rede:** saída só para a internet, bloqueio de `localhost`, rede interna e tailnet; domínios permitidos por tarefa; downloads em quarentena; conteúdo de página tratado como dado | Aegis + Aramis | 2 | N.1 | Teste: a sessão de internet não alcança a API interna nem uma máquina da tailnet |
-| N.5 | **Ferramentas MCP de navegação** para todos os agentes (abrir sessão com finalidade, ambiente e tarefa; navegar; ler; capturar; pedir ajuda humana; encerrar). Hermes também por `cdp_url` da sessão, externos por Playwright | Aramis | 2 | N.1, F.4 | Um agente faz um teste de tela e uma pesquisa só pelo MCP |
-| N.6 | **Perfis por conta e credenciais pelo ForgeVault (broker):** login injetado sem o agente ver a senha; 2FA pelo Marcelo | Aegis + Aramis | 3 | N.2, F.2 | Login numa conta de teste sem a senha aparecer em log, prompt ou resultado |
-| N.7 | **Redes sociais:** fila de publicações com aprovação por versão exata (como os e-mails do Darckware); integração pela API oficial onde houver; navegador só para o resto | Kairos (conteúdo) + Aramis + Dartan | 3 | N.6, E.4 | Nenhuma publicação sai sem aprovação; editar anula a aprovação |
-| N.8 | **Coleta de dados:** regras de LGPD e termos de uso (Themis), limite de requisições, resultado como artefato com origem e finalidade | Themis + Kairos + Aramis | 3 | N.4 | Coleta com dado pessoal sem base legal é recusada |
-| N.9 | **Nó de navegação residencial** (opcional) pelo Tailscale para o modo internet, se as redes bloquearem o IP do VPS | Hephaestus | 3 | N.4 | Sessão de internet sai pelo nó escolhido |
-| N.10 | **Navegação nas Atividades dos Agentes e na auditoria:** sessões ao vivo, domínio atual, alerta de domínio fora da lista ou sessão parada; trilha auditável | Aramis + Dartan | 2 | N.1, A.1 | Toda sessão aparece com agente, tarefa e finalidade |
+As tarefas da Fase N estão no planejamento único: [07 — Fases de implementação](07-fases-de-implementacao.md).
 
 ## 4. Riscos
 

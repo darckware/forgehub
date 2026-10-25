@@ -6,6 +6,33 @@ Cada linha vira uma ProjectTask com dependência (`TaskDependency`) no projeto i
 integrado" (produto ForgeHub), assim que a Fase V estiver aprovada. Quem escreve não revisa o próprio
 código: Porthus revisa Aramis e Dartan.
 
+### Fase 0 — Revisão crítica do plano (antes da Onda 1)
+
+Nenhuma implementação começa antes desta fase sair. Roteiro completo, perguntas e formato do parecer:
+[revisao/ROTEIRO-DE-REVISAO.md](revisao/ROTEIRO-DE-REVISAO.md).
+
+**Como é registrada:** o Service Factory ainda não foi validado (Fase V), então a revisão roda como
+tarefas do Messages com o contrato `STATUS: DONE` e o parecer no resultado. Quando a M0 registrar o
+plano como projeto, estas tarefas entram como os primeiros itens dele, com os pareceres como evidência.
+
+| # | Tarefa | Dono | Depende | Aceite |
+|---|---|---|---|---|
+| 0.1 | Parecer: arquitetura e coerência entre camadas | Porthus | — | Parecer no formato do roteiro |
+| 0.2 | Parecer: viabilidade técnica (backend, MCP, ForgeVault em .NET) | Aramis | — | Idem |
+| 0.3 | Parecer: telas, celular, identidade visual, testes no navegador | Dartan | — | Idem |
+| 0.4 | Parecer: governança, papéis, gates, autonomia, Foundation | Athos | — | Idem |
+| 0.5 | Parecer: ondas, dependências, tamanho das tarefas, caminho crítico | Atlas | — | Idem |
+| 0.6 | Parecer: executabilidade das tarefas e fluxo git/CI | Daedalus | — | Idem |
+| 0.7 | Parecer: área de teste, deploy, incidentes, restauração | Hephaestus | — | Idem |
+| 0.8 | Parecer: segurança, identidade, navegador na internet | Aegis | — | Idem |
+| 0.9 | Parecer: LGPD (contexto, clientes, coleta de dados) | Themis | — | Idem |
+| 0.10 | Parecer: memória e contexto | Mnemosyne | — | Idem |
+| 0.11 | Parecer: clareza do conjunto e validação da documentação | Scriba | — | Idem |
+| 0.12 | Parecer: funil, marketing, redes sociais | Kairos | — | Idem |
+| 0.13 | **Consolidação** (`revisao/CONSOLIDADO.md`): problemas agrupados, cada proposta com análise (aceitar, ajustar ou rejeitar) e motivo | Claude Code | 0.1–0.12 | Nenhum parecer sem análise |
+| 0.14 | **Rodada cruzada** sobre o consolidado: alguma decisão cria contradição entre camadas? | Porthus + Athos | 0.13 | Pareceres da 2ª rodada |
+| 0.15 | **Decisão do Marcelo** sobre cada item e atualização dos documentos num único commit, citando o item do consolidado | Marcelo + Claude Code | 0.14 | Nenhum item "bloqueia" sem decisão; documentos atualizados |
+
 ### Fase V — Validação do Service Factory (agente opera, Marcelo acompanha, Claude Code corrige)
 
 Base automatizada: 107 testes do Service Factory passando em 24/10 (e2e, cockpit, MCP, escopo, versão,
@@ -127,6 +154,47 @@ precisa de um caminho fixo até a produção.
 | Q.5 | **Gate de produção:** deploy só com CI verde, revisão (Porthus), homologação aprovada e, para produção, aprovação do Marcelo ou delegação; o Hephaestus executa; rollback documentado e testado; a Release (D.6) registra o que subiu | Hephaestus + Aramis | Q.3, Q.4, D.6 | Deploy fora do gate é apontado pelo Auditor |
 | Q.6 | **Segredos por projeto** no ForgeVault (variáveis de ambiente por ambiente, incluindo o ambiente de teste da Fase T), referenciados no contrato do projeto (D.8), nunca no repositório nem no contexto | Aramis + Aegis | D.8 | Varredura não encontra segredo em repositório |
 | Q.7 | **Custo por projeto:** orçamento por projeto/missão; consumo de ForgeRouter e horas de agente somados no projeto; alerta ao passar do limite (os runtimes externos sem custo medido aparecem como "não medido", nunca zero) | Aramis | O.4 | Projeto acima do orçamento gera alerta e decisão |
+
+### Fase T — Área de teste (Onda 1; substitui a Q.4) ([10](10-area-de-teste-e-identidade.md))
+
+| # | Tarefa | Dono | Depende | Aceite |
+|---|---|---|---|---|
+| T.1 | Banco de teste do ForgeHub separado da produção; `dev.sh` e suíte de testes passam a usá-lo; limpar da produção os registros deixados por testes (ex.: "Global Owner/Scoped Owner 95d695fb") | Claude Code + Hephaestus | — | Nenhum teste ou `dev.sh` alcança o banco de produção (verificado por credencial sem permissão) |
+| T.2 | ForgeHub de teste rodando (backend + frontend) com seed reproduzível e comando de reset | Hephaestus + Aramis | T.1 | Reset recria o ambiente em minutos |
+| T.3 | Ambiente "teste" no ForgeVault com os segredos de teste; integrações externas simuladas (e-mail, Telegram, portal) | Aegis + Aramis | T.2 | Nenhuma mensagem real sai do teste |
+| T.4 | Máquinas de teste no Tailscale (Linux e Windows) cadastradas no ambiente de teste | Hephaestus | T.2 | Script de manutenção roda na máquina de teste com evidência |
+| T.5 | Darckware, ForgeRouter e CoreTI de teste (um por vez, conforme as missões precisarem) | Hephaestus + dono de cada sistema | T.3 | Cada um com banco e segredos próprios |
+| T.6 | Regra: validação (V), evals (G.6) e primeira execução de toda missão rodam no teste; produção só pelo gate (Q.5) | Athos (Foundation) | T.2 | Registrado na Foundation e na skill `forgehub` |
+
+### Fase F — Identidade dos agentes pelo ForgeVault (desenho na Onda 1, implantação na Onda 2) ([10](10-area-de-teste-e-identidade.md))
+
+| # | Tarefa | Dono | Depende | Aceite |
+|---|---|---|---|---|
+| F.1 | **Desenho** (documento no ForgeVault e no ForgeHub): troca de token, claims, audiências, ambientes, tempo de vida, rotação de chaves, mapeamento de papéis por sistema, falha quando o ForgeVault está fora | Porthus + Aegis | — | Revisado na rodada de revisão do plano |
+| F.2 | ForgeVault emite token curto assinado com **chave assimétrica**, publica as chaves públicas (JWKS) e expõe a troca de token com checagem de identidade ativa, papel, ambiente e parada global | Aramis (ForgeVault, .NET) + Porthus revisa | F.1 | Teste: identidade desativada não obtém token; token de teste rejeitado pela produção |
+| F.3 | Uma conta de serviço por agente no ForgeVault (os 13 das cartas), com papéis por ambiente | Aegis | F.2 | Inventário no ForgeVault bate com o registro de agentes do ForgeHub |
+| F.4 | ForgeHub aceita o token do ForgeVault (rotas de agente e MCP), mantendo o `agt_` em paralelo durante a transição | Aramis | F.2 | MCP funciona com o token novo; `agt_` desligável por agente |
+| F.5 | Darckware, ForgeRouter e CoreTI aceitam o token do ForgeVault (um por vez) | Aramis + dono de cada sistema | F.4 | Cada sistema valida pela chave pública, sem segredo compartilhado |
+| F.6 | Clientes MCP e scripts dos agentes passam a obter token pelo ForgeVault (sem credencial longa no `.env` do perfil) | Aegis + Porthus | F.4 | Varredura não encontra credencial longa de agente nos perfis |
+| F.7 | Desligar as credenciais antigas (`agt_`, tokens de agente por sistema) agente por agente, depois de 7 dias sem uso | Aegis | F.5, F.6 | Auditoria mostra zero uso antes de desligar |
+| F.8 | Parada global (G.10) implementada como suspensão da identidade/escopo no ForgeVault + aviso aos sistemas | Aegis + Aramis | F.2 | Teste: parar um agente corta o acesso a todos os sistemas em até 15 min |
+| F.9 | Painel de acessos: quem obteve token para qual sistema e ambiente, falhas e anomalias (no ForgeVault, com resumo nas Atividades dos Agentes) | Aramis + Dartan | F.2 | Acesso fora do padrão gera alerta |
+
+### Fase N — Navegador dos agentes ([11](11-navegador-dos-agentes.md))
+
+| # | Tarefa | Dono | Onda | Depende | Aceite |
+|---|---|---|---|---|---|
+| N.0 | Validar o navegador atual do Workspace (ligar, navegar, uma rotina, um teste em segundo plano) e registrar o que falha | Claude Code | 1 (junto da V-a) | — | Relatório do que funciona e do que falta |
+| N.1 | **Serviço de navegação com sessões isoladas** (um navegador por sessão, contêiner próprio, limite de sessões, tempo máximo), substituindo o navegador único compartilhado; o Workspace passa a listar as sessões | Porthus (desenho) + Aramis | 2 | N.0, T.2 | Duas sessões em paralelo não interferem; sessão encerrada não deixa processo |
+| N.2 | **Visão ao vivo** (screencast do CDP em vez de capturas periódicas) e **assumir/devolver o controle** no Workspace, com aviso no Telegram quando o agente pede ajuda (2FA, captcha) | Dartan + Aramis | 2 | N.1 | Visão fluida; o controle passa e volta sem perder a sessão |
+| N.3 | **Modo teste:** sessões presas à área de teste; testes de tela (Playwright) por tarefa com vídeo e trilha como evidência; as rotinas e testes em segundo plano atuais passam a rodar aqui | Dartan + Aramis | 2 | N.1, T.2 | Teste de regressão de uma tela do ForgeHub roda na área de teste e anexa evidência à tarefa |
+| N.4 | **Modo internet com política de rede:** saída só para a internet, bloqueio de `localhost`, rede interna e tailnet; domínios permitidos por tarefa; downloads em quarentena; conteúdo de página tratado como dado | Aegis + Aramis | 2 | N.1 | Teste: a sessão de internet não alcança a API interna nem uma máquina da tailnet |
+| N.5 | **Ferramentas MCP de navegação** para todos os agentes (abrir sessão com finalidade, ambiente e tarefa; navegar; ler; capturar; pedir ajuda humana; encerrar). Hermes também por `cdp_url` da sessão, externos por Playwright | Aramis | 2 | N.1, F.4 | Um agente faz um teste de tela e uma pesquisa só pelo MCP |
+| N.6 | **Perfis por conta e credenciais pelo ForgeVault (broker):** login injetado sem o agente ver a senha; 2FA pelo Marcelo | Aegis + Aramis | 3 | N.2, F.2 | Login numa conta de teste sem a senha aparecer em log, prompt ou resultado |
+| N.7 | **Redes sociais:** fila de publicações com aprovação por versão exata (como os e-mails do Darckware); integração pela API oficial onde houver; navegador só para o resto | Kairos (conteúdo) + Aramis + Dartan | 3 | N.6, E.4 | Nenhuma publicação sai sem aprovação; editar anula a aprovação |
+| N.8 | **Coleta de dados:** regras de LGPD e termos de uso (Themis), limite de requisições, resultado como artefato com origem e finalidade | Themis + Kairos + Aramis | 3 | N.4 | Coleta com dado pessoal sem base legal é recusada |
+| N.9 | **Nó de navegação residencial** (opcional) pelo Tailscale para o modo internet, se as redes bloquearem o IP do VPS | Hephaestus | 3 | N.4 | Sessão de internet sai pelo nó escolhido |
+| N.10 | **Navegação nas Atividades dos Agentes e na auditoria:** sessões ao vivo, domínio atual, alerta de domínio fora da lista ou sessão parada; trilha auditável | Aramis + Dartan | 2 | N.1, A.1 | Toda sessão aparece com agente, tarefa e finalidade |
 
 ### Fase A — Agent Activity completo (seção 5)
 
@@ -262,12 +330,15 @@ novas implementações").
 
 ```
 Trilho principal:
-V-a ──► M0 (primeira missão como projeto) ──► V-b ──► S ──► R ──► B ──► P.1/P.2 ──► I ──► Q ──► D ──► P.3–P.6 ──► M.1 ──► M.2 ──► M.4 ──► G
+Fase 0 (revisão crítica) ──► V-a ──► M0 (primeira missão como projeto) ──► V-b ──► S ──► R ──► B ──► P.1/P.2 ──► I ──► Q ──► D ──► P.3–P.6 ──► M.1 ──► M.2 ──► M.4 ──► G
 
-Começam já, em paralelo:
+Começam já, em paralelo (depois da Fase 0):
 A.1/A.2 ──► A.3–A.5 (após I.5)
 C.0 ──► C.1 ──► C.2 ──► C.3/C.5/C.6 ──► C.4 ──► C.7 ──► C.8 ──► C.9
 M.0 (documento dos sete sistemas)
+T.1 ──► T.2 ──► T.3/T.4 ──► T.6 · F.1 (desenho) · N.0 (junto da V-a)
+Onda 2: F.2 ──► F.3 ──► F.4 ──► F.5/F.6 · N.1 ──► N.2/N.3/N.4 ──► N.5/N.10
+Onda 3: F.7–F.9 · N.6 ──► N.7 · N.8 · N.9
 E.4 (funil)
 
 Depois das dependências:

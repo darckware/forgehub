@@ -78,30 +78,7 @@ e produção. Isso fica apenas como **transição**.
 
 ## 3. Fases
 
-### Fase T — Área de teste (Onda 1; substitui a Q.4)
-
-| # | Tarefa | Dono | Depende | Aceite |
-|---|---|---|---|---|
-| T.1 | Banco de teste do ForgeHub separado da produção; `dev.sh` e suíte de testes passam a usá-lo; limpar da produção os registros deixados por testes (ex.: "Global Owner/Scoped Owner 95d695fb") | Claude Code + Hephaestus | — | Nenhum teste ou `dev.sh` alcança o banco de produção (verificado por credencial sem permissão) |
-| T.2 | ForgeHub de teste rodando (backend + frontend) com seed reproduzível e comando de reset | Hephaestus + Aramis | T.1 | Reset recria o ambiente em minutos |
-| T.3 | Ambiente "teste" no ForgeVault com os segredos de teste; integrações externas simuladas (e-mail, Telegram, portal) | Aegis + Aramis | T.2 | Nenhuma mensagem real sai do teste |
-| T.4 | Máquinas de teste no Tailscale (Linux e Windows) cadastradas no ambiente de teste | Hephaestus | T.2 | Script de manutenção roda na máquina de teste com evidência |
-| T.5 | Darckware, ForgeRouter e CoreTI de teste (um por vez, conforme as missões precisarem) | Hephaestus + dono de cada sistema | T.3 | Cada um com banco e segredos próprios |
-| T.6 | Regra: validação (V), evals (G.6) e primeira execução de toda missão rodam no teste; produção só pelo gate (Q.5) | Athos (Foundation) | T.2 | Registrado na Foundation e na skill `forgehub` |
-
-### Fase F — Identidade dos agentes pelo ForgeVault (desenho na Onda 1, implantação na Onda 2)
-
-| # | Tarefa | Dono | Depende | Aceite |
-|---|---|---|---|---|
-| F.1 | **Desenho** (documento no ForgeVault e no ForgeHub): troca de token, claims, audiências, ambientes, tempo de vida, rotação de chaves, mapeamento de papéis por sistema, falha quando o ForgeVault está fora | Porthus + Aegis | — | Revisado na rodada de revisão do plano |
-| F.2 | ForgeVault emite token curto assinado com **chave assimétrica**, publica as chaves públicas (JWKS) e expõe a troca de token com checagem de identidade ativa, papel, ambiente e parada global | Aramis (ForgeVault, .NET) + Porthus revisa | F.1 | Teste: identidade desativada não obtém token; token de teste rejeitado pela produção |
-| F.3 | Uma conta de serviço por agente no ForgeVault (os 13 das cartas), com papéis por ambiente | Aegis | F.2 | Inventário no ForgeVault bate com o registro de agentes do ForgeHub |
-| F.4 | ForgeHub aceita o token do ForgeVault (rotas de agente e MCP), mantendo o `agt_` em paralelo durante a transição | Aramis | F.2 | MCP funciona com o token novo; `agt_` desligável por agente |
-| F.5 | Darckware, ForgeRouter e CoreTI aceitam o token do ForgeVault (um por vez) | Aramis + dono de cada sistema | F.4 | Cada sistema valida pela chave pública, sem segredo compartilhado |
-| F.6 | Clientes MCP e scripts dos agentes passam a obter token pelo ForgeVault (sem credencial longa no `.env` do perfil) | Aegis + Porthus | F.4 | Varredura não encontra credencial longa de agente nos perfis |
-| F.7 | Desligar as credenciais antigas (`agt_`, tokens de agente por sistema) agente por agente, depois de 7 dias sem uso | Aegis | F.5, F.6 | Auditoria mostra zero uso antes de desligar |
-| F.8 | Parada global (G.10) implementada como suspensão da identidade/escopo no ForgeVault + aviso aos sistemas | Aegis + Aramis | F.2 | Teste: parar um agente corta o acesso a todos os sistemas em até 15 min |
-| F.9 | Painel de acessos: quem obteve token para qual sistema e ambiente, falhas e anomalias (no ForgeVault, com resumo nas Atividades dos Agentes) | Aramis + Dartan | F.2 | Acesso fora do padrão gera alerta |
+As tarefas das Fases T (área de teste) e F (identidade) estão no planejamento único: [07 — Fases de implementação](07-fases-de-implementacao.md).
 
 ## 4. Riscos e cuidados
 

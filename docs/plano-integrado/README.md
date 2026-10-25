@@ -35,7 +35,7 @@
 | [04 — Missão](04-missao-pipeline-e-papeis.md) | **O essencial: quando começar, como validar a entrega, quando concluir**; missão como projeto, o pipeline Missão → Service Factory → Operação 24x7 → Atividades, papéis, brief, validação do plano e da documentação |
 | [05 — Componentes e interligações](05-componentes-e-interligacoes.md) | Os sete sistemas, o inventário de todos os módulos com decisão, tipos de trabalho e o mapa de ligações |
 | [06 — Atividades dos Agentes](06-atividades-dos-agentes.md) | Acompanhar todas as rotinas e monitorar todos os agentes |
-| [07 — Fases de implementação](07-fases-de-implementacao.md) | Todas as fases e tarefas (V, P, R, B, I, D, Q, A, O, E, C, M) com dono, dependência e aceite |
+| [07 — Fases de implementação](07-fases-de-implementacao.md) | **O planejamento único:** todas as fases e tarefas (0 revisão, V, P, R, B, I, D, Q, T, F, N, A, O, E, C, M) com dono, dependência e aceite, e a ordem |
 | [08 — Inteligência operacional](08-inteligencia-operacional.md) | O que é realista, o que falta para aprender e se corrigir, níveis de autonomia |
 | [09 — Lacunas e decisões](09-lacunas-e-decisoes.md) | Lacunas encontradas nas revisões, riscos abertos e as decisões com os padrões adotados |
 | [10 — Área de teste e identidade](10-area-de-teste-e-identidade.md) | Ambiente de teste isolado da produção e o ForgeVault como identidade única dos agentes em todos os sistemas (Fases T e F) |
@@ -56,8 +56,7 @@
 | 6 (todas as fases) | [07](07-fases-de-implementacao.md) |
 | 7 e Fase G | [08](08-inteligencia-operacional.md) |
 | 8, 9 | [09](09-lacunas-e-decisoes.md) |
-| Fases T e F | [10](10-area-de-teste-e-identidade.md) |
-| Fase N | [11](11-navegador-dos-agentes.md) |
+| Fases T, F e N (desenho) | [10](10-area-de-teste-e-identidade.md), [11](11-navegador-dos-agentes.md); tarefas em [07](07-fases-de-implementacao.md) |
 
 **Regra deste conjunto:** o escopo está congelado. Pedido novo vira item do projeto do plano no
 Service Factory (quando a M0 o registrar), não texto novo nestes documentos. Atualizações de estado

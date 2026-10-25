@@ -65,6 +65,9 @@ sem evidência entra como pergunta, não como problema.
 
 ## Como roda
 
+Esta revisão é a **Fase 0** do planejamento ([07](../07-fases-de-implementacao.md)), tarefas 0.1 a 0.15.
+
+
 1. **Rodada 1 (paralela):** uma tarefa no Messages para cada revisor, `working_path`
    `/root/project/forgehub`, com este roteiro, a camada dele e o formato. Respeita o teto de
    concorrência e um despacho por agente.

@@ -71,7 +71,7 @@ Marcelo supervisionou pela linha do tempo.
 - F.7–F.9 (desligar credenciais antigas, parada global pelo ForgeVault, painel de acessos);
 - G (evals, lições, verificador, parada global, fila de decisões, laço de autoaperfeiçoamento, objetivos).
 
-Regra das ondas: nada da Onda 2 começa antes de a Onda 1 sair. A exceção é o documento dos sete
+Regra das ondas: nada da Onda 1 começa antes de a Fase 0 sair; nada da Onda 2 antes de a Onda 1 sair. A exceção é o documento dos sete
 sistemas (M.0), que só depende de leitura.
 
 ## Decisões: padrões adotados
