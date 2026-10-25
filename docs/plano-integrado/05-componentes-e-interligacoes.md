@@ -46,7 +46,8 @@ uma decisão no conjunto, para não haver dois caminhos para a mesma coisa.
 | **Backup externo, System Control, Hindsight, ForgeRouter** | em uso | **Integrar** as falhas como trabalho: backup falho, disco cheio, provedor de modelo com erro → tarefa no Sustentação do produto | I.12 |
 | **Notificações** (`notifications.py`) | 1027 | **Manter como caixa única**: todo evento novo do conjunto chega aqui com dedupe por `event_key` | todas |
 | **Foundation docs**, **Knowledge Base** (`vault.py`), **Docs** | em uso | **Destinos da documentação**: projeto → `/docs`; regra/política → Foundation (pelo Athos); conhecimento → KB (pelo Scriba/Mnemosyne) | D.3 |
-| **Canais, Chat, Workspace, Terminal, Explorer, Navegador compartilhado** | em uso | Ferramentas do operador; Canal → tarefa em I.8; o resto fica fora do fluxo | I.8 |
+| **Canais, Chat, Workspace, Terminal, Explorer** | em uso | Ferramentas do operador; Canal → tarefa em I.8 | I.8 |
+| **Navegador do Workspace** (`workspace_browser.py`: rotinas, testes em segundo plano, macros, sites avulsos) | parado; 0 rotinas, 0 testes, 0 macros | **Evoluir** para o serviço de navegação dos agentes, com sessões isoladas, modo teste e modo internet | Fase N ([11](11-navegador-dos-agentes.md)) |
 | **Usuários, perfis, TOTP** | em uso | Cada tela nova (Missões, Sustentação) ganha a chave de permissão do módulo | M.1, B.3 |
 | **Database, Systemstats, Tool versions, System info, Remote access (túnel)** | em uso | Utilitários; fora do fluxo de trabalho | — |
 | **Pessoal (Maia)** | em uso | Fora do Service Factory por desenho (vida pessoal) | — |

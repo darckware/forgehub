@@ -33,6 +33,7 @@ Também corrigido: o backup externo **já funciona** (38 execuções `ok`, a úl
 | **C.2** isolamento do `knowledge_cycle.py` (modo observação, depois ativo) | Risco de privacidade real hoje |
 | **T.1–T.4, T.6** área de teste: banco separado, ForgeHub de teste com seed e reset, segredos de teste no ForgeVault, integrações simuladas, máquinas de teste no Tailscale ([10](10-area-de-teste-e-identidade.md)) | Agentes, testes e o `dev.sh` tocam dado real hoje |
 | **F.1** desenho da identidade única dos agentes pelo ForgeVault | Base de segurança para tudo o que vem depois |
+| **N.0** validar o navegador atual do Workspace (está parado e nunca foi usado) | Saber o que aproveitar antes de redesenhar ([11](11-navegador-dos-agentes.md)) |
 | **V-a** validação do Service Factory pela tela/API | Nada se apoia em módulo não provado |
 | **M0.1–M0.4** produto "Ecossistema Foundation", MCP mínimo, convenção de missão (papéis, brief, plano aprovado) e skill | Os agentes precisam conseguir registrar e conduzir uma missão |
 | **M0.5** primeira missão real, pequena, conduzida pelos agentes | Prova o caminho inteiro de ponta a ponta |
@@ -53,6 +54,7 @@ Também corrigido: o backup externo **já funciona** (38 execuções `ok`, a úl
 - I (manutenção remota, horas, Auditor → tarefa, incidente);
 - Q.1–Q.3 e Q.5 (git, CI, gate de produção);
 - F.2–F.6 (identidade única pelo ForgeVault no ForgeHub e depois nos demais sistemas) e T.5;
+- N.1–N.5 e N.10 (serviço de navegação com sessões isoladas, visão ao vivo, modo teste, modo internet com política de rede, ferramentas MCP);
 - D núcleo: D.1, D.2, D.7, D.8, D.10;
 - O.1–O.3;
 - E.1 e E.4.
@@ -65,6 +67,7 @@ Marcelo supervisionou pela linha do tempo.
 - D restante (manual, identidade visual, auditoria de documentação);
 - C restante;
 - E restante;
+- N.6–N.9 (contas de redes sociais com credencial pelo ForgeVault, publicação com aprovação, coleta de dados com LGPD, nó residencial);
 - F.7–F.9 (desligar credenciais antigas, parada global pelo ForgeVault, painel de acessos);
 - G (evals, lições, verificador, parada global, fila de decisões, laço de autoaperfeiçoamento, objetivos).
 
