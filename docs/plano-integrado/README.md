@@ -41,6 +41,7 @@
 | [10 — Área de teste e identidade](10-area-de-teste-e-identidade.md) | Ambiente de teste isolado da produção e o ForgeVault como identidade única dos agentes em todos os sistemas (Fases T e F) |
 | [11 — Navegador dos agentes](11-navegador-dos-agentes.md) | Sessões de navegador isoladas por agente e tarefa, modo teste (área de teste) e modo internet (coleta de dados, redes sociais), credenciais pelo ForgeVault, publicação com aprovação (Fase N) |
 | [Modelos](modelos/) | [Termo de abertura](modelos/TERMO-DE-ABERTURA.md) (todo projeto novo), [Crítica de entrega](modelos/CRITICA-DE-ENTREGA.md) e [Dossiê de validação](modelos/DOSSIE-DE-VALIDACAO.md) (Missão) |
+| [Consolidado da revisão](revisao/CONSOLIDADO.md) | Os 11 pareceres agrupados por tema, com análise e proposta para cada item, e as 8 decisões pendentes |
 | [Roteiro de revisão crítica](revisao/ROTEIRO-DE-REVISAO.md) | Quem revisa cada camada, as perguntas, o formato do parecer e o processo, antes da implementação |
 | [Especificação da Missão](missao-especificacao.md) | Detalhe técnico da Missão (modelo, fluxo, autonomia, arquitetura dos sete sistemas) |
 
