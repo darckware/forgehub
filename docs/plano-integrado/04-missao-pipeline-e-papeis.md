@@ -10,7 +10,7 @@ finalização da missão". Tudo o mais neste documento serve a estas regras.
 ### Estados
 
 `rascunho` → `pronta` → `ativa` → `em verificação` → `aguardando aceite` → `concluída`
-(ou `cancelada` com motivo, de qualquer estado; uma crítica ou `reaberta` volta para `ativa`)
+(ou `cancelada` com motivo, de qualquer estado; `pausada` e de volta, seção 6; uma crítica ou `reaberta` volta para `ativa`)
 
 ### 1. Quando começar (definição de "pronta")
 
@@ -149,6 +149,32 @@ O dossiê reúne, num lugar só:
 Se o Marcelo não aceitar, ele registra **críticas** no próprio dossiê, a missão volta para `ativa` e um
 novo dossiê é gerado na próxima vez que chegar a `aguardando aceite`. As versões anteriores ficam
 guardadas.
+
+### 6. Pausar, continuar e várias missões ao mesmo tempo
+
+Marcelo, 24/10: "posso pedir para parar o desenvolvimento e depois continuar? Posso criar outra
+missão? Posso ter várias missões em execução?" Sim, para as três.
+
+**Pausar e continuar**
+- Estado `pausada`, a partir de `pronta`, `ativa` ou `em verificação`, sempre com motivo. Quem pausa: o
+  Marcelo, ou o orquestrador quando a missão está bloqueada.
+- Ao pausar: nenhuma tarefa nova da missão é despachada. As que estão rodando terminam normalmente;
+  com "pausar agora", elas são canceladas pelo caminho seguro do Messages, nunca interrompidas sem
+  registro. A Operação 24x7 para de cobrar a missão, e os alertas de prazo ficam suspensos.
+- Ao continuar: a missão volta ao estado anterior. O orquestrador revisa o que mudou durante a pausa
+  (brief, contrato, anotações) e então o despacho recomeça pelas tarefas prontas. O tempo pausado
+  não conta no prazo.
+- Uma missão pausada por mais de 30 dias aparece no briefing para ser retomada, cancelada ou adiada.
+
+**Várias missões**
+- Pode haver quantas missões forem necessárias em `rascunho` e várias em `ativa` ao mesmo tempo.
+- Elas dividem os mesmos agentes. Por isso:
+  - cada missão tem **prioridade**, e o despacho dá a vez às tarefas da missão mais prioritária quando
+    o mesmo agente é disputado (o teto de concorrência e "um despacho por agente" continuam valendo);
+  - cada orquestrador tem um limite de missões ativas;
+  - o Cockpit e o briefing mostram todas as missões, com a saúde de cada uma, e onde há agente disputado.
+- Missões podem depender uma da outra (uma só começa quando a outra conclui), registrado como
+  pré-requisito na abertura.
 
 ## Missão = projeto no Service Factory: o que os agentes conseguem hoje
 
