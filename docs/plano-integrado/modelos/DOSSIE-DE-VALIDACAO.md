@@ -1,0 +1,87 @@
+# Dossiê de validação — <missão>
+
+**Estado:** rascunho · em revisão · aprovado
+**Versão do dossiê:** <n> (cada retorno de `aguardando aceite` gera uma versão nova; as anteriores ficam guardadas)
+**Gerado em:** <aaaa-mm-dd>
+
+## 1. Identificação
+
+| Campo | Valor |
+|---|---|
+| Missão | <nome e número> |
+| Objetivo | <uma frase> |
+| Período | <início> → <fim> (prazo previsto: <data>) |
+| Linha(s) de serviço | <…> |
+| Cliente | <nenhum (interna) / nome> |
+| Patrocinador | Marcelo |
+| Orquestrador | <agente> |
+| Planejador | <agente> |
+| Executores | <agentes> |
+| Verificadores | <agentes> |
+| Documentador | <agente> |
+| Brief | `docs/missions/<slug>/BRIEF.md`, versão <n> |
+
+## 2. Critérios de aceite × evidência
+
+| Critério | Tarefas que o cumprem | Evidência | Verificado por | Quando | Estado |
+|---|---|---|---|---|---|
+| CA-1 <descrição verificável> | #… | <commit/PR/CI, execução remota, arquivo, registro> | <agente> | <data> | comprovado |
+
+## 3. Entregas
+
+| Tarefa | Executor | Verificador | Evidência | Documento |
+|---|---|---|---|---|
+| #… <título> | <agente> | <agente> | <…> | <arquivo> |
+
+## 4. Documentos obrigatórios
+
+| Documento | Versão aprovada | Aprovado por | Data |
+|---|---|---|---|
+| BRIEF.md | | Marcelo | |
+| <escopo/PRD> | | Marcelo | |
+| <plano> | | Marcelo | |
+| <demais do pipeline> | | <verificador/documentador> | |
+
+## 5. Críticas e correções
+
+| Crítica | Sobre | Severidade | Esperado × entregue (resumo) | Correção | Resultado | Estado |
+|---|---|---|---|---|---|---|
+| C-1 | | | | tarefa #… | | aceita |
+
+Críticas que bloqueiam o aceite ainda abertas: **<nenhuma / listar>**
+
+## 6. Mudanças de escopo
+
+| Change request | O que mudou | Aprovado por | Data |
+|---|---|---|---|
+
+## 7. Prazo e custo
+
+| Item | Previsto | Realizado | Observação |
+|---|---|---|---|
+| Prazo | | | |
+| Custo (ForgeRouter, horas) | | | runtimes externos: "não medido" quando for o caso |
+
+## 8. Riscos e pendências remanescentes
+
+| Item | Dono | Destino (outra missão, sustentação, descartado) |
+|---|---|---|
+
+## 9. Lições
+
+- Funcionou: …
+- Não funcionou: …
+- Críticas repetidas (viram lição/proposta): …
+
+## 10. Checklist de aceite
+
+- [ ] Todos os critérios de aceite comprovados, com evidência citada
+- [ ] Todos os documentos obrigatórios aprovados
+- [ ] Nenhuma tarefa aberta (canceladas só com justificativa aprovada)
+- [ ] Consolidação feita pelo orquestrador e revisada pelo documentador
+- [ ] Aceite do cliente no portal (se houver cliente)
+- [ ] Nenhuma crítica que bloqueie o aceite aberta
+- [ ] Dossiê completo
+
+**Decisão do Marcelo:** aceito · não aceito (críticas registradas: C-…)
+**Data:** <aaaa-mm-dd>

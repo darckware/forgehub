@@ -3,12 +3,14 @@
 ## O essencial da Missão: começar, validar, concluir
 
 Marcelo, 24/10: "O importante na Missão é saber quando começar, validar o que foi entregue e marcar
-como concluída a missão." Tudo o mais neste documento serve a estas três regras.
+como concluída a missão." E: "na Missão preciso adicionar as críticas, caso a entrega não condiga com
+as expectativas, sugerindo as devidas correções", e o documento para "validar o projeto na
+finalização da missão". Tudo o mais neste documento serve a estas regras.
 
 ### Estados
 
 `rascunho` → `pronta` → `ativa` → `em verificação` → `aguardando aceite` → `concluída`
-(ou `cancelada` com motivo, de qualquer estado; `reaberta` volta para `ativa`)
+(ou `cancelada` com motivo, de qualquer estado; uma crítica ou `reaberta` volta para `ativa`)
 
 ### 1. Quando começar (definição de "pronta")
 
@@ -61,7 +63,9 @@ A missão só fica `concluída` quando:
 | 3 | Nenhuma tarefa aberta (canceladas só com justificativa aprovada) |
 | 4 | Consolidação feita pelo orquestrador: resultado e documento final, revisados pelo documentador |
 | 5 | Aceite do cliente no portal, quando a missão é de cliente |
-| 6 | **Aceite do Marcelo** (ou de quem ele delegou para aquela missão) |
+| 6 | Nenhuma crítica aberta que bloqueie o aceite (seção 4) |
+| 7 | **Dossiê de validação** gerado e completo (seção 5) |
+| 8 | **Aceite do Marcelo** (ou de quem ele delegou para aquela missão), dado sobre o dossiê |
 
 **Quem marca:** só o Marcelo, ou um delegado nomeado na abertura. O sistema recusa o aceite enquanto
 qualquer item acima estiver pendente, e mostra qual.
@@ -74,6 +78,77 @@ qualquer item acima estiver pendente, e mostra qual.
 - o brief e os documentos ficam somente leitura.
 
 Reabrir exige motivo e volta a missão a `ativa`, com histórico.
+
+### 4. Críticas: quando a entrega não atende ao esperado
+
+Uma crítica registra que **o que foi entregue não corresponde ao esperado** e diz **como corrigir**.
+Ela é o caminho formal de "não aceito, e por quê", e nunca se perde: fica no dossiê da missão.
+
+**Quem pode criticar:**
+- o Marcelo, em qualquer momento;
+- os verificadores, ao conferir uma entrega ou um critério;
+- os revisores, ao revisar um documento;
+- o cliente, pelo "pedir ajuste" do portal (E.3), que entra como crítica de origem cliente.
+
+O executor nunca critica a própria entrega para encerrá-la.
+
+**O que toda crítica contém** (modelo em [modelos/CRITICA-DE-ENTREGA.md](modelos/CRITICA-DE-ENTREGA.md)):
+
+| Campo | Conteúdo |
+|---|---|
+| Sobre o quê | Tarefa, entrega, documento ou critério de aceite criticado |
+| Esperado | O que deveria ter sido entregue, citando o critério de aceite, o brief, o contrato do projeto ou a anotação que define a expectativa |
+| Entregue | O que de fato veio, com a evidência (commit, tela, arquivo, execução) |
+| Diferença | O que falta, o que está errado ou o que contraria o esperado |
+| Severidade | **bloqueia o aceite** (a missão não conclui com ela aberta) · **corrigir antes de concluir** · **melhoria futura** (vira item de uma próxima missão, não bloqueia) |
+| Correção sugerida | O que fazer para atender, de forma que um agente execute sem adivinhar |
+| Responsável sugerido | Normalmente o executor original; outro agente quando a causa é de outra área |
+| Como verificar a correção | O teste ou a evidência que vai provar que foi corrigido |
+
+**O que acontece quando a crítica é registrada:**
+1. O critério de aceite ligado volta de `comprovado` para `reprovado`, e a missão volta para `ativa`
+   se já estava em verificação.
+2. O orquestrador transforma a correção sugerida em **tarefa de correção**, ligada à crítica, à tarefa
+   original e ao critério. Ela é despachada com a crítica no contexto.
+3. A correção passa pelo mesmo caminho de qualquer entrega: `STATUS: DONE`, evidência e verificador
+   independente.
+4. **Quem criticou fecha a crítica** (ou o Marcelo): aceita a correção ou a reabre com novo comentário.
+   O executor não fecha crítica.
+5. Se a crítica pede algo **fora do escopo** combinado, ela vira **change request** (mudança de
+   escopo, com aprovação), e não tarefa de correção.
+
+**Estados da crítica:** `aberta` → `em correção` → `correção entregue` → `aceita` (fechada) ou
+`reaberta`; também `convertida em mudança de escopo` ou `adiada para próxima missão` (só para melhoria futura).
+
+**Aprendizado:** críticas repetidas do mesmo tipo (mesmo agente, mesma área, mesma causa) viram lição
+(G.7) e proposta de melhoria de skill, carta ou rotina.
+
+### 5. Dossiê de validação: o documento para validar o projeto na finalização
+
+Quando todos os critérios estão comprovados, a missão passa a `aguardando aceite` e o sistema gera o
+**dossiê de validação** (`docs/missions/<slug>/DOSSIE-DE-VALIDACAO.md`, registrado como Artefato).
+É sobre ele que o Marcelo valida e dá o aceite. Modelo em
+[modelos/DOSSIE-DE-VALIDACAO.md](modelos/DOSSIE-DE-VALIDACAO.md).
+
+O dossiê reúne, num lugar só:
+1. **Identificação:** missão, objetivo, período, orquestrador, papéis, linha de serviço, cliente (se houver).
+2. **Critérios de aceite × evidência:** cada critério, as tarefas que o cumpriram, a evidência que o
+   prova, quem verificou e quando.
+3. **Entregas:** tarefas concluídas, com executor, verificador e evidência.
+4. **Documentos:** cada documento obrigatório, a versão aprovada e quem aprovou.
+5. **Críticas e correções:** todas, abertas e fechadas, com o esperado, o entregue, a correção e o
+   resultado. Nenhuma crítica que bloqueie pode estar aberta.
+6. **Mudanças de escopo:** change requests aprovados e o que mudaram.
+7. **Prazo e custo:** previsto × realizado.
+8. **Riscos e pendências remanescentes:** o que fica para depois, com dono e destino (outra missão,
+   sustentação).
+9. **Lições:** o que funcionou e o que não funcionou.
+10. **Checklist de aceite:** os itens da seção 3, marcados, e o espaço para o aceite (ou a crítica) do
+    Marcelo.
+
+Se o Marcelo não aceitar, ele registra **críticas** no próprio dossiê, a missão volta para `ativa` e um
+novo dossiê é gerado na próxima vez que chegar a `aguardando aceite`. As versões anteriores ficam
+guardadas.
 
 ## Missão = projeto no Service Factory: o que os agentes conseguem hoje
 

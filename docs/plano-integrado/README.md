@@ -32,7 +32,7 @@
 | [01 — Diagnóstico e as três ondas](01-diagnostico-e-ondas.md) | O caminho está certo? Problemas de execução, as três ondas e as três decisões que bloqueiam o início |
 | [02 — Visão e princípios](02-visao-e-principios.md) | Objetivo, o caminho único de todo trabalho, "o agente opera, o Marcelo supervisiona", para que serve o Service Factory |
 | [03 — Service Factory](03-service-factory.md) | De Software Factory a Service Factory: linhas de serviço e a Fase S |
-| [04 — Missão](04-missao-pipeline-e-papeis.md) | **O essencial: quando começar, como validar a entrega, quando concluir**; missão como projeto, o pipeline Missão → Service Factory → Operação 24x7 → Atividades, papéis, brief, validação do plano e da documentação |
+| [04 — Missão](04-missao-pipeline-e-papeis.md) | **O essencial: quando começar, como validar a entrega, críticas com correção sugerida, dossiê de validação, quando concluir**; missão como projeto, o pipeline Missão → Service Factory → Operação 24x7 → Atividades, papéis, brief, validação do plano e da documentação |
 | [05 — Componentes e interligações](05-componentes-e-interligacoes.md) | Os sete sistemas, o inventário de todos os módulos com decisão, tipos de trabalho e o mapa de ligações |
 | [06 — Atividades dos Agentes](06-atividades-dos-agentes.md) | Acompanhar todas as rotinas e monitorar todos os agentes |
 | [07 — Fases de implementação](07-fases-de-implementacao.md) | **O planejamento único:** todas as fases e tarefas (0 revisão, V, P, R, B, I, D, Q, T, F, N, A, O, E, C, M) com dono, dependência e aceite, e a ordem |
@@ -40,6 +40,7 @@
 | [09 — Lacunas e decisões](09-lacunas-e-decisoes.md) | Lacunas encontradas nas revisões, riscos abertos e as decisões com os padrões adotados |
 | [10 — Área de teste e identidade](10-area-de-teste-e-identidade.md) | Ambiente de teste isolado da produção e o ForgeVault como identidade única dos agentes em todos os sistemas (Fases T e F) |
 | [11 — Navegador dos agentes](11-navegador-dos-agentes.md) | Sessões de navegador isoladas por agente e tarefa, modo teste (área de teste) e modo internet (coleta de dados, redes sociais), credenciais pelo ForgeVault, publicação com aprovação (Fase N) |
+| [Modelos](modelos/) | [Crítica de entrega](modelos/CRITICA-DE-ENTREGA.md) e [Dossiê de validação](modelos/DOSSIE-DE-VALIDACAO.md), usados na Missão |
 | [Roteiro de revisão crítica](revisao/ROTEIRO-DE-REVISAO.md) | Quem revisa cada camada, as perguntas, o formato do parecer e o processo, antes da implementação |
 | [Especificação da Missão](missao-especificacao.md) | Detalhe técnico da Missão (modelo, fluxo, autonomia, arquitetura dos sete sistemas) |
 

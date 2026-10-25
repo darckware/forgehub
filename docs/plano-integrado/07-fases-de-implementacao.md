@@ -309,6 +309,8 @@ C.0 e C.1 podem começar já, em paralelo à validação do Service Factory.
 | M.1j | **Canal da missão:** canal de coordenação criado com o projeto e os membros com suas funções (canais já suportam isso) | M.1e |
 | M.1k | **MCP por papel:** `get_my_mission_role`, minhas tarefas, o que espera minha verificação, o brief vigente | M.1e, M.1g |
 | M.1l | **Foundation:** registrar os papéis, a regra "aprovação da baseline autoriza as tarefas dela" e a validação de plano e documentação (pelo Athos) | M.1h, M.1i |
+| M.1m | **Críticas de entrega:** registro (Marcelo, verificador, revisor, cliente pelo portal) com esperado, entregue, diferença, severidade, correção sugerida e como verificar; reprova o critério ligado; gera tarefa de correção ligada; só o autor (ou o Marcelo) fecha; fora do escopo vira change request; repetidas viram lição (G.7) | M.1a, M.1e |
+| M.1n | **Dossiê de validação** gerado ao entrar em `aguardando aceite` (critérios × evidência, entregas, documentos, críticas e correções, mudanças de escopo, prazo e custo, pendências, lições, checklist); aceite ou crítica do Marcelo dados sobre ele; versões guardadas | M.1m, D.2 |
 | M.1d | **Painel da missão:** o pipeline com o estágio atual, os critérios e suas provas, a saúde, a linha do tempo (P.5), as anotações (P.3) e os agentes em atividade agora | M.1b, M.1c |
 | M.2 | Contexto da missão por destinatário, com testes de vazamento; promove itens para as camadas da Fase C | M.1, C.2 |
 | M.3 | Missão na Operação 24x7 e no Agent Activity | M.1, A.3, O.1 |
