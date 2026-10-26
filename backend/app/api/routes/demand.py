@@ -2120,6 +2120,10 @@ async def _finalize_dispatch(
     # see core/completion_report.py.
     if run_status == "completed":
         failure_reason = completion_failure_reason(parse_completion_status(reply_body))
+        if failure_reason is None and not historical:
+            from app.core.briefing_evidence import briefing_failure_reason
+
+            failure_reason = await briefing_failure_reason(db, locked, reply_body)
     else:
         failure_reason = f"The agent run ended as {run_status!r}."
     locked.dispatch_status = "failed" if failure_reason else "completed"
