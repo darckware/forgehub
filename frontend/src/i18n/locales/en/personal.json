@@ -6,11 +6,12 @@
     "agenda": "Agenda",
     "notes": "Notes",
     "demands": "Demands",
-    "contacts": "Contacts",
+    "contacts": "Personal contacts",
     "maia": "Maia",
     "suggestions": "Suggestions",
     "agentWork": "Agent tasks",
-    "location": "Daily summary"
+    "location": "Daily summary",
+    "groups": "WhatsApp groups"
   },
   "fields": {
     "date": "Date",
@@ -422,5 +423,32 @@
     "empty": "No summary recorded in this period.",
     "locationUsed": "Location: {{place}}",
     "noLocation": "No GPS location"
+  },
+  "groups": {
+    "description": "Groups monitored by Maia. Captures preserve the group, requester and source message.",
+    "sync": "Register monitored groups",
+    "syncError": "Could not register the monitored groups. Try again.",
+    "loadError": "Could not read monitored groups. The registry has not changed.",
+    "retry": "Try again",
+    "loading": "Loading captures…",
+    "captureError": "Could not read this group's captures.",
+    "noCaptures": "No captures registered for this group.",
+    "more": "Load more",
+    "search": "Search groups",
+    "noResults": "No groups match the search.",
+    "empty": "No monitored groups registered. Maia can register a monitored group, or you can use the button above.",
+    "pending": "{{count}} pending capture(s)",
+    "accepted": "{{count}} accepted capture(s)",
+    "monitored": "Monitored",
+    "lastSeen": "Last observed activity",
+    "select": "Select a group to see its captures and demand origins.",
+    "origin": "Source group",
+    "unknown": "Unidentified group"
+  },
+  "origins": {
+    "contact": "Personal contact",
+    "requester": "Requester",
+    "unknownAuthor": "Author not identified",
+    "messageDate": "Message date"
   }
 }

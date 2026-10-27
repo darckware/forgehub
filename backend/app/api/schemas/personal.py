@@ -238,8 +238,22 @@ class PersonalDemandUpdate(BaseModel):
         return _choice(v, PERSONAL_DEMAND_STATUSES, "status")
 
 
+class PersonalDemandOrigin(BaseModel):
+    kind: str
+    contact_id: uuid.UUID | None = None
+    contact_name: str = ''
+    group_id: uuid.UUID | None = None
+    group_name: str = ''
+    author: str = ''
+    author_id: str | None = None
+    message_ref: str | None = None
+    message_id: uuid.UUID | None = None
+    captured_at: datetime | None = None
+
+
 class PersonalDemandOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+    origin: PersonalDemandOrigin | None = None
 
     id: uuid.UUID
     title: str

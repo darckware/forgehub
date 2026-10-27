@@ -103,3 +103,29 @@ def test_external_runtimes_ignore_forgerouter_credential(monkeypatch, tmp_path, 
     for key in ("FORGEROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
         assert key not in env
     assert "fr-secret" not in env.values()
+
+@pytest.mark.parametrize('mode,expected_sandbox',[('plan','read-only'),('execute','workspace-write')])
+def test_codex_exec_accepts_explicit_workspace_without_git_without_broadening_permissions(tmp_path,monkeypatch,mode,expected_sandbox):
+    monkeypatch.setenv('FORGEHUB_BRIDGE_TOKEN','test-token')
+    monkeypatch.setenv('FORGEHUB_RUN_STATE_DIR',str(tmp_path/'run-state'))
+    bridge_app=importlib.import_module('app')
+    monkeypatch.setattr(bridge_app,'resolve_runtime_executable',lambda name,**kw:f'/bin/{name}')
+    request=bridge_app.AgentRunRequest(run_id='00000000-0000-4000-8000-000000000001',runtime_type='codex',project_path=str(tmp_path),prompt='Inspect the explicitly supplied workspace',mode=mode)
+    command,_=bridge_app._agent_run_command(request,tmp_path)
+    assert '--skip-git-repo-check' in command
+    assert command[command.index('--sandbox')+1]==expected_sandbox
+    assert command[command.index('-C')+1]==str(tmp_path)
+    assert '--dangerously-bypass-approvals-and-sandbox' not in command
+
+
+def test_codex_repository_keeps_git_check(tmp_path,monkeypatch):
+    monkeypatch.setenv('FORGEHUB_BRIDGE_TOKEN','test-token')
+    bridge_app=importlib.import_module('app')
+    monkeypatch.setattr(bridge_app,'resolve_runtime_executable',lambda name,**kw:f'/bin/{name}')
+    (tmp_path/'.git').mkdir()
+    (tmp_path/'.git'/'HEAD').write_text('ref: refs/heads/main\n')
+    nested=tmp_path/'nested'
+    nested.mkdir()
+    request=bridge_app.AgentRunRequest(run_id='00000000-0000-4000-8000-000000000001',runtime_type='codex',project_path=str(nested),prompt='Inspect')
+    command,_=bridge_app._agent_run_command(request,nested)
+    assert '--skip-git-repo-check' not in command

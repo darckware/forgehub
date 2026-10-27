@@ -78,7 +78,12 @@ export interface PersonalDemandType {
 
 export type DemandStatus = "open" | "done";
 
+export interface PersonalDemandOrigin {
+ kind:'contact'|'group'; contact_id:string|null; contact_name:string; group_id:string|null; group_name:string;
+ author:string; author_id:string|null; message_ref:string|null; message_id:string|null; captured_at:string|null;
+}
 export interface PersonalDemand {
+  origin?: PersonalDemandOrigin | null;
   id: string;
   title: string;
   notes: string | null;

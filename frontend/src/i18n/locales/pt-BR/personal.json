@@ -6,11 +6,12 @@
     "agenda": "Agenda",
     "notes": "Anotações",
     "demands": "Demandas",
-    "contacts": "Contatos",
+    "contacts": "Contatos pessoais",
     "maia": "Maia",
     "suggestions": "Sugestões",
     "agentWork": "Tarefas dos agentes",
-    "location": "Resumo diário"
+    "location": "Resumo diário",
+    "groups": "Grupos do WhatsApp"
   },
   "fields": {
     "date": "Data",
@@ -422,5 +423,32 @@
     "empty": "Nenhum resumo registrado neste período.",
     "locationUsed": "Localização: {{place}}",
     "noLocation": "Sem localização GPS"
+  },
+  "groups": {
+    "description": "Grupos monitorados pela Maia. As capturas preservam o grupo, a pessoa que solicitou e a mensagem de origem.",
+    "sync": "Cadastrar grupos monitorados",
+    "syncError": "Não foi possível cadastrar os grupos monitorados. Tente novamente.",
+    "loadError": "Não foi possível consultar os grupos monitorados. O cadastro não foi alterado.",
+    "retry": "Tentar novamente",
+    "loading": "Carregando capturas…",
+    "captureError": "Não foi possível consultar as capturas deste grupo.",
+    "noCaptures": "Nenhuma captura registrada neste grupo.",
+    "more": "Carregar mais",
+    "search": "Buscar grupo",
+    "noResults": "Nenhum grupo corresponde à busca.",
+    "empty": "Nenhum grupo monitorado cadastrado. A Maia pode cadastrar um grupo monitorado, ou você pode usar o botão acima.",
+    "pending": "{{count}} captura(s) pendente(s)",
+    "accepted": "{{count}} captura(s) aprovada(s)",
+    "monitored": "Monitorado",
+    "lastSeen": "Última atividade observada",
+    "select": "Selecione um grupo para consultar suas capturas e a origem das demandas.",
+    "origin": "Grupo de origem",
+    "unknown": "Grupo não identificado"
+  },
+  "origins": {
+    "contact": "Contato pessoal",
+    "requester": "Solicitante",
+    "unknownAuthor": "Autor não identificado",
+    "messageDate": "Data da mensagem"
   }
 }

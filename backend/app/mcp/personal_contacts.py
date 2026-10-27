@@ -148,6 +148,7 @@ def get_contact(telefone: str, ultimos: int = 20) -> dict[str, Any]:
         **_contato(c),
         "quem_e": c["who_is"], "como_tratar": c["how_to_treat"], "outros_dados": c["other_data"],
         "historico_recente": [_linha_historico(m) for m in reversed(mensagens)],
+        "mensagens": [{"id":m["id"],"quando":m["at"],"autor":m["author"],"texto":m["text"]} for m in reversed(mensagens)],
     }
 
 
@@ -312,7 +313,12 @@ def list_suggestions(telefone: str = "") -> list[dict[str, Any]]:
     itens = _call("GET", "/suggestions", query={"status": "pending",
                                                   "contact_phone": _tel_completo(telefone) if telefone else None})
     return [{"id": s["id"], "tipo": _TIPOS_PT.get(s["kind"], s["kind"]), "titulo": s["title"], "detalhes": s["details"],
-             "contato": s["contact_name"] or formata_tel(s["contact_phone"]), "telefone": formata_tel(s["contact_phone"])}
+             "contato": s.get("contact_name") or (formata_tel(s["contact_phone"]) if s.get("contact_phone") else ''),
+             "telefone": formata_tel(s["contact_phone"]) if s.get("contact_phone") else '',
+             "origem": 'grupo' if s.get('source_kind') == 'group' else 'contato',
+             "grupo": s.get('group_name') or '', "grupo_id": s.get('group_id'),
+             "autor": s.get('source_author') or s.get('source_author_id') or s.get('contact_name') or '',
+             "mensagem_ref": s.get('source_message_ref'), "mensagem_id": s.get('message_id')}
             for s in itens]
 
 
@@ -343,7 +349,15 @@ def _register_sibling(mcp, nome: str) -> None:
     spec = importlib.util.spec_from_file_location(nome, Path(__file__).with_name(f"{nome}.py"))
     modulo = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modulo)
-    modulo.register(mcp)
+    if nome == 'personal_groups':
+        def group_api(method, path, body=None):
+            try:
+                return _call(method, path, body)
+            except PersonalContactsError as exc:
+                raise modulo.GroupError(str(exc)) from exc
+        modulo.register(mcp, api_call=group_api)
+    else:
+        modulo.register(mcp)
 
 
 def _safe(fn, *args, chave: str | None = None, **kwargs) -> dict[str, Any]:
@@ -461,7 +475,7 @@ def register(mcp) -> bool:
 
     @mcp.tool()
     async def personal_capture_suggestions(telefone: str = "") -> dict[str, Any]:
-        """Demandas, tarefas e anotações que você identificou nas mensagens dos contatos e que ainda
+        """Demandas, tarefas e anotações identificadas nas mensagens dos contatos OU grupos monitorados e que ainda
         esperam a decisão do Marcelo (todas, ou só as de um telefone). São só propostas: nada vira
         item da lista dele sem que ele aceite."""
         try:

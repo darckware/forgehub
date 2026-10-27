@@ -22,6 +22,7 @@ import {
   Tag,
   Trash2,
   User,
+  UsersRound,
   X,
 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
@@ -45,6 +46,7 @@ import {
   type TaskGroupKey,
 } from "@/hooks/usePersonalViewModel";
 import { cn } from "@/lib/utils";
+import { WhatsAppGroupsTab } from "./WhatsAppGroupsTab";
 import { ContactsTab } from "./ContactsTab";
 import { SuggestionsTab } from "./SuggestionsTab";
 import { MaiaTab } from "./MaiaTab";
@@ -78,13 +80,14 @@ export default function PersonalPage() {
     <div className="flex flex-col gap-4">
       <PageHeader title={t("title")} description={t("description")} icon={<User className="h-6 w-6" />} />
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
+        <TabsList className="max-w-full overflow-x-auto">
           <TabsTrigger value="agent-work"><Bot className="mr-1.5 h-4 w-4" />{t("tabs.agentWork")}</TabsTrigger>
           <TabsTrigger value="tasks"><ListTodo className="mr-1.5 h-4 w-4" />{t("tabs.tasks")}</TabsTrigger>
           <TabsTrigger value="agenda"><CalendarDays className="mr-1.5 h-4 w-4" />{t("tabs.agenda")}</TabsTrigger>
           <TabsTrigger value="notes"><NotebookPen className="mr-1.5 h-4 w-4" />{t("tabs.notes")}</TabsTrigger>
           <TabsTrigger value="demands"><ClipboardList className="mr-1.5 h-4 w-4" />{t("tabs.demands")}</TabsTrigger>
           <TabsTrigger value="contacts"><Contact className="mr-1.5 h-4 w-4" />{t("tabs.contacts")}</TabsTrigger>
+          <TabsTrigger value="groups"><UsersRound className="mr-1.5 h-4 w-4" />{t("tabs.groups")}</TabsTrigger>
           <TabsTrigger value="maia"><Bot className="mr-1.5 h-4 w-4" />{t("tabs.maia")}</TabsTrigger>
           <TabsTrigger value="suggestions"><Lightbulb className="mr-1.5 h-4 w-4" />{t("tabs.suggestions")}</TabsTrigger>
           <TabsTrigger value="location"><MapPin className="mr-1.5 h-4 w-4" />{t("tabs.location")}</TabsTrigger>
@@ -95,6 +98,7 @@ export default function PersonalPage() {
         <TabsContent value="notes"><NotesTab onDelete={del.ask} /></TabsContent>
         <TabsContent value="demands"><DemandsTab /></TabsContent>
         <TabsContent value="contacts"><ContactsTab /></TabsContent>
+        <TabsContent value="groups"><WhatsAppGroupsTab /></TabsContent>
         <TabsContent value="maia"><MaiaTab /></TabsContent>
         <TabsContent value="suggestions"><SuggestionsTab /></TabsContent>
         <TabsContent value="location"><LocationTab /></TabsContent>
@@ -237,7 +241,7 @@ function TasksTab({ onDelete }: { onDelete: (t: DeleteTarget) => void }) {
 /** Demands grouped by type (2026-10-14, Marcelo: "uma aba de demandas que posso adicionar e
  * agrupar por tipo. Os tipo posso cadastrar e remover dentro da própria tela, ela se torna um tag"). */
 function DemandsTab() {
-  const { t } = useTranslation("personal");
+  const { t, i18n } = useTranslation("personal");
   const vm = usePersonalDemandsViewModel();
   const target = vm.deleteTarget;
 
@@ -392,6 +396,11 @@ function DemandsTab() {
                       )}
                       {demand.created_by !== "marcelo" && <span>{t("byAgent", { agent: demand.created_by })}</span>}
                     </div>
+                    {demand.origin && <div className="mt-2 space-y-1 rounded-md bg-muted/50 px-3 py-2 text-xs">
+                      <p className="break-words"><span className="font-medium">{t(demand.origin.kind === 'group' ? 'groups.origin' : 'origins.contact')}:</span> {demand.origin.kind === 'group' ? demand.origin.group_name : demand.origin.contact_name}</p>
+                      <p className="break-words"><span className="font-medium">{t('origins.requester')}:</span> {demand.origin.author || demand.origin.author_id || t('origins.unknownAuthor')}</p>
+                      {demand.origin.captured_at && <p className="text-muted-foreground">{t('origins.messageDate')}: {new Date(demand.origin.captured_at).toLocaleString(i18n.language)}</p>}
+                    </div>}
                     {demand.notes && <p className="mt-1 whitespace-pre-wrap break-words text-xs text-muted-foreground">{demand.notes}</p>}
                   </div>
                   <select

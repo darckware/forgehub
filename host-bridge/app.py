@@ -1343,6 +1343,9 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
                 resolve_runtime_executable("codex"),
                 "exec",
                 "--json",
+                # Explicit filesystem workspaces are valid for Messages too.
+                # This does not change sandbox/approval settings or trust config.
+                *([] if any((parent / ".git").is_file() or (parent / ".git" / "HEAD").is_file() for parent in (project_dir.resolve(), *project_dir.resolve().parents)) else ["--skip-git-repo-check"]),
                 "--sandbox",
                 "read-only" if req.mode == "plan" else "workspace-write",
                 "-C",

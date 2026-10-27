@@ -104,3 +104,8 @@ The dashboard uses the established shared tokens and Card primitives. At widths 
 Represent source availability and collection time explicitly. A failed refresh may retain old data only with a stale indicator. Missing data is never a zero, an offline host or a healthy service. Tailscale presence, active traffic, process state and healthchecks remain separate signals. Technical names are original data; interface text exists in pt-BR, en and es.
 
 The operational monitoring contract is docs/superpowers/specs/2026-10-26-server-monitoring-dashboard-design.md. No dashboard control kills processes, blocks connections or restarts services.
+
+
+## Pessoal: origens de demandas (2026-10-27)
+
+Preserve the existing theme and tab ids. Use separate “Contatos pessoais” and “Grupos do WhatsApp” tabs, with a horizontally scrollable tab strip on narrow screens. Only monitored WhatsApp groups may be registered. Missing monitoring data is an explicit unavailable state, never an empty registry. Suggestions and converted demands show the actual contact or group, requester, and message date. Registration and pending intake do not imply acceptance. Keep loading, empty, error, pending, and accepted states distinct; repeated acceptance yields the existing demand.
