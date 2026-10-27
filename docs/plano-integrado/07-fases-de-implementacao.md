@@ -363,7 +363,7 @@ sem criar a dependência circular M0.5 → C.0 → M0.5.
 | M.1d | **Painel da missão:** o pipeline com o estágio atual, os critérios e suas provas, a saúde, a linha do tempo (P.5), as anotações (P.3) e os agentes em atividade agora | Aramis | Porthus | M.1b, M.1c | Contrato, migration e testes positivos/negativos aprovados; evidência e documento da entrega |
 | M.2 | Contexto da missão por destinatário, com testes de vazamento; promove itens para as camadas da Fase C | Aramis | Porthus | M.1, C.2 | Contrato, migration e testes positivos/negativos aprovados; evidência e documento da entrega |
 | M.3 | Missão na Operação 24x7 e no Agent Activity | Aramis | Porthus | M.1, A.3, O.1 | Contrato, migration e testes positivos/negativos aprovados; evidência e documento da entrega |
-| M.4 | Autonomia M1 (coordenador propõe o plano) | Aramis | Porthus | M.2, O.4 | Contrato, migration e testes positivos/negativos aprovados; evidência e documento da entrega |
+| M.4 | Autonomia N1 (coordenador propõe o plano) | Aramis | Porthus | M.2, O.4, G.10, G.11b | Critérios N1 do 08 comprovados; nenhuma promoção por contagem de DONE sem aceite |
 
 
 ### Regra transversal — o sistema se documenta a cada fase

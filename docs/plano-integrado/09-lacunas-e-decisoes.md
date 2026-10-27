@@ -86,7 +86,7 @@ sua conclusão não aprova políticas/credenciais/deploy que cada tarefa ainda p
 13. **Papéis e validação (seção 1.6):** orquestrador, planejador, executores, verificadores e
     documentador nomeados na missão; aprovação da baseline do plano autoriza as tarefas dela;
     documentos-chave (brief, escopo, plano, resultado) aprovados por você.
-14. **Pipeline (seção 1.5):** a Missão como garantia de conclusão — só ela declara um serviço
+14. **Pipeline (seção 1.5):** a Missão como garantia de conclusão — em trabalho de missão, só o aceite da missão declara o conjunto
     concluído, com critérios de aceite comprovados um a um, saúde monitorada e aceite explícito.
 15. **M0:** abrir a primeira missão real C.0+C.1 após ferramentas, guards e convenção verificados; o plano integrado é projeto comum separado, não a primeira missão. Registro real em produção; ensaios mutantes depois de T.2+T.3.
 16. B.4: importar o estado atual dos produtos (pastas, documentos, pendências) antes de começar.
