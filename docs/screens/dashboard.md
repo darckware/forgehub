@@ -9,6 +9,10 @@ Landing screen of the app. It does not surface any ForgeHub domain data (no prod
 
 ## Components
 
+The dashboard uses independent-height card columns: one column on mobile and two from the `md` breakpoint. Cards stay together and follow their DOM reading order. No fixed card heights or empty grid-row cells are introduced.
+
+The discontinued "CLI ForgeRouter Global" card is no longer rendered or polled from this screen. This removal does not change global CLI configuration or routing.
+
 | File | Role |
 |---|---|
 | `frontend/src/pages/Dashboard.tsx` | Page shell; renders a 2-column grid (`md:grid-cols-2`) with the two cards below. No local state, no data fetching itself. |
