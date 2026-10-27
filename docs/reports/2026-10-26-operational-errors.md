@@ -45,3 +45,18 @@ Restore changed profile scripts from the private snapshot directory. Restore the
 ## Final follow-up
 
 Porthus completed complementary review #41580 and confirmed that the medium findings were resolved, without a new technical blocker. His preventive preflight recommendation was then implemented: unrecognized current/previous recovery slots, including broken symlinks, are rejected before creating staging or dumping. Three new regression cases reproduced the problem and passed after correction. Final isolated suite: 75 passed; changed-file Ruff and diff-check pass. The canonical backup worker matches the updated release copy. The proposed voice verifier remains inactive. Production still uses the prior backend image; the reviewed backend image is ready but has not been deployed.
+
+## Production publication after Marcelo's approval
+
+Marcelo reviewed the delivery and replied `aprovado`. The approved backend image `forgehub-backend:ops-683b74f` was published using the original production Compose plus `/root/.forgehub/releases/ops-683b74f/compose.override.yml`, targeting only `forgehub-backend`. The later commits change backup scripts, tests and documentation; backend code in the image remains the reviewed `683b74f`.
+
+Observed post-deploy evidence:
+- Container running and healthy, image `sha256:e0c2ebfd558894d503f66c9e3db270f6d7809a8e4cc63ff17fc86e70101fb945`.
+- `/health`: HTTP 200, `{"status":"ok"}`.
+- Telemetry without authentication: HTTP 401. Adjacent unapproved path with bridge token: HTTP 401.
+- Authenticated telemetry returns real memory and disk totals; CPU is explicitly unavailable.
+- All 53 enabled controls with recorded evidence matched the nested API result in MCP output (59 controls total). This validates projection, not that all controls pass.
+
+Rollback is preserved as image `forgehub-backend:rollback-before-ops-683b74f` and `/root/.forgehub/releases/ops-683b74f/rollback.override.yml`. Publication manifest: `/root/.forgehub/releases/ops-683b74f/release.json`.
+
+The backend publication gate is now satisfied. Earlier references to publication pending above describe the pre-release state. The external system backup is still not confirmed successful; local recovery copies remain available. Voice profiles and the canonical live voice verifier retain the reviewed configuration; the alternative voice proposal was not activated. The integrated planning review is documentation only, not an implementation release.
