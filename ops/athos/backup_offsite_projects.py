@@ -183,10 +183,18 @@ def backup_target(target: dict, env: dict) -> dict:
     target_stage = STAGE_ROOT / name
     target_stage.mkdir(parents=True, mode=0o700, exist_ok=True)
     target_stage.chmod(0o700)
-    # Keep failed attempts intact until a replacement snapshot is confirmed.
-    stage = Path(tempfile.mkdtemp(prefix='pending-', dir=target_stage))
     current = target_stage / 'current'
     previous = target_stage / 'previous'
+
+    def validate_recovery_slots() -> None:
+        for managed in (current, previous):
+            if managed.is_symlink() or (managed.exists() and not (managed / 'COMPLETE').is_file()):
+                raise RuntimeError(f'unrecognized recovery directory: {managed}; refusing replacement')
+
+    # A persistent blocked slot must not generate another retained dump on
+    # every retry. Check before allocating staging, then recheck on promotion.
+    validate_recovery_slots()
+    stage = Path(tempfile.mkdtemp(prefix='pending-', dir=target_stage))
     staging_complete = False
     sources = list(target["paths"])
     snapshot_saved = False
@@ -204,9 +212,7 @@ def backup_target(target: dict, env: dict) -> dict:
         # Publish only a fully staged replacement. The restic source path is
         # stable across runs; retain at most the current and previous complete
         # attempts. Never remove manually-created recovery directories.
-        for managed in (current, previous):
-            if managed.exists() and (managed.is_symlink() or not (managed / 'COMPLETE').is_file()):
-                raise RuntimeError(f'unrecognized recovery directory: {managed}; refusing replacement')
+        validate_recovery_slots()
         if previous.exists():
             shutil.rmtree(previous)
         if current.exists():

@@ -181,3 +181,26 @@ def test_success_preserves_manual_recovery_copies(monkeypatch, tmp_path):
         dict(message_type='summary', snapshot_id='12345678abcdef'))))
     worker.backup_target(target, {})
     assert (manual / 'foundation.sql').read_text() == 'manual backup'
+
+
+@pytest.mark.parametrize('kind', ['unmarked_directory', 'symlink', 'broken_symlink'])
+def test_backup_blocks_unrecognized_recovery_slot_before_dump(monkeypatch, tmp_path, kind):
+    worker, target, stage = setup_backup_worker(monkeypatch, tmp_path)
+    stage.mkdir()
+    slot = stage / 'current'
+    if kind == 'unmarked_directory':
+        slot.mkdir()
+    else:
+        outside = tmp_path / 'outside'
+        if kind == 'symlink':
+            outside.mkdir()
+        slot.symlink_to(outside, target_is_directory=True)
+    dumps = []
+    monkeypatch.setattr(worker, 'dump_postgres', lambda *args: dumps.append(args))
+    def unexpected_upload(*args, **kwargs):
+        raise AssertionError('A blocked recovery slot must never reach an upload')
+    monkeypatch.setattr(worker, 'run', unexpected_upload)
+    with pytest.raises(RuntimeError, match='unrecognized recovery directory'):
+        worker.backup_target(target, {})
+    assert dumps == []
+    assert not list(stage.glob('pending-*'))

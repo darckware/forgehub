@@ -16,7 +16,7 @@ Authorized request: Marcelo, "corrigir os erros". Scope: the findings from the p
 
 ## Validation
 
-The isolated release is based on `5714bf6`, without unrelated SSH/UI work. A separate database `forgehub_ops_verify_20261025` was created with a schema-only clone; no production records were copied. Current focused suite: **72 passed**, including the two previously excluded database tests. `--noconftest` avoids production-cleanup fixtures. Changed-file Ruff and `git diff --check` pass.
+The isolated release is based on `5714bf6`, without unrelated SSH/UI work. A separate database `forgehub_ops_verify_20261025` was created with a schema-only clone; no production records were copied. Current focused suite: **75 passed**, including the two previously excluded database tests. `--noconftest` avoids production-cleanup fixtures. Changed-file Ruff and `git diff --check` pass.
 
 Command (using the existing interpreter; the database name is mandatory):
 
@@ -41,3 +41,7 @@ The profile-owned scripts are versioned as release copies in `ops/athos/`; their
 ## Rollback
 
 Restore changed profile scripts from the private snapshot directory. Restore the backup target's exact `old_paths` only if the removed path is intentionally recreated. Restore the previous Llamafile launcher before a controlled service restart if required. ForgeHub rollback uses the previous backend image; do not release unrelated working-tree changes.
+
+## Final follow-up
+
+Porthus completed complementary review #41580 and confirmed that the medium findings were resolved, without a new technical blocker. His preventive preflight recommendation was then implemented: unrecognized current/previous recovery slots, including broken symlinks, are rejected before creating staging or dumping. Three new regression cases reproduced the problem and passed after correction. Final isolated suite: 75 passed; changed-file Ruff and diff-check pass. The canonical backup worker matches the updated release copy. The proposed voice verifier remains inactive. Production still uses the prior backend image; the reviewed backend image is ready but has not been deployed.
