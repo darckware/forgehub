@@ -95,3 +95,12 @@ Use the established `--radius` family. Avatars are circular because they represe
 - Don't restore the previous wall of nested cards.
 - Don't hide archived roles or test residue by name-only frontend filters; roster eligibility belongs to the backend/Foundation contract.
 - Don't delete historical operational data implicitly when an agent is removed.
+
+
+## Live monitoring dashboard
+
+The dashboard uses the established shared tokens and Card primitives. At widths below 768px, show one column; above, use two independent-height columns with 16/24px gaps. Keep wide data inside keyboard-focusable scrolling table regions. Summaries remain visible while extended socket, disk and container details use native disclosure.
+
+Represent source availability and collection time explicitly. A failed refresh may retain old data only with a stale indicator. Missing data is never a zero, an offline host or a healthy service. Tailscale presence, active traffic, process state and healthchecks remain separate signals. Technical names are original data; interface text exists in pt-BR, en and es.
+
+The operational monitoring contract is docs/superpowers/specs/2026-10-26-server-monitoring-dashboard-design.md. No dashboard control kills processes, blocks connections or restarts services.

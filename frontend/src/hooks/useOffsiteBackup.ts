@@ -133,13 +133,15 @@ export function slugifyTargetName(label: string): string {
 
 const OVERVIEW_KEY = ["offsite-backup", "overview"];
 
-export function useOffsiteBackupOverview() {
+export function useOffsiteBackupOverview({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery<OffsiteBackupOverview>({
     queryKey: OVERVIEW_KEY,
+    enabled,
+    refetchIntervalInBackground: false,
     queryFn: () => apiClient.get("/api/v1/offsite-backup/overview"),
     retry: false,
     // While a backup runs, each target's row changes as the worker reports.
-    refetchInterval: (query) => (query.state.data?.running || query.state.data?.queued ? 10_000 : 60_000),
+    refetchInterval: (query) => document.visibilityState === "visible" ? (query.state.data?.running || query.state.data?.queued ? 10_000 : 60_000) : false,
   });
 }
 

@@ -65,6 +65,7 @@ from remote_fs import make_remote_fs_router
 from host_exec import AgentCache, make_host_exec_router
 from forgevault_proxy import VaultClient, make_forgevault_router
 from hindsight_retention import read_status as read_hindsight_retention_status
+from server_monitoring import collector as monitoring_collector
 
 BRIDGE_TOKEN = os.environ["FORGEHUB_BRIDGE_TOKEN"]
 HERMES_PYTHON = "/usr/local/lib/hermes-agent/venv/bin/python"
@@ -5929,3 +5930,9 @@ async def clear_hindsight_log(
         return {"success": True, "path": str(path), "cleared": False, "note": "File did not exist"}
     path.write_text("", encoding="utf-8")
     return {"success": True, "path": str(path), "cleared": True}
+
+
+@app.get("/v1/server-monitoring")
+async def get_server_monitoring(x_bridge_token: str | None = Header(default=None)):
+    _check_token(x_bridge_token)
+    return await asyncio.to_thread(monitoring_collector.collect)
