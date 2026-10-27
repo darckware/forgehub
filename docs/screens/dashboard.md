@@ -15,9 +15,10 @@ The discontinued "CLI ForgeRouter Global" card is no longer rendered or polled f
 
 | File | Role |
 |---|---|
-| `frontend/src/pages/Dashboard.tsx` | Page shell; renders a 2-column grid (`md:grid-cols-2`) with the two cards below. No local state, no data fetching itself. |
-| `frontend/src/components/ToolVersionsCard.tsx` | Card listing installed/latest versions of 4 monitored CLIs (Hermes, Claude Code, Codex, Antigravity), with manual "check now", per-tool "Update", and an automatic-sync on/off toggle. |
+| `frontend/src/pages/Dashboard.tsx` | Page shell; renders independent-height card columns (`columns-1 md:columns-2`). No local state or data fetching itself. |
+| `frontend/src/components/ToolVersionsCard.tsx` | Card listing installed/latest versions of monitored CLIs, with manual "check now", per-tool "Update", and an automatic-sync on/off toggle. |
 | `frontend/src/components/SystemStatsCard.tsx` | Card showing host memory and disk usage (progress bars) and network interface RX/TX byte counters. Read-only, auto-refreshing. |
+| `frontend/src/components/CronsCard.tsx` | Read-only scheduling overview with bounded list height and links to the Crons page. |
 | `frontend/src/components/ui/badge.tsx`, `frontend/src/components/ui/card.tsx`, `frontend/src/components/ui/button.tsx` | shadcn/ui primitives used for layout/status rendering. |
 
 ## Data & API Calls
