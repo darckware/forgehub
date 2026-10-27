@@ -19,7 +19,14 @@
 | Executores | <agentes> |
 | Verificadores | <agentes> |
 | Documentador | <agente> |
-| Brief | `docs/missions/<slug>/BRIEF.md`, versão <n> |
+| Brief | `docs/missions/<slug>/BRIEF.md`, versão <n> e hash <…> |
+| Critérios | versão e hash canônico <…> |
+| Baseline | id <…>, versão e hash canônico <…>; ids/hash das tarefas incluídas |
+| Aprovação da baseline | aprovador autenticado, data, evidência e escopo da aprovação |
+| Autoridade | pessoa ou id de AuthorityDelegation, ação, projeto, risco/limites e validade; nunca token/segredo |
+| Ambiente autorizado | ambiente por tarefa; destino de publicação quando aplicável |
+| Projetos vinculados | ids, produtos/versões e escopo das tarefas consideradas no aceite |
+| Independência | ids de executor(es), revisor(es) e terceiro da consolidação; autores/coautores não verificam a própria entrega |
 
 ## 2. Critérios de aceite × evidência
 
@@ -84,11 +91,13 @@ Críticas que bloqueiam o aceite ainda abertas: **<nenhuma / listar>**
 
 ## 11. Checklist de aceite
 
+- [ ] Baseline/brief/critérios/tarefas conferem com os ids/hashes aprovados
+- [ ] Autoridade/delegação e ambiente ainda válidos; autorrevisão recusada
 - [ ] Todos os critérios de aceite comprovados, com evidência citada
 - [ ] Todos os documentos obrigatórios aprovados
 - [ ] Nenhuma tarefa aberta (canceladas só com justificativa aprovada)
 - [ ] Consolidação do orquestrador organizada pelo documentador e verificada por terceiro independente de ambos
-- [ ] Aceite do cliente no portal (se houver cliente)
+- [ ] Aceite do cliente no portal por projeto executor vinculado quando houver entrega a cliente, mesmo que o coordenador seja interno
 - [ ] Nenhuma crítica que bloqueie o aceite aberta
 - [ ] Contexto mínimo, teste de não vazamento e conformidade aplicável comprovados
 - [ ] Dossiê completo

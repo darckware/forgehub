@@ -32,6 +32,15 @@ alterações exclusivamente documentais.
 
 ## Revisão cruzada 0.14
 
-Ainda não concluída nesta versão inicial. Serão registrados os pareceres reais de Porthus (técnico)
-e Athos (governança), incluindo os modelos e a matriz detalhada. Uma proposta escrita ou uma chamada
-de revisão enfileirada não conta como aprovação nem como implementação.
+- **Athos, mensagem #41585, concluída em 27/10/2026:** consolidação coerente como planejamento;
+  pediu explicitar os limites das aprovações, a passagem histórica de C.0/C.1 e campos de
+  baseline/hash/autoridade/ambiente/independência no dossiê. Ajustes aplicados em 04/09/12/modelo.
+- **Porthus, mensagem #41584:** parecer técnico em andamento; não declarar a rodada encerrada antes
+  de ler e tratar o resultado real.
+
+Delimitação da observação de Athos sobre ambiente antes de T.1/M0.SPEC: T.1 **cria** o isolamento e
+exige inventário de recurso antes de provisionar; M0.SPEC é leitura/escrita de contrato. Exigir alvo
+já criado antes de ambas inventaria um pré-requisito impossível e desnecessário. A pré-condição de
+T.2+T.3 é preservada para validações mutantes; backup/restore, identidades/delegação e contexto
+controlado são conferidos nos gates de publicação/despacho reais. Nenhuma dessas provas foi
+presumida concluída para autorizar execução nesta edição.

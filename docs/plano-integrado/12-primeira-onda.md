@@ -20,6 +20,22 @@ desenho F.1 nesta onda.
 [10](10-area-de-teste-e-identidade.md), revisão [CONSOLIDADO](revisao/CONSOLIDADO.md) e
 [decisões/limites](09-lacunas-e-decisoes.md).
 
+## Aprovações e pré-requisitos por etapa
+
+| Etapa | Situação e alcance |
+|---|---|
+| Consolidação documental atual | Autorizada por Marcelo; esta revisão e a matriz não executam o plano |
+| M0.SPEC e F.1 | Produzem especificações para revisão; a leitura/escrita documental não exige criar previamente um contêiner de teste |
+| T.1 e provisionamento | Exigem especificação própria, inventário de recurso e autorização de execução; T.1 cria o alvo isolado, não pressupõe que ele já exista |
+| Código/testes mutantes | T.2+T.3 e contratos da fatia antes de executar testes que alterem estado |
+| Baseline de execução / M0.5 | Conteúdo exato, ids/hashes, papéis, prazo, orçamento e contexto; esta aprovação não foi simulada nesta consolidação |
+| Foundation e skills | Publicação pelo dono canônico com backup/revisão/migração; nenhum arquivo imutável alterado aqui |
+| Produção | Gate manual aplicável na Onda 1 com backup/restore do escopo, rollback testado e autoridade válida; futura Q.5 automatiza o controle |
+
+Recursos e ambiente são pré-condições de provisionamento e validação mutante, não uma dependência
+impossível antes de escrever a especificação ou antes de a própria T.1 criar o ambiente. Prova de
+backup/restore é exigida antes da alteração de produção; não bloqueia análise documental isolada.
+
 ## Limites globais
 
 - Aramis/Codex implementa; Porthus/Claude Code revisa. Comparar identidades registradas; autor/coautor

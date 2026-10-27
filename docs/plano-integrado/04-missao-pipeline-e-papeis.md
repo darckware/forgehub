@@ -109,7 +109,7 @@ A missão só fica `concluída` quando:
 | 2 | Todos os documentos obrigatórios estão aprovados |
 | 3 | Nenhuma tarefa aberta (canceladas só com justificativa aprovada) |
 | 4 | Consolidação do orquestrador organizada pelo documentador e verificada por terceiro independente de ambos (B6) |
-| 5 | Aceite do cliente no portal, quando a missão é de cliente |
+| 5 | Aceite do cliente no portal para cada entrega a cliente dos projetos vinculados, mesmo com coordenador interno |
 | 6 | Nenhuma crítica aberta que bloqueie o aceite (seção 4) |
 | 7 | **Dossiê de validação** gerado e completo (seção 5) |
 | 8 | **Aceite do Marcelo** (ou de quem ele delegou para aquela missão), dado sobre o dossiê |

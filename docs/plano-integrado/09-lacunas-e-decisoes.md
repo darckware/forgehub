@@ -42,7 +42,7 @@ concreto, Aramis adota abaixo as recomendações existentes como **premissas rev
 Permissões de produção, gasto, publicação, Foundation e dados pessoais continuam com os gates próprios.
 Nenhuma identidade, produto, credencial, VM ou task foi criada por este registro.
 
-| Decisão | Tratamento na versão consolidada | Limite / confirmação na execução |
+| Premissa revisável (não aprovação individual) | Tratamento proposto nesta consolidação | Limite / confirmação na execução |
 |---|---|---|
 | D-1 | Aramis implementa; Porthus revisa código/telas/testes; Dartan pode revisar quando disponível | Revalidar cota e registro ao atribuir; nunca Porthus implementador e Claude Code revisor |
 | D-2 | C.0+C.1 é a primeira missão; plano integrado é projeto comum no Ecossistema Foundation | Abertura após M0.4; prazo, orçamento, papéis e baseline exata antes do despacho |
@@ -58,6 +58,8 @@ ForgeRouter → Atlas; ForgeVault → Aegis; Darckware → Kairos; Serviços de 
 Outros produtos recebem dono no inventário B.1, sem atribuição inventada. Não confundir dono do
 produto com executor de código ou aprovação de produção.
 
+## Histórico dos 17 temas (não é autorização imediata)
+
 Os 17 temas originais abaixo continuam referências de escopo; prevalecem 04/07/08/10/12 e as decisões
 acima quando os textos históricos se repetirem. A revisão cruzada desta edição é o gate 0.14;
 sua conclusão não aprova políticas/credenciais/deploy que cada tarefa ainda precisará apresentar.
@@ -72,8 +74,8 @@ sua conclusão não aprova políticas/credenciais/deploy que cada tarefa ainda p
    projeto por cliente com uma fase por ticket.
 5. Horas: lançar no Darckware na conclusão da tarefa (recomendado) ou só manualmente.
 6. A.1/A.2 seguem T.2+T.3; M.0 documental pode avançar conforme 07, sem iniciar execução mutante antes do isolamento.
-7. As decisões da spec da Missão (coordenador, quem cria, dono da documentação).
-8. Fase C: aprovar que C.0 (linha de base) e C.1 (política na Foundation, pelo Athos) comecem já, e
+7. As decisões da spec da Missão (coordenador, quem cria, dono da documentação) são substituídas pelo contrato do 04; não reabrir a lista histórica.
+8. Fase C: a indicação antiga de começar C.0/C.1 imediatamente está **superada**: ambas são executadas após a abertura M0.5; antes disso apenas preparação de leitura, e
    que C.2 (isolamento do `knowledge_cycle.py`) seja feito pelo Aramis, com revisão Porthus e validação de Mnemosyne, em modo observação primeiro.
 9. Fase P: anotações em todos os níveis do Service Factory, herdadas no despacho das tarefas, e o MCP
    completo para os agentes operarem o módulo sem a tela.

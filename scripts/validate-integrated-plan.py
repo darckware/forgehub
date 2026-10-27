@@ -38,6 +38,11 @@ assert set(source)==set(tasks)
 for tid,c in source.items():
  if tid!='0.14':assert [x.strip() for x in c[4].split(',') if x.strip()!='—']==tasks[tid]['depends_on'],tid
  assert c[5]==tasks[tid]['acceptance'],tid
+ aliases={'Aramis':'aramis','Porthus':'porthus','Dartan':'dartan','Athos':'athos','Atlas':'atlas','Aegis':'aegis','Daedalus':'daedalus','Hephaestus':'hephaestus','Mnemosyne':'mnemosyne','Scriba':'scriba','Themis':'themis','Kairos':'kairos'}
+ def first_slug(text):
+  return min((text.index(name),slug) for name,slug in aliases.items() if name in text)[1]
+ assert first_slug(c[2])==tasks[tid]['executor_agent_slug'],tid
+ assert first_slug(c[3])==tasks[tid]['reviewer_agent_slug'],tid
 # Relative document links, including the generated review artifact.
 errors=[]
 for file in root.rglob('*.md'):
