@@ -450,7 +450,9 @@ async def list_suggestions(
 
 
 async def _pending_suggestion(db: AsyncSession, suggestion_id: uuid.UUID) -> PersonalCaptureSuggestion:
-    suggestion = await db.get(PersonalCaptureSuggestion, suggestion_id)
+    suggestion = (await db.execute(select(PersonalCaptureSuggestion).where(
+        PersonalCaptureSuggestion.id == suggestion_id
+    ).with_for_update())).scalar_one_or_none()
     if suggestion is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Sugestão não encontrada")
     if suggestion.status != "pending":
@@ -470,7 +472,7 @@ async def accept_suggestion(suggestion_id: uuid.UUID, payload: SuggestionAccept,
     if suggestion.status == 'accepted':
         changes = payload.model_dump(exclude_none=True)
         for field in ('kind', 'title', 'details'):
-            if field in changes and changes[field] != getattr(suggestion, field):
+            if field in changes and changes[field].strip() != getattr(suggestion, field):
                 raise HTTPException(409, 'Esta sugestão já foi aceita com outro conteúdo')
         if payload.type_id is not None and suggestion.kind == 'demand':
             previous = await db.get(PersonalDemand, suggestion.created_item_id)
@@ -522,6 +524,9 @@ async def dismiss_suggestion(suggestion_id: uuid.UUID, actor: str = Depends(pers
     suggestion = await _pending_suggestion(db, suggestion_id)
     suggestion.status = "dismissed"
     suggestion.decided_at = datetime.now(timezone.utc)
+    capture_audit(db, "personal_capture_suggestion", suggestion.id, "dismissed", actor,
+                  {"group_id": str(suggestion.group_id) if suggestion.group_id else None,
+                   "contact_id": str(suggestion.contact_id) if suggestion.contact_id else None})
     await db.commit()
     await db.refresh(suggestion)
     return SuggestionOut.model_validate(suggestion)

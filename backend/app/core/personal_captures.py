@@ -68,7 +68,7 @@ async def capture_group(db: AsyncSession, payload, actor: str):
                   source_author_id=str(record.get('autor_id') or '')[:160] or None, source_at=source_time(record.get('ts')))
     new_id = (await db.execute(insert(PersonalCaptureSuggestion).values(**values).on_conflict_do_nothing(index_elements=['capture_key']).returning(PersonalCaptureSuggestion.id))).scalar_one_or_none()
     suggestion = (await db.execute(select(PersonalCaptureSuggestion).where(PersonalCaptureSuggestion.capture_key == capture_key))).scalar_one()
-    if suggestion.title != payload.title or suggestion.details != payload.details:
+    if suggestion.status == 'pending' and (suggestion.title != payload.title or suggestion.details != payload.details):
         raise HTTPException(409, 'Esta mensagem/item já tem uma sugestão com conteúdo diferente; reutilize o UUID existente ou identifique outro item da mesma mensagem.')
     if new_id:
         audit(db, 'personal_capture_suggestion', suggestion.id, 'captured', actor, {'group_id': str(group.id), 'message_ref': payload.message_ref, 'kind': payload.kind})

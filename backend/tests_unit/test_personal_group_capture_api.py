@@ -76,6 +76,8 @@ async def test_accept_retry_concurrency_creates_one_demand_with_structured_origi
     body={'whatsapp_id':CHAT,'message_ref':message_reference(CHAT,record),'title':'Demanda fictícia','details':'Detalhes fictícios'}
     captured=(await client.post(BASE+'/groups/captures',json=body)).json()
     suggestion_id=captured['id']
+    conflicting=await client.post(BASE+'/groups/captures',json={**body,'title':'Outro título'})
+    assert conflicting.status_code==409
     responses=await asyncio.gather(*[client.post(BASE+f'/suggestions/{suggestion_id}:accept',json={}) for _ in range(3)])
     assert all(r.status_code==200 for r in responses),[r.text for r in responses]
     ids={r.json()['created_item_id'] for r in responses};assert len(ids)==1
@@ -87,8 +89,60 @@ async def test_accept_retry_concurrency_creates_one_demand_with_structured_origi
         audits=list((await db.execute(select(AuditEvent).where(AuditEvent.entity_id==uuid.UUID(suggestion_id)))).scalars())
         assert [e.event_type for e in audits].count('accepted')==1
         assert all('Pedido fictício' not in json.dumps(e.payload) for e in audits)
-    conflicting=await client.post(BASE+'/groups/captures',json={**body,'title':'Outro título'})
-    assert conflicting.status_code==409
+
+@pytest.mark.asyncio
+async def test_capture_retry_after_edited_accept_returns_original_uuid(context):
+    client, _, _, record, _ = context
+    body = {'whatsapp_id': CHAT, 'message_ref': message_reference(CHAT, record), 'title': 'Original'}
+    captured = (await client.post(BASE+'/groups/captures', json=body)).json()
+    accepted = await client.post(BASE+f"/suggestions/{captured['id']}:accept", json={'title': 'Corrigido'})
+    assert accepted.status_code == 200
+    retried = await client.post(BASE+'/groups/captures', json=body)
+    assert retried.status_code == 201, retried.text
+    assert retried.json()['id'] == captured['id']
+    assert len((await client.get(BASE+'/demands')).json()) == 1
+
+@pytest.mark.asyncio
+async def test_accept_retry_normalizes_whitespace(context):
+    client, _, _, record, _ = context
+    captured = (await client.post(BASE+'/groups/captures', json={
+        'whatsapp_id': CHAT, 'message_ref': message_reference(CHAT, record), 'title': 'Original'
+    })).json()
+    payload = {'title': ' Corrigido ', 'details': ' Detalhes '}
+    first = await client.post(BASE+f"/suggestions/{captured['id']}:accept", json=payload)
+    retried = await client.post(BASE+f"/suggestions/{captured['id']}:accept", json=payload)
+    assert first.status_code == retried.status_code == 200, retried.text
+    assert first.json()['created_item_id'] == retried.json()['created_item_id']
+
+@pytest.mark.asyncio
+async def test_dismiss_waits_for_accept_decision_and_audits_discard(context):
+    from app.api.routes.personal_contacts import dismiss_suggestion
+    from fastapi import HTTPException
+    client, sessions, _, record, _ = context
+    body = {'whatsapp_id': CHAT, 'message_ref': message_reference(CHAT, record), 'title': 'Original'}
+    captured = (await client.post(BASE+'/groups/captures', json=body)).json()
+    sid = uuid.UUID(captured['id'])
+    async with sessions() as owner, sessions() as contender:
+        suggestion = (await owner.execute(select(PersonalCaptureSuggestion).where(PersonalCaptureSuggestion.id == sid).with_for_update())).scalar_one()
+        pending = asyncio.create_task(dismiss_suggestion(sid, 'fixture-owner', contender))
+        await asyncio.sleep(0.1)
+        waited = not pending.done()
+        suggestion.status = 'accepted'
+        await owner.commit()
+        try:
+            await pending
+            rejected = False
+        except HTTPException as exc:
+            rejected = exc.status_code == 409
+        await contender.rollback()
+    assert waited, 'Discard must wait for the competing acceptance transaction'
+    assert rejected, 'Discard must preserve a committed acceptance'
+    captured = (await client.post(BASE+'/groups/captures', json={**body, 'item_key': 'discard'})).json()
+    response = await client.post(BASE+f"/suggestions/{captured['id']}:dismiss")
+    assert response.status_code == 200, response.text
+    async with sessions() as db:
+        events = (await db.execute(select(AuditEvent).where(AuditEvent.entity_id == uuid.UUID(captured['id']), AuditEvent.event_type == 'dismissed'))).scalars().all()
+        assert len(events) == 1 and events[0].actor == 'marcelo'
 
 @pytest.mark.asyncio
 async def test_personal_groups_remain_private(context):
