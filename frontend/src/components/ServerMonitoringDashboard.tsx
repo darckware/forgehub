@@ -74,7 +74,7 @@ export function MonitoringPanels({snapshot: s, pending, failed, vpn, backups, do
         {table(['host','state','ip'], [...vpn.data.peers].sort((a,b) => Number(b.online)-Number(a.online)).map(p => [<div className="min-w-28"><p className="font-medium">{p.name || p.hostname || p.id}</p><p className="text-muted-foreground">{p.os || '—'} · {p.connection?.kind || '—'}{p.connection?.relay ? ` (${p.connection.relay})` : ''}</p><p className="text-muted-foreground">{label('lastSeen')}: {date(p.last_seen)}</p></div>, <div>{statusLabel(p.state)}{p.active && <p className="text-muted-foreground">{label('activeTraffic')}</p>}</div>, <span className="font-mono">{p.tailscale_ipv4 || '—'}</span>]))}
         {!!vpn.data.source_error && <p className="text-amber-600 dark:text-amber-400">{label('partial')}</p>}
       </> : <p className="text-muted-foreground">{vpn.isPending ? label('loading') : label('unavailable')}</p>}
-      <Link to="/servers" className="inline-block text-primary underline underline-offset-4">{label('machines')}</Link>
+      <Link to="/remote-access" className="inline-block text-primary underline underline-offset-4">{label('machines')}</Link>
     </>, <p className={`text-xs ${vpnStale ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}>{vpnStale && vpn.data ? label('stale') : vpnAvailable ? label('live') : label('unavailable')} · {date(timestampVpn)}</p>)}
 
     {panel('processes', <Activity className="h-5 w-5" />, <>

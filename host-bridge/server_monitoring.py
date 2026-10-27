@@ -50,7 +50,7 @@ class Rates:
     def sample(self, key, counters, at):
         previous = self.previous.get(key)
         self.previous[key] = (at, counters)
-        if not previous or at <= previous[0]:
+        if not previous or at <= previous[0] or at - previous[0] > 60:
             return [None] * len(counters)
         return [(value - old) / (at - previous[0]) if value >= old else None
                 for value, old in zip(counters, previous[1])]

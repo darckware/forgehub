@@ -94,3 +94,10 @@ def test_sessions_use_portable_who_without_dns_lookup(monkeypatch):
     assert access['sessions']['status'] == 'fresh'
     assert access['sessions']['data'][0]['source'] == '192.0.2.20'
     assert access['ssh_events']['status'] == 'unavailable'
+
+
+def test_old_samples_are_not_reported_as_live_rates():
+    rates = m.Rates()
+    rates.sample('net', [10, 20], 1)
+    assert rates.sample('net', [710, 1420], 71) == [None, None]
+    assert rates.sample('net', [730, 1460], 73) == [10, 20]

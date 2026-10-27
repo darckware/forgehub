@@ -16,3 +16,5 @@ Verification before release:
 Release strategy: versioned runtime images and isolated host bridge source with a WorkingDirectory override. Preserve unrelated dirty original checkout, SSH changes, original unit/token settings, databases and Hermes gateway. Record image IDs and final smoke results after publication.
 
 Limits: live view only; application login events lack structured source. Socket IPs do not identify users; traffic rates are per interface, not per remote IP. Directory totals cover the fixed allowlist, local Docker log sizes depend on log driver. Endpoint service health is unknown unless an existing container healthcheck reports it. Pre-existing bundle-size warnings remain outside this feature.
+
+Final Foundation review: Porthus approved message #41583 for publication, with no blocking Critical/Important issue. Recommended rate-window correction implemented and regression observed RED→GREEN: samples separated by over 60s return unknown until the next sample. Tailscale link goes directly to Remote Access. SSH event usernames are untrusted log metadata and restricted to admin.
