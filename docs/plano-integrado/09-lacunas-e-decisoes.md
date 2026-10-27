@@ -24,11 +24,11 @@
 - **Tamanho do plano.** São mais de 100 tarefas. Sem disciplina de uma tarefa pequena por vez, com
   `STATUS: DONE` e evidência, ele repete o que aconteceu com a Missão. O próprio plano vira o primeiro
   projeto do Service Factory e é acompanhado por ele.
-- ~~Backup externo sem snapshot~~ — corrigido: o backup externo roda com sucesso (38 execuções `ok`). Falta o teste de restauração (G.12).
+- **Recuperação ainda não comprovada por alvo:** há snapshots históricos, mas faltam cobertura/recência por destino crítico e restauração de amostra (G.12). Falha do sistema não é anulada por sucesso de outro projeto.
 - **Só 3 de 18 rotinas ligadas:** a Operação 24x7 só vigia de fato quando as rotinas da O.3 forem ligadas.
 - **Dependência do ForgeRouter** para a seleção de modelo (G.9), que está fora deste plano.
 
-## Decisões (padrões adotados; ver 0.2)
+## Decisões e limites de autorização — consolidação 27/10
 
 **Novas (área de teste e identidade, [10](10-area-de-teste-e-identidade.md)):**
 - Área de teste na Onda 1, com banco separado e integrações simuladas.
@@ -36,7 +36,31 @@
 - Por padrão, os agentes só recebem acesso ao ambiente de teste; a produção exige concessão por papel ou por missão.
 
 
-As recomendações abaixo valem como padrão revisável. Só as três de 0.2 bloqueiam o início.
+Marcelo aprovou nesta conversa incorporar as correções e fechar a primeira onda. Este registro não
+atribui a ele decisões operacionais que não foram apresentadas individualmente. Para tornar o plano
+concreto, Aramis adota abaixo as recomendações existentes como **premissas revisáveis de planejamento**.
+Permissões de produção, gasto, publicação, Foundation e dados pessoais continuam com os gates próprios.
+Nenhuma identidade, produto, credencial, VM ou task foi criada por este registro.
+
+| Decisão | Tratamento na versão consolidada | Limite / confirmação na execução |
+|---|---|---|
+| D-1 | Aramis implementa; Porthus revisa código/telas/testes; Dartan pode revisar quando disponível | Revalidar cota e registro ao atribuir; nunca Porthus implementador e Claude Code revisor |
+| D-2 | C.0+C.1 é a primeira missão; plano integrado é projeto comum no Ecossistema Foundation | Abertura após M0.4; prazo, orçamento, papéis e baseline exata antes do despacho |
+| D-3 | Projeto coordenador vinculado aos projetos executores; gates de 04 | M0.0/M.1 especificam migrations; não aplicar código parcial antigo |
+| D-4 | Linux na Onda 1; Windows T.4b na Onda 2 | **Pendente de alvo/capacidade/custo:** nenhum host Windows escolhido, nenhuma VM/compra autorizada |
+| D-5 | Negócio/brief em pt-BR; spec técnica/ADR/API/código em inglês conforme padrão 18 | Foundation continua em inglês conforme sua política própria; esta consolidação preserva pt-BR do plano |
+| D-6 | Referências de responsáveis propostas abaixo | Titularidade/delegação no banco só após validação do registro e confirmação do cadastro/baseline |
+| D-7 | Manter a regra da Lara sem contato por rotina | Nenhum envio/prospecção autorizado por esta aprovação |
+| D-8 | Kairos como reviewer em missão comercial | Usar vocabulário de papéis existente; sem criar função nova |
+
+Responsáveis de produto propostos (K6): Ecossistema Foundation → Athos; ForgeHub → Daedalus;
+ForgeRouter → Atlas; ForgeVault → Aegis; Darckware → Kairos; Serviços de Manutenção → Hephaestus.
+Outros produtos recebem dono no inventário B.1, sem atribuição inventada. Não confundir dono do
+produto com executor de código ou aprovação de produção.
+
+Os 17 temas originais abaixo continuam referências de escopo; prevalecem 04/07/08/10/12 e as decisões
+acima quando os textos históricos se repetirem. A revisão cruzada desta edição é o gate 0.14;
+sua conclusão não aprova políticas/credenciais/deploy que cada tarefa ainda precisará apresentar.
 
 1. Aposentar Execution Waves/Work Packages e o restante da Orquestração (R.1), que estão sem uso e
    duplicam o Messages como executor.
@@ -47,16 +71,16 @@ As recomendações abaixo valem como padrão revisável. Só as três de 0.2 blo
 4. Serviço a cliente: projeto por ticket/demanda (como o `:create-project` já faz, recomendado) ou um
    projeto por cliente com uma fase por ticket.
 5. Horas: lançar no Darckware na conclusão da tarefa (recomendado) ou só manualmente.
-6. A.1/A.2 e M.0 podem começar já, em paralelo à validação: autoriza?
+6. A.1/A.2 seguem T.2+T.3; M.0 documental pode avançar conforme 07, sem iniciar execução mutante antes do isolamento.
 7. As decisões da spec da Missão (coordenador, quem cria, dono da documentação).
 8. Fase C: aprovar que C.0 (linha de base) e C.1 (política na Foundation, pelo Athos) comecem já, e
-   que C.2 (isolamento do `knowledge_cycle.py`) seja feito pelo Porthus em modo observação primeiro.
+   que C.2 (isolamento do `knowledge_cycle.py`) seja feito pelo Aramis, com revisão Porthus e validação de Mnemosyne, em modo observação primeiro.
 9. Fase P: anotações em todos os níveis do Service Factory, herdadas no despacho das tarefas, e o MCP
    completo para os agentes operarem o módulo sem a tela.
 10. Fase E (Darckware): projeto aprovado pelo cliente no portal vira projeto no Service Factory
    automaticamente (E.1), e o funil (E.4) pode começar já.
 11. Fase Q: git por tarefa com PR, CI por repositório, ambiente de homologação separado e gate de
-    produção com rollback (Q.1–Q.5).
+    produção com rollback (Q.0–Q.5).
 12. **Service Factory (seção 1.3, Fase S):** confirmar o nome, as 9 linhas de serviço iniciais e a
     generalização (Produto = o que é atendido; Versão = o ciclo), mantendo rotas e tabelas.
 13. **Papéis e validação (seção 1.6):** orquestrador, planejador, executores, verificadores e

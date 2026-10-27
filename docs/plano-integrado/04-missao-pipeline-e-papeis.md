@@ -1,5 +1,36 @@
 # Missão: pipeline, papéis, contexto e validação
 
+**Atualizado:** 27/10/2026 — incorpora A1–A7, B1–B8, C1–C5, D2/D3 e F6 do consolidado.
+**Estado deste documento:** contrato planejado; apenas a implementação e suas evidências poderão comprovar os gates abaixo.
+
+## Modelo e fonte única de estado (A2/A3)
+
+Missão é um **Projeto de coordenação** no produto Ecossistema Foundation, ligado por relação explícita
+a zero ou mais projetos executores. Cada projeto executor continua na sua versão/produto e pode
+participar de outras missões. Critérios só apontam tarefas do projeto coordenador ou de projetos
+ligados; conclusão verifica todas essas tarefas e projetos, não apenas o coordenador.
+Não duplicar ProjectTask, PlanningItem, membros, artefatos ou executor do Messages.
+
+`project_type = mission` é **proposta que requer migração**, não valor já aceito: hoje `PROJECT_TYPES`
+só admite `creation` e `maintenance`, e o schema público de ProjectCreate não expõe esse campo.
+**M0.0** acrescenta o tipo por migration, schema e autorização testados antes de M0.2; mantém
+inalterados os tipos existentes. M.1 amplia essa base; não cria de novo uma tabela `missions`.
+
+A única máquina de estados é a da missão, persistida na extensão do projeto. `Project.status` é uma
+projeção transacional dela; pipeline é apresentação/gate, nunca outro comando de estado.
+
+| Estado da missão | Project.status derivado |
+|---|---|
+| rascunho / pronta | planned |
+| ativa / em verificação / aguardando aceite | active |
+| pausada | on_hold |
+| concluída | completed |
+| cancelada | cancelled |
+
+Não se infere missão concluída de `Project.status=completed`. APIs genéricas não podem mudar a
+projeção para contornar os gates. Migração mantém projetos comuns fora dessa máquina e testes
+cobrem todas as transições; detalhes de schema/rollback precedem M0.0 e M.1.
+
 ## O essencial da Missão: começar, validar, concluir
 
 Marcelo, 24/10: "O importante na Missão é saber quando começar, validar o que foi entregue e marcar
@@ -28,7 +59,11 @@ sistema verifica e mostra o que falta:
 
 **A largada** é a aprovação da baseline do plano pelo Marcelo (ou por delegação explícita). Ela leva
 a missão a `ativa` e despacha automaticamente as tarefas sem dependência. Antes disso, nenhuma tarefa
-da missão é despachada.
+da missão é despachada. A aprovação liga `PlanBaseline` aos ids e ao hash canônico do conteúdo de
+cada tarefa (`approved_content_hash`). O guard confere baseline vigente, conteúdo, dependências,
+permissões, delegação, ambiente e capacidade. Editar/adicionar tarefa exige change request; aprovação
+não amplia concessão de produção nem autoriza contatos externos fora do escopo. Brief/critérios
+alterados invalidam `pronta` e exigem nova validação (B4/B8).
 
 ### 2. Como validar o que foi entregue
 
@@ -41,6 +76,18 @@ A validação acontece em dois níveis, e nenhum deles é feito por quem executo
 3. Um verificador independente confere, conforme o tipo: revisão de código, estado da máquina depois
    do serviço, documento revisado.
 4. O documento do estágio está registrado.
+
+**Mínimo obrigatório já na Onda 1 (M0.6a/b):** `done` e `deployed` exigem a última execução
+`verified` e `TaskExecutionReview` aprovada por membro autorizado diferente do executor
+(`reviewer_agent_id != executor_agent_id`). Sem execução, evidência inválida ou autorrevisão não
+há conclusão por PATCH genérico, aprovação, MCP ou reconciliação do Messages. Auditoria registra a
+identidade autenticada, não `actor="system"` para atos de agente. R.1 preserva esses registros e
+permissões. `STATUS: DONE` é relato, não aceite.
+
+Na Onda 1, verificar `git:` (repositório/commit e escopo corretos), `file:` (raiz permitida, hash/versão
+e conteúdo revisado) e `db:` (registro permitido e relacionamento com a tarefa, sem SQL livre).
+Host execution/browser_session não são aceitos como equivalentes antes de I.5/N.3. Abrir tarefa
+ou change request que invalida prova devolve o critério a `aberto` (B5/B7).
 
 Faltou qualquer passo? A tarefa volta ao executor com o motivo. Não há "quase pronto".
 
@@ -61,13 +108,13 @@ A missão só fica `concluída` quando:
 | 1 | Todos os critérios de aceite estão `comprovados`, cada um com a evidência citada |
 | 2 | Todos os documentos obrigatórios estão aprovados |
 | 3 | Nenhuma tarefa aberta (canceladas só com justificativa aprovada) |
-| 4 | Consolidação feita pelo orquestrador: resultado e documento final, revisados pelo documentador |
+| 4 | Consolidação do orquestrador organizada pelo documentador e verificada por terceiro independente de ambos (B6) |
 | 5 | Aceite do cliente no portal, quando a missão é de cliente |
 | 6 | Nenhuma crítica aberta que bloqueie o aceite (seção 4) |
 | 7 | **Dossiê de validação** gerado e completo (seção 5) |
 | 8 | **Aceite do Marcelo** (ou de quem ele delegou para aquela missão), dado sobre o dossiê |
 
-**Quem marca:** só o Marcelo, ou um delegado nomeado na abertura. O sistema recusa o aceite enquanto
+**Quem marca:** só o Marcelo, ou um agente com `AuthorityDelegation` vigente para a ação `mission.accept`, limitada a essa missão/projeto; um nome livre no brief não concede autoridade. O sistema recusa o aceite enquanto
 qualquer item acima estiver pendente, e mostra qual.
 
 **Ao concluir, automaticamente:**
@@ -77,7 +124,11 @@ qualquer item acima estiver pendente, e mostra qual.
 - as métricas vão para a Evolução;
 - o brief e os documentos ficam somente leitura.
 
-Reabrir exige motivo e volta a missão a `ativa`, com histórico.
+Reabrir exige Marcelo ou delegado autorizado, motivo e auditoria; volta a `ativa` com histórico.
+Cancelar interrompe a fila, sem apagar resultados: execução em voo segue o cancelamento e
+`confirm_inactive` existentes, nunca perde run_id para forçar retry. Falta de avanço pela janela
+definida no brief vira decisão do Marcelo. Substituto de coordenação: Atlas por padrão; ausência
+por 24h exige escalada, não transferência silenciosa de autoridade (C2/C4).
 
 ### 4. Críticas: quando a entrega não atende ao esperado
 
@@ -143,7 +194,8 @@ O dossiê reúne, num lugar só:
 8. **Riscos e pendências remanescentes:** o que fica para depois, com dono e destino (outra missão,
    sustentação).
 9. **Lições:** o que funcionou e o que não funcionou.
-10. **Checklist de aceite:** os itens da seção 3, marcados, e o espaço para o aceite (ou a crítica) do
+10. **Contexto e conformidade:** fontes/classificação, contexto efetivamente entregue a cada executor, teste de vazamento, limpeza do temporário e lições aprovadas; dados pessoais exigem avaliação de impacto, critério e seção LGPD (H3/I4).
+11. **Checklist de aceite:** os itens da seção 3, marcados, e o espaço para o aceite (ou a crítica) do
     Marcelo.
 
 Se o Marcelo não aceitar, ele registra **críticas** no próprio dossiê, a missão volta para `ativa` e um
@@ -195,18 +247,28 @@ das ferramentas MCP de 24/10:
 | Documentar o projeto | `save_concept_document` (só no conceito) | Documento ligado ao projeto/fase/tarefa (`DocLink` + artefato) e a pasta `docs/missions/<slug>/` |
 | Receber o seu contexto | — | Anotações (P.2) e contexto herdado no despacho (P.4) |
 
-## Fase M0 — Caminho rápido: a primeira missão como projeto (logo após a V-a)
+## Fase M0 — Caminho mínimo verificado: a primeira missão como projeto (logo após a V-a)
 
 Antes do módulo completo de Missão (M.1), o grupo já pode trabalhar numa missão registrada como
 projeto, por convenção. A camada de Missão vem depois e se apoia nesses mesmos projetos.
 
-| # | Tarefa | Dono | Depende | Aceite |
-|---|---|---|---|---|
-| M0.1 | Produto "Ecossistema Foundation" (interno, sem cliente) com versão `2026.4` | Claude Code (via API), Marcelo confirma | V-a | Aparece no Cockpit |
-| M0.2 | Ferramentas MCP mínimas para o grupo: `create_internal_project` (produto/versão, linha, objetivo, critérios de aceite, orquestrador, pasta), `manage_project_members` (com função), `submit_project_plan` (Plano do projeto para aprovação), `add_task_dependency`, `assign_task`, `dispatch_task`, `report_task_execution` (evidência), `attach_project_document` (`DocLink`) | Aramis, Porthus revisa | V-a | Um agente cria e conduz um projeto de missão inteiro pelo MCP |
-| M0.3 | **Convenção de missão** até a M.1: projeto do tipo missão; o primeiro planning item é "Objetivo e critérios de aceite" (um critério por linha, cada um com a tarefa e a evidência que o comprovam); fases = planning items; orquestrador = Athos (`coordinator`); executores, verificadores, planejador e documentador como membros do projeto com a função; `BRIEF.md` e documentos em `docs/missions/<slug>/` com `00-INDICE.md`; plano no Plano do projeto, aprovado pelo Marcelo antes de despachar; toda tarefa termina com `STATUS: DONE` e evidência | Athos (Foundation) + Scriba | M0.2 | Convenção publicada na skill `forgehub` e na Foundation |
-| M0.4 | **Skill "como conduzir uma missão"** na skill compartilhada `forgehub`: registrar, planejar, distribuir, acompanhar, documentar, consolidar | Athos + Claude Code | M0.3 | Os agentes seguem o mesmo roteiro |
-| M0.5 | **Primeira missão real:** o próprio plano integrado, registrado como projeto de missão (fases do plano = planning items, tarefas = tarefas), com o Athos coordenando e você acompanhando e anotando | Athos | M0.4 | O avanço do plano é visto no Cockpit, não em documento solto |
+A decomposição e as arestas canônicas estão em [07](07-fases-de-implementacao.md) e
+[12](12-primeira-onda.md); não há segundo grafo de tarefas aqui.
+
+| Pacote | Entrega e regra |
+|---|---|
+| M0.SPEC | Contratos MCP e modelo mínimo, endpoints atuais/propostos identificados, idempotência, permissões, migrations, testes e rollback; aprovado antes do código |
+| M0.0 | Tipo de projeto missão e extensão mínima necessários aos guards; preservar ProjectTask/PlanningItem/membros/revisões e projetos comuns |
+| M0.1 | Reutilizar ou cadastrar idempotentemente Ecossistema Foundation/ciclo vigente após inventário; sem versão hardcoded 2026.4 e sem dados duplicados |
+| M0.2a–d | Criar projeto/membros; plano/dependências; atribuir/despachar/relatar; documentos/papel/tarefas. Parte inicial da P.1; cada fatia testável separadamente |
+| M0.6a/b | Verificação tipada + revisão independente e guard de baseline por ids/hash; obrigatórios antes de habilitar despacho de missão |
+| M0.3/M0.4 | Convenção e instruções na Foundation/skill via Athos, com pré-requisitos, papel/delegação e testes documentados |
+| M0.5 | Primeira missão **C.0+C.1** no Ecossistema Foundation. O plano integrado é um projeto comum separado; a missão real só é registrada depois de M0.4 |
+
+**Ambientes:** ensaio completo com dados fictícios no teste antes de uso real. Registro da missão
+C.0+C.1 e dos projetos reais em produção; tarefas que mudem sistemas executam/validam primeiro no
+teste (T.2+T.3), depois passam pelo gate apropriado. C.0 é levantamento sem segredos; C.1 é política
+publicada por Athos após aprovação. Não simular aprovação humana para fechar a missão.
 
 A M.1 (módulo completo) passa a acrescentar o que a convenção não cobre: campos próprios de missão,
 consolidação automática, contexto por destinatário (M.2) e a tela `/missions`.
@@ -215,7 +277,7 @@ consolidação automática, contexto por destinatário (M.2) e a tela `/missions
 
 **A Missão é a garantia de que o serviço foi concluído.** Ela define o que é "concluído", controla e
 monitora a execução, e só se encerra quando cada critério está comprovado. Os outros três componentes
-executam e observam. Ninguém além da Missão declara um serviço terminado.
+executam e observam. Em trabalho ligado a uma missão, só o aceite da missão declara a conclusão do conjunto. Serviços sem missão seguem seus próprios gates do projeto.
 
 ```
  MISSÃO (garantia)          SERVICE FACTORY (gestão)       OPERAÇÃO 24x7 (vigilância)    ATIVIDADES DOS AGENTES (visão)
@@ -278,7 +340,7 @@ Cada alerta vai para quem age:
 A saúde da missão aparece no Cockpit, no briefing do Athos e no painel da própria missão.
 
 **Regras do pipeline**
-1. Só a Missão declara um serviço concluído. Tarefa `done` e fase concluída são etapas, não o fim.
+1. Em trabalho de missão, só o aceite da Missão declara o conjunto concluído. Tarefa `done` e fase concluída são etapas, não o fim.
 2. Todo critério de aceite precisa de evidência verificável. Critério sem prova não fecha.
 3. Todo trabalho de missão passa pelo Service Factory. Execução fora dele não conta para a missão.
 4. A Operação 24x7 nunca encerra nada: ela cobra, reatribui e escala.
@@ -304,9 +366,9 @@ de projeto, agentes e canais). Nada de lista nova.
 **Regras checadas automaticamente ao nomear:**
 - exatamente um orquestrador;
 - código só com executor de runtime externo;
-- verificador nunca é o executor da mesma tarefa;
+- verificador e autores da entrega são identidades diferentes, por ids registrados; Porthus = Claude Code e Aramis = Codex;
 - o papel respeita o "nunca faz" da carta do agente;
-- o agente está ativo e com canal saudável;
+- agente ativo, runtime disponível e canal adequado à função; externo sem Telegram não é excluído por esse motivo;
 - há limite de missões simultâneas por orquestrador e de carga por executor.
 
 ### Contexto da missão (o "brief")
@@ -324,8 +386,7 @@ Um documento único, versionado, `docs/missions/<slug>/BRIEF.md`, registrado com
 - papéis.
 
 O brief é a base do contexto enviado em cada despacho, junto com as anotações do Marcelo (P.4) e os
-itens de contexto filtrados por destinatário (M.2). Mudou o brief? Sai uma nova versão, os membros são
-avisados e as próximas tarefas já recebem a versão nova.
+itens de contexto filtrados por destinatário (M.2). Mudou o brief ou um critério? Registrar nova versão, invalidar `pronta`/baseline afetada e aprovar change request antes de novos despachos; avisar os membros. O pacote registra fontes canônicas e visibilidade por papel; dados pessoais não são copiados entre Maia e Lara.
 
 ### Validação do plano
 

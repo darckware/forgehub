@@ -73,14 +73,24 @@ Críticas que bloqueiam o aceite ainda abertas: **<nenhuma / listar>**
 - Não funcionou: …
 - Críticas repetidas (viram lição/proposta): …
 
-## 10. Checklist de aceite
+## 10. Contexto e conformidade (I4/H3)
+
+- Fontes canônicas e versões que entraram no brief: …
+- Registro mínimo do contexto recebido por executor, com classificação/consumidores e sem segredos: …
+- Teste de não vazamento e revisão independente: …
+- Lições promovidas com aprovação e temporário limpo/arquivado conforme retenção: …
+- Se houver dado pessoal: avaliação de impacto, base legal por categoria, critério LGPD e prova; se não houver, justificar não aplicável.
+- Consolidação verificada por <agente que não é orquestrador, documentador nem autor>.
+
+## 11. Checklist de aceite
 
 - [ ] Todos os critérios de aceite comprovados, com evidência citada
 - [ ] Todos os documentos obrigatórios aprovados
 - [ ] Nenhuma tarefa aberta (canceladas só com justificativa aprovada)
-- [ ] Consolidação feita pelo orquestrador e revisada pelo documentador
+- [ ] Consolidação do orquestrador organizada pelo documentador e verificada por terceiro independente de ambos
 - [ ] Aceite do cliente no portal (se houver cliente)
 - [ ] Nenhuma crítica que bloqueie o aceite aberta
+- [ ] Contexto mínimo, teste de não vazamento e conformidade aplicável comprovados
 - [ ] Dossiê completo
 
 **Decisão do Marcelo:** aceito · não aceito (críticas registradas: C-…)

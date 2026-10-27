@@ -1,5 +1,7 @@
 # Componentes e interligações
 
+**Inventário histórico de 24/10:** números e marcações de implementação precisam ser revalidados por V; não certificam o estado atual. Modelo vigente em 04, tarefas em 07.
+
 ## Componentes existentes e papel no conjunto
 
 | Componente | Papel no conjunto | Estado |
@@ -61,7 +63,7 @@ uma decisão no conjunto, para não haver dois caminhos para a mesma coisa.
 | **Serviço em estação/servidor de cliente** | Ticket ou demanda Darckware, "Pedir ao agente" | Produto interno "Serviços de Manutenção" → projeto por ticket/demanda (já existe `:create-project`), com o cliente | `host_execution` (todas as máquinas `ok`) + horas lançadas no Darckware |
 | **Infraestrutura interna** (VPS, servidores próprios) | Rotina do Hephaestus/Aegis, check | Produto "Ecossistema Foundation" → projeto "Sustentação" | `host_execution` ou `db:` + runbook |
 | **Documentação** | Fase concluída, missão, rotina do Scriba | Tarefa `documentation` dentro do projeto que gerou | `file:` + `DocLink` |
-| **Missão** | Marcelo ou agente (rascunho) | Projeto interno (sem cliente) da missão | Fases concluídas + resultado consolidado |
+| **Missão** | Marcelo ou agente (rascunho) | Projeto de coordenação interno no Ecossistema Foundation, ligado aos projetos executores | Critérios de todos os projetos vinculados comprovados + dossiê + aceite independente |
 
 Projetos internos não têm cliente (`darckware_client_id` vazio). Só o serviço a cliente carrega o
 cliente, herdado do ticket ou da demanda.
@@ -91,7 +93,7 @@ cliente, herdado do ticket ou da demanda.
 | Service Factory → Agent Activity | a execução não mostra tarefa/projeto | 🔶 | A.3 |
 | Service Factory → Operação 24x7 | triagem/briefing não olham tarefas de projeto | ❌ | O.1–O.3 |
 | Tudo → Evolução | métricas só de rotinas | 🔶 | O.4 |
-| Missão → tudo | nova camada | ❌ | M.* (spec da Missão) |
+| Missão → tudo | nova camada | ❌ | M.* (contrato 04, planejamento 07) |
 | Anotação/contrato → despacho | anotações e contrato do projeto no corpo da tarefa | ❌ | P.4, D.8 |
 | Projeto proposto (Darckware) → Service Factory | aprovação no portal cria o projeto | ❌ | E.1 |
 | Service Factory → pasta do projeto | só a cópia dos documentos da Concepção | 🔶 | D.7, D.10 |

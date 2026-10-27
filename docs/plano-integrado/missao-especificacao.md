@@ -1,9 +1,24 @@
 # Missão — análise e planejamento
 
 **Data:** 2026-10-24
-**Status:** proposta para aprovação do Marcelo. É a frente M do
-[plano integrado](README.md), que define a ordem: validar o Software
-Factory, ligar os componentes e documentação, e só então a Missão.
+**Status:** referência histórica/conceitual de 24/10; consolidada em 27/10/2026.
+**Autoridade atual:** [04](04-missao-pipeline-e-papeis.md) define modelo/estados/gates,
+[07](07-fases-de-implementacao.md) define tarefas/dependências, [08](08-inteligencia-operacional.md)
+define N0–N3 e [12](12-primeira-onda.md) detalha a primeira onda. Código do branch antigo não é
+entrega aceita e não deve ser aplicado por cherry-pick sem especificação/revisão/testes próprios.
+
+| Seção | Validade nesta consolidação |
+|---|---|
+| 1 | Mantida como histórico dos pedidos |
+| 2/3 | Observações datadas; revalidar, sem assumir números como estado atual |
+| 4.0/4.1/4.2/4.3/4.4 | Substituídas pelos contratos de 04 e tarefas de 07; não criar missions, mission_tasks, mission_phases ou estado paralelo |
+| 4.5 | Requisitos de integração mantidos; tarefas O/M do 07 são a autoridade de implantação |
+| 4.6 | Substituída por 08; M0 é pacote, autonomia é N0–N3 |
+| 4.7 | Mantida como roteiro da M.0; endpoints/estado real exigem revalidação |
+| 5 | Substituída integralmente por 07/12; a antiga Fase 0 não é a revisão atual |
+| 6 | Riscos mantidos; mitigação concreta regida por 07/10 |
+| 7 | Decisões antigas substituídas por 09, sem segunda lista de aprovação |
+
 **Origem:** pedidos #39779, #39780, #39781 e #39784 (Maia → Aramis, 24/10, a pedido do Marcelo) e o
 diagnóstico de memória #39778 (Athos). Os quatro pedidos foram registrados como concluídos, mas o
 Aramis parou no meio. O código parcial está no branch `wip/missao-aramis` (`3c7c609`), fora do
@@ -76,12 +91,16 @@ contexto a memória ou a base de conhecimento vira uma **tarefa** para Mnemosyne
 
 ### 4.0 Papel: a Missão é a garantia de conclusão
 
+> **Histórico substituído:** não implementar esta seção; seguir 04/07/08/09/12 conforme a tabela de autoridade acima.
+
 Marcelo, 24/10: "a missão é a garantia que o serviço foi concluído, ela faz o controle e monitoramento
 da execução". O pipeline completo (Missão → Service Factory → Operação 24x7 → Atividades dos Agentes),
 os critérios de aceite comprovados um a um, a saúde da missão e os gates estão em
 [04 — Missão](04-missao-pipeline-e-papeis.md) e nas tarefas M.1a–M.1d.
 
 ### 4.1 Uma missão = um projeto do Service Factory + coordenação
+
+> **Histórico substituído:** não implementar esta seção; seguir 04/07/08/09/12 conforme a tabela de autoridade acima.
 
 ```
 Missão #N (objetivo, critério de sucesso, coordenador, participantes, autonomia, contexto)
@@ -109,6 +128,8 @@ Missão #N (objetivo, critério de sucesso, coordenador, participantes, autonomi
 
 ### 4.2 Princípios
 
+> **Histórico substituído:** não implementar esta seção; seguir 04/07/08/09/12 conforme a tabela de autoridade acima.
+
 1. **Messages continua sendo o único executor.** A Missão nunca despacha por conta própria: usa o
    `dispatch` da ProjectTask.
 2. **O contexto é aplicado no despacho.** Ao despachar uma tarefa de missão, o ForgeHub acrescenta ao
@@ -125,6 +146,8 @@ Missão #N (objetivo, critério de sucesso, coordenador, participantes, autonomi
    despachar. Segredo se referencia pelo nome no ForgeVault.
 
 ### 4.3 Modelo de dados novo (schema `company`)
+
+> **Histórico substituído:** não implementar esta seção; seguir 04/07/08/09/12 conforme a tabela de autoridade acima.
 
 > **Ajuste de 24/10 ([01 — Diagnóstico](01-diagnostico-e-ondas.md)):** a missão passa a ser uma **extensão do Projeto**
 > (`project_type = mission`), não uma tabela `missions` separada. Os campos de missão (objetivo,
@@ -156,6 +179,8 @@ Os tipos de contexto pedidos em #39780, mapeados para o que existe:
 | Descartável ou arquivado | `state=archived` (nunca DELETE), com motivo |
 
 ### 4.4 Fluxo
+
+> **Histórico substituído:** não implementar esta seção; seguir 04/07/08/09/12 conforme a tabela de autoridade acima.
 
 1. **Criar** (Marcelo na tela, ou agente por MCP `mission_create`, que fica em `draft` até aprovação):
    objetivo, critério de sucesso, prazo, produto. O ForgeHub cria a missão e o Projeto na versão
@@ -192,6 +217,8 @@ a Operação 24x7 vigia e escala, e o Agent Activity mostra o tempo real.
 
 ### 4.6 Inteligência operacional própria (roadmap de autonomia)
 
+> **Histórico substituído:** não implementar esta seção; seguir 04/07/08/09/12 conforme a tabela de autoridade acima.
+
 Sem promessa de AGI geral. É a evolução da autonomia das missões, com critério verificável para subir:
 
 | Nível | O que o sistema faz | Critério para habilitar |
@@ -224,6 +251,8 @@ Lista também as lacunas reais (escopo do `knowledge_cycle.py`, falta de context
 sem inventar integração.
 
 ## 5. Plano de implementação
+
+> **Histórico substituído:** não implementar esta seção; seguir 04/07/08/09/12 conforme a tabela de autoridade acima.
 
 O próprio plano é a primeira missão: depois da Fase 1 ele é cadastrado como Missão #1, "Missão",
 no produto ForgeHub. Antes disso (Fase 0 e Fase 1), segue como ProjectTasks de um projeto comum no
@@ -291,6 +320,8 @@ Aramis e Dartan.
 - **Custo:** tarefas respeitam o orçamento diário por agente das cartas.
 
 ## 7. Decisões pendentes do Marcelo
+
+> **Histórico substituído:** não implementar esta seção; seguir 04/07/08/09/12 conforme a tabela de autoridade acima.
 
 1. Produto interno "Ecossistema Foundation" para missões que não são de um sistema específico, com
    versão por trimestre (recomendado), ou um produto por área.

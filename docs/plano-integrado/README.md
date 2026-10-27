@@ -1,7 +1,7 @@
 # Plano integrado do ecossistema — Service Factory, Missão, Operação 24x7 e Atividades dos Agentes
 
 **Data:** 2026-10-24
-**Status:** proposta para aprovação do Marcelo — organizada em três ondas (seção 0)
+**Status:** consolidação e preparação da Onda 1 autorizadas por Marcelo em 27/10/2026; implementação sujeita aos pré-requisitos por tarefa. Revisão cruzada desta versão registrada em `revisao/VALIDACAO-2026-10-27.md`.
 **Pedidos do Marcelo (24/10):**
 - "integrar a missão com operação 24x7 e software factory, para gerenciar as tarefas e registro das implementações e da documentação"
 - "o projeto criado não precisa ter um cliente associado, podendo ser um projeto interno"
@@ -39,6 +39,7 @@
 | [08 — Inteligência operacional](08-inteligencia-operacional.md) | O que é realista, o que falta para aprender e se corrigir, níveis de autonomia |
 | [09 — Lacunas e decisões](09-lacunas-e-decisoes.md) | Lacunas encontradas nas revisões, riscos abertos e as decisões com os padrões adotados |
 | [10 — Área de teste e identidade](10-area-de-teste-e-identidade.md) | Ambiente de teste isolado da produção e o ForgeVault como identidade única dos agentes em todos os sistemas (Fases T e F) |
+| [12 — Primeira onda](12-primeira-onda.md) | Pacotes executáveis da Onda 1, responsáveis, verificadores, dependências, provas e limites de autorização |
 | [11 — Navegador dos agentes](11-navegador-dos-agentes.md) | Sessões de navegador isoladas por agente e tarefa, modo teste (área de teste) e modo internet (coleta de dados, redes sociais), credenciais pelo ForgeVault, publicação com aprovação (Fase N) |
 | [Modelos](modelos/) | [Termo de abertura](modelos/TERMO-DE-ABERTURA.md) (todo projeto novo), [Crítica de entrega](modelos/CRITICA-DE-ENTREGA.md) e [Dossiê de validação](modelos/DOSSIE-DE-VALIDACAO.md) (Missão) |
 | [Consolidado da revisão](revisao/CONSOLIDADO.md) | Os 11 pareceres agrupados por tema, com análise e proposta para cada item, e as 8 decisões pendentes |
@@ -59,6 +60,8 @@
 | 7 e Fase G | [08](08-inteligencia-operacional.md) |
 | 8, 9 | [09](09-lacunas-e-decisoes.md) |
 | Fases T, F e N (desenho) | [10](10-area-de-teste-e-identidade.md), [11](11-navegador-dos-agentes.md); tarefas em [07](07-fases-de-implementacao.md) |
+
+**Autoridade:** o 04 define os estados/gates da missão; o 07 define fases, donos e dependências; o 12 detalha a Onda 1. A especificação anterior da Missão sinaliza seções substituídas. A consolidação não certifica código nem altera Foundation, credenciais ou banco.
 
 **Regra deste conjunto:** o escopo está congelado. Pedido novo vira item do projeto do plano no
 Service Factory (quando a M0 o registrar), não texto novo nestes documentos. Atualizações de estado

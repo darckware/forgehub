@@ -31,42 +31,61 @@ mensurável e segura.
 | **Melhorar o próprio software** | Retrospectiva propõe; A2 vai ao Marcelo | O laço completo: proposta → Missão → projeto → implementação pelos externos → evals → deploy → medição, de ponta a ponta | G.8 |
 | Escolher o modelo certo | ForgeRouter (roteamento, fallback) | Seleção guiada pelos evals por tipo de tarefa — **no projeto ForgeRouter**, não no ForgeHub | G.9 (fora) |
 | Segurança da autonomia | A0/A1/A2, delegações, redação de segredos, "dados não são instruções" | **Parada global** (pausar toda autonomia, ou a de um agente, num toque), orçamento de autonomia, testes de injeção de prompt vindos de WhatsApp/e-mail/web, registro de toda ação autônoma reversível | G.10 |
-| Decisões do Marcelo | Aprovações, dúvidas, A2, incubação, aceite de missão — em telas diferentes | **Uma fila única de decisões**, com resumo e recomendação, também no Telegram | G.11 |
-| Continuidade | Backup externo funcionando (38 execuções `ok`), gateway único | Recuperação testada do estado dos agentes (perfis, memória, banco) | G.12 |
+| Decisões do Marcelo | Aprovações, dúvidas, A2, incubação, aceite de missão — em telas diferentes | **Fila mínima G.11a na Onda 2**; unificação completa G.11b na Onda 3 | G.11a/G.11b |
+| Continuidade | Snapshots de alguns alvos observados; cobertura/restauração dos alvos críticos ainda não comprovadas nesta consolidação | Recuperação testada do estado dos agentes (perfis, memória, banco) | G.12 |
 
-## Fase G — Capacidade de aprender (depois de M.1)
+## Fase G — Capacidade de aprender e decisões
 
-| # | Tarefa | Dono | Depende | Aceite |
-|---|---|---|---|---|
-| G.1 | **Objetivos** (trimestrais, com métrica) acima das missões: toda missão serve a um objetivo; o briefing mostra o avanço | Aramis + Dartan | M.1 | Missão sem objetivo só como exceção explícita |
-| G.2 | **Fluxo de eventos**: normalizar o que já chega (checks, alertas, Messages, tickets, telemetria, execuções remotas) num registro único que a triagem e as regras de iniciativa consomem | Aramis | A.5 | Toda iniciativa automática cita o evento que a disparou |
-| G.3 | Coberto pela **Fase C** (controle de contexto) | — | — | — |
-| G.4 | **Mapa do ecossistema**: sistemas, máquinas (Tailscale), serviços, deploys, checks, donos e dependências num grafo consultável por MCP | Aramis + Dartan | B.1 | Um agente responde "o que depende do X e quem é o dono" pelo MCP |
-| G.5 | **Verificador por tipo de tarefa**: código (testes + revisão), manutenção (estado da máquina depois), documentação (artefato revisado); agente diferente do executor | Porthus + Aramis | I.5, D.2 | Tarefa só fica `done` com verificação do tipo |
-| G.6 | **Evals de capacidade**: conjunto de tarefas-padrão por agente e domínio (seguras e repetíveis, em ambiente de teste), rodadas na área de teste (Fase T) por rotina semanal e a cada mudança de modelo, skill ou prompt; nota histórica no Agent Activity | Porthus (desenho) + Aramis | A.4 | Toda mudança A1/A2 de agente mostra a nota antes e depois |
-| G.7 | **Lições**: falha, `PARTIAL`, reprocesso ou rejeição de revisão → lição (causa, evidência, recomendação) → proposta de skill/carta/rotina → avaliada por G.6 → aplicada pelo nível de autonomia | Aramis + Athos | G.6 | Lição repetida não gera proposta duplicada; nenhuma skill muda sem eval |
-| G.8 | **Laço de autoaperfeiçoamento do software**: proposta A2 aprovada vira Missão automaticamente, com projeto, tarefas para os externos, evals e medição pós-deploy | Aramis | G.6, M.1 | Uma melhoria percorre o laço inteiro com registro em cada etapa |
-| G.9 | Seleção de modelo guiada por evals | projeto **ForgeRouter** | G.6 | Fora deste plano; o ForgeHub só fornece as notas |
-| G.10 | **Segurança da autonomia**: parada global e por agente (implementada pelo ForgeVault, F.8); orçamento de ações autônomas; suíte de injeção de prompt (WhatsApp, e-mail, web, documento); toda ação autônoma com desfazer ou registro de irreversível | Porthus + Aegis | A.1 | Parada testada; suíte verde antes de subir qualquer nível M |
-| G.11 | **Fila única de decisões** do Marcelo (aprovações, A2, dúvidas, aceite de missão, incubação madura), na tela e no Telegram | Aramis + Dartan | O.2 | Nenhuma decisão pendente fora da fila |
-| G.12 | **Recuperação testada** do estado dos agentes (perfis Hermes, memória, banco do ForgeHub) a partir do backup externo | Hephaestus (rotina) + Aramis | backup externo (já funcionando) | Teste de restauração trimestral registrado |
+G.11a é a fatia mínima antecipada para a Onda 2. As demais capacidades permanecem na Onda 3.
+Nenhuma contagem histórica de execução verde autoriza aumentar autonomia.
 
-## Níveis de autonomia revistos
+| # | Tarefa | Dono | Verificador | Depende | Aceite |
+|---|---|---|---|---|---|
+| G.1 | Objetivos trimestrais com métrica acima das missões | Aramis (apoio Dartan) | Porthus | M.1 | Objetivo por missão; exceção da Onda 1 documentada, sem bloquear C.0+C.1 |
+| G.2 | Evento operacional comum com fonte/chave de dedupe/abertura/fechamento/auditoria, compartilhado com I.12/D.11 | Aramis | Porthus | A.5 | Iniciativa cita evento; reprocesso não duplica trabalho |
+| G.3 | Coberto pela Fase C | — | — | — | Não abrir implementação duplicada |
+| G.4 | Mapa dos sistemas, máquinas, serviços, checks, donos e dependências | Aramis (apoio Dartan) | Porthus | B.1 | Consulta MCP responde dependências e dono com fonte |
+| G.5 | Ampliar os verificadores da M0.6a para manutenção/browser/documentação | Aramis | Porthus | M0.6a, I.5, N.3, D.2 | Prova do tipo e revisor independente, sem reimplementar o guard da Onda 1 |
+| G.6 | Evals seguros, repetíveis, com nota antes/depois por agente/domínio | Aramis (desenho Daedalus) | Porthus | G.5, A.4, T.2, T.3 | Rodar somente no teste; regressão impede promover modelo/skill/prompt |
+| G.7 | Falha/PARTIAL/retrabalho/rejeição gera lição com fonte e proposta avaliada | Aramis (apoio Athos) | Porthus | G.6 | Dedupe; alteração de skill depende de avaliação e aprovação aplicáveis |
+| G.8 | Proposta aprovada percorre missão→projeto→código→evals→deploy→medição | Aramis | Porthus | G.6, M.1 | Evidência em cada etapa; proposta não se autoaprova |
+| G.9 | Seleção de modelo guiada pelos evals, no projeto ForgeRouter | Atlas (planejamento) | Daedalus | G.6 | Fora do código deste plano; ForgeHub fornece notas |
+| G.10 | Parada global/perfil e orçamento de autonomia, suíte de injeção e registro/desfazer | Aramis (apoio Aegis) | Porthus | A.1, F.8 | Suspensão efetiva e suíte verde antes de elevar N; não existe parada global só por haver botão |
+| G.11a | **Fila mínima Onda 2:** agregar aprovações, dúvidas e bloqueios já existentes, com fonte, recomendação, link e permissão de origem | Aramis (apoio Dartan) | Porthus | V-b, P.2 | Fontes disponíveis/indisponíveis distintas; sem autoaprovar; P.6 consome este contrato sem depender de M.1/G.2/O.2 |
+| G.11b | **Fila completa Onda 3:** acrescentar aceite de missão, A2, incubação madura e integrações restantes/Telegram | Aramis (apoio Dartan) | Porthus | G.11a, M.1, O.2, G.2 | Todas as classes com dedupe, escopo e ação protegida; ausência de fonte não vira fila vazia |
+| G.12 | Inventariar cobertura de backup por destino crítico; ordenar restauração, RPO/RTO e responsáveis; restaurar amostra no teste | Hephaestus (apoio Aramis) | Aegis | T.2, T.3, inventário e snapshots elegíveis | Snapshot recente identificado por alvo, restauração e integridade comprovadas; falha/ausência em um alvo mantém recuperação pendente |
 
-Os níveis M0–M3 da Missão passam a exigir os itens da Fase G:
+### Regra de backup (F4 e revisão de 26/10)
 
-| Nível | Exige |
+Antes de dizer que recuperação está pronta: identificar todos os alvos críticos (banco, perfis,
+Foundation, KB e Hindsight conforme inventário), última execução e último snapshot confirmado por
+alvo, política RPO/RTO e ordem de restauração. Um upload ou snapshot bem-sucedido de outro projeto
+não encerra uma falha do sistema. Quota/caminho/destino sem verificação recente são pendências.
+A cópia SQL local não prova proteção externa. Fazer teste de restauração de amostra isolada;
+nenhuma sobrescrita de produção, exclusão de backup ou contratação de armazenamento está autorizada
+por esta consolidação. Revisar a prova no mínimo trimestralmente e após mudança crítica.
+
+## Níveis de autonomia da missão (A6)
+
+**N0–N3** são níveis da missão; **M0** designa apenas o pacote mínimo de implementação do 07.
+A0/A1/A2 continuam a classificação de mudanças da Foundation. Não são sinônimos de N0/N1/N2.
+
+| Nível | Comportamento e gate |
 |---|---|
-| M1 (coordenador propõe o plano) | G.10 (parada global) e G.11 (fila de decisões) |
-| M2 (tarefas de baixo risco sem aprovação item a item) | G.5 (verificador) e G.6 (evals) com nota estável por 30 dias |
-| M3 (o sistema propõe missões) | G.1, G.2, G.7 e G.8 funcionando; suíte de segurança G.10 verde |
+| N0 | Marcelo aprova a baseline; agentes executam somente o conteúdo, ambiente e permissões autorizados; revisão e aceite continuam independentes |
+| N1 | Coordenador propõe o plano; Marcelo aprova. Exige G.10, G.11b e evidência de 10 missões N0, ≥80% entregas aceitas na primeira tentativa e documentação completa |
+| N2 | Despacho de tarefas de baixo risco no escopo delegado; exige G.5/G.6, N1 estável por 30 dias e nenhum incidente de contexto. Código, produção e contatos externos mantêm os gates aplicáveis |
+| N3 | Propor novas missões em rascunho; exige G.1/G.2/G.7/G.8, N2 estável e suíte G.10 verde. Propor nunca significa aprovar ou executar |
+
+Nível N não revoga A0/A1/A2, RBAC, limites de custo ou a autoridade de Marcelo. Mudança de identidade,
+Foundation, política comum ou ação externa continua sujeita à sua aprovação e ao dono canônico.
+Onda 1 opera em N0; esta revisão documental não eleva nenhum nível no sistema.
 
 ## Ordem
 
-```
-... M.1 ──► G.10 ──► G.11 ──► G.5 ──► G.6 ──► G.7 ──► G.8
-             G.1, G.2, G.3, G.4, G.12 em paralelo, conforme as dependências da tabela
-```
+Onda 2: V-b/P.2 → G.11a → P.6. Onda 3: ampliar M.1/F.8/G.5/G.6/G.10 conforme dependências,
+G.11a+M.1+O.2+G.2 → G.11b; só depois avaliar promoção de autonomia. G.12 tem suas próprias provas
+por alvo e nunca se deduz do sucesso agregado de outras rotinas.
 
 ---
 [← Índice](README.md)

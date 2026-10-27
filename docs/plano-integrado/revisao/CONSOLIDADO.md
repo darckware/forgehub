@@ -1,6 +1,7 @@
 # Consolidado da revisão crítica (Fase 0, tarefa 0.13)
 
 **Data:** 2026-10-25
+**Aplicação em 27/10:** relatório histórico preservado. A versão normativa consolidada está em 01/04/07/08/09/10/12; decisões e limites em 09. O aceite desta edição não equivale à implementação das propostas. D-1 refere indisponibilidade observada em 24/10; a capacidade atual deve ser revalidada no despacho.
 **Pareceres recebidos:** 11 de 12 (mensagens #41540–#41551). Os textos completos estão no resultado de cada mensagem no Messages.
 **Pendente:** Dartan (#41542, telas e testes no navegador). A execução falhou porque **a cota do agy (Google) acabou**
 ("Individual quota reached… Resets in 67h55m", 24/10 21:05). Não é falha do parecer. Ver decisão D-1.
@@ -83,7 +84,7 @@ Os quatro são corrigíveis no próprio plano, antes de implementar.
 | # | Origem | Problema | Análise e proposta |
 |---|---|---|---|
 | D1 | Daedalus (geral), Aramis (resp. 1) | As tarefas dizem o quê e o aceite, mas não o como técnico (contratos, schemas, migrations, testes, rollback). Um agente externo teria de inventar requisitos | **Aceitar como regra transversal.** Nenhuma tarefa de implementação é despachada sem uma **especificação de implementação** (padrão 18, §33–34): arquivos, contratos/schemas, migrations, testes, segurança, rollback. Quem escreve: Daedalus (Hermes, sem codar) ou Porthus; quem revisa: o executor e um verificador. Vale a partir da M0.2 |
-| D2 | Porthus 7, Atlas (resp. 2) | M0.2 e P.1 constroem as mesmas ferramentas, com donos diferentes; P.1 é grande demais | **Aceitar.** M0.2 = primeira fatia da P.1, um dono só (Claude Code, com revisão do Porthus). A P.1 vira "o restante da lista da V-b", dividida por ferramenta |
+| D2 | Porthus 7, Atlas (resp. 2) | M0.2 e P.1 constroem as mesmas ferramentas, com donos diferentes; P.1 é grande demais | **Aceitar.** M0.2 = primeira fatia da P.1, um dono só (**Aramis/Codex**, com revisão independente do **Porthus/Claude Code**; são ids distintos). A P.1 vira "o restante da lista da V-b", dividida por ferramenta |
 | D3 | Aramis 4, Daedalus 9 | Ferramentas MCP sem contrato (endpoint, schema, autorização, idempotência, erros) | **Aceitar.** `MCP_MISSION_TOOLS_SPEC.md` antes da M0.2, incluindo aprovação da baseline (ou declarar que ela é feita só pela tela) |
 | D4 | Daedalus 1–5, Aramis 6 | Fase Q sem especificação: quem cria o branch, nome, ligação PR ↔ tarefa, "área" de código, workflow de CI, gate de produção, segredos | **Aceitar.** Nova tarefa **Q.0 — especificação da entrega de código** (`CI_PIPELINE_SPEC.md` com workflow, jobs, limites de cobertura, varredura de segurança e de segredos; convenção de branch e evidência `git:pr:…`; `code_area` na tarefa; ambientes do GitHub com aprovadores; plano de rollback por projeto). A Q.1–Q.6 dependem dela |
 | D5 | Aramis 7 | I.12 e D.11 juntam várias fontes sem contrato de evento, dedupe e fechamento | **Ajustar.** Uma especificação comum de evento operacional (fonte, chave de dedupe, abertura, fechamento, auditoria) antes da I.12; D.11 define como correlaciona documento e código |
