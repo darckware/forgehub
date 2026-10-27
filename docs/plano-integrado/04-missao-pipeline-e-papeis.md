@@ -57,8 +57,7 @@ sistema verifica e mostra o que falta:
 | 5 | Pré-requisitos de execução prontos: acessos, delegações, ambiente de homologação, máquinas autorizadas (manutenção) | Lista de pré-requisitos do plano toda marcada |
 | 6 | Prazo e orçamento definidos | Campos preenchidos |
 
-**A largada** é a aprovação da baseline do plano pelo Marcelo (ou por delegação explícita). Ela leva
-a missão a `ativa` e despacha automaticamente as tarefas sem dependência. Antes disso, nenhuma tarefa
+**A largada** depende da baseline aprovada pelo Marcelo (ou delegação explícita). Na M0, a aprovação habilita o trabalho, mas **não despacha automaticamente**: o orquestrador usa `dispatch_task` explicitamente e o backend verifica todos os guards. No módulo completo, a automação de despacho seguirá os mesmos guards e terá especificação própria. Antes disso, nenhuma tarefa
 da missão é despachada. A aprovação liga `PlanBaseline` aos ids e ao hash canônico do conteúdo de
 cada tarefa (`approved_content_hash`). O guard confere baseline vigente, conteúdo, dependências,
 permissões, delegação, ambiente e capacidade. Editar/adicionar tarefa exige change request; aprovação
@@ -77,10 +76,10 @@ A validação acontece em dois níveis, e nenhum deles é feito por quem executo
    do serviço, documento revisado.
 4. O documento do estágio está registrado.
 
-**Mínimo obrigatório já na Onda 1 (M0.6a/b):** `done` e `deployed` exigem a última execução
+**Mínimo obrigatório na Onda 1 (M0.6a/b), a implementar antes do uso real:** `done` e `deployed` exigem a última execução
 `verified` e `TaskExecutionReview` aprovada por membro autorizado diferente do executor
 (`reviewer_agent_id != executor_agent_id`). Sem execução, evidência inválida ou autorrevisão não
-há conclusão por PATCH genérico, aprovação, MCP ou reconciliação do Messages. Auditoria registra a
+há conclusão por PATCH genérico, aprovação, MCP ou reconciliação do Messages. O guard de conclusão é global para **novas transições** de ProjectTask; não reabre conclusões históricas automaticamente. O guard de baseline incide onde houver baseline, sem impor estados de missão a projeto comum. Auditoria registra a
 identidade autenticada, não `actor="system"` para atos de agente. R.1 preserva esses registros e
 permissões. `STATUS: DONE` é relato, não aceite.
 
@@ -237,7 +236,7 @@ das ferramentas MCP de 24/10:
 | O grupo precisa | Hoje pelo MCP | Lacuna |
 |---|---|---|
 | Registrar a missão como projeto | Só pelo caminho de software novo: `create_conception_idea` (cria produto, conceito, blueprint) → aprovação do conceito → `authorize_project_delivery`. Pesado e errado para uma missão interna | **Criar projeto interno** sob um produto/versão existente, na linha "Missões", com objetivo e critério de sucesso |
-| Ter onde registrar (produto e ciclo) | Não há produto real cadastrado, só dados de teste | Produto "Ecossistema Foundation" com versão `2026.4` (B.1) |
+| Ter onde registrar (produto e ciclo) | Não há produto real cadastrado, só dados de teste | Produto Ecossistema Foundation/ciclo vigente a inventariar; `2026.4` era sugestão de 24/10, não default obrigatório (M0.1) |
 | Definir participantes e papéis | `ProjectAgentMembership` existe (13 registros), mas no módulo de Orquestração e sem ferramenta MCP | Ferramenta para gerenciar membros. **Atenção:** a R.1 aposenta a Orquestração e precisa preservar o `ProjectAgentMembership` |
 | Quebrar em fases e tarefas | `create_planning_item`, `create_project_task` | — |
 | Ordenar as tarefas | Não há ferramenta de dependência | `add_task_dependency` |
@@ -263,12 +262,24 @@ A decomposição e as arestas canônicas estão em [07](07-fases-de-implementaca
 | M0.2a–d | Criar projeto/membros; plano/dependências; atribuir/despachar/relatar; documentos/papel/tarefas. Parte inicial da P.1; cada fatia testável separadamente |
 | M0.6a/b | Verificação tipada + revisão independente e guard de baseline por ids/hash; obrigatórios antes de habilitar despacho de missão |
 | M0.3/M0.4 | Convenção e instruções na Foundation/skill via Athos, com pré-requisitos, papel/delegação e testes documentados |
-| M0.5 | Primeira missão **C.0+C.1** no Ecossistema Foundation. O plano integrado é um projeto comum separado; a missão real só é registrada depois de M0.4 |
+| M0.5 | Após publicação M0.R e contenção C.2.R comprovadas, primeira missão **C.0+C.1** no Ecossistema Foundation. O plano integrado é um projeto comum separado; a missão real só é registrada depois de M0.4 |
 
 **Ambientes:** ensaio completo com dados fictícios no teste antes de uso real. Registro da missão
 C.0+C.1 e dos projetos reais em produção; tarefas que mudem sistemas executam/validam primeiro no
 teste (T.2+T.3), depois passam pelo gate apropriado. C.0 é levantamento sem segredos; C.1 é política
 publicada por Athos após aprovação. Não simular aprovação humana para fechar a missão.
+
+**Aceite mínimo M0:** M0.SPEC/M0.0 já definem e persistem o subconjunto de estados necessário para
+abrir, verificar e aceitar a primeira missão. O dossiê é Artefato manual versionado; Marcelo o
+aprova formalmente por Approval ligada à versão/hash exatos e à missão. O backend verifica essa
+aprovação e as provas antes da conclusão; nem nome no Markdown nem Project.status equivalem ao
+aceite. `mission.accept` delegado não é usado para a primeira missão. M.1n automatiza o dossiê na
+Onda 3, sem adiar o registro mínimo obrigatório. Ensaios M0.4 usam runner/MCP simulados, agt_ de teste
+e fixtures; não usam o bridge nem alteram perfis/credenciais de produção.
+
+Histórico de trabalho (0.x/bootstrap) só entra no projeto como execução relatada com prova real,
+revisão independente e verificação pelo mesmo guard. Não inventar run_id ou aprovação e não importar
+por PATCH direto para done/deployed; falta de prova permanece reported/blocked.
 
 A M.1 (módulo completo) passa a acrescentar o que a convenção não cobre: campos próprios de missão,
 consolidação automática, contexto por destinatário (M.2) e a tela `/missions`.

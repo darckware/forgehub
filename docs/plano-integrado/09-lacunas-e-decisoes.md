@@ -45,7 +45,7 @@ Nenhuma identidade, produto, credencial, VM ou task foi criada por este registro
 | Premissa revisável (não aprovação individual) | Tratamento proposto nesta consolidação | Limite / confirmação na execução |
 |---|---|---|
 | D-1 | Aramis implementa; Porthus revisa código/telas/testes; Dartan pode revisar quando disponível | Revalidar cota e registro ao atribuir; nunca Porthus implementador e Claude Code revisor |
-| D-2 | C.0+C.1 é a primeira missão; plano integrado é projeto comum no Ecossistema Foundation | Abertura após M0.4; prazo, orçamento, papéis e baseline exata antes do despacho |
+| D-2 | C.0+C.1 é a primeira missão; plano integrado é projeto comum no Ecossistema Foundation | Abertura após M0.4/M0.R e contenção C.2.R; prazo, orçamento, papéis e baseline exata antes do despacho |
 | D-3 | Projeto coordenador vinculado aos projetos executores; gates de 04 | M0.0/M.1 especificam migrations; não aplicar código parcial antigo |
 | D-4 | Linux na Onda 1; Windows T.4b na Onda 2 | **Pendente de alvo/capacidade/custo:** nenhum host Windows escolhido, nenhuma VM/compra autorizada |
 | D-5 | Negócio/brief em pt-BR; spec técnica/ADR/API/código em inglês conforme padrão 18 | Foundation continua em inglês conforme sua política própria; esta consolidação preserva pt-BR do plano |
@@ -76,7 +76,7 @@ sua conclusão não aprova políticas/credenciais/deploy que cada tarefa ainda p
 6. A.1/A.2 seguem T.2+T.3; M.0 documental pode avançar conforme 07, sem iniciar execução mutante antes do isolamento.
 7. As decisões da spec da Missão (coordenador, quem cria, dono da documentação) são substituídas pelo contrato do 04; não reabrir a lista histórica.
 8. Fase C: a indicação antiga de começar C.0/C.1 imediatamente está **superada**: ambas são executadas após a abertura M0.5; antes disso apenas preparação de leitura, e
-   que C.2 (isolamento do `knowledge_cycle.py`) seja feito pelo Aramis, com revisão Porthus e validação de Mnemosyne, em modo observação primeiro.
+   que C.2 (isolamento do `knowledge_cycle.py`) segue dividido: C.2a/C.2.R contêm o hook antes da missão; C.2b/C.2b.R completam a política depois de C.1; Aramis escreve, Porthus revisa e Athos publica pelo processo canônico.
 9. Fase P: anotações em todos os níveis do Service Factory, herdadas no despacho das tarefas, e o MCP
    completo para os agentes operarem o módulo sem a tela.
 10. Fase E (Darckware): projeto aprovado pelo cliente no portal vira projeto no Service Factory

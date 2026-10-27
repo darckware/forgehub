@@ -7,8 +7,7 @@ código: Porthus revisa Aramis e Dartan; se Porthus implementar, Aramis verifica
 registrada por ids. Claude Code é o runtime do Porthus, não outro revisor.
 
 **Atualizado:** 27/10/2026. Primeira onda detalhada em [12](12-primeira-onda.md) e
-[onda1-tarefas.json](onda1-tarefas.json). As arestas da matriz detalham estas tabelas; são uma única
-baseline. Nenhum item foi implementado por esta edição. Evidências históricas de 24/10 não substituem
+[onda1-tarefas.json](onda1-tarefas.json). O JSON é a fonte canônica das arestas, responsáveis e aceites da Onda 1; estas tabelas e o resumo do 12 são projeções verificadas da mesma baseline. Nenhum item foi implementado por esta edição. Evidências históricas de 24/10 não substituem
 validação atual.
 
 **Regra de despacho (D1):** toda tarefa de implementação tem especificação com arquivos/contratos,
@@ -41,7 +40,7 @@ plano como projeto, estas tarefas entram como os primeiros itens dele, com os pa
 | 0.12 | Parecer: funil, marketing, redes sociais | Kairos | Daedalus | — | Idem |
 | 0.13 | **Consolidação histórica** (`revisao/CONSOLIDADO.md`): problemas agrupados, análise e propostas | Porthus | Aramis | 0.1–0.12 | Nenhum parecer sem análise |
 | 0.14 | **Rodada cruzada** sobre os documentos consolidados, modelos e a matriz da Onda 1: alguma decisão cria contradição entre camadas? | Athos | Porthus | 0.13 | Pareceres da 2ª rodada |
-| 0.15 | **Registro da aprovação de consolidação** do Marcelo e dos limites/defaults em 09; corrigir documentos com referência aos itens do consolidado | Aramis (registro), Marcelo (autoridade) | Athos / Porthus | 0.14 | Nenhum item "bloqueia" sem decisão; documentos atualizados |
+| 0.15 | **Registro da aprovação de consolidação** do Marcelo e dos limites/defaults em 09; corrigir documentos com referência aos itens do consolidado | Aramis (registro), Marcelo (autoridade) | Athos | 0.14 | Nenhum item "bloqueia" sem decisão; documentos atualizados |
 
 ### Fase V — Validação do Service Factory (agente opera, Marcelo acompanha, Aramis corrige)
 
@@ -93,7 +92,7 @@ manutenção remota. **Não existe** anotação nas entidades do Service Factory
 | P.1 | **Completar o restante do MCP** (M0.2a–d já cobrem a primeira fatia, com Aramis executando e Porthus revisando); dividir a lista da V-b em tarefas por ferramenta antes de despachar. **Completar o MCP** para o ciclo inteiro sem a tela, a partir da lista da V-b: dependências, atribuição, despacho, relatar execução com evidência, atualizar planning item e estágio do pipeline, change request, anexar documento/artefato (`DocLink`), criar item no Sustentação, ler a linha do tempo | Aramis | Porthus | V-b, R.2 | Um agente percorre o roteiro da Fase V inteiro só pelo MCP |
 | P.2 | **Anotações** (`annotations`, polimórfica como `AuditEvent`): em produto, versão, projeto, fase, tarefa, missão, máquina e cliente; tipos `instrução`, `contexto`, `decisão`, `correção`, `observação`; autor (Marcelo ou agente); fixar; validade; anexos por `DocLink` (upload vai para `/docs`). Agente nunca edita nem apaga anotação do Marcelo | Aramis | Porthus | V | Testes de permissão; histórico auditado |
 | P.3 | **Painel "Anotações e documentos"** reutilizável em todas as telas de detalhe do Service Factory, da Missão e do Agent Activity; escrever em Markdown, anexar arquivo, fixar; pelo celular também | Dartan | Porthus | P.2 | 390 px; `ConfirmDialog` para arquivar |
-| P.4 | **Contexto herdado no despacho:** ao despachar uma tarefa, o corpo inclui as anotações ativas da tarefa e dos níveis acima (missão → projeto → versão → produto), em ordem de precedência (instrução do Marcelo primeiro), resumidas e com os documentos citados; MCP `get_task_context` devolve o mesmo pacote | Aramis | Porthus | P.2, C.2 | Teste: anotação do projeto chega a toda tarefa do projeto; anotação privada respeita o escopo da Fase C |
+| P.4 | **Contexto herdado no despacho:** ao despachar uma tarefa, o corpo inclui as anotações ativas da tarefa e dos níveis acima (missão → projeto → versão → produto), em ordem de precedência (instrução do Marcelo primeiro), resumidas e com os documentos citados; MCP `get_task_context` devolve o mesmo pacote | Aramis | Porthus | P.2, C.2b.R | Teste: anotação do projeto chega a toda tarefa do projeto; anotação privada respeita o escopo da Fase C |
 | P.5 | **Linha do tempo por projeto/missão:** tudo o que os agentes fizeram (criações, mudanças de status, despachos, execuções, evidências, documentos, execuções remotas), filtrável por agente, com "o que mudou desde a sua última visita" | Aramis (apoio: Dartan) | Porthus | P.1 | Toda ação de agente aparece com autor e link |
 | P.6 | **Visão de supervisão** no Cockpit: o que espera o Marcelo (G.11a, fila mínima da Onda 2), o que travou, o que os agentes mudaram nas últimas 24 h, e anotar com um toque a partir de qualquer item | Dartan | Porthus | P.5, G.11a | Celular; um toque leva do item à anotação |
 | P.7 | **Anotação vira conhecimento:** promover uma anotação para documento do projeto, Base de Conhecimento ou Foundation, por tarefa (Scriba/Mnemosyne/Athos, Fase C) | Aramis | Porthus | P.2, C.3 | Promoção registrada; a anotação aponta o destino |
@@ -193,7 +192,7 @@ lista exata de registros, backup e autorização própria. T.1 não remove dados
 
 | # | Tarefa | Dono | Verificador | Depende | Aceite |
 |---|---|---|---|---|---|
-| F.1 | **Desenho** (documento no ForgeVault e no ForgeHub): algoritmo RS256/ES256 escolhido na spec, kid/JWKS e rotação sobreposta, claims sub/aud/env/roles/scopes/mission_id/delegation_id/jti, vida curta, revogação com push+polling, mapeamento por sistema, HA/cache, transição agt_ e procedimento de emergência F.1.1 | Porthus (apoio: Aegis) | Aramis | 0.15 | Especificação e procedimento F.1.1 revisados por Aegis e Aramis; nenhum token emitido/rotacionado nesta onda |
+| F.1 | **Desenho** (documento no ForgeVault e no ForgeHub): algoritmo RS256/ES256 escolhido na spec, kid/JWKS e rotação sobreposta, claims sub/aud/env/roles/scopes/mission_id/delegation_id/jti, vida curta, revogação com push+polling, mapeamento por sistema, HA/cache, transição agt_ e procedimento de emergência F.1.1 | Porthus | Aegis | 0.15 | Aegis revisa a especificação e o procedimento F.1.1; Aramis é consumidor do contrato; nenhum token emitido/rotacionado nesta onda |
 | F.2 | ForgeVault emite token curto assinado com **chave assimétrica**, publica as chaves públicas (JWKS) e expõe a troca de token com checagem de identidade ativa, papel, ambiente e parada global | Aramis (ForgeVault, .NET) (apoio: Porthus revisa) | Porthus | F.1 | Teste: identidade desativada não obtém token; token de teste rejeitado pela produção |
 | F.3 | Uma conta de serviço por agente no ForgeVault (os 13 das cartas), com papéis por ambiente | Aegis | Aramis | F.2 | Inventário no ForgeVault bate com o registro de agentes do ForgeHub |
 | F.4 | ForgeHub aceita o token do ForgeVault (rotas de agente e MCP), mantendo o `agt_` em paralelo durante a transição | Aramis | Porthus | F.2 | MCP funciona com o token novo; `agt_` desligável por agente |
@@ -304,37 +303,43 @@ Maia), `secret` (nunca guardado). Confiabilidade (§6.3): `canonical`, `verified
 |---|---|---|---|---|---|
 | C.0 | **Linha de base** (fase 0 do diagnóstico): matriz por perfil com memória nativa (uso × limite), banco e modos do Hindsight (`auto_retain`, `auto_recall`, `recall_budget`, tags), hook ativo, pasta da KB, compactação e limite real de contexto por rota | Mnemosyne (levantamento; apoio Aramis) | Porthus | M0.5 | Matriz gerada sem nenhum segredo; vira a primeira aba da tela C.4 |
 | C.1 | **Política de classificação e retenção** na Foundation (`36_governance/MEMORY_CLASSIFICATION_AND_RETENTION.md`): classes, tipos, TTL por classe, proveniência, confiabilidade, precedência, redação, consumidores, regras Maia/Lara, base legal por categoria, controlador/operador, lead/cliente e transferência internacional (H1). Complementa os documentos existentes, sem duplicar | Athos (Foundation) (apoio: Themis (LGPD)) | Mnemosyne (Marcelo aprova a política) | C.0 | Aprovada pelo Marcelo; exemplos de permitido e proibido |
-| C.2 | **Isolamento da recuperação (P0):** `knowledge_cycle.py` passa a ler só a KB do próprio agente e `shared/approved/`, respeita `allowed_consumers`, rejeita documento sem metadados; primeiro em modo observação (registra o que seria excluído) | Aramis (código; Mnemosyne confere isolamento) | Porthus | C.1, T.2, T.3 | Testes: Lara nunca recebe nota pessoal da Maia; Maia nunca recebe histórico de cliente; conteúdo não aprovado não entra no prompt |
-| C.3 | **Compartilhamento controlado Maia ↔ Lara** (e entre quaisquer agentes): `shared/approved/<consumidores>/`, fluxo candidato → revisão → publicação versionada; pasta privada da Maia na KB | Mnemosyne (apoio: Scriba) | Aegis | C.2 | Uma regra comercial não sensível chega à Lara; nenhuma conversa bruta é compartilhada |
+| C.2a | Contenção mínima pré-política: negar KB de outros agentes e conteúdo pessoal/cliente fora do dono; patch do hook compartilhado, fixtures e modo observação sem texto nos logs | Aramis | Porthus | M0.SPEC, T.2, T.3 | Não depende de C.1; canários comprovam isolamento por perfil e nenhuma fuga de path; ativação ainda não realizada |
+| C.2.R | Ativar contenção revisada por processo do Athos em shared-skills, com backup/restauração do arquivo efetivo, inventário dos consumidores e teste de canário no runtime real | Athos | Aegis | C.2a | Aprovação específica, ativação/versionamento/rollback e prova do hook efetivo em todos os perfis afetados; sem restart do gateway |
+| C.2b | Isolamento completo e classificação de recuperação: completar a contenção C.2a com política C.1, allowed_consumers, validade/metadados e modo observação | Aramis (código; Mnemosyne confere isolamento) | Porthus | C.1, C.2.R, T.2, T.3 | Canários artificiais Maia/Lara, paths/symlinks, política e falhas seguras; patch revisado antes de C.2b.R |
+| C.2b.R | Ativar o isolamento completo C.2b pelo processo canônico, com backup do hook, rollback e canários no runtime real | Athos | Aegis | C.2b | Política C.1 aplicada, versão efetiva e teste de não vazamento reais antes de sair da onda |
+| C.3 | **Compartilhamento controlado Maia ↔ Lara** (e entre quaisquer agentes): `shared/approved/<consumidores>/`, fluxo candidato → revisão → publicação versionada; pasta privada da Maia na KB | Mnemosyne (apoio: Scriba) | Aegis | C.2b.R | Uma regra comercial não sensível chega à Lara; nenhuma conversa bruta é compartilhada |
 | C.4 | **Tela "Contexto"** no ForgeHub (Agentes & IA), com abas: **Agentes** (matriz C.0 viva, alerta de memória perto do limite); **Hindsight** (bancos, estatísticas, crescimento, busca por tag/agente/classe, histórico de uma memória, marcar `stale`/substituída, exportar — pela API do Hindsight via host-bridge); **Base de Conhecimento** (fila de revisão do `inbox/`, documentos sem metadados, publicação em `shared/approved`); **Foundation** (o editor atual, com histórico de versões e quem mudou); **Conflitos** (o mesmo fato com valores diferentes entre camadas) | Aramis (API) (apoio: Dartan (tela)) | Porthus | C.0 | Celular; nenhuma ação apaga sem `ConfirmDialog`; Hindsight nunca recebe escrita fora das ações listadas |
 | C.5 | **Metadados obrigatórios** na KB e na Foundation (front matter: classificação, dono, consumidores, validade, confiabilidade, origem, revisão, precedence_level, promotion_path, lawful_basis e retention_until) + verificador | Scriba (conteúdo) (apoio: Aramis (verificador)) | Porthus | C.1 | Documento novo sem metadados é apontado na tela e no Auditor |
 | C.6 | **Governança do Hindsight por perfil:** revisar `bank_id`, `auto_retain`, `recall_budget`, `retain_tags` (agente, domínio, classe, tipo) e `retain_source`; redação antes de reter; Maia segue no banco `maia` | Mnemosyne (apoio: Porthus (config)) | Aramis | C.1 | Teste: informação pessoal retida fica só no `maia`; a Lara não a recupera |
-| C.7 | **Checks do Auditor** para contexto: memória nativa > 90% do limite, documento sem metadados, crescimento anormal de banco, teste de vazamento entre agentes (rodado semanalmente), Foundation alterada fora de tarefa | Aramis (apoio: Aegis) | Porthus | C.2, C.5 | Check falho vira tarefa no Sustentação (I.7) para o dono da camada |
+| C.7 | **Checks do Auditor** para contexto: memória nativa > 90% do limite, documento sem metadados, crescimento anormal de banco, teste de vazamento entre agentes (rodado semanalmente), Foundation alterada fora de tarefa | Aramis (apoio: Aegis) | Porthus | C.2b.R, C.5 | Check falho vira tarefa no Sustentação (I.7) para o dono da camada |
 | C.8a | **Compactação e limite de contexto da sessão** (fase 5 do diagnóstico): medir perda real, então ajustar `protect_last_n` de Maia e Lara, `threshold_tokens`, pruning e o limite de recall por perfil | Mnemosyne (apoio: Porthus) | Aramis | C.0 | Sessão longa compacta sem perder identidade; nada passa do limite do modelo em silêncio |
 | C.8b | Memória nativa MEMORY.md/USER.md: medir uso e política de atualização sem confundir com compactação de sessão | Mnemosyne | Aegis | C.0 | Nenhuma regra canônica duplicada; limites reais por runtime documentados |
 | C.11 | Direitos do titular: recepção, identidade, busca nos sistemas, resposta e auditoria; procedimento e prazos revisados pela Themis | Themis | Aegis | C.1 | Fluxo de teste sem dados reais; Onda 2; obrigações legais validadas na especificação |
 | C.9 | **Saneamento** (fase 6 do diagnóstico, aprovação separada): deduplicar o Hindsight (25.080 fatos no `hermes`), marcar fatos antigos, promover os verificados, arquivar candidatos | Mnemosyne | Aegis | C.6, C.7 | Relatório antes e depois; nada apagado sem exportação prévia |
 | C.10 | **Ligações com o resto do plano:** o contexto da Missão (M.2) promove itens para estas camadas por tarefa (Mnemosyne → Hindsight, Scriba → KB, Athos → Foundation); os evals (G.6) incluem testes de recuperação de memória; o Agent Activity mostra recall/retenção por agente | Aramis | Porthus | M.2, G.6, A.3 | Toda promoção tem tarefa, revisão e registro |
 
-Ordem dentro da frente: C.0 → C.1 → C.2 (P0, o maior risco atual) → C.3/C.5/C.6 → C.4 → C.7 → C.8a/C.8b → C.9.
-C.0/C.1 são a execução da primeira missão após M0.5. Antes disso só há leitura preparatória/especificação, sem declarar missão realizada fora do fluxo. C.2 não bloqueia o ensaio M0 de fixture, mas bloqueia o fechamento da Onda 1 e o contexto herdado P.4.
+Ordem dentro da frente: C.2a → C.2.R (contenção pré-missão); M0.5 → C.0 → C.1 → C.2b → C.2b.R (isolamento completo) → C.3/C.5/C.6 → C.4 → C.7 → C.8a/C.8b → C.9.
+C.0/C.1 são a execução da primeira missão após M0.5. Antes disso só há leitura preparatória/especificação, sem declarar missão realizada fora do fluxo. C.2a/C.2.R precedem a missão real; C.2b/C.2b.R completam a política e precedem a saída da onda e P.4. O ensaio M0.4 usa runner simulado, sem o hook real.
 
 ### Fase M0 — Fatias mínimas da primeira onda
 
 | # | Tarefa | Dono | Verificador | Depende | Aceite |
 |---|---|---|---|---|---|
-| M0.SPEC | Especificar contratos MCP/modelo/guards/contexto mínimo sem recuperação privada automática: arquivos, endpoints existentes/propostos, schemas, permissões, idempotência, erros, migrations, testes e rollback em `MCP_MISSION_TOOLS_SPEC.md` | Daedalus | Porthus | 0.15 | Executor Aramis e revisor Porthus aprovam contratos antes de M0.0/M0.2/M0.6 |
+| M0.SPEC | Especificar contratos MCP/modelo/guards/contexto mínimo sem recuperação privada automática: arquivos, endpoints existentes/propostos, schemas, permissões, idempotência, erros, migrations, testes e rollback em `MCP_MISSION_TOOLS_SPEC.md`; escopo global prospectivo de conclusão e importação histórica com execução/revisão reais, sem bypass; aceite formal mínimo M0 | Daedalus | Porthus | 0.15 | Executor Aramis e revisor Porthus aprovam contratos antes de M0.0/M0.2/M0.6 |
+| B0 | Backup elegível do escopo forgehub_postgres, inventário/RPO/RTO e restauração de amostra em quarentena isolada; nunca usar backup real como seed de testes | Hephaestus | Aegis | T.2, T.3 | Snapshot identificável, integridade/restore e rollback aprovados; sem conexão de apps/agentes comuns aos dados restaurados; revalidar recência no gate |
+| M0.R | Publicação manual da base/guards/tools M0 com backup e rollback testados; aprovação de Marcelo do conteúdo exato antes de produção | Hephaestus | Porthus | M0.2c, M0.2d, M0.6a, M0.6b, M0.4, B0, V-a | Artefatos revisados/implantados, migrations e smoke reais; uso real M0.1/M0.5 só após esta entrega |
+| A.R | Publicar A.1/A.2 pelo mesmo gate manual, backup do escopo e rollback testados | Hephaestus | Porthus | A.1, A.2, B0 | Aprovação específica, versão implantada e prova de agentes/rotinas; teste isolado sozinho não comprova release |
 | M0.0 | Tipo missão e base mínima de coordenação conforme 04; migrar CHECK/schema/guard sem alterar criação/manutenção; preservar critérios, membros e revisões existentes | Aramis | Porthus | M0.SPEC, T.2, T.3 | Migração ida/volta em fixture; tipos existentes intactos; projeto comum não recebe gate de missão indevidamente |
-| M0.1 | Inventário e cadastro idempotente do produto Ecossistema Foundation/ciclo vigente e do projeto comum Plano integrado, sem duplicar registros existentes | Atlas (apoio Aramis nas tools) | Porthus | V-a, M0.2a | Repetir criação não duplica; ids reais, ambiente e vínculo documentados |
+| M0.1 | Inventário e cadastro idempotente do produto Ecossistema Foundation/ciclo vigente e do projeto comum Plano integrado, sem duplicar registros existentes | Atlas (apoio Aramis nas tools) | Porthus | V-a, M0.R | Repetir criação não duplica; ids reais, ambiente e vínculo documentados |
 | M0.2a | MCP create_internal_project/manage_project_members; papéis e permissão por projeto | Aramis | Porthus | M0.0 | Contratos e escopo testados, repetição idempotente, não membro recusado |
 | M0.2b | MCP submit_project_plan/add_task_dependency; aprovação só pela tela na primeira onda | Aramis | Porthus | M0.2a, M0.6b | Plano vira proposta, nunca autoaprovado; ciclo recusado; aprovação e hash por usuário autorizado |
 | M0.2c | MCP assign_task/dispatch_task/report_task_execution, reutilizando Messages | Aramis | Porthus | M0.2b, M0.6a, M0.6b | Baseline/dependências/permissões guardadas; retry sem despacho duplicado; DONE só relato |
 | M0.2d | MCP attach_project_document/get_my_mission_role e minhas tarefas | Aramis | Porthus | M0.2a | DocLink/artefato com escopo e versão; agente só vê seu papel/tarefas permitidas |
-| M0.6a | Verificação tipada git/file/db + TaskExecutionReview independente para done/deployed; auditoria pela identidade da credencial | Aramis | Porthus | M0.0 | Sem execução, falsa evidência, autorrevisão e membro sem permissão recusados em todas as entradas |
+| M0.6a | Guard global prospectivo de done/deployed: execução git/file/db verificada e revisão independente; auditoria da credencial, preservando conclusões históricas | Aramis | Porthus | M0.0 | Transições novas protegidas em todos os projetos; importação histórica cria execução e revisão com prova real, nunca PATCH direto nem run_id inventado |
 | M0.6b | Baseline imutável com ids e hash de conteúdo; guard em todos os caminhos de despacho; alteração exige change request | Aramis | Porthus | M0.0 | Edição/adição/CR invalida autorização anterior; nenhum bypass por MCP, Approval ou reconciliação |
 | M0.3 | Convenção M0 na Foundation: papéis, delegação por projeto, substituto, evidência, documentos, aceite e ambientes | Athos (apoio Scriba) | Themis | M0.2c, M0.2d, T.6 | Convenção revisada; duas identidades diferentes; delegações limitadas e revogáveis |
-| M0.4 | Atualizar instruções compartilhadas pelo processo do Athos; ensaio completo de missão fictícia na área de teste | Athos (apoio Aramis) | Porthus | M0.3, F.1 | Instruções versionadas; ensaio inclui contexto mínimo por allowlist e teste de vazamento com fixtures; sem recuperação automática ampla antes de C.2; nenhuma aprovação humana simulada em produção |
-| M0.5 | Registrar e abrir missão real C.0+C.1 sob baseline exata; plano integrado segue projeto comum | Athos | Porthus | M0.1, M0.4 | Papéis, orçamento/prazo, critérios e contexto aprovados antes do despacho; não fechar antes de C.0/C.1 e aceite |
+| M0.4 | Instruções versionadas e ensaio M0 com runner/MCP simulados de teste; sem usar perfis, bridge ou credenciais de produção | Athos (apoio Aramis) | Porthus | M0.3 | Instruções versionadas; ensaio inclui contexto mínimo por allowlist e teste de vazamento com fixtures; sem recuperação automática ampla antes de C.2; nenhuma aprovação humana simulada em produção |
+| M0.5 | Registrar e abrir missão real C.0+C.1 sob baseline exata; plano integrado segue projeto comum | Athos | Porthus | M0.1, M0.4, M0.R, C.2.R | Papéis, orçamento/prazo, critérios e contexto aprovados antes do despacho; não fechar antes de C.0/C.1 e aceite |
 
 M0.2 é somente resumo de M0.2a–d; não criar uma segunda implementação da P.1. M0.5 termina com a
 abertura correta da missão; o aceite da missão depende de C.0/C.1 e é critério de saída da onda,
@@ -344,7 +349,7 @@ sem criar a dependência circular M0.5 → C.0 → M0.5.
 
 | # | Tarefa | Dono | Verificador | Depende | Aceite |
 |---|---|---|---|---|---|
-| M.0 | Documento dos sete sistemas (Hermes, ForgeHub, ForgeRouter, ForgeVault, Tailscale, RustDesk, Darckware). O isolamento do `knowledge_cycle.py` e a pasta da Maia passaram para a Fase C (C.2, C.3) | Daedalus (apoio Scriba) | Daedalus | — (pode correr em paralelo desde já) | Documento dos sete sistemas revisado, fontes e falhas/contratos explícitos |
+| M.0 | Documento dos sete sistemas (Hermes, ForgeHub, ForgeRouter, ForgeVault, Tailscale, RustDesk, Darckware). O isolamento do `knowledge_cycle.py` e a pasta da Maia passaram para a Fase C (C.2, C.3); entrega documental da Onda 2 | Daedalus (apoio Scriba) | Daedalus | aceite da Onda 1 | Documento dos sete sistemas revisado, fontes e falhas/contratos explícitos |
 | M.1 | Ampliar a base mínima M0 como projeto de coordenação ligado aos projetos executores; estado único conforme 04; não duplicar missions, tarefas ou critérios | Aramis | Porthus | Onda 1 + Onda 2 | Transições e projeção de Project.status testadas; projetos comuns preservados |
 | M.1a | Critérios sem duplicar ScopeItemAcceptanceCriterion: ligação critério↔tarefa dos projetos vinculados, evidência, verificador e estado; reabertura invalida prova (B3/B5) | Aramis | Porthus | M.1 | Critério não fecha sem prova; reabrir tarefa devolve critério a aberto |
 | M.1b | **Saúde da missão** (seção 1.5): semáforo calculado dos sinais (critérios, prazo, bloqueios, evidência, documentação, agentes, custo, cliente), com alerta ao coordenador, ao agente ou ao Marcelo conforme o caso | Aramis | Porthus | M.1a, A.3, O.1 | Cada sinal vinculado à fonte; desconhecido não vira saudável; recomputação testada |
@@ -361,7 +366,7 @@ sem criar a dependência circular M0.5 → C.0 → M0.5.
 | M.1n | **Dossiê de validação** gerado ao entrar em `aguardando aceite` (critérios × evidência, entregas, documentos, críticas e correções, mudanças de escopo, prazo e custo, pendências, lições, checklist); aceite ou crítica do Marcelo dados sobre ele; versões guardadas | Aramis | Porthus | M.1m, D.2 | Dossiê versionado e critérios verificados por terceiro; aceite com mission.accept válido |
 | M.1o | **Pausar/continuar e várias missões:** estado `pausada` com motivo, sem novos despachos, tempo pausado fora do prazo; prioridade entre missões no despacho; limite de missões por orquestrador; dependência entre missões | Aramis | Porthus | M.1, M.1b | Pausa bloqueia novos despachos; retomada revalida baseline; cancelamento preserva run_id e evidências |
 | M.1d | **Painel da missão:** o pipeline com o estágio atual, os critérios e suas provas, a saúde, a linha do tempo (P.5), as anotações (P.3) e os agentes em atividade agora | Aramis | Porthus | M.1b, M.1c | Contrato, migration e testes positivos/negativos aprovados; evidência e documento da entrega |
-| M.2 | Contexto da missão por destinatário, com testes de vazamento; promove itens para as camadas da Fase C | Aramis | Porthus | M.1, C.2 | Contrato, migration e testes positivos/negativos aprovados; evidência e documento da entrega |
+| M.2 | Contexto da missão por destinatário, com testes de vazamento; promove itens para as camadas da Fase C | Aramis | Porthus | M.1, C.2b.R | Contrato, migration e testes positivos/negativos aprovados; evidência e documento da entrega |
 | M.3 | Missão na Operação 24x7 e no Agent Activity | Aramis | Porthus | M.1, A.3, O.1 | Contrato, migration e testes positivos/negativos aprovados; evidência e documento da entrega |
 | M.4 | Autonomia N1 (coordenador propõe o plano) | Aramis | Porthus | M.2, O.4, G.10, G.11b | Critérios N1 do 08 comprovados; nenhuma promoção por contagem de DONE sem aceite |
 
@@ -380,8 +385,7 @@ novas implementações").
 
 ### Ordem e paralelismo
 
-As arestas da primeira onda estão em [onda1-tarefas.json](onda1-tarefas.json), com geração da tabela
-em 12 e validação de ciclos/ids. O desenho abaixo é apenas uma visão do mesmo grafo.
+A fonte canônica da primeira onda é [onda1-tarefas.json](onda1-tarefas.json); as tabelas de 07/12 são projeções que o validador compara integralmente. O desenho abaixo é apenas uma visão do mesmo grafo.
 
 ```mermaid
 flowchart TD
@@ -401,17 +405,33 @@ flowchart TD
   Minimo --> Convencao[M0.3 / M0.4: convenção e ensaio]
   Cadastro --> Abertura[M0.5: abrir missão real]
   Convencao --> Abertura
+  Spec --> Contencao[C.2a: patch e canários]
+  T3 --> Contencao
+  Contencao --> Ativa[C.2.R: ativação pelo Athos]
+  Ativa --> Abertura
+  T3 --> B0[B0: backup e restore isolado]
+  Minimo --> Publica[M0.R: publicação manual]
+  Convencao --> Publica
+  B0 --> Publica
+  Publica --> Cadastro
+  Publica --> Abertura
   Abertura --> C0[C.0: linha de base]
   C0 --> C1[C.1: política aprovada]
-  C1 --> C2[C.2: isolar contexto]
-  C2 --> Saida[Aceite Onda 1: inclui missão C.0+C.1, A.1/A.2 e F.1]
+  C1 --> C2[C.2b e C.2b.R: completar e ativar política]
+  C2 --> Saida[Aceite Onda 1: missão aceita, isolamento e releases verificados]
+  T3 --> Atividades[A.1 / A.2: implementar e testar]
+  Atividades --> AtividadesRelease[A.R: publicar]
+  B0 --> AtividadesRelease
+  AtividadesRelease --> Saida
+  Revisao --> Identidade[F.1: desenho revisado]
+  Identidade --> Saida
   Saida --> Onda2[Onda 2: V-b, S/R/B, P/I/Q/D e demais dependências]
   Onda2 --> G11a[G.11a: fila mínima]
   G11a --> P6[P.6: supervisão]
   P6 --> Onda3[Onda 3: missão completa e G.11b]
 ```
 
-M.0/F.1 e as especificações podem avançar em paralelo. A.1/A.2 só implementam/validam com T.2+T.3.
+F.1 e as especificações podem avançar em paralelo; M.0 fica na Onda 2. A.1/A.2 só implementam/validam com T.2+T.3.
 R.1 não elimina revisões/permissões necessárias ao M0. Não criar tarefa para a linha-resumo de uma
 fase: cadastrar somente suas fatias executáveis. Disponibilidade e limites atuais são conferidos
 antes de atribuir; falta de cota não autoriza renomear um executor como seu próprio revisor.

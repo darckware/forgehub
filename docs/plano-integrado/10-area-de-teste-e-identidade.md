@@ -9,7 +9,7 @@ São duas peças que se apoiam:
 - a **identidade única no ForgeVault** é como entram em cada sistema, com uma credencial só, de vida
   curta, revogável num lugar e auditada.
 
-**Atualização 27/10:** T.2+T.3 são pré-requisitos de V-a/N.0 e testes mutantes. Linux T.4a é a fatia da Onda 1; Windows T.4b aguarda alvo autorizado (D-4). A descrição abaixo registra diagnóstico de 24/10, não prova que nada mudou desde então. Não limpar resíduos de produção como efeito colateral de T.1.
+**Atualização 27/10:** T.2+T.3 são pré-requisitos de V-a/N.0 e testes mutantes. Linux T.4a é a fatia da Onda 1; Windows T.4b aguarda alvo autorizado (D-4). B0 restaura dados reais apenas em quarentena de recuperação dedicada e protegida, sem aplicações, mensageria ou agentes comuns; não copia dados reais para seed/suíte de teste. A descrição abaixo registra diagnóstico de 24/10, não prova que nada mudou desde então. Não limpar resíduos de produção como efeito colateral de T.1.
 
 ## 1. Situação atual (levantada em 24/10)
 
@@ -74,7 +74,7 @@ e produção. Isso fica apenas como **transição**.
 | **Segredos** | Ambiente "teste" no ForgeVault, com segredos próprios (chaves de teste do ForgeRouter com orçamento baixo, tokens de teste) |
 | **Integrações externas** | Desligadas ou simuladas: e-mail não sai (fila só registra), Telegram é stub local sem envio de rede (chat real de teste somente em etapa com aprovação específica), Darckware de teste sem portal público |
 | **Máquinas** | Uma ou duas máquinas de teste no Tailscale (contêiner ou VM com Linux e uma estação Windows de teste), para validar scripts de manutenção sem tocar cliente |
-| **Agentes** | Os mesmos agentes, com token de ambiente "teste"; V-a/V-b mutantes, evals e ensaios de tarefas que alteram sistemas rodam aqui primeiro; o registro da missão real permanece em produção (F6), com C.0+C.1 de leitura/política |
+| **Agentes** | Agentes/runner simulados e credenciais agt_ próprias da base de teste, sem permissão em produção; identidade assimétrica F.2 é futura; V-a/V-b mutantes, evals e ensaios de tarefas que alteram sistemas rodam aqui primeiro; o registro da missão real permanece em produção (F6), com C.0+C.1 de leitura/política |
 | **Promoção** | Nada passa do teste para a produção sem gate. Na Onda 1, o gate manual existente exige testes/build pertinentes, revisão independente, homologação/rollback testados, backup elegível e aprovação explícita do conteúdo/ambiente; não depende da automação Q.5 ainda não implementada. Q.5 automatiza esse mesmo controle na Onda 2 |
 | **Limpeza** | Reset do ambiente de teste por comando (recria bancos a partir do seed); auditoria do que cada agente fez no teste |
 

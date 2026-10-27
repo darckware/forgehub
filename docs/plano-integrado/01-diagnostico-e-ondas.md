@@ -43,13 +43,14 @@ locais do plano; nenhum número de ProjectTask foi inventado ou criado por esta 
 | V-a/N.0 | Roteiro tela/API e diagnóstico do navegador atual com dados fictícios | T.2+T.3; sem e-mail, Telegram, portal ou manutenção real de cliente |
 | M0.SPEC/M0.0/M0.1/M0.2a–d/M0.6a–b | Contratos MCP, base mínima de missão, cadastro idempotente e ferramentas mínimas; revisão de execução e guard de baseline | Contrato aprovado antes de código; T.2+T.3; nenhum autoaceite ou hash fora de escopo |
 | M0.3/M0.4/M0.5 | Convenção, instruções e primeira missão C.0+C.1 com acompanhamento e aceite | Guards M0.6a/b, contexto filtrado, papéis/delegações e baseline exata antes do despacho |
-| C.2 | Recuperação limitada à KB do agente e shared/approved, observação antes de ativar | Política C.1 aprovada e testes de não vazamento; revisão independente |
+| C.2a/C.2.R | Contenção mínima do hook compartilhado antes da missão real, com canários no runtime | Independe de C.1; revisão e publicação canônica pelo Athos, backup do arquivo e rollback |
+| C.2b/C.2b.R | Isolamento completo por política, observado/revisado/ativado | Política C.1 aprovada, contenção anterior e testes de não vazamento |
+| B0/M0.R/A.R | Backup/restauração de escopo e publicações reais da base/tools/atividades | Aprovação do conteúdo exato e prova de versão ativa; código revisado não equivale a implantado |
 | F.1 | Especificação da identidade assimétrica e emergência | Somente desenho; nenhuma rotação, novo login ou desligamento de token nesta onda |
 | A.1/A.2 | Todos os agentes elegíveis e rotinas nas Atividades | Registro canônico ativo; testes isolados, sem dependência do novo dashboard |
 
 **Saída:** V-a aprovada com relatório; nenhuma suíte/dev.sh alcança produção; contratos e guards
-M0.6a/b aprovados; primeira missão C.0+C.1 registrada e aceita em produção com documentação e
-provas independentes; C.2 ativo após teste de vazamento; F.1 revisado; A.1/A.2 verificados. Ensaios
+M0.6a/b aprovados; M0.R publicado e C.2.R ativo antes da missão; primeira missão C.0+C.1 registrada e aceita em produção com documentação e provas independentes; C.2b.R ativo após teste de vazamento; F.1 revisado; A.1/A.2 verificados e publicados por A.R. Ensaios
 ficam no teste; o registro real de coordenação fica em produção. Não afirmar que uma missão de
 política/leitura precisou executar em um sistema de teste.
 

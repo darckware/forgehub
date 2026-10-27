@@ -42,7 +42,7 @@
 | [12 — Primeira onda](12-primeira-onda.md) | Pacotes executáveis da Onda 1, responsáveis, verificadores, dependências, provas e limites de autorização |
 | [11 — Navegador dos agentes](11-navegador-dos-agentes.md) | Sessões de navegador isoladas por agente e tarefa, modo teste (área de teste) e modo internet (coleta de dados, redes sociais), credenciais pelo ForgeVault, publicação com aprovação (Fase N) |
 | [Modelos](modelos/) | [Termo de abertura](modelos/TERMO-DE-ABERTURA.md) (todo projeto novo), [Crítica de entrega](modelos/CRITICA-DE-ENTREGA.md) e [Dossiê de validação](modelos/DOSSIE-DE-VALIDACAO.md) (Missão) |
-| [Consolidado da revisão](revisao/CONSOLIDADO.md) | Os 11 pareceres agrupados por tema, com análise e proposta para cada item, e as 8 decisões pendentes |
+| [Consolidado da revisão](revisao/CONSOLIDADO.md) | Os pareceres históricos agrupados e as oito propostas; tratamento atual em 09 e validação da consolidação em revisao/VALIDACAO-2026-10-27.md |
 | [Roteiro de revisão crítica](revisao/ROTEIRO-DE-REVISAO.md) | Quem revisa cada camada, as perguntas, o formato do parecer e o processo, antes da implementação |
 | [Especificação da Missão](missao-especificacao.md) | Detalhe técnico da Missão (modelo, fluxo, autonomia, arquitetura dos sete sistemas) |
 
@@ -61,7 +61,7 @@
 | 8, 9 | [09](09-lacunas-e-decisoes.md) |
 | Fases T, F e N (desenho) | [10](10-area-de-teste-e-identidade.md), [11](11-navegador-dos-agentes.md); tarefas em [07](07-fases-de-implementacao.md) |
 
-**Autoridade:** o 04 define os estados/gates da missão; o 07 define fases, donos e dependências; o 12 detalha a Onda 1. A especificação anterior da Missão sinaliza seções substituídas. A consolidação não certifica código nem altera Foundation, credenciais ou banco.
+**Autoridade:** o 04 define os estados/gates da missão; o 07 define as fases; para a Onda 1, onda1-tarefas.json é a fonte canônica de responsáveis, dependências e aceites, projetada nas tabelas de 07/12. A especificação anterior da Missão sinaliza seções substituídas. A consolidação não certifica código nem altera Foundation, credenciais ou banco.
 
 **Regra deste conjunto:** o escopo está congelado. Pedido novo vira item do projeto do plano no
 Service Factory (quando a M0 o registrar), não texto novo nestes documentos. Atualizações de estado

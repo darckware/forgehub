@@ -2,7 +2,6 @@
   "title": "Onda 1 — base comprovada",
   "updated_at": "2026-10-27",
   "scope": "Planejamento consolidado autorizado; nenhuma execução/cadastro criado por esta edição",
-  "source": "07-fases-de-implementacao.md",
   "external_prerequisites": {
     "0.14": [
       "0.13 histórico e documentos consolidados"
@@ -14,6 +13,8 @@
       "title": "**Rodada cruzada** sobre os documentos consolidados, modelos e a matriz da Onda 1: alguma decisão cria contradição entre camadas?",
       "executor_agent_slug": "athos",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Athos",
+      "reviewer_label": "Porthus",
       "depends_on": [],
       "acceptance": "Pareceres da 2ª rodada",
       "status": "planned",
@@ -24,6 +25,8 @@
       "title": "**Registro da aprovação de consolidação** do Marcelo e dos limites/defaults em 09; corrigir documentos com referência aos itens do consolidado",
       "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "athos",
+      "executor_label": "Aramis (registro), Marcelo (autoridade)",
+      "reviewer_label": "Athos",
       "depends_on": [
         "0.14"
       ],
@@ -36,6 +39,8 @@
       "title": "Postgres de teste em **contêiner próprio**, volume/rede/credencial/porta próprios; Alembic e guard que rejeita banco/host/credencial de produção; `dev.sh` e suíte usam somente esse ambiente",
       "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Aramis (apoio Hephaestus)",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "0.15"
       ],
@@ -48,6 +53,8 @@
       "title": "Backend/frontend de teste com limites de recurso, seed fictício reproduzível e reset explícito",
       "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Aramis (apoio Hephaestus)",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "T.1"
       ],
@@ -60,6 +67,8 @@
       "title": "Credenciais exclusivas de teste e integrações externas simuladas; primeiro o deny de egress/stubs, depois iniciar o app de teste",
       "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Aramis (apoio Aegis)",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "T.2"
       ],
@@ -72,6 +81,8 @@
       "title": "Alvo Linux de teste, sem dados/credenciais de cliente, com delegação e scripts autorizados; inventariar antes de provisionar",
       "executor_agent_slug": "hephaestus",
       "reviewer_agent_slug": "aegis",
+      "executor_label": "Hephaestus",
+      "reviewer_label": "Aegis",
       "depends_on": [
         "T.2",
         "T.3"
@@ -85,6 +96,8 @@
       "title": "Regra na Foundation/skill: registro da missão em produção; tarefa mutante valida primeiro no teste; implantação real só pelo gate aplicável",
       "executor_agent_slug": "athos",
       "reviewer_agent_slug": "aegis",
+      "executor_label": "Athos",
+      "reviewer_label": "Aegis",
       "depends_on": [
         "T.2",
         "T.3"
@@ -97,11 +110,13 @@
       "id": "F.1",
       "title": "**Desenho** (documento no ForgeVault e no ForgeHub): algoritmo RS256/ES256 escolhido na spec, kid/JWKS e rotação sobreposta, claims sub/aud/env/roles/scopes/mission_id/delegation_id/jti, vida curta, revogação com push+polling, mapeamento por sistema, HA/cache, transição agt_ e procedimento de emergência F.1.1",
       "executor_agent_slug": "porthus",
-      "reviewer_agent_slug": "aramis",
+      "reviewer_agent_slug": "aegis",
+      "executor_label": "Porthus",
+      "reviewer_label": "Aegis",
       "depends_on": [
         "0.15"
       ],
-      "acceptance": "Especificação e procedimento F.1.1 revisados por Aegis e Aramis; nenhum token emitido/rotacionado nesta onda",
+      "acceptance": "Aegis revisa a especificação e o procedimento F.1.1; Aramis é consumidor do contrato; nenhum token emitido/rotacionado nesta onda",
       "status": "planned",
       "project_task_id": null
     },
@@ -110,6 +125,8 @@
       "title": "Validar o navegador atual do Workspace (ligar, navegar, uma rotina, um teste em segundo plano) e registrar o que falha",
       "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Aramis",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "T.2",
         "T.3"
@@ -123,6 +140,8 @@
       "title": "Validar roteiro V.1–V.15 por tela/API com dados fictícios, relatando defeitos e correções",
       "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Aramis",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "T.2",
         "T.3"
@@ -133,9 +152,11 @@
     },
     {
       "id": "M0.SPEC",
-      "title": "Especificar contratos MCP/modelo/guards/contexto mínimo sem recuperação privada automática: arquivos, endpoints existentes/propostos, schemas, permissões, idempotência, erros, migrations, testes e rollback em `MCP_MISSION_TOOLS_SPEC.md`",
+      "title": "Especificar contratos MCP/modelo/guards/contexto mínimo sem recuperação privada automática: arquivos, endpoints existentes/propostos, schemas, permissões, idempotência, erros, migrations, testes e rollback em `MCP_MISSION_TOOLS_SPEC.md`; escopo global prospectivo de conclusão e importação histórica com execução/revisão reais, sem bypass; aceite formal mínimo M0",
       "executor_agent_slug": "daedalus",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Daedalus",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "0.15"
       ],
@@ -148,6 +169,8 @@
       "title": "Tipo missão e base mínima de coordenação conforme 04; migrar CHECK/schema/guard sem alterar criação/manutenção; preservar critérios, membros e revisões existentes",
       "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Aramis",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "M0.SPEC",
         "T.2",
@@ -162,9 +185,11 @@
       "title": "Inventário e cadastro idempotente do produto Ecossistema Foundation/ciclo vigente e do projeto comum Plano integrado, sem duplicar registros existentes",
       "executor_agent_slug": "atlas",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Atlas (apoio Aramis nas tools)",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "V-a",
-        "M0.2a"
+        "M0.R"
       ],
       "acceptance": "Repetir criação não duplica; ids reais, ambiente e vínculo documentados",
       "status": "planned",
@@ -175,6 +200,8 @@
       "title": "MCP create_internal_project/manage_project_members; papéis e permissão por projeto",
       "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Aramis",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "M0.0"
       ],
@@ -187,6 +214,8 @@
       "title": "MCP submit_project_plan/add_task_dependency; aprovação só pela tela na primeira onda",
       "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Aramis",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "M0.2a",
         "M0.6b"
@@ -200,6 +229,8 @@
       "title": "MCP assign_task/dispatch_task/report_task_execution, reutilizando Messages",
       "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Aramis",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "M0.2b",
         "M0.6a",
@@ -214,6 +245,8 @@
       "title": "MCP attach_project_document/get_my_mission_role e minhas tarefas",
       "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Aramis",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "M0.2a"
       ],
@@ -223,13 +256,15 @@
     },
     {
       "id": "M0.6a",
-      "title": "Verificação tipada git/file/db + TaskExecutionReview independente para done/deployed; auditoria pela identidade da credencial",
+      "title": "Guard global prospectivo de done/deployed: execução git/file/db verificada e revisão independente; auditoria da credencial, preservando conclusões históricas",
       "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Aramis",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "M0.0"
       ],
-      "acceptance": "Sem execução, falsa evidência, autorrevisão e membro sem permissão recusados em todas as entradas",
+      "acceptance": "Transições novas protegidas em todos os projetos; importação histórica cria execução e revisão com prova real, nunca PATCH direto nem run_id inventado",
       "status": "planned",
       "project_task_id": null
     },
@@ -238,6 +273,8 @@
       "title": "Baseline imutável com ids e hash de conteúdo; guard em todos os caminhos de despacho; alteração exige change request",
       "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Aramis",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "M0.0"
       ],
@@ -250,6 +287,8 @@
       "title": "Convenção M0 na Foundation: papéis, delegação por projeto, substituto, evidência, documentos, aceite e ambientes",
       "executor_agent_slug": "athos",
       "reviewer_agent_slug": "themis",
+      "executor_label": "Athos (apoio Scriba)",
+      "reviewer_label": "Themis",
       "depends_on": [
         "M0.2c",
         "M0.2d",
@@ -261,12 +300,13 @@
     },
     {
       "id": "M0.4",
-      "title": "Atualizar instruções compartilhadas pelo processo do Athos; ensaio completo de missão fictícia na área de teste",
+      "title": "Instruções versionadas e ensaio M0 com runner/MCP simulados de teste; sem usar perfis, bridge ou credenciais de produção",
       "executor_agent_slug": "athos",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Athos (apoio Aramis)",
+      "reviewer_label": "Porthus",
       "depends_on": [
-        "M0.3",
-        "F.1"
+        "M0.3"
       ],
       "acceptance": "Instruções versionadas; ensaio inclui contexto mínimo por allowlist e teste de vazamento com fixtures; sem recuperação automática ampla antes de C.2; nenhuma aprovação humana simulada em produção",
       "status": "planned",
@@ -277,9 +317,13 @@
       "title": "Registrar e abrir missão real C.0+C.1 sob baseline exata; plano integrado segue projeto comum",
       "executor_agent_slug": "athos",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Athos",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "M0.1",
-        "M0.4"
+        "M0.4",
+        "M0.R",
+        "C.2.R"
       ],
       "acceptance": "Papéis, orçamento/prazo, critérios e contexto aprovados antes do despacho; não fechar antes de C.0/C.1 e aceite",
       "status": "planned",
@@ -290,6 +334,8 @@
       "title": "**Linha de base** (fase 0 do diagnóstico): matriz por perfil com memória nativa (uso × limite), banco e modos do Hindsight (`auto_retain`, `auto_recall`, `recall_budget`, tags), hook ativo, pasta da KB, compactação e limite real de contexto por rota",
       "executor_agent_slug": "mnemosyne",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Mnemosyne (levantamento; apoio Aramis)",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "M0.5"
       ],
@@ -302,6 +348,8 @@
       "title": "**Política de classificação e retenção** na Foundation (`36_governance/MEMORY_CLASSIFICATION_AND_RETENTION.md`): classes, tipos, TTL por classe, proveniência, confiabilidade, precedência, redação, consumidores, regras Maia/Lara, base legal por categoria, controlador/operador, lead/cliente e transferência internacional (H1). Complementa os documentos existentes, sem duplicar",
       "executor_agent_slug": "athos",
       "reviewer_agent_slug": "mnemosyne",
+      "executor_label": "Athos (Foundation) (apoio: Themis (LGPD))",
+      "reviewer_label": "Mnemosyne (Marcelo aprova a política)",
       "depends_on": [
         "C.0"
       ],
@@ -310,16 +358,19 @@
       "project_task_id": null
     },
     {
-      "id": "C.2",
-      "title": "**Isolamento da recuperação (P0):** `knowledge_cycle.py` passa a ler só a KB do próprio agente e `shared/approved/`, respeita `allowed_consumers`, rejeita documento sem metadados; primeiro em modo observação (registra o que seria excluído)",
+      "id": "C.2b",
+      "title": "Isolamento completo e classificação de recuperação: completar a contenção C.2a com política C.1, allowed_consumers, validade/metadados e modo observação",
       "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Aramis (código; Mnemosyne confere isolamento)",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "C.1",
+        "C.2.R",
         "T.2",
         "T.3"
       ],
-      "acceptance": "Testes: Lara nunca recebe nota pessoal da Maia; Maia nunca recebe histórico de cliente; conteúdo não aprovado não entra no prompt",
+      "acceptance": "Canários artificiais Maia/Lara, paths/symlinks, política e falhas seguras; patch revisado antes de C.2b.R",
       "status": "planned",
       "project_task_id": null
     },
@@ -328,6 +379,8 @@
       "title": "Quadro com todos os agentes das cartas (externos sempre presentes) + saúde de canal/gateway",
       "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Aramis (API) (apoio: Dartan)",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "T.2",
         "T.3"
@@ -341,12 +394,114 @@
       "title": "Rotinas na timeline (passado e próximas 24 h) com desfecho; alerta de rotina perdida",
       "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "porthus",
+      "executor_label": "Aramis (apoio: Dartan)",
+      "reviewer_label": "Porthus",
       "depends_on": [
         "A.1"
       ],
       "acceptance": "Ocorrência perdida aparece e alerta",
       "status": "planned",
       "project_task_id": null
+    },
+    {
+      "id": "B0",
+      "title": "Backup elegível do escopo forgehub_postgres, inventário/RPO/RTO e restauração de amostra em quarentena isolada; nunca usar backup real como seed de testes",
+      "executor_agent_slug": "hephaestus",
+      "reviewer_agent_slug": "aegis",
+      "executor_label": "Hephaestus",
+      "reviewer_label": "Aegis",
+      "depends_on": [
+        "T.2",
+        "T.3"
+      ],
+      "acceptance": "Snapshot identificável, integridade/restore e rollback aprovados; sem conexão de apps/agentes comuns aos dados restaurados; revalidar recência no gate",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "M0.R",
+      "title": "Publicação manual da base/guards/tools M0 com backup e rollback testados; aprovação de Marcelo do conteúdo exato antes de produção",
+      "executor_agent_slug": "hephaestus",
+      "reviewer_agent_slug": "porthus",
+      "executor_label": "Hephaestus",
+      "reviewer_label": "Porthus",
+      "depends_on": [
+        "M0.2c",
+        "M0.2d",
+        "M0.6a",
+        "M0.6b",
+        "M0.4",
+        "B0",
+        "V-a"
+      ],
+      "acceptance": "Artefatos revisados/implantados, migrations e smoke reais; uso real M0.1/M0.5 só após esta entrega",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "A.R",
+      "title": "Publicar A.1/A.2 pelo mesmo gate manual, backup do escopo e rollback testados",
+      "executor_agent_slug": "hephaestus",
+      "reviewer_agent_slug": "porthus",
+      "executor_label": "Hephaestus",
+      "reviewer_label": "Porthus",
+      "depends_on": [
+        "A.1",
+        "A.2",
+        "B0"
+      ],
+      "acceptance": "Aprovação específica, versão implantada e prova de agentes/rotinas; teste isolado sozinho não comprova release",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "C.2a",
+      "title": "Contenção mínima pré-política: negar KB de outros agentes e conteúdo pessoal/cliente fora do dono; patch do hook compartilhado, fixtures e modo observação sem texto nos logs",
+      "executor_agent_slug": "aramis",
+      "reviewer_agent_slug": "porthus",
+      "executor_label": "Aramis",
+      "reviewer_label": "Porthus",
+      "depends_on": [
+        "M0.SPEC",
+        "T.2",
+        "T.3"
+      ],
+      "acceptance": "Não depende de C.1; canários comprovam isolamento por perfil e nenhuma fuga de path; ativação ainda não realizada",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "C.2.R",
+      "title": "Ativar contenção revisada por processo do Athos em shared-skills, com backup/restauração do arquivo efetivo, inventário dos consumidores e teste de canário no runtime real",
+      "executor_agent_slug": "athos",
+      "reviewer_agent_slug": "aegis",
+      "executor_label": "Athos",
+      "reviewer_label": "Aegis",
+      "depends_on": [
+        "C.2a"
+      ],
+      "acceptance": "Aprovação específica, ativação/versionamento/rollback e prova do hook efetivo em todos os perfis afetados; sem restart do gateway",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "C.2b.R",
+      "title": "Ativar o isolamento completo C.2b pelo processo canônico, com backup do hook, rollback e canários no runtime real",
+      "executor_agent_slug": "athos",
+      "reviewer_agent_slug": "aegis",
+      "executor_label": "Athos",
+      "reviewer_label": "Aegis",
+      "depends_on": [
+        "C.2b"
+      ],
+      "acceptance": "Política C.1 aplicada, versão efetiva e teste de não vazamento reais antes de sair da onda",
+      "status": "planned",
+      "project_task_id": null
     }
+  ],
+  "source_of_truth": "onda1-tarefas.json",
+  "mirrors": [
+    "07-fases-de-implementacao.md",
+    "12-primeira-onda.md"
   ]
 }
