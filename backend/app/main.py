@@ -297,7 +297,8 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
 
         # System operations via bridge token (system-control, backups, audit, deploy, database query)
         is_system_bridge_path = (
-            path.startswith("/api/v1/system-control/")
+            path == "/api/v1/system-stats"
+            or path.startswith("/api/v1/system-control/")
             or path.startswith("/api/v1/deploy/")
             or path.startswith("/api/v1/backups")
             or path.startswith("/api/v1/audit/")

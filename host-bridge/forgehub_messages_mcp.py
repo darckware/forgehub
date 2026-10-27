@@ -98,7 +98,7 @@ def _bridge_token() -> str:
     )
 
 
-async def _call(method: str, path: str, **kwargs: Any) -> Any:
+async def _call(method: str, path: str, *, timeout_seconds: float = 60.0, **kwargs: Any) -> Any:
     """One request against ForgeHub, with the token attached and HTTP errors
     turned into a ForgeHubError carrying the API's own `detail`.
 
@@ -107,7 +107,7 @@ async def _call(method: str, path: str, **kwargs: Any) -> Any:
     of them drifted into three slightly different error strings.
     """
     async with httpx.AsyncClient(
-        base_url=BASE_URL, headers={"X-Bridge-Token": _bridge_token()}, timeout=60.0
+        base_url=BASE_URL, headers={"X-Bridge-Token": _bridge_token()}, timeout=timeout_seconds
     ) as client:
         try:
             response = await client.request(method, path, **kwargs)
@@ -1259,7 +1259,7 @@ async def grant_agent_skill(agent: str, skill: str, inheritable: bool = True) ->
     try:
         agent_id, roster_row = await _resolve_agent_id(agent)
         skill_id, skill_row = await _resolve_skill_id(skill)
-        grant = await _call(
+        await _call(
             "POST",
             f"/api/v1/agents/{agent_id}/skills",
             json={"skill_id": skill_id, "inheritable": inheritable},
@@ -1545,39 +1545,26 @@ async def sync_hermes_agents() -> str:
 
 @mcp.tool()
 async def get_system_status() -> str:
-    """Get the live operational status of the host and ForgeHub platform,
-    including CPU, memory, disk usage, active background services, and health status.
+    """Read live host memory/disk metrics. CPU is not collected by this API.
+
+    Missing telemetry is unavailable evidence; it never establishes health.
+    Use list_deploy_containers separately for container health.
     """
     try:
-        data = await _call("GET", "/api/v1/system-control/status")
+        data = await _call("GET", "/api/v1/system-stats")
     except ForgeHubError as exc:
         return str(exc)
 
-    host = data.get("host", {})
-    disk = data.get("disk", {})
-    mem = data.get("memory", {})
-    cpu = data.get("cpu", {})
-
-    lines = [
-        "System Operational Status:",
-        f"- Hostname: {host.get('hostname', 'unknown')} | Platform: {host.get('platform', 'linux')}",
-        f"- CPU Usage: {cpu.get('percent', 0)}% ({cpu.get('count', 0)} cores)",
-        f"- Memory: {mem.get('used_gb', 0):.1f} GB / {mem.get('total_gb', 0):.1f} GB ({mem.get('percent', 0)}% used)",
-        f"- Disk: {disk.get('used_gb', 0):.1f} GB / {disk.get('total_gb', 0):.1f} GB ({disk.get('percent', 0)}% used)",
-    ]
-
-    services = data.get("services", [])
-    if services:
-        lines.append(f"\nServices ({len(services)}):")
-        for s in services:
-            lines.append(f"  - {s.get('name')}: {s.get('status')} (port {s.get('port') or 'internal'})")
-
-    containers = data.get("containers", [])
-    if containers:
-        lines.append(f"\nContainers ({len(containers)}):")
-        for c in containers:
-            lines.append(f"  - {c.get('name')}: {c.get('status')} ({c.get('state')})")
-
+    lines = ["Host telemetry (source: /api/v1/system-stats):",
+             "- CPU: unavailable (not collected); health cannot be inferred."]
+    for key, label in (("memory", "Memory"), ("disk", "Disk")):
+        metric = data.get(key) or {}
+        total, used, percent = (metric.get(field) for field in
+                                ("total_bytes", "used_bytes", "percent_used"))
+        if total is None or total <= 0 or used is None or percent is None:
+            lines.append(f"- {label}: unavailable; health cannot be inferred.")
+        else:
+            lines.append(f"- {label}: {used / 1024**3:.1f} GiB / {total / 1024**3:.1f} GiB ({percent}% used)")
     return "\n".join(lines)
 
 
@@ -1630,9 +1617,13 @@ async def list_audit_checks() -> str:
 
     lines = [f"Auditor Checks ({len(checks)}):"]
     for c in checks:
-        last_status = c.get("last_run_status") or "never_ran"
+        last_run = c.get("last_run")
+        last_status = (last_run.get("status") or "unknown") if last_run else "never_ran"
+        if not c.get("enabled", True):
+            last_status = f"disabled (last result: {last_run.get('status') if last_run else 'none'})"
         lines.append(
-            f"- {c.get('name')} [{c.get('category')}] | Status: {last_status} | Severity: {c.get('severity')}\n"
+            f"- {c.get('name')} [{c.get('category')}] | Status: {last_status}\n"
+            f"  Last run: {last_run.get('created_at') if last_run else 'none'}\n"
             f"  ID: {c.get('id')}\n"
             f"  Description: {c.get('description') or '—'}"
         )
@@ -1644,20 +1635,22 @@ async def run_audit_checks() -> str:
     """Execute all ecosystem audit checks and return an aggregated compliance & integrity report.
     """
     try:
-        res = await _call("POST", "/api/v1/audit/run")
+        res = await _call("POST", "/api/v1/audit/run", timeout_seconds=1500.0)
     except ForgeHubError as exc:
         return str(exc)
 
-    passed = res.get("passed", 0)
-    failed = res.get("failed", 0)
-    total = res.get("total", 0)
+    runs = res.get("runs")
+    if not runs:
+        return "Audit evidence unavailable: no check runs returned; health cannot be inferred."
+    passed = sum(r.get("status") == "ok" for r in runs)
+    total = len(runs)
+    failed = total - passed
     lines = [
         f"Audit run completed: {passed}/{total} passed, {failed} failed.",
     ]
-    runs = res.get("results", [])
     for r in runs:
-        if r.get("status") != "passed":
-            lines.append(f"- [FAILED] {r.get('name')}: {r.get('message') or r.get('details')}")
+        if r.get("status") != "ok":
+            lines.append(f"- [FAILED] {r.get('check_id')} ({r.get('status')}): {r.get('output') or 'No output recorded'}")
     return "\n".join(lines)
 
 
@@ -1690,7 +1683,7 @@ async def restart_deploy_container(container_name: str) -> str:
         container_name: name of the docker container to restart.
     """
     try:
-        res = await _call("POST", f"/api/v1/deploy/containers/{container_name}/restart")
+        await _call("POST", f"/api/v1/deploy/containers/{container_name}/restart")
     except ForgeHubError as exc:
         return str(exc)
 

@@ -12,7 +12,7 @@ Hoje há duas telas sobre a mesma tabela (`company.servers`), separadas só pelo
 | Mostra | `kind="server"` | `kind="workstation"` (aba Máquinas) |
 | Permissão | módulo `servers` | `adminOnly` (módulo `vpn`) |
 | Agrupamento | VPS / SEMED (`environment`) | cliente Darckware, grupos (`host_groups`) |
-| Configurar acesso | **Instalar chave**: gera chave no host, instala com senha de admin, chave em `ssh_key_path` (+ cofre opcional `private_key_encrypted`) | **Preparar estação**: cria `darckware`, chave e senhas na ForgeVault (`ssh_key_ref`), desativa o admin |
+| Configurar acesso | **Instalar chave**: gera e guarda no ForgeVault, instala a parte pública com senha de admin; sem chave privada local ou cópia no banco | **Preparar estação**: cria `darckware`, chave e senhas na ForgeVault (`ssh_key_ref`), desativa o admin |
 | Extras | serviços publicados, importar CSV, verificar estado, liga/desliga acesso, cofre da chave | importar da Tailscale, prontidão, senhas (revelar/rotacionar), RustDesk |
 | Scripts | — | aba Scripts e execuções (roda em qualquer máquina) |
 | Rede | — | aba Rede (Tailscale da VPS, dispositivos, ACL, histórico) |
@@ -164,12 +164,7 @@ Cada fase é entregue, testada (vitest + pytest quando houver backend), verifica
 - [x] Toda chave nova na ForgeVault: "Instalar chave" grava a chave na ForgeVault e troca para ela
       (`ServerInstallKeyResult.vault`); a preparação nunca gera uma segunda chave para uma máquina que já
       está na chave da ForgeVault; a rotação já gravava.
-- [x] Migração em lote verificada (`POST /servers/keys:to-vault`, botão "Migrar chaves para a ForgeVault"):
-      grava na ForgeVault se preciso → **probe estrito só com a chave da ForgeVault** (bridge
-      `check-status` com `strict`: `-F /dev/null`, `IdentitiesOnly`, a `.pub` da chave do agente) → só então
-      `ssh_key_path` vira NULL (arquivo fica no disco; caminho antigo no `AuditEvent ssh_key_path_released`).
-      Falhou → continua no arquivo, motivo na tela. O backend recusa o probe estrito de um bridge antigo
-      (`vault_strict` na resposta).
+- [x] Em 2026-10-24, removidos os endpoints de leitura/gravação de chaves em arquivo, o fluxo migrador e o suporte ao diretório `/root/agents`. O inventário foi limpo: chaves continuam acessíveis via ForgeVault quando há referência; hosts sem referência precisam reinstalar o SSH.
 - [x] Prontidão e `/check` usam a chave da ForgeVault quando há uma (mesma ordem do terminal, execuções
       e Explorer); o terminal aberto pela aba Máquinas passa pelo agente da ForgeVault.
 - [x] Produção (2026-10-17): bridge reiniciado, implantado, migração rodada. Na ForgeVault e verificadas,

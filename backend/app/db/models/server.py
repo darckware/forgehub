@@ -70,24 +70,8 @@ class Server(Base, TimestampMixin):
     # every read, since the screen exists to show and copy it; the `public_key`
     # property below is what ServerOut serializes.
     public_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Private half, Fernet-encrypted (core/secrets.py, same boundary as
-    # Agent.forgerouter_api_key_encrypted). A durable copy, NOT the copy ssh
-    # uses: the terminal always runs `ssh -i <ssh_key_path>` against the file
-    # on the host, and this column is what lets that file be rebuilt when it
-    # disappears.
-    #
-    # It exists because that is not hypothetical (2026-08-14, Marcelo: "seria
-    # melhor criptografar a chave no banco de dados para não perder"): the
-    # Aegis profile directory was recreated on 2026-07-07 and the keys for
-    # 172.15.2.4/172.15.2.5 survived only inside
-    # /root/agents/aegis.backup.1783020451, so ForgeHub's terminal could no
-    # longer reach srv-sup/srv-app05 at all. The inventory row knew the path;
-    # nothing knew the key. Storing a path is not storing a key.
-    #
-    # Never returned by any endpoint -- ServerOut exposes only the boolean
-    # `private_key_stored`. Written by /servers/{id}/key:backup (read from the
-    # host) or PUT /servers/{id}/key (pasted); poured back onto the host by
-    # /servers/{id}/key:restore.
+    # Retired compatibility column. New SSH key material must live only in
+    # ForgeVault; this column is cleared for ForgeHub-managed server keys.
     private_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Passphrase protecting the identity file, Fernet-encrypted. Stored beside
     # the key it unlocks on purpose: a vaulted key whose passphrase lives only
@@ -163,10 +147,10 @@ class Server(Base, TimestampMixin):
 
     @property
     def private_key_stored(self) -> bool:
-        """Whether a durable encrypted copy of the identity file exists.
-        Surfaced instead of the material itself so the key never reaches a
+        """Whether a private key is available in ForgeVault.
+        Only the boolean is serialized; the key material never reaches a
         response body."""
-        return bool(self.private_key_encrypted)
+        return bool(self.ssh_key_ref or self.private_key_encrypted)
 
     @property
     def ssh_key_in_vault(self) -> bool:

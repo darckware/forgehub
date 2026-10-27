@@ -3397,21 +3397,21 @@ async def check_server_status(
 
 
 # ---------------------------------------------------------------------------
-# SSH key installation -- backs the Servers page's "install key" action.
-# Parameterized, non-interactive version of /root/.hermes/scripts/
-# configure_ssh.sh (same three steps, same key-naming convention): generate
-# an ed25519 pair on THIS host (where the terminal's ssh runs), push the
-# .pub into the server's authorized_keys using the password the user typed
-# (sshpass -e: password travels via env, never argv, never logged), then
-# verify with BatchMode. Idempotent: an existing key pair is reused.
+# SSH key installation -- private material is stored directly in ForgeVault.
+# Temporary key generation uses /dev/shm; the remote receives only the public
+# half. Password bootstrap remains non-interactive and never logs credentials.
 # ---------------------------------------------------------------------------
 
-SSH_KEYS_DIR = "/root/agents/aegis/server-management/ssh_keys"
+class GenerateKeyRequest(BaseModel):
+    secret_name: str = Field(min_length=3, max_length=120)
+    comment: str = Field(min_length=1, max_length=120)
+    description: str = Field(min_length=1, max_length=500)
 
 
 class InstallKeyRequest(BaseModel):
     ip_address: str
     remote_user: str  # key owner on the server (e.g. "aegis")
+    public_key: str
     # Password of the LOGIN account: admin_user when set, remote_user otherwise.
     password: str
     ssh_port: int = 22
@@ -3474,19 +3474,16 @@ async def _run_step(
 # holding the bridge token could name an arbitrary file and have its contents
 # returned. Covers where SSH keys actually live on this host: the shell's own
 # ~/.ssh, the Aegis profile's forgenet/server-management key directories, and
-# whatever SSH_KEYS_DIR is set to.
+# the legacy ForgeHub Remote Access key directory.
 PRIVATE_KEY_ROOTS = (
     "/root/.ssh",
-    "/root/agents",
     "/root/.hermes/profiles",
-    SSH_KEYS_DIR,
 )
 
 
 def _resolve_key_path(raw: str) -> str:
     """Validates a private-key path against PRIVATE_KEY_ROOTS. Resolves
-    symlinks first (/root/agents/aegis is one), so `..` or a symlink pointing
-    outside can't smuggle a path past the prefix check."""
+    symlinks first, so `..` or a symlink pointing outside can't smuggle a path past the prefix check."""
     path = (raw or "").strip()
     if not path:
         raise HTTPException(status_code=400, detail="key_path is required")
@@ -3499,139 +3496,40 @@ def _resolve_key_path(raw: str) -> str:
     return resolved
 
 
-class PrivateKeyRequest(BaseModel):
-    key_path: str
-
-
-class WritePrivateKeyRequest(BaseModel):
-    key_path: str
-    private_key: str
-    public_key: str | None = None
-
-
-@app.post("/v1/servers/read-private-key")
-async def read_private_key(
-    req: PrivateKeyRequest, x_bridge_token: str | None = Header(default=None)
-) -> dict:
-    """Reads an identity file so ForgeHub can keep an encrypted copy of it
-    (see servers.private_key_encrypted). The material crosses the wire on
-    localhost, token-checked, and is encrypted before it is stored -- the
-    alternative, leaving the only copy on disk, is what lost the 172.15.2.5
-    key when the Aegis profile directory was recreated."""
+@app.post("/v1/servers/generate-key")
+async def generate_server_key(req: GenerateKeyRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    """Generate an Ed25519 key in tmpfs, store it in ForgeVault, and return
+    only the secret id and public half. No private key is written to disk."""
     _check_token(x_bridge_token)
-    path = _resolve_key_path(req.key_path)
-    if not os.path.isfile(path):
-        raise HTTPException(status_code=404, detail=f"No identity file at {path}")
-    with open(path, encoding="utf-8", errors="replace") as fh:
-        private_key = fh.read()
-    if "PRIVATE KEY" not in private_key:
-        raise HTTPException(status_code=400, detail="File does not look like an SSH private key")
-    public_key = None
-    if os.path.isfile(path + ".pub"):
-        with open(path + ".pub", encoding="utf-8", errors="replace") as fh:
-            public_key = fh.read().strip()
-    return {"private_key": private_key, "public_key": public_key, "key_path": path}
+    if not re.fullmatch(r"[A-Z][A-Z0-9_]{2,119}", req.secret_name):
+        raise HTTPException(status_code=400, detail="Invalid ForgeVault secret name")
+    if not re.fullmatch(r"[\w.@:-]+", req.comment):
+        raise HTTPException(status_code=400, detail="Invalid key comment")
+    shm = "/dev/shm"
+    if not os.path.isdir(shm):
+        raise HTTPException(status_code=503, detail="Temporary memory filesystem is unavailable")
 
-
-@app.post("/v1/servers/write-private-key")
-async def write_private_key(
-    req: WritePrivateKeyRequest, x_bridge_token: str | None = Header(default=None)
-) -> dict:
-    """Pours a vaulted identity file back onto the host at key_path (0600,
-    parent directory created if needed), so a lost key can be restored without
-    touching the server's authorized_keys. Refuses to overwrite an existing
-    file: restoring is for a key that is *missing*, and silently replacing a
-    working identity would be a much worse failure than reporting the
-    conflict."""
-    _check_token(x_bridge_token)
-    path = _resolve_key_path(req.key_path)
-    if "PRIVATE KEY" not in req.private_key:
-        raise HTTPException(status_code=400, detail="Payload does not look like an SSH private key")
-    if os.path.exists(path):
-        raise HTTPException(status_code=409, detail=f"An identity file already exists at {path}")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    # Create with 0600 from the start -- writing then chmod'ing would leave a
-    # window where the private key is world-readable.
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(req.private_key if req.private_key.endswith("\n") else req.private_key + "\n")
-    written = [path]
-    if req.public_key and not os.path.exists(path + ".pub"):
-        with open(path + ".pub", "w", encoding="utf-8") as fh:
-            fh.write(req.public_key.strip() + "\n")
-        os.chmod(path + ".pub", 0o644)
-        written.append(path + ".pub")
-    return {"ok": True, "written": written}
-
-
-class ReadPubKeyRequest(BaseModel):
-    key_path: str
-
-
-@app.post("/v1/servers/read-public-key")
-async def read_public_key(req: ReadPubKeyRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
-    """Reads the public half of a configured SSH identity file on the host.
-    Backs the Servers page's "copy public key" button: given the row's
-    ssh_key_path, returns the contents of "<path>.pub" (or the path itself
-    when it already ends in .pub). Read-only, .pub files only -- never
-    returns a private key."""
-    _check_token(x_bridge_token)
-    path = req.key_path.strip()
-    if not path:
-        raise HTTPException(status_code=400, detail="key_path is required")
-    pub_path = path if path.endswith(".pub") else path + ".pub"
-    if not os.path.isfile(pub_path):
-        raise HTTPException(status_code=404, detail=f"Public key not found at {pub_path}")
-    with open(pub_path, encoding="utf-8", errors="replace") as fh:
-        content = fh.read().strip()
-    if not content.startswith("ssh-") and "ssh-" not in content.split(" ", 1)[0]:
-        raise HTTPException(status_code=400, detail="File does not look like an SSH public key")
-    return {"public_key": content, "pub_path": pub_path}
-
-
-class EnsureKeyRequest(BaseModel):
-    # One of the two names the key file: the IP (install-key's convention) or,
-    # for a station that hasn't joined the tailnet yet and so has no IP, an
-    # explicit key_name ("ws_<uuid>").
-    ip_address: str | None = None
-    key_name: str | None = None
-    comment: str | None = None
-
-
-@app.post("/v1/servers/ensure-key")
-async def ensure_server_key(req: EnsureKeyRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
-    """Creates (or reuses) the ed25519 pair a machine's preparation script
-    authorizes -- same file naming as install-key, so both flows meet on the
-    same identity. Used by Remote Access's "Prepare" for stations where the
-    key is authorized by a script run on the station (RustDesk), not pushed
-    with a password from here. Returns only the public half and the path."""
-    _check_token(x_bridge_token)
-    if req.key_name:
-        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", req.key_name):
-            raise HTTPException(status_code=400, detail="Invalid key_name")
-        base = req.key_name
-    elif req.ip_address and re.fullmatch(r"[\w.:-]+", req.ip_address):
-        base = re.sub(r"[.:]", "_", req.ip_address)
-    else:
-        raise HTTPException(status_code=400, detail="Invalid ip_address")
-    comment = req.comment or f"forgehub@{base}"
-    if not re.fullmatch(r"[\w.@:-]+", comment):
-        raise HTTPException(status_code=400, detail="Invalid comment")
-    key_path = os.path.join(SSH_KEYS_DIR, base + "_key")
-    pub_path = key_path + ".pub"
-    os.makedirs(SSH_KEYS_DIR, exist_ok=True)
-    created = False
-    if not (os.path.exists(key_path) and os.path.exists(pub_path)):
-        code, out = await _run_step(
-            ["ssh-keygen", "-q", "-t", "ed25519", "-f", key_path, "-N", "", "-C", comment], timeout=30
-        )
-        if code != 0:
-            raise HTTPException(status_code=500, detail=f"ssh-keygen failed: {out[-300:]}")
-        created = True
-    os.chmod(key_path, 0o600)
-    with open(pub_path, encoding="utf-8") as fh:
-        public_key = fh.read().strip()
-    return {"key_path": key_path, "public_key": public_key, "created": created}
+    try:
+        with tempfile.TemporaryDirectory(prefix="forgehub-key-", dir=shm) as temp_dir:
+            os.chmod(temp_dir, 0o700)
+            key_path = os.path.join(temp_dir, "identity")
+            code, out = await _run_step(
+                ["ssh-keygen", "-q", "-t", "ed25519", "-f", key_path, "-N", "", "-C", req.comment],
+                timeout=30,
+            )
+            if code != 0:
+                raise HTTPException(status_code=500, detail=f"ssh-keygen failed: {out[-300:]}")
+            os.chmod(key_path, 0o600)
+            private_key = Path(key_path).read_text(encoding="utf-8")
+            public_key = Path(key_path + ".pub").read_text(encoding="utf-8").strip()
+            stored = await _vault_client.upsert(
+                req.secret_name, private_key, req.description, "SshPrivateKey"
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Could not store the generated key in ForgeVault") from exc
+    return {"ssh_key_ref": stored["id"], "public_key": public_key, "created": bool(stored.get("created"))}
 
 
 @app.post("/v1/servers/install-key")
@@ -3643,27 +3541,11 @@ async def install_server_key(
         raise HTTPException(status_code=400, detail="Invalid ip_address or remote_user")
     if not req.password:
         raise HTTPException(status_code=400, detail="Password is required")
-
-    key_name = re.sub(r"[.:]", "_", req.ip_address) + "_key"
-    key_path = os.path.join(SSH_KEYS_DIR, key_name)
-    pub_path = key_path + ".pub"
-    os.makedirs(SSH_KEYS_DIR, exist_ok=True)
+    public_key = req.public_key.strip()
+    if not re.fullmatch(r"ssh-ed25519 [A-Za-z0-9+/=]+(?: [\w.@:-]+)?", public_key):
+        raise HTTPException(status_code=400, detail="Invalid SSH public key")
+    public_key_literal = shlex.quote(public_key)
     steps: list[str] = []
-
-    if os.path.exists(key_path) and os.path.exists(pub_path):
-        steps.append(f"Key pair already exists at {key_path} — reusing (idempotent)")
-    else:
-        code, out = await _run_step(
-            ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", "", "-C", f"monitoramento-{req.ip_address}"],
-            timeout=30,
-        )
-        if code != 0:
-            return {"ok": False, "step": "generate", "error": out, "steps": steps}
-        steps.append(f"Generated ed25519 key pair at {key_path}")
-    os.chmod(key_path, 0o600)
-
-    with open(pub_path, encoding="utf-8") as fh:
-        public_key = fh.read().strip()
 
     if req.admin_user and req.admin_user != req.remote_user:
         # Admin path: log in as admin_user, create remote_user if missing
@@ -3730,11 +3612,18 @@ echo "__KEY_INSTALLED__"
             steps.append(f"User '{req.remote_user}' already exists on the server")
         steps.append(f"Public key installed in ~{req.remote_user}/.ssh/authorized_keys (via {req.admin_user})")
     else:
+        script = f"""set -e
+mkdir -p \"$HOME/.ssh\"
+chmod 700 \"$HOME/.ssh\"
+grep -qxF {public_key_literal} \"$HOME/.ssh/authorized_keys\" 2>/dev/null || printf '%s\\n' {public_key_literal} >> \"$HOME/.ssh/authorized_keys\"
+chmod 600 \"$HOME/.ssh/authorized_keys\"
+echo __KEY_INSTALLED__
+"""
+        script_b64 = base64.b64encode(script.encode()).decode()
+        remote_cmd = f"echo {script_b64} | base64 -d | sh"
         copy_args = [
-            "sshpass", "-e", "ssh-copy-id",
-            "-i", pub_path,
-            # Same rationale as the admin path: override the host's key-only
-            # ~/.ssh/config hardening for 172.15.* so password bootstrap works.
+            "sshpass", "-e", "ssh", "-T",
+            # Force password auth: this is the one-time bootstrap login.
             "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ConnectTimeout=15",
             "-o", "NumberOfPasswordPrompts=1",
@@ -3745,22 +3634,13 @@ echo "__KEY_INSTALLED__"
         ]
         if req.ssh_port != 22:
             copy_args += ["-p", str(req.ssh_port)]
-        copy_args.append(f"{req.remote_user}@{req.ip_address}")
+        copy_args += [f"{req.remote_user}@{req.ip_address}", remote_cmd]
         code, out = await _run_step(copy_args, timeout=45, env={**os.environ, "SSHPASS": req.password})
-        if code != 0:
+        if code != 0 or "__KEY_INSTALLED__" not in out:
             return {"ok": False, "step": "install", "error": out + _install_hint(out, req.remote_user), "steps": steps}
         steps.append(f"Public key installed in {req.remote_user}@{req.ip_address}:~/.ssh/authorized_keys")
 
-    verify_args = ["ssh", "-i", key_path, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new"]
-    if req.ssh_port != 22:
-        verify_args += ["-p", str(req.ssh_port)]
-    verify_args += [f"{req.remote_user}@{req.ip_address}", "true"]
-    code, out = await _run_step(verify_args, timeout=25)
-    if code != 0:
-        return {"ok": False, "step": "verify", "error": out, "steps": steps}
-    steps.append("Key authentication verified (BatchMode)")
-
-    return {"ok": True, "key_path": key_path, "public_key": public_key, "steps": steps}
+    return {"ok": True, "public_key": public_key, "steps": steps}
 
 
 @app.get("/v1/health")

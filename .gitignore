@@ -42,3 +42,4 @@ dist/
 
 # Isolated implementation worktrees
 .worktrees/
+claude-yolo.sh

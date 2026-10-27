@@ -46,6 +46,7 @@ from app.api.schemas.operations import (
     RoutineUpdate,
 )
 from app.core import agent_questions
+from app.core.briefing_evidence import BRIEFING_ACTION_CONTRACT, BRIEFING_TITLE
 from app.core.operations_evolution import execution_signals
 from app.core.config import settings
 from app.core.deps import get_current_admin
@@ -155,6 +156,8 @@ def compose_routine_message(
     ]
     if routine.linked_audit_checks:
         parts += ["", "## Checks de auditoria vinculados", _bullets(routine.linked_audit_checks)]
+    if routine.title == BRIEFING_TITLE:
+        parts += ["", BRIEFING_ACTION_CONTRACT]
     if charter is not None:
         parts += [
             "",

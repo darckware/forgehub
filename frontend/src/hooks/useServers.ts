@@ -66,7 +66,6 @@ export interface ServerCreate {
   ip_address: string;
   remote_user: string;
   ssh_port?: number;
-  ssh_key_path?: string | null;
   /** Write-only. Omit to keep whatever is stored (the form never receives it);
    * send "" to clear it. */
   key_passphrase?: string | null;
@@ -106,14 +105,7 @@ export interface ServerCreate {
  */
 export function buildSshCommand(server: Server): string {
   const parts = ["ssh"];
-  if (server.ssh_key_path) {
-    parts.push("-i", server.ssh_key_path);
-  } else {
-    parts.push(
-      "-o", "PasswordAuthentication=yes",
-      "-o", "BatchMode=no",
-    );
-  }
+  parts.push("-o", "PasswordAuthentication=yes", "-o", "BatchMode=no");
   if (server.ssh_port && server.ssh_port !== 22) parts.push("-p", String(server.ssh_port));
   parts.push(`${server.remote_user}@${server.ip_address}`);
   return parts.join(" ");
@@ -159,7 +151,6 @@ export const serverFormSchema = z.object({
     .int()
     .min(1, "Port must be between 1 and 65535")
     .max(65535, "Port must be between 1 and 65535"),
-  ssh_key_path: z.string().trim().max(500).optional(),
   key_passphrase: z.string().optional(),
   environment: z.enum(["vps", "semed", "client"]).default("semed"),
   description: z.string().optional(),
@@ -253,26 +244,6 @@ export interface ServerInstallKeyResult {
   vault?: string | null;
 }
 
-export interface KeysToVaultResult {
-  stored: string[];
-  /** Vault key verified on its own; the key file is no longer used. */
-  switched: string[];
-  already: string[];
-  /** Kept on their key file, with the reason. */
-  failed: Record<string, string>;
-}
-
-/** Moves every known machine key onto ForgeVault, switching a machine only
- * after its vault key logged in on its own (phase 5 of
- * REMOTE_ACCESS_SERVERS_UNIFICATION_PLAN.md). Admin-only. */
-export function useKeysToVault() {
-  const qc = useQueryClient();
-  return useMutation<KeysToVaultResult, Error, void>({
-    mutationFn: () => apiClient.post("/api/v1/servers/keys:to-vault", {}),
-    onSuccess: () => qc.invalidateQueries({ queryKey: SERVERS_KEY }),
-  });
-}
-
 /** One-shot dedicated-key installation (generate on host + ssh-copy-id +
  * verify). The password travels only inside this request. */
 export function useInstallServerKey() {
@@ -295,47 +266,14 @@ export function useInstallServerKey() {
   });
 }
 
-/** Reads the public key from the row's configured ssh_key_path on the host
- * and persists it into public_key, returning the updated server. */
-export function useReadServerPublicKey() {
-  const qc = useQueryClient();
-  return useMutation<Server, Error, string>({
-    mutationFn: (id) => apiClient.post(`/api/v1/servers/${id}/public-key`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: SERVERS_KEY }),
-  });
-}
-
 export interface ServerKeyVaultResult {
   server_id: string;
   private_key_stored: boolean;
-  key_path: string | null;
-  written: string[];
+  key_path?: string | null;
+  written?: string[];
 }
 
-/** Reads the identity file from the host and keeps an encrypted copy on the
- * row, so losing the file on disk no longer means losing access to the
- * server (which is exactly what happened to 172.15.2.5 on 2026-07-07). */
-export function useBackupServerKey() {
-  const qc = useQueryClient();
-  return useMutation<ServerKeyVaultResult, Error, string>({
-    mutationFn: (id) => apiClient.post(`/api/v1/servers/${id}/key:backup`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: SERVERS_KEY }),
-  });
-}
-
-/** Writes the vaulted key back to the host at the row's ssh_key_path. Fails
- * with 409 when a file is already there -- restoring never overwrites a
- * working identity. */
-export function useRestoreServerKey() {
-  const qc = useQueryClient();
-  return useMutation<ServerKeyVaultResult, Error, string>({
-    mutationFn: (id) => apiClient.post(`/api/v1/servers/${id}/key:restore`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: SERVERS_KEY }),
-  });
-}
-
-/** Vaults a pasted private key, for a server whose file this host does not
- * have (recovered from a backup by hand, or living on another machine). */
+/** Stores a pasted private key directly in ForgeVault. */
 export function useStoreServerKey() {
   const qc = useQueryClient();
   return useMutation<ServerKeyVaultResult, Error, { id: string; private_key: string }>({
