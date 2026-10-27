@@ -9,10 +9,16 @@ import pytest
 import yaml
 
 SCRIPTS = Path('/root/.hermes/profiles/athos/scripts')
+RELEASE_SCRIPTS = Path(__file__).resolve().parents[3] / 'ops/athos'
 
 
 def load_script(name):
-    spec = importlib.util.spec_from_file_location(f'audit_regression_{name}', SCRIPTS / f'{name}.py')
+    source = RELEASE_SCRIPTS / f'{name}.py'
+    if not source.exists():
+        source = SCRIPTS / f'{name}.py'
+    if not source.exists():
+        pytest.skip('Profile scripts are not present in this environment')
+    spec = importlib.util.spec_from_file_location(f'audit_regression_{name}', source)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
@@ -147,3 +153,31 @@ def test_failed_retry_preserves_previous_consistent_dump(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError):
         worker.backup_target(target, {})
     assert retained[0].read_text() == 'consistent dump'
+
+
+def test_repeated_upload_failures_keep_two_complete_attempts_with_stable_path(monkeypatch, tmp_path):
+    worker, target, stage = setup_backup_worker(monkeypatch, tmp_path)
+    paths = []
+    def failure(command, **kwargs):
+        paths.append([value for value in command if value.startswith(str(stage))])
+        raise RuntimeError('remote quota')
+    monkeypatch.setattr(worker, 'run', failure)
+    for _ in range(3):
+        with pytest.raises(RuntimeError):
+            worker.backup_target(target, {})
+    assert paths == [[str(stage / 'current')]] * 3
+    assert len(list(stage.rglob('foundation.sql'))) == 2
+    assert (stage / 'current/COMPLETE').is_file()
+    assert (stage / 'previous/COMPLETE').is_file()
+
+
+def test_success_preserves_manual_recovery_copies(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    worker, target, stage = setup_backup_worker(monkeypatch, tmp_path)
+    manual = stage / 'manual-recovery'
+    manual.mkdir(parents=True)
+    (manual / 'foundation.sql').write_text('manual backup')
+    monkeypatch.setattr(worker, 'run', lambda *args, **kwargs: SimpleNamespace(stdout=json.dumps(
+        dict(message_type='summary', snapshot_id='12345678abcdef'))))
+    worker.backup_target(target, {})
+    assert (manual / 'foundation.sql').read_text() == 'manual backup'

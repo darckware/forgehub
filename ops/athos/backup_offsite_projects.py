@@ -184,7 +184,10 @@ def backup_target(target: dict, env: dict) -> dict:
     target_stage.mkdir(parents=True, mode=0o700, exist_ok=True)
     target_stage.chmod(0o700)
     # Keep failed attempts intact until a replacement snapshot is confirmed.
-    stage = Path(tempfile.mkdtemp(prefix='run-', dir=target_stage))
+    stage = Path(tempfile.mkdtemp(prefix='pending-', dir=target_stage))
+    current = target_stage / 'current'
+    previous = target_stage / 'previous'
+    staging_complete = False
     sources = list(target["paths"])
     snapshot_saved = False
     # Staging contains credential-bearing SQL and SQLite copies. Keep it
@@ -196,6 +199,20 @@ def backup_target(target: dict, env: dict) -> dict:
         if target.get("include_system_state"):
             log(f"{name}: staging SQLite copies and host state")
             stage_system_state(stage)
+        (stage / 'COMPLETE').write_text(datetime.now().isoformat())
+        staging_complete = True
+        # Publish only a fully staged replacement. The restic source path is
+        # stable across runs; retain at most the current and previous complete
+        # attempts. Never remove manually-created recovery directories.
+        for managed in (current, previous):
+            if managed.exists() and (managed.is_symlink() or not (managed / 'COMPLETE').is_file()):
+                raise RuntimeError(f'unrecognized recovery directory: {managed}; refusing replacement')
+        if previous.exists():
+            shutil.rmtree(previous)
+        if current.exists():
+            current.rename(previous)
+        stage.rename(current)
+        stage = current
         if stage.exists():
             sources.append(str(stage))
         cmd = ["restic", *RESTIC_GLOBAL, "backup", *sources, "--one-file-system", "--exclude-caches",
@@ -227,9 +244,17 @@ def backup_target(target: dict, env: dict) -> dict:
         # A failed upload must not discard the only fresh consistent copies.
         # Only a confirmed remote snapshot allows staging cleanup.
         if snapshot_saved:
-            shutil.rmtree(target_stage, ignore_errors=True)
+            for managed in (current, previous):
+                if (managed / 'COMPLETE').is_file():
+                    shutil.rmtree(managed)
+            if not any(target_stage.iterdir()):
+                target_stage.rmdir()
+        elif staging_complete and stage.exists():
+            log(f'{name}: retained COMPLETE recovery copies in {stage}')
         elif stage.exists():
-            log(f'{name}: retained private recovery copies in {stage}')
+            # A partial dump is not a recovery copy. Earlier COMPLETE attempts
+            # remain untouched if this staging attempt fails.
+            shutil.rmtree(stage)
 
 
 def main() -> int:

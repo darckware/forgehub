@@ -10,13 +10,13 @@ Authorized request: Marcelo, "corrigir os erros". Scope: the findings from the p
 - Shared-skills integrity was independently rechecked and recorded `ok`; no manifest was rewritten by this correction.
 - Removed nonexistent `/root/agents` from system backup target. All retained paths were validated on the actual host. Original configuration: `/root/.hermes/profiles/athos/state-snapshots/operational-errors-20261025/system-backup-target.json`.
 - System backup generated PostgreSQL and SQLite copies and attempted upload. The Google Drive shared OAuth project returned `RATE_LIMIT_EXCEEDED`, surfaced through restic as HTTP 500; no snapshot was falsely accepted.
-- Worker now preserves private staging after failed upload, requires a snapshot receipt and isolates attempts so a failed retry cannot delete the last consistent dump. A private local Foundation dump was also regenerated at `/root/backup/offsite-staging/sistema/local-recovery-20261026T182648/postgres/hindsight_postgres/foundation.sql` (395,235,833 bytes, complete-dump footer checked). This does not prove an offsite restore.
+- Worker now preserves private staging after failed upload, requires a snapshot receipt and isolates attempts so a failed retry cannot delete the last consistent dump. Complete attempts are promoted to stable `current` and `previous` directories (at most two); a `COMPLETE` marker distinguishes recovery copies from partial staging. Manual recovery directories are never cleaned by a successful automatic run. A private local Foundation dump was also regenerated at `/root/backup/offsite-staging/sistema/local-recovery-20261026T182648/postgres/hindsight_postgres/foundation.sql` (395,235,833 bytes, complete-dump footer checked). This does not prove an offsite restore.
 - Three PostgreSQL containers were inspected with active `json-file` rotation `10m` x `3`. Compose validates. Existing logging definitions were preserved.
-- Llamafile launcher is restricted to `127.0.0.1:8081` and starts in a detached session. Final runtime health must be confirmed after launch.
+- Llamafile launcher is restricted to `127.0.0.1:8081` and starts in a detached session. Final host probe confirmed only `127.0.0.1:8081` listening and `/health` returned `{"status":"ok"}`.
 
 ## Validation
 
-The isolated release is based on `5714bf6`, without unrelated SSH/UI work. A separate database `forgehub_ops_verify_20261025` was created with a schema-only clone; no production records were copied. Current focused suite: **70 passed**, including the two previously excluded database tests. `--noconftest` avoids production-cleanup fixtures. Changed-file Ruff and `git diff --check` pass.
+The isolated release is based on `5714bf6`, without unrelated SSH/UI work. A separate database `forgehub_ops_verify_20261025` was created with a schema-only clone; no production records were copied. Current focused suite: **72 passed**, including the two previously excluded database tests. `--noconftest` avoids production-cleanup fixtures. Changed-file Ruff and `git diff --check` pass.
 
 Command (using the existing interpreter; the database name is mandatory):
 
@@ -28,13 +28,13 @@ POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5433 POSTGRES_DB=forgehub_ops_verify_20261
   app/tests/test_audit_catalog.py app/tests/test_ecosystem_verifier_regressions.py -q
 ```
 
-The profile-owned scripts are versioned as release copies in `ops/athos/`; their executable source remains `/root/.hermes/profiles/athos/scripts/`. Tests load that source on this host. Backups of original scripts and infrastructure files are private in `/root/.hermes/profiles/athos/state-snapshots/operational-errors-20261025/`.
+The profile-owned scripts are versioned as release copies in `ops/athos/`; their executable source remains `/root/.hermes/profiles/athos/scripts/`. Tests prefer the versioned release copies. The proposed voice rules are prepared in `ops/athos/voice_runtime_audit.py` only; the canonical live voice verifier was restored to its original version pending operator confirmation. Backups of original scripts and infrastructure files are private in `/root/.hermes/profiles/athos/state-snapshots/operational-errors-20261025/`.
 
 ## Remaining gates and external conditions
 
-- Independent Porthus review and isolated ForgeHub release; no production deployment claimed by this report.
+- Porthus approved commit `683b74f` in ForgeHub review #41579; its medium backup follow-ups were implemented with regression coverage. Isolated ForgeHub release remains gated; no production deployment claimed by this report.
 - Google Drive quota: shared OAuth quota is external. A successful snapshot and restore verification are still required. Do not replace an expired failure with `ok` or delete retained recovery copies.
-- Voice: the current uniform Piper/auto-audio template contradicts the dated 1 October decision and Lara/Maia's current female Edge voices. The verifier supports the dated policy, but user confirmation is pending before changing active profiles; no profile or gateway restart was performed. Fleet guard also has unrelated pre-existing drift, which must not be blanket-accepted.
+- Voice: the current uniform Piper/auto-audio template contradicts the dated 1 October decision and Lara/Maia's current female Edge voices. The versioned proposal supports the dated policy, but user confirmation is pending before activating it or changing active profiles; no profile or gateway restart was performed. Fleet guard also has unrelated pre-existing drift, which must not be blanket-accepted.
 - Remaining listener/cleanup audit findings need comparison with approved Tailscale/RustDesk topology and the unapproved Docker-cache byte threshold. Do not disable checks or close remote access solely to make the audit green.
 - Failed Hermes retrospective and Dartan quota remain separate runtime/provider issues; no uncertain run was retried and no completion evidence was fabricated.
 
