@@ -7,7 +7,7 @@
 | 1 | A validação pelo agente dependia de ferramentas MCP que só viriam depois (ciclo) | V dividida em V-a (tela/API) e V-b (MCP); a V-b gera a lista da P.1 |
 | 2 | Não havia regra de quando usar tarefa do Service Factory e quando usar Task do Messages | Regra em 1.1 |
 | 3 | Sem git por tarefa, sem PR, sem CI, sem trava de repositório | Q.1–Q.3 |
-| 4 | Sem ambiente de homologação; `dev.sh` e produção dividem o banco | Q.4 |
+| 4 | Sem ambiente de homologação; `dev.sh` e produção dividem o banco | T.1/T.2 (substituem Q.4) |
 | 5 | Deploy sem gate formal nem rollback testado | Q.5 |
 | 6 | Segredos de cada projeto fora do contrato do projeto | Q.6 |
 | 7 | Custo e orçamento por projeto/missão | Q.7 |
@@ -88,8 +88,7 @@ sua conclusão não aprova políticas/credenciais/deploy que cada tarefa ainda p
     documentos-chave (brief, escopo, plano, resultado) aprovados por você.
 14. **Pipeline (seção 1.5):** a Missão como garantia de conclusão — só ela declara um serviço
     concluído, com critérios de aceite comprovados um a um, saúde monitorada e aceite explícito.
-15. **M0:** registrar já a primeira missão como projeto (o próprio plano integrado), com as
-    ferramentas MCP mínimas e a convenção de missão, logo após a validação pela tela/API.
+15. **M0:** abrir a primeira missão real C.0+C.1 após ferramentas, guards e convenção verificados; o plano integrado é projeto comum separado, não a primeira missão. Registro real em produção; ensaios mutantes depois de T.2+T.3.
 16. B.4: importar o estado atual dos produtos (pastas, documentos, pendências) antes de começar.
 17. Fase G: aprovar a ideia dos **evals de capacidade** (G.6) e da **parada global** (G.10) como
    pré-requisitos para subir qualquer nível de autonomia.

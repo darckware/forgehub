@@ -308,7 +308,7 @@ executam e observam. Em trabalho ligado a uma missão, só o aceite da missão d
 | # | Estágio | Componente | Entra | Sai | Gate para avançar |
 |---|---|---|---|---|---|
 | 1 | **Abertura** | Missão | Pedido do Marcelo, ticket/proposta do cliente, proposta da retrospectiva | Objetivo, **critérios de aceite** (cada um verificável), prazo, coordenador, linhas de serviço, orçamento | Marcelo aprova (ou delegação) |
-| 2 | **Planejamento** | Service Factory | Missão aprovada | Projeto(s) por linha com pipeline da linha, fases, tarefas, dependências, documentos obrigatórios, agentes; **cada critério de aceite ligado às tarefas que o cumprem** | Coordenador confirma que todo critério tem tarefa; Marcelo aprova o plano (até o nível M1) |
+| 2 | **Planejamento** | Service Factory | Missão aprovada | Projeto(s) por linha com pipeline da linha, fases, tarefas, dependências, documentos obrigatórios, agentes; **cada critério de aceite ligado às tarefas que o cumprem** | Coordenador confirma que todo critério tem tarefa; Marcelo aprova o plano (até o nível N1) |
 | 3 | **Execução** | Service Factory + Messages | Tarefa pronta (dependências concluídas) | Despacho com contexto (contrato, anotações, missão); resultado com `STATUS` e evidência | `STATUS: DONE` |
 | 4 | **Entrega por tarefa** | Service Factory | Resultado da execução | Evidência verificada (`git:`/CI, `host_execution`, `file:`, `db:`), documento registrado; `PARTIAL`/`BLOCKED` voltam à execução com motivo | Evidência verificada + documento do estágio |
 | — | **Vigilância contínua** (estágios 3 e 4) | Operação 24x7 | Sinais de todas as tarefas da missão | Cobrança ao agente, reatribuição, pergunta ao Marcelo, escalada ao coordenador | — |
@@ -334,7 +334,7 @@ como um semáforo:
 
 Cada alerta vai para quem age:
 - ao **coordenador**, como tarefa de triagem;
-- ao **Marcelo**, pela fila de decisões (G.11), só quando a decisão é dele;
+- ao **Marcelo**, pela fila de decisões completa (G.11b; a fatia G.11a já atende supervisão da Onda 2), só quando a decisão é dele;
 - ao **agente responsável**, como cobrança pela Operação 24x7.
 
 A saúde da missão aparece no Cockpit, no briefing do Athos e no painel da própria missão.
