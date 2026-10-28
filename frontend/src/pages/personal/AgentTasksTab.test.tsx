@@ -10,7 +10,7 @@ import { AgentTasksTab } from "./AgentTasksTab";
 
 const mocks = vi.hoisted(() => ({ demands: vi.fn(), post: vi.fn() }));
 vi.mock("@/hooks/useDemands", async importOriginal => ({ ...await importOriginal<object>(), useAgentWork: mocks.demands }));
-vi.mock("@/hooks/useAgent", () => ({ useAgents: () => ({ data: [] }) }));
+vi.mock("@/hooks/useAgent", () => ({ useAgents: () => ({ data: [] }), useStreamTelegramImprovePrompt: () => vi.fn() }));
 vi.mock("@/hooks/useProject", () => ({ useProjects: () => ({ data: [] }) }));
 vi.mock("@/hooks/useTask", () => ({ useTasks: () => ({ data: [] }), useTaskDependencies: () => ({ data: [] }) }));
 vi.mock("@/hooks/useGovernance", () => ({

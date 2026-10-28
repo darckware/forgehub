@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, Paperclip, X } from "lucide-react";
+import { Loader2, Paperclip, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ImprovePromptDialog } from "@/components/chat/ImprovePromptDialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,7 +13,7 @@ import {
   useUploadDemandAttachment,
   type Demand,
 } from "@/hooks/useDemands";
-import { useAgents } from "@/hooks/useAgent";
+import { useAgents, useStreamTelegramImprovePrompt } from "@/hooks/useAgent";
 import { useProjects } from "@/hooks/useProject";
 import { useTasks } from "@/hooks/useTask";
 import { useDevelopmentRequests } from "@/hooks/useSystemScope";
@@ -142,6 +143,9 @@ export function DemandFormPanel({
   const { t } = useTranslation("demands");
   const user = useAuthStore((s) => s.user);
   const { data: agents } = useAgents();
+  const athos = agents?.find((agent) => agent.profile_slug?.toLowerCase() === "athos" || agent.name.trim().toLowerCase() === "athos");
+  const improvePrompt = useStreamTelegramImprovePrompt(athos?.id ?? "");
+  const [improveOpen, setImproveOpen] = useState(false);
   const { data: projects } = useProjects();
   const { data: developmentRequests } = useDevelopmentRequests();
   // File + its caption travel together: the description is per file, so
@@ -268,15 +272,6 @@ export function DemandFormPanel({
     if (!hasAgent && originChoice === "task") setOriginChoice("incubation");
   }, [hasAgent, originChoice]);
 
-  // Trocar De para o agente que já estava em Para (ou vice-versa, via edição
-  // de um item antigo salvo antes desta regra) deixaria os dois iguais --
-  // volta Para para "em branco" (o próprio remetente) em vez de deixar a
-  // combinação redundante em pé, já que a opção correspondente acabou de
-  // sumir da lista logo acima.
-  useEffect(() => {
-    if (targetAgentId && targetAgentId === fromAgentId) setTargetAgentId("");
-  }, [fromAgentId, targetAgentId]);
-
   const isPending = createDemand.isPending || updateDemand.isPending || uploadAttachment.isPending;
   const canSubmit = subject.trim().length > 0 && body.trim().length > 0 && !isPending;
 
@@ -399,13 +394,11 @@ export function DemandFormPanel({
             <label className="text-xs font-medium text-muted-foreground">{t("form.toAgent")}</label>
             <Select value={targetAgentId} onChange={(e) => setTargetAgentId(e.target.value)}>
               <option value="">{t("form.toAgentSelf")}</option>
-              {(agents ?? [])
-                .filter((agent) => agent.id !== fromAgentId)
-                .map((agent) => (
+              {(agents ?? []).map((agent) => (
                   <option key={agent.id} value={agent.id}>
                     {agent.name}
                   </option>
-                ))}
+              ))}
             </Select>
           </div>
         </div>
@@ -493,12 +486,21 @@ export function DemandFormPanel({
           onChange={(e) => onSubjectChange(e.target.value)}
           maxLength={255}
         />
-        <Textarea className="resize-none"
-          placeholder={t("bodyPlaceholder")}
-          value={body}
-          onChange={(e) => onBodyChange(e.target.value)}
-          rows={12}
-        />
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <label htmlFor="demand-body" className="text-xs font-medium text-muted-foreground">{t("bodyPlaceholder")}</label>
+            <Button type="button" variant="ghost" size="icon" disabled={!athos || isPending} aria-label={t("chat:telegram.improvePrompt")} title={t("chat:telegram.improvePrompt")} onClick={() => setImproveOpen(true)}>
+              <Sparkles className="h-4 w-4" />
+            </Button>
+          </div>
+          <Textarea id="demand-body" className="resize-none"
+            placeholder={t("bodyPlaceholder")}
+            value={body}
+            onChange={(e) => onBodyChange(e.target.value)}
+            rows={12}
+          />
+        </div>
+        {improveOpen && athos && <ImprovePromptDialog initialDraft={body} subject={athos.name} agents={agents ?? []} includeLocalSlashCommands={false} includeHermesSlashCommands={false} improvePrompt={improvePrompt} onApply={(text) => { onBodyChange(text); setImproveOpen(false); }} onClose={() => setImproveOpen(false)} />}
         {/* Resultado do processamento -- gravado pelo backend na própria
             mensagem quando o despacho termina (2026-07-28), somente
             leitura. Só existe depois de completar/falhar. */}
