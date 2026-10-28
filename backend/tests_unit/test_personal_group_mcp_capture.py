@@ -5,6 +5,17 @@ from app.mcp import personal_contacts as pc
 
 CHAT='120363000000000123@g.us'
 
+def test_direct_group_demand_posts_to_demands_not_suggestions(tmp_path, monkeypatch):
+    monkeypatch.setattr(pg,'GRUPOS',tmp_path);monkeypatch.setattr(pg,'MONITORAMENTO',tmp_path/'_monitoramento.json')
+    (tmp_path/'_monitoramento.json').write_text(json.dumps({'enabled':[CHAT]}))
+    (tmp_path/'_grupos.json').write_text(json.dumps({CHAT:{'nome':'Grupo fictício'}}))
+    calls=[]
+    def api(method,path,body):
+        calls.append((method,path,body));return {'id':'11111111-1111-4111-8111-111111111111','origin':{'kind':'group'}}
+    result=pg.create_demand('Grupo fictício','a'*64,'Demanda autorizada','Detalhes',api_call=api)
+    assert result['demanda']['id']=='11111111-1111-4111-8111-111111111111'
+    assert calls==[('POST','/demands',{'title':'Demanda autorizada','notes':'Detalhes','origin':{'kind':'group','group_whatsapp_id':CHAT,'message_ref':'a'*64,'item_key':'principal'}})]
+
 def test_group_read_returns_real_reference_and_capture_uses_it(tmp_path,monkeypatch):
     monkeypatch.setattr(pg,'GRUPOS',tmp_path);monkeypatch.setattr(pg,'MONITORAMENTO',tmp_path/'_monitoramento.json')
     (tmp_path/'_monitoramento.json').write_text(json.dumps({'enabled':[CHAT]}))

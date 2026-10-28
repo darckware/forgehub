@@ -55,7 +55,7 @@ from app.db.models.personal import (
 
 router = APIRouter(prefix="/api/v1/personal", tags=["personal"])
 
-from app.core.personal_captures import audit as capture_audit, suggestion_out
+from app.core.personal_captures import audit as capture_audit, contact_demand_reference, demand_source_key, suggestion_out
 
 CONTEXT_HISTORY_LINES = 8
 
@@ -464,7 +464,15 @@ async def _pending_suggestion(db: AsyncSession, suggestion_id: uuid.UUID) -> Per
 async def accept_suggestion(suggestion_id: uuid.UUID, payload: SuggestionAccept, actor: str = Depends(personal_actor),
                             db: AsyncSession = Depends(get_db)) -> SuggestionOut:
     """Turns the suggestion into a real demand, task or note, with where it came from."""
-    suggestion = (await db.execute(select(PersonalCaptureSuggestion).where(PersonalCaptureSuggestion.id == suggestion_id).with_for_update())).scalar_one_or_none()
+    preview = await db.get(PersonalCaptureSuggestion, suggestion_id)
+    if preview is None:
+        raise HTTPException(404, 'Sugestão não encontrada')
+    # All source-aware writers lock the source before the suggestion/demand.
+    if preview.group_id:
+        await db.execute(select(PersonalWhatsAppGroup).where(PersonalWhatsAppGroup.id == preview.group_id).with_for_update())
+    elif preview.contact_id:
+        await db.execute(select(PersonalContact).where(PersonalContact.id == preview.contact_id).with_for_update())
+    suggestion = (await db.execute(select(PersonalCaptureSuggestion).where(PersonalCaptureSuggestion.id == suggestion_id).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
     if suggestion is None:
         raise HTTPException(404, 'Sugestão não encontrada')
     contact = await db.get(PersonalContact, suggestion.contact_id) if suggestion.contact_id else None
@@ -499,7 +507,25 @@ async def accept_suggestion(suggestion_id: uuid.UUID, payload: SuggestionAccept,
     if kind == "demand":
         if payload.type_id is not None and await db.get(PersonalDemandType, payload.type_id) is None:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown demand type")
-        item = PersonalDemand(title=title, notes=body, type_id=payload.type_id, created_by=actor)
+        from app.api.schemas.personal import PersonalDemandOrigin
+        message = await db.get(PersonalContactMessage, suggestion.message_id) if suggestion.message_id else None
+        source = PersonalDemandOrigin(kind='group' if group else 'contact',
+            group_id=group.id if group else None, group_name=group.name if group else '',
+            contact_id=contact.id if contact else None, contact_name=contact.name if contact else '',
+            author=(suggestion.source_author or suggestion.source_author_id or '') if group else (suggestion.source_author or (message.author if message else '') or (contact.name if contact else '')),
+            author_id=suggestion.source_author_id, message_ref=suggestion.source_message_ref,
+            message_id=suggestion.message_id, captured_at=suggestion.source_at or (message.at if message else None) or suggestion.created_at)
+        key = suggestion.capture_key if group and suggestion.capture_key else demand_source_key(
+            'group' if group else 'contact', group.whatsapp_id if group else contact.id,
+            suggestion.source_message_ref if group else contact_demand_reference(suggestion.message_id, title, details))
+        existing = (await db.execute(select(PersonalDemand).where(PersonalDemand.origin_key == key))).scalar_one_or_none()
+        if existing is not None:
+            if payload.type_id is not None and payload.type_id != existing.type_id:
+                raise HTTPException(409, 'Esta origem já tem uma demanda com outro tipo')
+            item = existing
+        else:
+            item = PersonalDemand(title=title, notes=body, type_id=payload.type_id, created_by=actor,
+                                  origin=source.model_dump(mode='json'), origin_key=key)
     elif kind == "task":
         item = PersonalTask(title=title, notes=body, list_name="Pessoal", reminders=[], created_by=actor)
     else:

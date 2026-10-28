@@ -394,8 +394,14 @@ function DemandsTab() {
                       {vm.typeName(demand.type_id) && (
                         <Badge variant="outline"><Tag className="mr-1 h-3 w-3" />{vm.typeName(demand.type_id)}</Badge>
                       )}
-                      {demand.created_by !== "marcelo" && <span>{t("byAgent", { agent: demand.created_by })}</span>}
+                      <Badge variant={demand.status === 'done' ? 'secondary' : 'outline'}>{t(demand.status === 'done' ? 'demands.statusDone' : 'demands.statusOpen')}</Badge>
+                      <span>{t('demands.registeredBy', { agent: demand.created_by })}</span>
+                      <span>{t('demands.registeredAt')}: {new Date(demand.created_at).toLocaleString(i18n.language)}</span>
                     </div>
+                    {demand.completed_at && <p className="mt-1 break-words text-xs text-muted-foreground">
+                      {t('demands.completedAt')}: {new Date(demand.completed_at).toLocaleString(i18n.language)}
+                      {demand.completed_by && <> · {t('demands.completedBy', { agent: demand.completed_by })}</>}
+                    </p>}
                     {demand.origin && <div className="mt-2 space-y-1 rounded-md bg-muted/50 px-3 py-2 text-xs">
                       <p className="break-words"><span className="font-medium">{t(demand.origin.kind === 'group' ? 'groups.origin' : 'origins.contact')}:</span> {demand.origin.kind === 'group' ? demand.origin.group_name : demand.origin.contact_name}</p>
                       <p className="break-words"><span className="font-medium">{t('origins.requester')}:</span> {demand.origin.author || demand.origin.author_id || t('origins.unknownAuthor')}</p>

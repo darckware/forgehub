@@ -146,7 +146,13 @@
       "description_zero": "No open demand uses this type.",
       "description_one": "Its demand stays, now under \"No type\".",
       "description_other": "Its {{count}} demands stay, now under \"No type\"."
-    }
+    },
+    "statusOpen": "Open",
+    "statusDone": "Completed",
+    "registeredBy": "Registered by {{agent}}",
+    "registeredAt": "Registered",
+    "completedAt": "Completed",
+    "completedBy": "Completed by {{agent}}"
   },
   "contacts": {
     "search": "Search by name, phone or relation",

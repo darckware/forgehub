@@ -410,7 +410,10 @@ async def _check_type(db: AsyncSession, type_id: uuid.UUID | None) -> None:
 async def create_demand(payload: PersonalDemandCreate, actor: str = Depends(personal_actor),
                         db: AsyncSession = Depends(get_db)) -> PersonalDemand:
     await _check_type(db, payload.type_id)
-    demand = PersonalDemand(**payload.model_dump(), created_by=actor)
+    if payload.origin is not None:
+        from app.core.personal_demand_sources import create_direct_demand
+        return await create_direct_demand(db, payload, actor)
+    demand = PersonalDemand(**payload.model_dump(exclude={'origin'}), created_by=actor)
     db.add(demand)
     await db.commit()
     await db.refresh(demand)
@@ -420,12 +423,20 @@ async def create_demand(payload: PersonalDemandCreate, actor: str = Depends(pers
 @router.patch("/demands/{demand_id}", response_model=PersonalDemandOut)
 async def update_demand(demand_id: uuid.UUID, payload: PersonalDemandUpdate, actor: str = Depends(personal_actor),
                         db: AsyncSession = Depends(get_db)) -> PersonalDemand:
-    demand = await _get(db, PersonalDemand, demand_id)
+    demand = (await db.execute(select(PersonalDemand).where(PersonalDemand.id == demand_id).with_for_update())).scalar_one_or_none()
+    if demand is None:
+        raise HTTPException(404, 'PersonalDemand not found')
     changes = payload.model_dump(exclude_unset=True)
     if "type_id" in changes:
         await _check_type(db, changes["type_id"])
     if "status" in changes and changes["status"] != demand.status:
+        from app.core.personal_captures import audit
+        previous_status = demand.status
         demand.completed_at = datetime.now().astimezone() if changes["status"] == "done" else None
+        demand.completed_by = actor if changes['status'] == 'done' else None
+        audit(db, 'personal_demand', demand.id, 'completed' if changes['status'] == 'done' else 'reopened', actor,
+              {'from_status': previous_status, 'to_status': changes['status'],
+               'completed_at': demand.completed_at.isoformat() if demand.completed_at else None})
     for key, value in changes.items():
         setattr(demand, key, value)
     await db.commit()

@@ -369,6 +369,15 @@ def send(rid: str, codigo: str, agora: float | None = None, _runner=None) -> dic
     return {"enviado_para_grupo": r["grupo"], "message_id": resultado.get("message_id")}
 
 
+def create_demand(ref: str, message_ref: str, title: str, details: str = '', item_key: str = 'principal', *, api_call) -> dict:
+    chat, _ = resolve_group(ref)
+    if chat not in _monitoring_set():
+        raise GroupError('Somente grupos monitorados podem originar demandas.')
+    result = api_call('POST', '/demands', {'title': title, 'notes': details,
+        'origin': {'kind': 'group', 'group_whatsapp_id': chat, 'message_ref': message_ref, 'item_key': item_key}})
+    return {'demanda': result}
+
+
 def capture_suggestion(ref: str, message_ref: str, title: str, details: str = '', kind: str = 'demanda', item_key: str = 'principal', *, api_call) -> dict:
     chat, _ = resolve_group(ref)
     if chat not in _monitoring_set():
@@ -400,6 +409,14 @@ def register(mcp, api_call=None) -> None:
         if api_call is None:
             raise GroupError('API pessoal não configurada para cadastro de grupos.')
         return api_call
+
+    @mcp.tool()
+    async def personal_demand_from_group(grupo: str, mensagem_ref: str, titulo: str, detalhes: str = '', item_key: str = 'principal') -> dict[str, Any]:
+        """CADASTRA DIRETAMENTE em Pessoal → Demandas uma solicitação REAL de grupo monitorado, quando Marcelo autorizar pelo Telegram. NÃO cria sugestão e NÃO usa personal_capture_accept. Leia o grupo, use mensagem_ref real e preserve solicitante. A demanda registra origem=grupo, nome do grupo, autor e data da mensagem. Repetir mensagem/item_key devolve o mesmo ID sem duplicar. Não diga que grupos não podem cadastrar demandas com base em falhas históricas: use esta ferramenta e informe o resultado real."""
+        try:
+            return _safe(create_demand, grupo, mensagem_ref, titulo, detalhes, item_key, api_call=require_api())
+        except GroupError as exc:
+            return {'success': False, 'error': str(exc)}
 
     @mcp.tool()
     async def personal_whatsapp_group_register(grupo: str) -> dict[str, Any]:

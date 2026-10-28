@@ -7,7 +7,7 @@ import uuid
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.personal_schedule import TZ
 from app.db.models.personal import (
@@ -220,10 +220,38 @@ class PersonalDemandTypeOut(BaseModel):
     created_at: datetime
 
 
+class PersonalDemandSource(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    kind: Literal['group', 'contact']
+    group_whatsapp_id: str | None = Field(default=None, pattern=r'^\d+(?:-\d+)?@g\.us$', max_length=160)
+    contact_id: uuid.UUID | None = None
+    message_ref: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
+    message_id: uuid.UUID | None = None
+    item_key: str = Field(default='principal', min_length=1, max_length=80, pattern=r'^[a-zA-Z0-9_-]+$')
+
+    @model_validator(mode='after')
+    def validate_source(self):
+        if self.kind == 'group':
+            if not self.group_whatsapp_id or not self.message_ref or self.contact_id or self.message_id:
+                raise ValueError('Group origin requires its real WhatsApp id and message reference only')
+        elif not self.contact_id or self.group_whatsapp_id or self.message_ref:
+            raise ValueError('Contact origin requires its real contact id only')
+        return self
+
+
 class PersonalDemandCreate(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     notes: str | None = None
     type_id: uuid.UUID | None = None
+    origin: PersonalDemandSource | None = None
+
+    @field_validator('title')
+    @classmethod
+    def nonblank_title(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError('Title must not be blank')
+        return value
 
 
 class PersonalDemandUpdate(BaseModel):
@@ -261,6 +289,7 @@ class PersonalDemandOut(BaseModel):
     type_id: uuid.UUID | None
     status: str
     completed_at: datetime | None
+    completed_by: str | None = None
     created_by: str
     created_at: datetime
     updated_at: datetime

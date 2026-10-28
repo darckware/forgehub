@@ -146,7 +146,13 @@
       "description_zero": "Ninguna demanda abierta usa este tipo.",
       "description_one": "Su demanda sigue existiendo, ahora en \"Sin tipo\".",
       "description_other": "Sus {{count}} demandas siguen existiendo, ahora en \"Sin tipo\"."
-    }
+    },
+    "statusOpen": "Abierta",
+    "statusDone": "Completada",
+    "registeredBy": "Registrada por {{agent}}",
+    "registeredAt": "Registro",
+    "completedAt": "Finalización",
+    "completedBy": "Completada por {{agent}}"
   },
   "contacts": {
     "search": "Buscar por nombre, teléfono o relación",

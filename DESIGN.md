@@ -52,6 +52,8 @@ components:
 
 # ForgeHub Design Context
 
+Personal Demands preserve source independently of capture suggestions. Keep group/contact identity and requester visible in the existing inset metadata area. Show status and registration date/actor in the compact metadata row, and completion date/actor when present. Never infer the completing agent for historical records without that evidence.
+
 ## Overview
 
 ForgeHub is an operator console for Marcelo's agent ecosystem. Its product surfaces should feel like a calm mission-control ledger: dense enough to scan operational state, restrained enough that warnings and failures remain unmistakable. The interface is a product/admin surface, not a marketing page.

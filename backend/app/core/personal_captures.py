@@ -32,6 +32,17 @@ def source_time(value):
         return None
 
 
+def demand_source_key(kind, source_id, message_ref, item_key='principal'):
+    parts = [str(source_id), str(message_ref), 'demand', item_key] if kind == 'group' else ['contact', str(source_id), str(message_ref), item_key]
+    return hashlib.sha256('\x00'.join(parts).encode()).hexdigest()
+
+
+def contact_demand_reference(message_id, title, details):
+    # One contact message may contain several different requests, even with the
+    # same title. Text is hashed by demand_source_key and never enters audit.
+    return '\x00'.join([str(message_id or ''), title.strip(), (details or '').strip()])
+
+
 def audit(db, entity_type, entity_id, event_type, actor, payload):
     db.add(AuditEvent(entity_type=entity_type, entity_id=entity_id, event_type=event_type, actor=actor, payload=payload))
 

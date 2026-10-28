@@ -121,11 +121,15 @@ class PersonalDemand(Base, TimestampMixin):
     __tablename__ = "personal_demands"
     __table_args__ = (
         CheckConstraint(f"status IN ({_in(PERSONAL_DEMAND_STATUSES)})", name="ck_personal_demands_status"),
+        UniqueConstraint('origin_key', name='uq_personal_demand_origin_key'),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    origin: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    origin_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    completed_by: Mapped[str | None] = mapped_column(String(50), nullable=True)
     type_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.personal_demand_types.id", ondelete="SET NULL"), nullable=True, index=True
     )

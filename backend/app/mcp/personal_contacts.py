@@ -474,6 +474,45 @@ def register(mcp) -> bool:
         return _safe(set_instructions, texto, chave="instrucoes")
 
     @mcp.tool()
+    async def personal_demands_list(status: str = 'aberta') -> dict[str, Any]:
+        """Consulta Pessoal → Demandas, com origem contato/grupo, solicitante, status, datas, agente que cadastrou e agente que deu baixa. status: aberta ou concluida. Consulte antes de cadastrar para evitar duplicidades."""
+        states = {'aberta': 'open', 'concluida': 'done', 'concluída': 'done', 'open': 'open', 'done': 'done'}
+        if status not in states:
+            return {'success': False, 'error': 'status deve ser aberta ou concluida'}
+        try:
+            return {'success': True, 'demandas': _call('GET', '/demands', query={'status': states[status]})}
+        except PersonalContactsError as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @mcp.tool()
+    async def personal_demand_set_status(demanda_id: str, status: str) -> dict[str, Any]:
+        """Dá baixa/conclui ou reabre demanda real de Pessoal → Demandas, SOMENTE a pedido de Marcelo pelo Telegram. status: concluida ou aberta. A API registra data e agente autenticado da baixa; não aceita agente inventado. Repetir o mesmo status preserva a data. Não significa baixar arquivo nem executar a demanda."""
+        import uuid
+        states = {'aberta': 'open', 'concluida': 'done', 'concluída': 'done', 'open': 'open', 'done': 'done'}
+        try:
+            demand_id = str(uuid.UUID(demanda_id))
+        except ValueError:
+            return {'success': False, 'error': 'Use o UUID real da demanda'}
+        if status not in states:
+            return {'success': False, 'error': 'status deve ser aberta ou concluida'}
+        try:
+            return {'success': True, 'demanda': _call('PATCH', f'/demands/{demand_id}', {'status': states[status]})}
+        except PersonalContactsError as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @mcp.tool()
+    async def personal_demand_from_contact(telefone: str, titulo: str, detalhes: str = '', mensagem_id: str = '', item_key: str = 'principal') -> dict[str, Any]:
+        """Cadastra DIRETAMENTE em Pessoal → Demandas um pedido de contato, a pedido de Marcelo pelo Telegram. Não cria sugestão. Salva origem=contato e nome/UUID reais. mensagem_id opcional deve ser da ficha deste contato. Repetir a mesma origem/item_key evita duplicação. Use apenas o pedido autorizado por Marcelo."""
+        try:
+            contact = _call('GET', f'/contacts/{_tel_completo(telefone)}')
+            origin = {'kind': 'contact', 'contact_id': contact['id'], 'item_key': item_key}
+            if mensagem_id:
+                origin['message_id'] = mensagem_id
+            return {'success': True, 'demanda': _call('POST', '/demands', {'title': titulo, 'notes': detalhes, 'origin': origin})}
+        except PersonalContactsError as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @mcp.tool()
     async def personal_capture_suggestions(telefone: str = "") -> dict[str, Any]:
         """Demandas, tarefas e anotações identificadas nas mensagens dos contatos OU grupos monitorados e que ainda
         esperam a decisão do Marcelo (todas, ou só as de um telefone). São só propostas: nada vira
