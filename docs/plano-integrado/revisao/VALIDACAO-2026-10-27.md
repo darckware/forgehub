@@ -67,3 +67,9 @@ migração/rollback em T.1.
 
 Verificação expandida: 33 itens, sem ciclos; contenção antes da missão, publicação antes de M0.1/M0.5,
 guards antes de despacho, backup antes das releases e sincronização integral das duas projeções.
+
+## Fechamento da Fase 0 — 28/10/2026
+
+- **0.15:** o Marcelo decidiu D-1 a D-8. A D-1 mudou: o Codex está sem cota, então Porthus implementa e Dartan revisa (commit 488eba0). A disponibilidade do Dartan foi testada (#41623, resposta correta).
+- **0.14:** o Porthus confirmou os 10 itens do #41584 (#41624) e apontou que a D-1 o deixaria revisando a publicação do próprio código. Corrigido em fd179b2: M0.R e A.R passam a ser revisadas pelo Aegis, o Aegis entra como segundo revisor na T.3 e na C.2a, e o validador passa a recusar uma publicação revisada pelo autor de alguma de suas dependências.
+- **Verificação da 0.15:** o Athos respondeu SIM aos 7 itens (#41625), e as respostas foram conferidas de forma independente (validador, slugs, decisões e ausência de resquícios).

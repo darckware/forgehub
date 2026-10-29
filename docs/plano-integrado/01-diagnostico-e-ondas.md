@@ -30,6 +30,14 @@ Correções aplicadas da revisão:
 - **F4:** sucesso de um backup não prova cobertura de todos. Exigir snapshot recente por destino
   crítico e restauração de amostra antes de declarar recuperação pronta.
 
+## Estado em 28/10/2026
+
+**A Fase 0 está concluída.**
+- **0.14:** a rodada cruzada fechou com o Athos (#41585) e o Porthus (#41584, confirmação do delta em #41624). Os ajustes que a troca da D-1 exigiu estão no commit `fd179b2`.
+- **0.15:** o Marcelo decidiu D-1 a D-8 (09), e o Athos verificou o registro (#41625).
+
+A Onda 1 pode começar pela T.1. Nenhuma tarefa dela foi cadastrada ou implementada ainda.
+
 ## Onda 1 — Provar a base e fechar os riscos imediatos
 
 O detalhamento executável está em [12 — Primeira onda](12-primeira-onda.md), com responsáveis,
