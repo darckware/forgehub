@@ -121,11 +121,15 @@ class PersonalDemand(Base, TimestampMixin):
     __tablename__ = "personal_demands"
     __table_args__ = (
         CheckConstraint(f"status IN ({_in(PERSONAL_DEMAND_STATUSES)})", name="ck_personal_demands_status"),
+        UniqueConstraint('origin_key', name='uq_personal_demand_origin_key'),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    origin: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    origin_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    completed_by: Mapped[str | None] = mapped_column(String(50), nullable=True)
     type_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.personal_demand_types.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -203,6 +207,16 @@ class PersonalContactMessage(Base, TimestampMixin):
     context_status: Mapped[str] = mapped_column(String(10), nullable=False, default="pending", server_default="pending")
 
 
+class PersonalWhatsAppGroup(Base, TimestampMixin):
+    """A real group selected for monitoring by Marcelo, registered by him or Maia."""
+    __tablename__ = 'personal_whatsapp_groups'
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    whatsapp_id: Mapped[str] = mapped_column(String(160), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(50), nullable=False)
+
+
 class PersonalCaptureSuggestion(Base, TimestampMixin):
     """A demand, task or note the context pass found in a message -- only a proposal: Marcelo accepts
     it (which creates the real PersonalDemand/PersonalTask/PersonalNote) or dismisses it (2026-10-14:
@@ -212,12 +226,24 @@ class PersonalCaptureSuggestion(Base, TimestampMixin):
     __table_args__ = (
         CheckConstraint(f"kind IN ({_in(PERSONAL_SUGGESTION_KINDS)})", name="ck_personal_capture_suggestions_kind"),
         CheckConstraint(f"status IN ({_in(PERSONAL_SUGGESTION_STATUSES)})", name="ck_personal_capture_suggestions_status"),
+        CheckConstraint('(contact_id IS NOT NULL AND group_id IS NULL) OR (contact_id IS NULL AND group_id IS NOT NULL)', name='ck_personal_capture_origin'),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    contact_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("company.personal_contacts.id", ondelete="CASCADE"), nullable=False, index=True
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.personal_contacts.id", ondelete="CASCADE"), nullable=True, index=True
     )
+    group_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey('company.personal_whatsapp_groups.id', ondelete='RESTRICT'), nullable=True, index=True)
+    source_message_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_author: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_author_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    source_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    capture_key: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+
+    @property
+    def source_kind(self) -> str:
+        return 'group' if self.group_id else 'contact'
+
     message_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.personal_contact_messages.id", ondelete="SET NULL"), nullable=True
     )

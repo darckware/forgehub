@@ -56,6 +56,10 @@ from app.db.base import get_db
 from app.db.models.personal import (
     PersonalDailySummary,
     PersonalDemand,
+    PersonalCaptureSuggestion,
+    PersonalContact,
+    PersonalContactMessage,
+    PersonalWhatsAppGroup,
     PersonalDemandType,
     PersonalEvent,
     PersonalLocation,
@@ -372,13 +376,29 @@ async def list_demands(
     actor: str = Depends(personal_actor),
     db: AsyncSession = Depends(get_db),
 ) -> list[PersonalDemand]:
-    stmt = select(PersonalDemand)
+    stmt = select(PersonalDemand, PersonalCaptureSuggestion, PersonalContact, PersonalWhatsAppGroup, PersonalContactMessage).outerjoin(
+        PersonalCaptureSuggestion, and_(PersonalCaptureSuggestion.created_item_id == PersonalDemand.id, PersonalCaptureSuggestion.kind == 'demand')
+    ).outerjoin(PersonalContact, PersonalContact.id == PersonalCaptureSuggestion.contact_id).outerjoin(
+        PersonalWhatsAppGroup, PersonalWhatsAppGroup.id == PersonalCaptureSuggestion.group_id).outerjoin(PersonalContactMessage, PersonalContactMessage.id == PersonalCaptureSuggestion.message_id)
     if demand_status:
         stmt = stmt.where(PersonalDemand.status == demand_status)
     if type_id:
         stmt = stmt.where(PersonalDemand.type_id == type_id)
     stmt = stmt.order_by(PersonalDemand.created_at.desc())
-    return list((await db.execute(stmt)).scalars())
+    result = []
+    from app.api.schemas.personal import PersonalDemandOrigin
+    for demand, suggestion, contact, group, message in (await db.execute(stmt)).all():
+        out = PersonalDemandOut.model_validate(demand)
+        if suggestion:
+            out.origin = PersonalDemandOrigin(kind='group' if group else 'contact',
+                contact_id=contact.id if contact else None, contact_name=contact.name if contact else '',
+                group_id=group.id if group else None, group_name=group.name if group else '',
+                author=(suggestion.source_author or suggestion.source_author_id or '') if group else (suggestion.source_author or (message.author if message else '') or (contact.name if contact else '')),
+                author_id=suggestion.source_author_id, message_ref=suggestion.source_message_ref,
+                message_id=suggestion.message_id, captured_at=suggestion.source_at or (message.at if message else None) or suggestion.created_at)
+        result.append(out)
+    return result
+
 
 
 async def _check_type(db: AsyncSession, type_id: uuid.UUID | None) -> None:
@@ -390,7 +410,10 @@ async def _check_type(db: AsyncSession, type_id: uuid.UUID | None) -> None:
 async def create_demand(payload: PersonalDemandCreate, actor: str = Depends(personal_actor),
                         db: AsyncSession = Depends(get_db)) -> PersonalDemand:
     await _check_type(db, payload.type_id)
-    demand = PersonalDemand(**payload.model_dump(), created_by=actor)
+    if payload.origin is not None:
+        from app.core.personal_demand_sources import create_direct_demand
+        return await create_direct_demand(db, payload, actor)
+    demand = PersonalDemand(**payload.model_dump(exclude={'origin'}), created_by=actor)
     db.add(demand)
     await db.commit()
     await db.refresh(demand)
@@ -400,12 +423,20 @@ async def create_demand(payload: PersonalDemandCreate, actor: str = Depends(pers
 @router.patch("/demands/{demand_id}", response_model=PersonalDemandOut)
 async def update_demand(demand_id: uuid.UUID, payload: PersonalDemandUpdate, actor: str = Depends(personal_actor),
                         db: AsyncSession = Depends(get_db)) -> PersonalDemand:
-    demand = await _get(db, PersonalDemand, demand_id)
+    demand = (await db.execute(select(PersonalDemand).where(PersonalDemand.id == demand_id).with_for_update())).scalar_one_or_none()
+    if demand is None:
+        raise HTTPException(404, 'PersonalDemand not found')
     changes = payload.model_dump(exclude_unset=True)
     if "type_id" in changes:
         await _check_type(db, changes["type_id"])
     if "status" in changes and changes["status"] != demand.status:
+        from app.core.personal_captures import audit
+        previous_status = demand.status
         demand.completed_at = datetime.now().astimezone() if changes["status"] == "done" else None
+        demand.completed_by = actor if changes['status'] == 'done' else None
+        audit(db, 'personal_demand', demand.id, 'completed' if changes['status'] == 'done' else 'reopened', actor,
+              {'from_status': previous_status, 'to_status': changes['status'],
+               'completed_at': demand.completed_at.isoformat() if demand.completed_at else None})
     for key, value in changes.items():
         setattr(demand, key, value)
     await db.commit()

@@ -6,13 +6,13 @@ external runtimes in the roster (Porthus/claude, Aramis/codex, Dartan/agy)
 start with it on, per Marcelo on 2026-10-28; new agents default to off.
 
 Revision ID: e4b8c1d7a9f3
-Revises: 7d3a9e5c2b18
+Revises: 7a024b36d981
 """
 import sqlalchemy as sa
 from alembic import op
 
 revision = "e4b8c1d7a9f3"
-down_revision = "7d3a9e5c2b18"
+down_revision = "7a024b36d981"
 branch_labels = None
 depends_on = None
 

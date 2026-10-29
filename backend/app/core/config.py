@@ -96,6 +96,15 @@ class Settings(BaseSettings):
     CHAT_BRIDGE_URL: str = "http://host.docker.internal:8910"
     CHAT_BRIDGE_TOKEN: str = ""
 
+    # Opt-in only: owner UUID, fixed source-agent UUID -> proposal-store file,
+    # and Telegram destination are administered outside agent requests.
+    MOODLE_APPROVAL_ENABLED: bool = False
+    MOODLE_APPROVAL_OWNER_ID: str = ""
+    MOODLE_APPROVAL_SOURCE_FILES: str = "{}"
+    MOODLE_APPROVAL_WORKING_PATH: str = ""
+    MOODLE_APPROVAL_TELEGRAM_CHAT_ID: str = ""
+    MOODLE_APPROVAL_FORM_URL: str = ""
+
     # HMAC secret the agent runtimes sign their activity webhooks with
     # (POST /api/v1/agent-activity/events). The same value lives in each Hermes
     # profile's .env as FORGEHUB_ACTIVITY_WEBHOOK_SECRET. Empty = the endpoint

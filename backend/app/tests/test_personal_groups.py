@@ -58,7 +58,10 @@ def test_list_and_read_groups(base):
     assert grupos[0] == {"grupo": "Família Ferreira", "id": CHAT, "status": "active", "monitorado": True,
                          "mensagens_24h": 1, "ultima_mensagem": "12/10/2026 10:00"}
     msgs = pg.group_messages("família", horas=24, agora=1000.0 + 60)
-    assert msgs["mensagens"] == [{"quando": "12/10/2026 10:00", "autor": "Ana", "texto": "almoço domingo?"}]
+    assert msgs["mensagens"][0]["texto"] == "almoço domingo?"
+    assert msgs["mensagens"][0]["autor"] == "Ana"
+    assert len(msgs["mensagens"][0]["mensagem_ref"]) == 64
+    assert msgs["grupo_id"] == CHAT
 
 
 def test_monitoring_can_remove_and_add_group_without_deleting_history(base):

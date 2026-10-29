@@ -6,11 +6,12 @@
     "agenda": "Agenda",
     "notes": "Anotações",
     "demands": "Demandas",
-    "contacts": "Contatos",
+    "contacts": "Contatos pessoais",
     "maia": "Maia",
     "suggestions": "Sugestões",
     "agentWork": "Tarefas dos agentes",
-    "location": "Resumo diário"
+    "location": "Resumo diário",
+    "groups": "Grupos do WhatsApp"
   },
   "fields": {
     "date": "Data",
@@ -145,7 +146,13 @@
       "description_zero": "Nenhuma demanda em aberto usa este tipo.",
       "description_one": "A demanda deste tipo continua existindo, agora em \"Sem tipo\".",
       "description_other": "As {{count}} demandas deste tipo continuam existindo, agora em \"Sem tipo\"."
-    }
+    },
+    "statusOpen": "Aberta",
+    "statusDone": "Concluída",
+    "registeredBy": "Cadastrada por {{agent}}",
+    "registeredAt": "Cadastro",
+    "completedAt": "Baixa",
+    "completedBy": "Concluída por {{agent}}"
   },
   "contacts": {
     "search": "Buscar por nome, telefone ou relação",
@@ -422,5 +429,68 @@
     "empty": "Nenhum resumo registrado neste período.",
     "locationUsed": "Localização: {{place}}",
     "noLocation": "Sem localização GPS"
+  },
+  "groups": {
+    "description": "Grupos monitorados pela Maia. As capturas preservam o grupo, a pessoa que solicitou e a mensagem de origem.",
+    "sync": "Cadastrar grupos monitorados",
+    "syncError": "Não foi possível cadastrar os grupos monitorados. Tente novamente.",
+    "loadError": "Não foi possível consultar os grupos monitorados. O cadastro não foi alterado.",
+    "retry": "Tentar novamente",
+    "loading": "Carregando capturas…",
+    "captureError": "Não foi possível consultar as capturas deste grupo.",
+    "noCaptures": "Nenhuma captura registrada neste grupo.",
+    "more": "Carregar mais",
+    "search": "Buscar grupo",
+    "noResults": "Nenhum grupo corresponde à busca.",
+    "empty": "Nenhum grupo monitorado cadastrado. A Maia pode cadastrar um grupo monitorado, ou você pode usar o botão acima.",
+    "pending": "{{count}} captura(s) pendente(s)",
+    "accepted": "{{count}} captura(s) aprovada(s)",
+    "monitored": "Monitorado",
+    "lastSeen": "Última atividade observada",
+    "select": "Selecione um grupo para consultar suas capturas e a origem das demandas.",
+    "origin": "Grupo de origem",
+    "unknown": "Grupo não identificado"
+  },
+  "origins": {
+    "contact": "Contato pessoal",
+    "requester": "Solicitante",
+    "unknownAuthor": "Autor não identificado",
+    "messageDate": "Data da mensagem"
+  },
+  "moodleApproval": {
+    "title": "Aprovações Moodle",
+    "hint": "Selecione as solicitações e confirme os efeitos antes de autorizar. Escolha um agente capaz de executar a tarefa.",
+    "loading": "Carregando solicitações…",
+    "loadError": "Não foi possível carregar as solicitações.",
+    "retry": "Tentar novamente",
+    "empty": "Nenhuma solicitação pendente.",
+    "select": "Selecionar #{{number}}",
+    "operation": "Operação",
+    "environment": "Ambiente",
+    "destructive": "Destrutiva",
+    "nonDestructive": "Não destrutiva",
+    "executor": "Agente executor",
+    "executorAccessHint": "O agente precisa ter acesso ao MCP Moodle; selecioná-lo não concede esse acesso.",
+    "chooseAgent": "Selecione um agente",
+    "agentsError": "Não foi possível carregar os agentes.",
+    "instruction": "Instrução para o executor",
+    "password": "Senha",
+    "showPassword": "Mostrar senha",
+    "hidePassword": "Ocultar senha",
+    "review": "Revisar autorização",
+    "confirmTitle": "Confirmar autorização Moodle",
+    "confirmHint": "Autorizar enviará as solicitações selecionadas ao executor.",
+    "confirm": "Autorizar selecionadas",
+    "error": "Não foi possível autorizar. Confira os itens e tente novamente.",
+    "success": "Solicitações autorizadas.",
+    "improve": "Melhorar instrução com Athos",
+    "challengeReady": "Link de autorização recebido.",
+    "challengeNeeded": "Solicite um link e abra-o no Telegram para autorizar.",
+    "requestLink": "Solicitar link no Telegram",
+    "linkSent": "Link enviado ao Telegram.",
+    "linkError": "Não foi possível enviar o link. Tente novamente.",
+    "host": "Host",
+    "params": "Parâmetros",
+    "sessionHint": "Entre no ForgeHub antes de abrir o link recebido no Telegram."
   }
 }

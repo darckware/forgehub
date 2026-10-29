@@ -77,6 +77,13 @@ def record_transition(db, demand, action, *, actor="system", extra=None):
 
 async def ensure_workflow_allowed(db, demand):
     assert_execution_allowed(demand)
+    from app.db.models.moodle_approval import MoodleApproval
+    from app.core.config import settings
+    linked = await db.scalar(select(MoodleApproval).where(MoodleApproval.message_id == demand.id))
+    if linked and (not settings.MOODLE_APPROVAL_ENABLED or linked.state != "approved" or linked.executor_id != demand.target_agent_id
+                   or linked.expires_at <= datetime.now(timezone.utc)
+                   or linked.message_hash != approval_fingerprint(demand)):
+        raise WorkflowBlocked("Moodle authorization is missing or no longer valid")
     question = await db.scalar(select(AgentQuestion.id).where(
         AgentQuestion.origin_demand_id == demand.id, AgentQuestion.blocking.is_(True),
         AgentQuestion.status == "pending",
@@ -87,6 +94,10 @@ async def ensure_workflow_allowed(db, demand):
 
 async def decide_demand(db, demand, payload, *, actor):
     from app.core.dispatch_signal import wake_scheduled_dispatch
+    from app.db.models.moodle_approval import MoodleApproval
+
+    if await db.scalar(select(MoodleApproval.id).where(MoodleApproval.message_id == demand.id)):
+        raise WorkflowBlocked("Moodle messages require the dedicated approval flow")
 
     investigation = payload.action in ("record_investigation", "confirm_inactive")
     if demand.consolidated_into_id and not investigation:

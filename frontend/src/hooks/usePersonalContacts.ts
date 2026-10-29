@@ -50,7 +50,15 @@ export type SuggestionKind = "demand" | "task" | "note";
 
 export interface CaptureSuggestion {
   id: string;
-  contact_id: string;
+  contact_id: string | null;
+  group_id?: string | null;
+  source_kind?: 'contact' | 'group';
+  group_name?: string;
+  group_whatsapp_id?: string;
+  source_author?: string | null;
+  source_author_id?: string | null;
+  source_message_ref?: string | null;
+  source_at?: string | null;
   message_id: string | null;
   kind: SuggestionKind;
   title: string;
@@ -143,11 +151,11 @@ export function useContactSuggestions(phone: string | undefined) {
 }
 
 /** Global capture inbox; suggestions remain proposals until the explicit decision. */
-export function usePersonalSuggestions(status = "pending") {
+export function usePersonalSuggestions(status = "pending", groupId?: string) {
   return useInfiniteQuery<CaptureSuggestion[]>({
-    queryKey: keys.allSuggestions(status),
+    queryKey: [...keys.allSuggestions(status), groupId ?? ""],
     initialPageParam: 0,
-    queryFn: ({ pageParam }) => apiClient.get(`${BASE}/suggestions${qs({ status, limit: String(PAGE), offset: String(pageParam) })}`),
+    queryFn: ({ pageParam }) => apiClient.get(`${BASE}/suggestions${qs({ status, group_id: groupId, limit: String(PAGE), offset: String(pageParam) })}`),
     getNextPageParam: (last, _pages, offset) => (last.length === PAGE ? Number(offset) + PAGE : undefined),
     refetchInterval: 30_000,
   });

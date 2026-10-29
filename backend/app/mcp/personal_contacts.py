@@ -148,6 +148,7 @@ def get_contact(telefone: str, ultimos: int = 20) -> dict[str, Any]:
         **_contato(c),
         "quem_e": c["who_is"], "como_tratar": c["how_to_treat"], "outros_dados": c["other_data"],
         "historico_recente": [_linha_historico(m) for m in reversed(mensagens)],
+        "mensagens": [{"id":m["id"],"quando":m["at"],"autor":m["author"],"texto":m["text"]} for m in reversed(mensagens)],
     }
 
 
@@ -312,7 +313,12 @@ def list_suggestions(telefone: str = "") -> list[dict[str, Any]]:
     itens = _call("GET", "/suggestions", query={"status": "pending",
                                                   "contact_phone": _tel_completo(telefone) if telefone else None})
     return [{"id": s["id"], "tipo": _TIPOS_PT.get(s["kind"], s["kind"]), "titulo": s["title"], "detalhes": s["details"],
-             "contato": s["contact_name"] or formata_tel(s["contact_phone"]), "telefone": formata_tel(s["contact_phone"])}
+             "contato": s.get("contact_name") or (formata_tel(s["contact_phone"]) if s.get("contact_phone") else ''),
+             "telefone": formata_tel(s["contact_phone"]) if s.get("contact_phone") else '',
+             "origem": 'grupo' if s.get('source_kind') == 'group' else 'contato',
+             "grupo": s.get('group_name') or '', "grupo_id": s.get('group_id'),
+             "autor": s.get('source_author') or s.get('source_author_id') or s.get('contact_name') or '',
+             "mensagem_ref": s.get('source_message_ref'), "mensagem_id": s.get('message_id')}
             for s in itens]
 
 
@@ -343,7 +349,15 @@ def _register_sibling(mcp, nome: str) -> None:
     spec = importlib.util.spec_from_file_location(nome, Path(__file__).with_name(f"{nome}.py"))
     modulo = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modulo)
-    modulo.register(mcp)
+    if nome == 'personal_groups':
+        def group_api(method, path, body=None):
+            try:
+                return _call(method, path, body)
+            except PersonalContactsError as exc:
+                raise modulo.GroupError(str(exc)) from exc
+        modulo.register(mcp, api_call=group_api)
+    else:
+        modulo.register(mcp)
 
 
 def _safe(fn, *args, chave: str | None = None, **kwargs) -> dict[str, Any]:
@@ -460,8 +474,47 @@ def register(mcp) -> bool:
         return _safe(set_instructions, texto, chave="instrucoes")
 
     @mcp.tool()
+    async def personal_demands_list(status: str = 'aberta') -> dict[str, Any]:
+        """Consulta Pessoal → Demandas, com origem contato/grupo, solicitante, status, datas, agente que cadastrou e agente que deu baixa. status: aberta ou concluida. Consulte antes de cadastrar para evitar duplicidades."""
+        states = {'aberta': 'open', 'concluida': 'done', 'concluída': 'done', 'open': 'open', 'done': 'done'}
+        if status not in states:
+            return {'success': False, 'error': 'status deve ser aberta ou concluida'}
+        try:
+            return {'success': True, 'demandas': _call('GET', '/demands', query={'status': states[status]})}
+        except PersonalContactsError as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @mcp.tool()
+    async def personal_demand_set_status(demanda_id: str, status: str) -> dict[str, Any]:
+        """Dá baixa/conclui ou reabre demanda real de Pessoal → Demandas, SOMENTE a pedido de Marcelo pelo Telegram. status: concluida ou aberta. A API registra data e agente autenticado da baixa; não aceita agente inventado. Repetir o mesmo status preserva a data. Não significa baixar arquivo nem executar a demanda."""
+        import uuid
+        states = {'aberta': 'open', 'concluida': 'done', 'concluída': 'done', 'open': 'open', 'done': 'done'}
+        try:
+            demand_id = str(uuid.UUID(demanda_id))
+        except ValueError:
+            return {'success': False, 'error': 'Use o UUID real da demanda'}
+        if status not in states:
+            return {'success': False, 'error': 'status deve ser aberta ou concluida'}
+        try:
+            return {'success': True, 'demanda': _call('PATCH', f'/demands/{demand_id}', {'status': states[status]})}
+        except PersonalContactsError as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @mcp.tool()
+    async def personal_demand_from_contact(telefone: str, titulo: str, detalhes: str = '', mensagem_id: str = '', item_key: str = 'principal') -> dict[str, Any]:
+        """Cadastra DIRETAMENTE em Pessoal → Demandas um pedido de contato, a pedido de Marcelo pelo Telegram. Não cria sugestão. Salva origem=contato e nome/UUID reais. mensagem_id opcional deve ser da ficha deste contato. Repetir a mesma origem/item_key evita duplicação. Use apenas o pedido autorizado por Marcelo."""
+        try:
+            contact = _call('GET', f'/contacts/{_tel_completo(telefone)}')
+            origin = {'kind': 'contact', 'contact_id': contact['id'], 'item_key': item_key}
+            if mensagem_id:
+                origin['message_id'] = mensagem_id
+            return {'success': True, 'demanda': _call('POST', '/demands', {'title': titulo, 'notes': detalhes, 'origin': origin})}
+        except PersonalContactsError as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @mcp.tool()
     async def personal_capture_suggestions(telefone: str = "") -> dict[str, Any]:
-        """Demandas, tarefas e anotações que você identificou nas mensagens dos contatos e que ainda
+        """Demandas, tarefas e anotações identificadas nas mensagens dos contatos OU grupos monitorados e que ainda
         esperam a decisão do Marcelo (todas, ou só as de um telefone). São só propostas: nada vira
         item da lista dele sem que ele aceite."""
         try:

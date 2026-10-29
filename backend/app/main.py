@@ -40,7 +40,9 @@ from app.api.routes import (
     factory,
     file_explorer,
     personal,
+    moodle_approval,
     personal_contacts,
+    personal_groups,
     forgerouter,
     foundation,
     foundation_docs,
@@ -385,7 +387,9 @@ app.include_router(systemstats.router)
 app.include_router(workspace_browser.router)
 app.include_router(file_explorer.router)
 app.include_router(personal.router)
+app.include_router(moodle_approval.router)
 app.include_router(personal_contacts.router)
+app.include_router(personal_groups.router)
 app.include_router(vault.router)
 app.include_router(docs.router)
 app.include_router(demand.router)

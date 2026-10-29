@@ -22,7 +22,7 @@ function when(value: string | null, locale: string): string {
   return new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
 }
 
-function SuggestionCard({ suggestion }: { suggestion: CaptureSuggestion }) {
+export function SuggestionCard({ suggestion }: { suggestion: CaptureSuggestion }) {
   const { t, i18n } = useTranslation("personal");
   const [kind, setKind] = useState<SuggestionKind>(suggestion.kind);
   const [details, setDetails] = useState(suggestion.details);
@@ -41,13 +41,16 @@ function SuggestionCard({ suggestion }: { suggestion: CaptureSuggestion }) {
           <div className="min-w-0">
             <h2 className="break-words font-medium">{suggestion.title}</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              {suggestion.contact_name || t("suggestions.unknownContact")} · {suggestion.contact_phone || "—"}
+              {suggestion.source_kind === 'group'
+                ? `${t('groups.origin')}: ${suggestion.group_name || t('groups.unknown')}`
+                : `${t('origins.contact')}: ${suggestion.contact_name || t("suggestions.unknownContact")}${suggestion.contact_phone ? ` · ${suggestion.contact_phone}` : ''}`}
             </p>
           </div>
           <Badge variant={suggestion.status === "pending" ? "secondary" : "outline"}>
             {t(`suggestions.status.${suggestion.status}`)}
           </Badge>
         </div>
+        {suggestion.source_kind === 'group' && <p className="break-words text-sm text-muted-foreground">{t('origins.requester')}: {suggestion.source_author || suggestion.source_author_id || t('origins.unknownAuthor')}{suggestion.source_at ? ` · ${when(suggestion.source_at, i18n.language)}` : ''}</p>}
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span>{t("suggestions.suggestedKind")}: {t(`contacts.suggestions.kinds.${suggestion.kind}`)}</span>
           <span>{t("suggestions.createdAt")}: {when(suggestion.created_at, i18n.language)}</span>

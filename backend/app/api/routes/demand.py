@@ -531,6 +531,7 @@ async def list_pending_for_agent(
     if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid bridge token")
     resolved = await _get_agent_by_slug_or_404(db, agent)
+    from app.db.models.moodle_approval import MoodleApproval
     now = datetime.now(timezone.utc)
     result = await db.execute(
         select(AgentDemand)
@@ -538,6 +539,7 @@ async def list_pending_for_agent(
             or_(AgentDemand.target_agent_id == resolved.id, AgentDemand.incubation_owner_id == resolved.id),
             AgentDemand.agent_processed_at.is_(None),
             AgentDemand.status != "archived",
+            ~select(MoodleApproval.id).where(MoodleApproval.message_id == AgentDemand.id).exists(),
             or_(
                 (AgentDemand.origin_type == "incubation") & (AgentDemand.incubation_state == "decision_pending"),
                 (AgentDemand.reply_to_id.isnot(None)) & (AgentDemand.dispatch_status == "completed"),
@@ -946,6 +948,9 @@ async def update_demand(
     demand_id: uuid.UUID, payload: DemandUpdateIn, db: AsyncSession = Depends(get_db)
 ) -> AgentDemand:
     demand = await _get_demand_or_404(db, demand_id, lock=True)
+    from app.db.models.moodle_approval import MoodleApproval
+    if await db.scalar(select(MoodleApproval.id).where(MoodleApproval.message_id == demand.id)):
+        raise HTTPException(409, "Moodle messages cannot be edited outside their approval flow")
     was_archived = demand.status == "archived"
     if demand.consolidated_into_id and (payload.status not in (None, "archived") or payload.model_fields_set - {"status", "group_id"}):
         raise HTTPException(409, "Open the current consolidated summary")
@@ -1099,6 +1104,9 @@ async def update_demand_as_agent(
     no-op, so a caller can tell "not mine" from "nothing changed")."""
     _require_bridge_token(x_bridge_token)
     demand = await _get_demand_or_404(db, demand_id, lock=True)
+    from app.db.models.moodle_approval import MoodleApproval
+    if await db.scalar(select(MoodleApproval.id).where(MoodleApproval.message_id == demand.id)):
+        raise HTTPException(409, "Moodle messages cannot be edited outside their approval flow")
     caller = await _get_agent_by_slug_or_404(db, payload.agent)
     if demand.from_agent_id != caller.id:
         raise HTTPException(status_code=403, detail="Only the sender can edit this message")

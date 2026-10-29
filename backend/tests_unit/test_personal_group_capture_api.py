@@ -1,0 +1,358 @@
+import json
+import uuid
+import asyncio
+
+import httpx
+import pytest
+import pytest_asyncio
+from fastapi import FastAPI
+from sqlalchemy import select,delete
+from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker
+
+from app.api.routes import personal,personal_contacts
+from app.core.config import settings
+from app.core.deps import ActorPrincipal,get_actor_principal
+from app.db.base import get_db
+from app.db.models.personal import PersonalCaptureSuggestion,PersonalContact,PersonalContactMessage,PersonalDemand,PersonalWhatsAppGroup
+from app.db.models.governance import AuditEvent
+from app.mcp.personal_group_sources import message_reference
+
+CHAT='120363000000000123@g.us'
+BASE='/api/v1/personal'
+
+@pytest.mark.asyncio
+async def test_direct_group_demand_preserves_origin_without_suggestions(context):
+    client, sessions, _, record, _ = context
+    payload = {'title': 'Pedido direto', 'notes': 'Detalhes autorizados',
+               'origin': {'kind': 'group', 'group_whatsapp_id': CHAT,
+                          'message_ref': message_reference(CHAT, record), 'item_key': 'direto'}}
+    responses = await asyncio.gather(*[client.post(BASE+'/demands', json=payload) for _ in range(3)])
+    assert all(r.status_code == 201 for r in responses), [r.text for r in responses]
+    assert len({r.json()['id'] for r in responses}) == 1
+    result = responses[0].json()
+    assert result['origin']['kind'] == 'group'
+    assert result['origin']['group_name'] == 'Grupo sintético'
+    assert result['origin']['author'] == 'Solicitante fictício'
+    assert result['origin']['message_ref'] == payload['origin']['message_ref']
+    assert (await client.get(BASE+'/suggestions')).json() == []
+    listed = (await client.get(BASE+'/demands')).json()
+    assert len(listed) == 1 and listed[0]['origin'] == result['origin']
+    async with sessions() as db:
+        audit = (await db.execute(select(AuditEvent).where(AuditEvent.entity_id == uuid.UUID(result['id']), AuditEvent.event_type == 'created'))).scalars().all()
+        assert len(audit) == 1
+    bad = await client.post(BASE+'/demands', json={**payload, 'origin': {**payload['origin'], 'message_ref': '0'*64}})
+    assert bad.status_code == 422
+    client_root = context[2]
+    (client_root/'_monitoramento.json').write_text('{"enabled":[]}')
+    denied = await client.post(BASE+'/demands', json=payload)
+    assert denied.status_code == 422
+
+@pytest.mark.asyncio
+async def test_direct_contact_demand_records_actual_contact(context):
+    client, sessions, _, _, _ = context
+    async with sessions() as db:
+        contact = PersonalContact(phone='5599'+str(uuid.uuid4().int%1000000000).zfill(9), name='Contato direto fictício')
+        db.add(contact); await db.commit(); contact_id = str(contact.id)
+    payload = {'title': 'Pedido direto de contato', 'origin': {'kind': 'contact', 'contact_id': contact_id}}
+    result = await client.post(BASE+'/demands', json=payload)
+    assert result.status_code == 201, result.text
+    assert result.json()['origin']['kind'] == 'contact'
+    assert result.json()['origin']['contact_id'] == contact_id
+    assert result.json()['origin']['contact_name'] == 'Contato direto fictício'
+    assert (await client.get(BASE+'/suggestions')).json() == []
+    assert (await client.post(BASE+'/demands', json={**payload, 'origin': {'kind': 'contact', 'contact_id': str(uuid.uuid4())}})).status_code == 404
+
+@pytest.mark.asyncio
+async def test_direct_group_registration_reuses_previously_accepted_demand(context):
+    client, _, _, record, _ = context
+    reference = message_reference(CHAT, record)
+    suggestion = (await client.post(BASE+'/groups/captures', json={
+        'whatsapp_id': CHAT, 'message_ref': reference, 'title': 'Pedido anterior'})).json()
+    accepted = (await client.post(BASE+f"/suggestions/{suggestion['id']}:accept", json={})).json()
+    direct = await client.post(BASE+'/demands', json={'title': 'Pedido anterior', 'origin': {
+        'kind': 'group', 'group_whatsapp_id': CHAT, 'message_ref': reference}})
+    assert direct.status_code == 201, direct.text
+    assert direct.json()['id'] == accepted['created_item_id']
+    assert len((await client.get(BASE+'/demands')).json()) == 1
+
+@pytest.mark.asyncio
+async def test_pending_group_suggestion_accepted_after_direct_reuses_demand(context):
+    client, _, _, record, _ = context
+    reference = message_reference(CHAT, record)
+    suggestion = (await client.post(BASE+'/groups/captures', json={
+        'whatsapp_id': CHAT, 'message_ref': reference, 'title': 'Mesmo pedido'})).json()
+    direct = (await client.post(BASE+'/demands', json={'title': 'Mesmo pedido', 'origin': {
+        'kind': 'group', 'group_whatsapp_id': CHAT, 'message_ref': reference}})).json()
+    accepted = await client.post(BASE+f"/suggestions/{suggestion['id']}:accept", json={})
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()['created_item_id'] == direct['id']
+    assert len((await client.get(BASE+'/demands')).json()) == 1
+
+@pytest.mark.asyncio
+async def test_direct_contact_reuses_legacy_accepted_contact_message(context):
+    from datetime import datetime, timezone
+    client, sessions, _, _, _ = context
+    async with sessions() as db:
+        contact = PersonalContact(phone='5599'+str(uuid.uuid4().int%1000000000).zfill(9), name='Contato legado')
+        db.add(contact); await db.flush()
+        message = PersonalContactMessage(contact_id=contact.id, at=datetime.now(timezone.utc), direction='in', author='Contato legado', text='Pedido anterior', source='whatsapp')
+        db.add(message); await db.flush()
+        suggestion = PersonalCaptureSuggestion(contact_id=contact.id, message_id=message.id, kind='demand', title='Pedido anterior', details='', status='pending')
+        db.add(suggestion); await db.commit(); sid=suggestion.id;cid=contact.id;mid=message.id
+    accepted=(await client.post(BASE+f'/suggestions/{sid}:accept',json={})).json()
+    async with sessions() as db:
+        legacy = await db.get(PersonalDemand, uuid.UUID(accepted['created_item_id']))
+        legacy.origin = None; legacy.origin_key = None
+        await db.commit()
+    direct=await client.post(BASE+'/demands',json={'title':'Pedido anterior','origin':{
+        'kind':'contact','contact_id':str(cid),'message_id':str(mid)}})
+    assert direct.status_code==201,direct.text
+    assert direct.json()['id']==accepted['created_item_id']
+    assert len((await client.get(BASE+'/demands')).json())==1
+    completed = (await client.patch(BASE+f"/demands/{direct.json()['id']}",json={'status':'done'})).json()
+    assert completed['origin']['contact_id']==str(cid)
+    async with sessions() as db:
+        stored=await db.get(PersonalDemand,uuid.UUID(direct.json()['id']))
+        assert stored.origin_key and stored.origin['kind']=='contact'
+
+@pytest.mark.asyncio
+async def test_two_requests_in_one_contact_message_remain_distinct(context):
+    from datetime import datetime, timezone
+    client,sessions,_,_,_=context
+    async with sessions() as db:
+        contact=PersonalContact(phone='5599'+str(uuid.uuid4().int%1000000000).zfill(9),name='Contato com dois pedidos')
+        db.add(contact);await db.flush()
+        message=PersonalContactMessage(contact_id=contact.id,at=datetime.now(timezone.utc),direction='in',author='Contato',text='Dois pedidos',source='whatsapp')
+        db.add(message);await db.flush()
+        suggestions=[PersonalCaptureSuggestion(contact_id=contact.id,message_id=message.id,kind='demand',title='Cadastro',details=details,status='pending') for details in ['Aluno A','Aluno B']]
+        db.add_all(suggestions);await db.commit();ids=[s.id for s in suggestions];cid=contact.id;mid=message.id
+    accepted=[(await client.post(BASE+f'/suggestions/{sid}:accept',json={})).json() for sid in ids]
+    assert len({r['created_item_id'] for r in accepted})==2
+    assert len((await client.get(BASE+'/demands')).json())==2
+    direct=await client.post(BASE+'/demands',json={'title':'Cadastro','notes':'Aluno B','origin':{
+        'kind':'contact','contact_id':str(cid),'message_id':str(mid)}})
+    assert direct.json()['id']==accepted[1]['created_item_id']
+    independent=await client.post(BASE+'/demands',json={'title':'Cadastro','notes':'Aluno B','origin':{
+        'kind':'contact','contact_id':str(cid),'message_id':str(mid),'item_key':'outro-item'}})
+    assert independent.status_code==201,independent.text
+    assert independent.json()['id'] not in {r['created_item_id'] for r in accepted}
+
+@pytest.mark.asyncio
+async def test_concurrent_direct_and_accept_create_one_demand(context):
+    client, _, _, record, _ = context
+    reference=message_reference(CHAT,record)
+    suggestion=(await client.post(BASE+'/groups/captures',json={
+        'whatsapp_id':CHAT,'message_ref':reference,'title':'Pedido concorrente'})).json()
+    direct,accepted=await asyncio.gather(
+        client.post(BASE+'/demands',json={'title':'Pedido concorrente','origin':{
+            'kind':'group','group_whatsapp_id':CHAT,'message_ref':reference}}),
+        client.post(BASE+f"/suggestions/{suggestion['id']}:accept",json={}))
+    assert direct.status_code==201 and accepted.status_code==200,[direct.text,accepted.text]
+    assert direct.json()['id']==accepted.json()['created_item_id']
+    assert len((await client.get(BASE+'/demands')).json())==1
+
+@pytest.mark.asyncio
+async def test_demand_completion_records_authenticated_agent_date_status_and_audit(context, monkeypatch):
+    from app.db.models.agent import Agent
+    client, sessions, _, _, app = context
+    monkeypatch.setattr(settings, 'PERSONAL_AGENT_SLUGS', 'maia')
+    async with sessions() as db:
+        maia = Agent(name='Fixture Completion '+str(uuid.uuid4()), profile_slug='maia')
+        db.add(maia); await db.commit(); agent_id = maia.id
+    async def actor():return ActorPrincipal('agent', agent_id, 'fixture-maia', False)
+    app.dependency_overrides[get_actor_principal] = actor
+    try:
+        created = (await client.post(BASE+'/demands', json={'title': 'Pedido para concluir'})).json()
+        done = await client.patch(BASE+f"/demands/{created['id']}", json={'status': 'done', 'completed_by': 'forged'})
+        assert done.status_code == 200, done.text
+        result = done.json()
+        assert result['status'] == 'done' and result['completed_by'] == 'maia'
+        assert result['completed_at']
+        again = (await client.patch(BASE+f"/demands/{created['id']}", json={'status': 'done'})).json()
+        assert again['completed_at'] == result['completed_at']
+        reopened = (await client.patch(BASE+f"/demands/{created['id']}", json={'status': 'open'})).json()
+        assert reopened['completed_at'] is None and reopened['completed_by'] is None
+        async with sessions() as db:
+            events=(await db.execute(select(AuditEvent).where(AuditEvent.entity_id==uuid.UUID(created['id'])))).scalars().all()
+            assert len(events)==2
+            assert {e.event_type for e in events}=={'completed','reopened'}
+            assert all(e.actor=='maia' for e in events)
+    finally:
+        async with sessions() as db:
+            await db.execute(delete(Agent).where(Agent.id==agent_id));await db.commit()
+
+@pytest_asyncio.fixture
+async def context(tmp_path,monkeypatch):
+    assert settings.POSTGRES_PORT==55439 and settings.POSTGRES_DB=='forgehub_personal_capture_test', 'Fixture DB required; never run on production'
+    engine=create_async_engine(settings.DATABASE_URL);sessions=async_sessionmaker(engine,expire_on_commit=False)
+    record={'ts':1000.0,'quando':'2026-10-27T10:00:00Z','chat':CHAT,'grupo':'Grupo sintético','autor':'Solicitante fictício','autor_id':'fixture-author','texto':'Pedido fictício'}
+    (tmp_path/'_monitoramento.json').write_text(json.dumps({'enabled':[CHAT]}))
+    (tmp_path/'_grupos.json').write_text(json.dumps({CHAT:{'nome':'Grupo sintético','ultimo_ts':1000}}))
+    (tmp_path/'120363000000000123.jsonl').write_text(json.dumps(record)+'\n')
+    from app.core import personal_captures
+    monkeypatch.setattr(personal_captures,'GROUPS_ROOT',tmp_path)
+    from app.api.routes import personal_groups
+    app=FastAPI();app.include_router(personal.router);app.include_router(personal_contacts.router);app.include_router(personal_groups.router)
+    principal=ActorPrincipal('user',uuid.uuid4(),'fixture-owner',True)
+    async def actor():return principal
+    async def database():
+        async with sessions() as db:yield db
+    app.dependency_overrides[get_actor_principal]=actor;app.dependency_overrides[get_db]=database
+    async with sessions() as db:
+        await db.execute(delete(AuditEvent).where(AuditEvent.entity_type.in_(['personal_whatsapp_group','personal_capture_suggestion'])))
+        await db.execute(delete(PersonalDemand))
+        await db.execute(delete(PersonalCaptureSuggestion))
+        await db.execute(delete(PersonalWhatsAppGroup))
+        await db.commit()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app),base_url='http://fixture') as client:
+        yield client,sessions,tmp_path,record,app
+    await engine.dispose()
+
+@pytest.mark.asyncio
+async def test_group_capture_requires_real_monitored_source_and_creates_pending_uuid(context):
+    client,sessions,root,record,_=context
+    register=await client.post(BASE+'/groups',json={'whatsapp_id':CHAT})
+    assert register.status_code==201,register.text
+    group=register.json();uuid.UUID(group['id'])
+    again=await client.post(BASE+'/groups',json={'whatsapp_id':CHAT});assert again.json()['id']==group['id']
+    body={'whatsapp_id':CHAT,'message_ref':message_reference(CHAT,record),'title':'Demanda fictícia','details':'Detalhes fictícios'}
+    response=await client.post(BASE+'/groups/captures',json=body)
+    assert response.status_code==201,response.text
+    captured=response.json();uuid.UUID(captured['id'])
+    assert captured['status']=='pending' and captured['group_id']==group['id'] and captured['contact_id'] is None
+    assert captured['source_author']=='Solicitante fictício'
+    assert (await client.post(BASE+'/groups/captures',json=body)).json()['id']==captured['id']
+    assert (await client.get(BASE+'/demands')).json()==[]
+    visible=(await client.get(BASE+'/suggestions')).json();assert visible[0]['id']==captured['id']
+    assert visible[0]['group_name']=='Grupo sintético'
+    fake=await client.post(BASE+'/groups/captures',json={**body,'message_ref':'0'*64})
+    assert fake.status_code in (404,422)
+    (root/'_monitoramento.json').write_text('{"enabled":[]}')
+    assert (await client.post(BASE+'/groups',json={'whatsapp_id':CHAT})).status_code==422
+    assert (await client.get(BASE+'/groups')).json()==[]
+
+@pytest.mark.asyncio
+async def test_accept_retry_concurrency_creates_one_demand_with_structured_origin_and_audit(context):
+    client,sessions,_,record,_=context
+    body={'whatsapp_id':CHAT,'message_ref':message_reference(CHAT,record),'title':'Demanda fictícia','details':'Detalhes fictícios'}
+    captured=(await client.post(BASE+'/groups/captures',json=body)).json()
+    suggestion_id=captured['id']
+    conflicting=await client.post(BASE+'/groups/captures',json={**body,'title':'Outro título'})
+    assert conflicting.status_code==409
+    responses=await asyncio.gather(*[client.post(BASE+f'/suggestions/{suggestion_id}:accept',json={}) for _ in range(3)])
+    assert all(r.status_code==200 for r in responses),[r.text for r in responses]
+    ids={r.json()['created_item_id'] for r in responses};assert len(ids)==1
+    demands=(await client.get(BASE+'/demands')).json();assert len(demands)==1
+    assert demands[0]['origin']['group_name']=='Grupo sintético'
+    assert demands[0]['origin']['author']=='Solicitante fictício'
+    assert demands[0]['origin']['message_ref']==body['message_ref']
+    async with sessions() as db:
+        audits=list((await db.execute(select(AuditEvent).where(AuditEvent.entity_id==uuid.UUID(suggestion_id)))).scalars())
+        assert [e.event_type for e in audits].count('accepted')==1
+        assert all('Pedido fictício' not in json.dumps(e.payload) for e in audits)
+
+@pytest.mark.asyncio
+async def test_capture_retry_after_edited_accept_returns_original_uuid(context):
+    client, _, _, record, _ = context
+    body = {'whatsapp_id': CHAT, 'message_ref': message_reference(CHAT, record), 'title': 'Original'}
+    captured = (await client.post(BASE+'/groups/captures', json=body)).json()
+    accepted = await client.post(BASE+f"/suggestions/{captured['id']}:accept", json={'title': 'Corrigido'})
+    assert accepted.status_code == 200
+    retried = await client.post(BASE+'/groups/captures', json=body)
+    assert retried.status_code == 201, retried.text
+    assert retried.json()['id'] == captured['id']
+    assert len((await client.get(BASE+'/demands')).json()) == 1
+
+@pytest.mark.asyncio
+async def test_accept_retry_normalizes_whitespace(context):
+    client, _, _, record, _ = context
+    captured = (await client.post(BASE+'/groups/captures', json={
+        'whatsapp_id': CHAT, 'message_ref': message_reference(CHAT, record), 'title': 'Original'
+    })).json()
+    payload = {'title': ' Corrigido ', 'details': ' Detalhes '}
+    first = await client.post(BASE+f"/suggestions/{captured['id']}:accept", json=payload)
+    retried = await client.post(BASE+f"/suggestions/{captured['id']}:accept", json=payload)
+    assert first.status_code == retried.status_code == 200, retried.text
+    assert first.json()['created_item_id'] == retried.json()['created_item_id']
+
+@pytest.mark.asyncio
+async def test_dismiss_waits_for_accept_decision_and_audits_discard(context):
+    from app.api.routes.personal_contacts import dismiss_suggestion
+    from fastapi import HTTPException
+    client, sessions, _, record, _ = context
+    body = {'whatsapp_id': CHAT, 'message_ref': message_reference(CHAT, record), 'title': 'Original'}
+    captured = (await client.post(BASE+'/groups/captures', json=body)).json()
+    sid = uuid.UUID(captured['id'])
+    async with sessions() as owner, sessions() as contender:
+        suggestion = (await owner.execute(select(PersonalCaptureSuggestion).where(PersonalCaptureSuggestion.id == sid).with_for_update())).scalar_one()
+        pending = asyncio.create_task(dismiss_suggestion(sid, 'fixture-owner', contender))
+        await asyncio.sleep(0.1)
+        waited = not pending.done()
+        suggestion.status = 'accepted'
+        await owner.commit()
+        try:
+            await pending
+            rejected = False
+        except HTTPException as exc:
+            rejected = exc.status_code == 409
+        await contender.rollback()
+    assert waited, 'Discard must wait for the competing acceptance transaction'
+    assert rejected, 'Discard must preserve a committed acceptance'
+    captured = (await client.post(BASE+'/groups/captures', json={**body, 'item_key': 'discard'})).json()
+    response = await client.post(BASE+f"/suggestions/{captured['id']}:dismiss")
+    assert response.status_code == 200, response.text
+    async with sessions() as db:
+        events = (await db.execute(select(AuditEvent).where(AuditEvent.entity_id == uuid.UUID(captured['id']), AuditEvent.event_type == 'dismissed'))).scalars().all()
+        assert len(events) == 1 and events[0].actor == 'marcelo'
+
+@pytest.mark.asyncio
+async def test_personal_groups_remain_private(context):
+    client,_,_,_,app=context
+    app.dependency_overrides.pop(get_actor_principal)
+    assert (await client.get(BASE+'/groups')).status_code==401
+    async def nonadmin():return ActorPrincipal('user',uuid.uuid4(),'fixture-normal',False)
+    app.dependency_overrides[get_actor_principal]=nonadmin
+    assert (await client.post(BASE+'/groups',json={'whatsapp_id':CHAT})).status_code==403
+
+@pytest.mark.asyncio
+async def test_contact_capture_still_records_original_contact_and_message(context):
+    from datetime import datetime, timezone
+    client,sessions,_,_,_=context
+    async with sessions() as db:
+        contact=PersonalContact(phone='5599'+str(uuid.uuid4().int%1000000000).zfill(9),name='Contato fictício')
+        db.add(contact);await db.flush()
+        message=PersonalContactMessage(contact_id=contact.id,at=datetime(2026,10,20,9,tzinfo=timezone.utc),direction='in',author='Origem fictícia',text='Pedido fictício',source='whatsapp')
+        db.add(message);await db.flush()
+        suggestion=PersonalCaptureSuggestion(contact_id=contact.id,message_id=message.id,kind='demand',title='Pedido de contato',details='',status='pending')
+        db.add(suggestion);await db.commit();sid=suggestion.id;mid=message.id
+    response=await client.post(BASE+f'/suggestions/{sid}:accept',json={})
+    assert response.status_code==200,response.text
+    demand=(await client.get(BASE+'/demands')).json()[0]
+    assert demand['origin']['kind']=='contact' and demand['origin']['contact_name']=='Contato fictício'
+    assert demand['origin']['message_id']==str(mid)
+    assert demand['origin']['author']=='Origem fictícia'
+    assert demand['origin']['captured_at'].startswith('2026-10-20T09:00')
+
+@pytest.mark.asyncio
+async def test_scoped_maia_can_capture_but_another_agent_cannot(context, monkeypatch):
+    from app.db.models.agent import Agent
+    client, sessions, _, record, app = context
+    monkeypatch.setattr(settings, 'PERSONAL_AGENT_SLUGS', 'maia')
+    async with sessions() as db:
+        maia = Agent(name='Fixture Maia '+str(uuid.uuid4()), profile_slug='maia')
+        other = Agent(name='Fixture Other '+str(uuid.uuid4()), profile_slug='fixture-other')
+        db.add_all([maia, other]); await db.commit()
+        maia_id, other_id = maia.id, other.id
+    async def agent(): return ActorPrincipal('agent', maia_id, 'fixture-maia', False)
+    app.dependency_overrides[get_actor_principal] = agent
+    body = {'whatsapp_id': CHAT, 'message_ref': message_reference(CHAT,record), 'title':'Demanda fictícia'}
+    try:
+        responses = await asyncio.gather(*[client.post(BASE+'/groups/captures',json=body) for _ in range(3)])
+        assert all(r.status_code==201 for r in responses), [r.text for r in responses]
+        assert len({r.json()['id'] for r in responses})==1
+        async def denied(): return ActorPrincipal('agent', other_id, 'fixture-other', False)
+        app.dependency_overrides[get_actor_principal] = denied
+        assert (await client.post(BASE+'/groups/captures',json=body)).status_code==403
+    finally:
+        async with sessions() as db:
+            await db.execute(delete(Agent).where(Agent.id.in_([maia_id, other_id]))); await db.commit()
