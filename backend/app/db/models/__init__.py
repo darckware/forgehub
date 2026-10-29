@@ -130,3 +130,10 @@ from app.db.models.personal import (  # noqa: F401
     PersonalNote,
     PersonalTask,
 )
+from app.db.models.mission import (  # noqa: F401
+    MissionAcceptanceCriterion,
+    MissionCriterionTask,
+    MissionDecision,
+    MissionProjectLink,
+    ProjectMission,
+)

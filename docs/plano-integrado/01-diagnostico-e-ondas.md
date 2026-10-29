@@ -59,6 +59,11 @@ A T.3 foi implementada pelo Porthus no branch `feat/t3-test-integrations` (29/10
   - Cada chamada fica registrada, sem conteúdo, em `GET 127.0.0.1:8003/_stub/calls`.
 - **Proposta, não implementada:** um ambiente "teste" no ForgeVault com segredos próprios. Nesta entrega nenhum segredo foi criado nem lido no ForgeVault.
 
+A M0.0 foi implementada pelo Porthus no branch `feat/m0-0-mission-base` (29/10) e aguarda a revisão do Dartan (D-1). Ainda não houve merge nem migração fora do banco de teste.
+- **Missão = projeto** com `project_type=mission` e a extensão `project_missions` (estado único; `Project.status` é projeção gravada na mesma transação). Criação só por `POST /api/v1/missions`; `PATCH`/`DELETE /projects` recusam mudar status/tipo ou apagar uma missão.
+- **Pipeline de planejamento** (P1–P8) em `planning:advance`, só em ordem; cada tentativa, aplicada ou recusada, fica em `mission_decisions`. A P2 confere as skills exigidas (`project_tasks.required_skill_ids`) do executor e dos revisores elegíveis.
+- **Recusa por falta de dado:** ambiente e pré-requisitos de ambiente, pareceres por camada, disposições, rodada cruzada, itens para decisão, verificação da aplicação e dossiê ainda não têm onde ser lidos. Essas saídas recusam com `not_recorded` até as fatias M0.2b/M0.2d/M0.6b/M0.7 criarem os dados.
+
 ## Onda 1 — Provar a base e fechar os riscos imediatos
 
 O detalhamento executável está em [12 — Primeira onda](12-primeira-onda.md), com responsáveis,

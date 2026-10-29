@@ -51,6 +51,7 @@ from app.api.routes import (
     governed_approval,
     hindsight,
     mcp_catalog,
+    mission,
     notifications,
     operations,
     orchestration,
@@ -216,6 +217,9 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             # 2026-10-19: machine maintenance by agents; the routes check the
             # delegation for "remote_access.execute" themselves.
             "/api/v1/host-executions/agent",
+            # 2026-10-29 (M0.0): the mission's orchestrator acts with its own
+            # agt_; every /missions route calls authorize_action itself.
+            "/api/v1/missions",
         )) or (path.startswith("/api/v1/projects/") and ("/progress" in path or "/execution-waves" in path))
         factory_read_path = request.method == "GET" and path.startswith((
             "/api/v1/projects",
@@ -419,6 +423,7 @@ app.include_router(vpn.router)
 app.include_router(forgerouter.router)
 app.include_router(operations.router)
 app.include_router(orchestration.router)
+app.include_router(mission.router)
 app.include_router(system_scope.router)
 # ---------------------------------------------------------------------------
 
