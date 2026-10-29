@@ -1,6 +1,6 @@
 {
   "title": "Onda 1 — base comprovada",
-  "updated_at": "2026-10-28",
+  "updated_at": "2026-10-29",
   "scope": "Planejamento consolidado autorizado; nenhuma execução/cadastro criado por esta edição",
   "external_prerequisites": {
     "0.14": [
@@ -152,15 +152,15 @@
     },
     {
       "id": "M0.SPEC",
-      "title": "Especificar contratos MCP/modelo/guards/contexto mínimo sem recuperação privada automática: arquivos, endpoints existentes/propostos, schemas, permissões, idempotência, erros, migrations, testes e rollback em `MCP_MISSION_TOOLS_SPEC.md`; escopo global prospectivo de conclusão e importação histórica com execução/revisão reais, sem bypass; aceite formal mínimo M0",
-      "executor_agent_slug": "daedalus",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Daedalus",
-      "reviewer_label": "Porthus",
+      "title": "Especificar contratos MCP/modelo/guards/contexto mínimo sem recuperação privada automática: arquivos, endpoints existentes/propostos, schemas, permissões, idempotência, erros, migrations, testes e rollback em `MCP_MISSION_TOOLS_SPEC.md`; escopo global prospectivo de conclusão e importação histórica com execução/revisão reais, sem bypass; aceite formal mínimo M0; inclui a **tela mínima de execuções da missão** (tarefas, executor, estado, provas, revisor, aceite), antecipada da M.1 por decisão de 29/10",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus (consulta: Daedalus)",
+      "reviewer_label": "Dartan (segundo revisor: Aegis)",
       "depends_on": [
         "0.15"
       ],
-      "acceptance": "Executor Aramis e revisor Porthus aprovam contratos antes de M0.0/M0.2/M0.6",
+      "acceptance": "Revisores Dartan e Aegis aprovam os contratos antes de M0.0/M0.2/M0.6; tela mínima de execuções especificada (rotas, estados, permissões, 390px)",
       "status": "planned",
       "project_task_id": null
     },

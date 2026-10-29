@@ -92,7 +92,7 @@ A [matriz JSON](onda1-tarefas.json) é canônica para a Onda 1. As tabelas de 07
 | F.1 | porthus | aegis | 0.15 |
 | N.0 | porthus | dartan | T.2, T.3 |
 | V-a | porthus | dartan | T.2, T.3 |
-| M0.SPEC | daedalus | porthus | 0.15 |
+| M0.SPEC | porthus | dartan | 0.15 |
 | M0.0 | porthus | dartan | M0.SPEC, T.2, T.3 |
 | M0.1 | atlas | dartan | V-a, M0.R |
 | M0.2a | porthus | dartan | M0.0 |

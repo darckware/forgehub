@@ -59,6 +59,10 @@ despacho, que continuam com os gates próprios de cada tarefa.
 | D-7 | **Aprovado em 28/10:** Manter a regra da Lara sem contato por rotina | Nenhum envio/prospecção autorizado por esta aprovação |
 | D-8 | **Aprovado em 28/10:** Kairos como reviewer em missão comercial | Usar vocabulário de papéis existente; sem criar função nova |
 
+**Decisões do Marcelo em 29/10/2026:**
+- **Tela mínima de execuções da missão na M0** (tarefas, executor, estado, provas, revisor, aceite), antecipada da M.1 da Onda 3: a condução da Onda 1 por mensagens e monitores improvisados mostrou que sem ela o orquestrador não consegue gerenciar as execuções. Entra na especificação M0.SPEC.
+- **M0.SPEC passa do Daedalus para o Porthus**, com revisão do Dartan e do Aegis: agentes Hermes não editam repositório, e a especificação exige leitura exata do código. O Daedalus é consultado, sem editar.
+
 Responsáveis de produto (K6, aprovados em D-6): Ecossistema Foundation → Athos; ForgeHub → Daedalus;
 ForgeRouter → Atlas; ForgeVault → Aegis; Darckware → Kairos; Serviços de Manutenção → Hephaestus.
 Outros produtos recebem dono no inventário B.1, sem atribuição inventada. Não confundir dono do
