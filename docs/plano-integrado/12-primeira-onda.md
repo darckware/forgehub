@@ -101,6 +101,8 @@ A [matriz JSON](onda1-tarefas.json) é canônica para a Onda 1. As tabelas de 07
 | M0.2d | porthus | dartan | M0.2a |
 | M0.6a | porthus | dartan | M0.0 |
 | M0.6b | porthus | dartan | M0.0 |
+| M0.7 | porthus | dartan | M0.2c, M0.6a, M0.6b |
+| M0.8 | porthus | dartan | M0.2c, M0.6b |
 | M0.3 | athos | themis | M0.2c, M0.2d, T.6 |
 | M0.4 | athos | dartan | M0.3 |
 | M0.5 | athos | porthus | M0.1, M0.4, M0.R, C.2.R |
@@ -110,7 +112,7 @@ A [matriz JSON](onda1-tarefas.json) é canônica para a Onda 1. As tabelas de 07
 | A.1 | porthus | dartan | T.2, T.3 |
 | A.2 | porthus | dartan | A.1 |
 | B0 | hephaestus | aegis | T.2, T.3 |
-| M0.R | hephaestus | aegis | M0.2c, M0.2d, M0.6a, M0.6b, M0.4, B0, V-a |
+| M0.R | hephaestus | aegis | M0.2c, M0.2d, M0.6a, M0.6b, M0.4, B0, V-a, M0.7, M0.8 |
 | A.R | hephaestus | aegis | A.1, A.2, B0 |
 | C.2a | porthus | dartan | M0.SPEC, T.2, T.3 |
 | C.2.R | athos | aegis | C.2a |

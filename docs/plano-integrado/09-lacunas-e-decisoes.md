@@ -64,6 +64,15 @@ despacho, que continuam com os gates próprios de cada tarefa.
 - **O orquestrador decide e agenda pela Operação 24x7** (04 §7), e podem existir várias missões cadastradas e ativas (04 §6). Entra na M0.SPEC.
 - **M0.SPEC passa do Daedalus para o Porthus**, com revisão do Dartan e do Aegis: agentes Hermes não editam repositório, e a especificação exige leitura exata do código. O Daedalus é consultado, sem editar.
 
+**Decisões do Marcelo sobre a M0.SPEC (29/10/2026, revisada por Dartan #41640 e Aegis #41638):**
+- **D-M0-1:** a tela e o ciclo viram as tarefas **M0.7** e **M0.8**, ambas antes da publicação M0.R.
+- **D-M0-2:** publicação em produção é serializada em **todo** o Messages (o incidente de 28/10 foi fora de missão); worktree e branch, só dentro das missões.
+- **D-M0-3:** reatribuir tarefa da baseline não exige change request, mas o motivo fica registrado.
+- **D-M0-4:** as aprovações governadas ganham o status `withdrawn`.
+- **D-M0-5:** `request_task_review` e `return_task_for_correction` entram na M0.2c.
+- **D-M0-6:** a falta de autorização em `POST /projects/plans/{id}/approve` dos projetos comuns vira tarefa separada, fora da M0, a registrar no projeto do plano.
+- **D-M0-7:** o gate de publicação do Hephaestus é a autoridade do que está em produção; a tarefa de publicação também pode relatar.
+
 Responsáveis de produto (K6, aprovados em D-6): Ecossistema Foundation → Athos; ForgeHub → Daedalus;
 ForgeRouter → Atlas; ForgeVault → Aegis; Darckware → Kairos; Serviços de Manutenção → Hephaestus.
 Outros produtos recebem dono no inventário B.1, sem atribuição inventada. Não confundir dono do
