@@ -17,7 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from app.core.config import settings
+from app.core.config import is_test_environment, settings
 from app.core.security import decode_access_token
 
 from app.api.routes import (
@@ -116,10 +116,16 @@ async def _lifespan(_app: FastAPI):
     startup and shutdown in one context also guarantees that every worker
     started here is cancelled when the application exits.
     """
-    await _bootstrap_admin()
+    # The test database's users come from the fictitious seed
+    # (app/scripts/seed_test_database.py), never from the DEV_USER default.
+    if not is_test_environment(settings.ENVIRONMENT):
+        await _bootstrap_admin()
     await _recover_host_executions()
     await _seed_system_scripts()
-    await _start_background_tasks()
+    if settings.background_workers_enabled:
+        await _start_background_tasks()
+    else:
+        logger.warning("Background workers disabled (ENVIRONMENT=%s): no loop started", settings.ENVIRONMENT)
     try:
         yield
     finally:

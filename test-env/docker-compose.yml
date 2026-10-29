@@ -6,7 +6,23 @@
 # reach a production container by name, and no production container can
 # reach this one.
 #
-#   docker compose -f test-env/docker-compose.yml up -d
+#   docker compose -f test-env/docker-compose.yml up -d --wait
+#
+# T.2 (2026-10-28) adds the test app -- forgehub_test_backend and
+# forgehub_test_frontend -- and makes forgehub_test_network `internal`: no
+# route out of it at all (internet, host services such as the host-bridge on
+# 8910, other containers). Docker publishes no port from an internal network,
+# so the host reaches the stack through forgehub_test_gateway, an nginx
+# `stream` proxy on the host network that listens on 127.0.0.1 only and
+# forwards each port to a fixed address inside the network:
+#
+#   127.0.0.1:5439 -> forgehub_test_postgres  172.25.0.10:5432  (dev.sh, pytest, reset.sh)
+#   127.0.0.1:8002 -> forgehub_test_backend   172.25.0.11:8000
+#   127.0.0.1:4174 -> forgehub_test_frontend  172.25.0.12:4173
+#
+# The gateway only forwards inbound connections; nothing inside the network
+# can use it to get out (it is not their route, and it only dials those
+# three fixed addresses).
 #
 # The password comes from test-env/.env.test (out of git; template in
 # .env.test.example). DB name and user are fixed here, not read from the
@@ -23,14 +39,14 @@ services:
     environment:
       POSTGRES_DB: forgehub_test
       POSTGRES_USER: forgehub_test
-    ports:
-      - "127.0.0.1:5439:5432"
+    # No `ports:` -- published through forgehub_test_gateway (see header).
     volumes:
       - forgehub_test_pgdata:/var/lib/postgresql/data
       # Migrations assume the `company` schema already exists (alembic/env.py).
       - ./initdb:/docker-entrypoint-initdb.d:ro
     networks:
-      - forgehub_test_network
+      forgehub_test_network:
+        ipv4_address: 172.25.0.10
     # Limits are set before the container exists: lack of resources must
     # stop provisioning, never fall back to the production instance.
     mem_limit: 512m
@@ -41,6 +57,90 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+
+  # The test backend. ENVIRONMENT=test: app/core/config.py loads only
+  # test-env/.env.test (no production .env exists in this image or mount),
+  # refuses any database off the test allowlist, and turns the background
+  # loops off (BACKGROUND_WORKERS_ENABLED is ignored under test). It reaches
+  # Postgres by container name -- the allowlist's in-network entry -- since
+  # 127.0.0.1 inside this container is the container itself.
+  forgehub_test_backend:
+    build:
+      context: ../backend
+    image: forgehub-test-backend:local
+    container_name: forgehub_test_backend
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: test
+      POSTGRES_HOST: forgehub_test_postgres
+      POSTGRES_PORT: "5432"
+      # No integration target: the network has no route out anyway, and
+      # these make a stray call fail on the spot instead of waiting on DNS.
+      # Simulated integrations are T.3.
+      CHAT_BRIDGE_URL: ""
+      CHAT_BRIDGE_TOKEN: ""
+      DARCKWARE_API_URL: ""
+      FORGEROUTER_URL: ""
+    volumes:
+      # config.py resolves test-env/.env.test from the repo root, which is
+      # "/" for the code at /app. Nothing else from the host is mounted.
+      - ./.env.test:/test-env/.env.test:ro
+    networks:
+      forgehub_test_network:
+        ipv4_address: 172.25.0.11
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      forgehub_test_postgres:
+        condition: service_healthy
+
+  # The test frontend: the production image's build, with an nginx config
+  # whose /api goes to forgehub_test_backend -- the production one proxies to
+  # forgehub-backend by container name, which doesn't resolve here.
+  forgehub_test_frontend:
+    build:
+      context: ../frontend
+    image: forgehub-test-frontend:local
+    container_name: forgehub_test_frontend
+    restart: unless-stopped
+    volumes:
+      - ./frontend-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      forgehub_test_network:
+        ipv4_address: 172.25.0.12
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:4173/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    depends_on:
+      forgehub_test_backend:
+        condition: service_healthy
+
+  # Host-side door into the internal network (see header). Host network, so
+  # its listeners are on the host itself -- bound to 127.0.0.1 only.
+  forgehub_test_gateway:
+    image: nginx:1.27-alpine
+    container_name: forgehub_test_gateway
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./gateway-nginx.conf:/etc/nginx/nginx.conf:ro
+    mem_limit: 64m
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 5439"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   # One-off runner for the backend's own tooling against the test database
   # (alembic, pytest, reset), for hosts without backend/.venv:
@@ -70,6 +170,8 @@ services:
     depends_on:
       forgehub_test_postgres:
         condition: service_healthy
+      forgehub_test_gateway:
+        condition: service_healthy
 
 volumes:
   forgehub_test_pgdata:
@@ -78,3 +180,7 @@ volumes:
 networks:
   forgehub_test_network:
     name: forgehub_test_network
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16

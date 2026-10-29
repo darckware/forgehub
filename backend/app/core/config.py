@@ -37,9 +37,13 @@ TEST_ENVIRONMENT = "test"
 # The only (host, port, database, user) targets a test process may reach.
 # An allowlist, not just the denylist below: any target nobody listed --
 # another app's instance, a typo, a new production port -- is refused too.
+# The container-name entry (T.2) is how forgehub_test_backend reaches the
+# same instance from inside forgehub_test_network, which is `internal` and
+# has no route to the host: that name only resolves on that network.
 TEST_DATABASE_ALLOWLIST: frozenset[tuple[str, int, str, str]] = frozenset({
     ("127.0.0.1", 5439, "forgehub_test", "forgehub_test"),
     ("localhost", 5439, "forgehub_test", "forgehub_test"),
+    ("forgehub_test_postgres", 5432, "forgehub_test", "forgehub_test"),
 })
 # Known production markers, reported by name so the refusal says *why*.
 PRODUCTION_DATABASE_PORTS = frozenset({5433})
@@ -74,7 +78,7 @@ def assert_test_database_target(host: str, port: int, database: str, user: str) 
     if user in PRODUCTION_DATABASE_USERS:
         reasons.append(f"user {user!r} is production")
     if (normalized_host, port, database, user) not in TEST_DATABASE_ALLOWLIST:
-        reasons.append("target is not on the test allowlist (forgehub_test@127.0.0.1:5439)")
+        reasons.append("target is not on the test allowlist (forgehub_test@127.0.0.1:5439, or forgehub_test_postgres:5432 inside the test network)")
     if reasons:
         raise UnsafeDatabaseTargetError(
             f"ENVIRONMENT=test refuses database {user}@{normalized_host}:{port}/{database}: "
@@ -334,6 +338,18 @@ class Settings(BaseSettings):
     # (see api/routes/demand.py's _dispatch_slots). A config file edited by
     # hand can hold anything; this is what actually bounds the host.
     MAX_CONCURRENT_DISPATCHES_CEILING: int = 20
+
+    # The background loops main.py starts (scheduled dispatch to the
+    # host-bridge, Telegram feedback, Darckware polling, ForgeRouter key sync,
+    # the Maia's context pass, ...). Read through `background_workers_enabled`,
+    # never directly: under ENVIRONMENT=test they stay off whatever this says
+    # (Plano Integrado T.2) -- a test process must not reach an integration,
+    # and simulated integrations (T.3) don't exist yet.
+    BACKGROUND_WORKERS_ENABLED: bool = True
+
+    @property
+    def background_workers_enabled(self) -> bool:
+        return self.BACKGROUND_WORKERS_ENABLED and not is_test_environment(self.ENVIRONMENT)
 
     @model_validator(mode="after")
     def _refuse_production_database_in_test(self) -> "Settings":

@@ -108,7 +108,7 @@ prepare_test_db() {
     bash "$TEST_ENV_DIR/init-env.sh" || { err "Could not create test-env/.env.test"; exit 1; }
   fi
   info "Ensuring the test Postgres (forgehub_test_postgres, 127.0.0.1:5439) is up ..."
-  docker compose -f "$TEST_ENV_DIR/docker-compose.yml" up -d --wait forgehub_test_postgres >/dev/null 2>&1 \
+  docker compose -f "$TEST_ENV_DIR/docker-compose.yml" up -d --wait forgehub_test_postgres forgehub_test_gateway >/dev/null 2>&1 \
     || { err "Test Postgres didn't come up healthy -- check: docker compose -f test-env/docker-compose.yml logs"; exit 1; }
   (cd "$BACKEND_DIR" && ENVIRONMENT=test .venv/bin/alembic upgrade head >>"$LOG_DIR/backend.log" 2>&1) \
     || { err "Migrating the test database failed -- check $LOG_DIR/backend.log"; exit 1; }

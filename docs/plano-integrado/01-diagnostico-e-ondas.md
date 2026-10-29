@@ -43,7 +43,11 @@ Correções aplicadas da revisão:
 - O `test-env/reset.sh` também recusa. As migrações estão aplicadas no banco de teste.
 - O `dev.sh` usa o banco de teste por padrão. `--prod-db` volta aos dados reais e mostra um aviso.
 
-A T.2 (seed fictício, backend e frontend de teste) depende da aprovação da T.1.
+A T.2 foi implementada pelo Porthus no branch `feat/t2-test-app` e aguarda a revisão do Dartan (D-1). Ainda não houve merge.
+- O backend de teste é o `forgehub_test_backend` (`127.0.0.1:8002`, 512 MB, 1 CPU) e o frontend de teste é o `forgehub_test_frontend` (`127.0.0.1:4174`, 256 MB, 0,5 CPU). O `/api` do frontend vai para o backend de teste.
+- A `forgehub_test_network` passou a ser `internal`: sem saída para a internet, para o host-bridge nem para outros contêineres. As portas chegam ao host por um gateway nginx que escuta só em 127.0.0.1.
+- Com `ENVIRONMENT=test`, nenhum laço de segundo plano do backend inicia. As integrações simuladas são da T.3.
+- `test-env/reset.sh --seed` zera, migra e aplica um seed fictício com IDs determinísticos. Dois resets seguidos dão dados idênticos.
 
 ## Onda 1 — Provar a base e fechar os riscos imediatos
 
