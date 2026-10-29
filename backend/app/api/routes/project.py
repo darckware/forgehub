@@ -174,7 +174,20 @@ async def update_project(
     project_id: uuid.UUID, payload: ProjectUpdate, db: AsyncSession = Depends(get_db)
 ) -> Project:
     project = await _get_project_or_404(db, project_id)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    # project_type is never patchable: ignored for a common project (as
+    # before it was in the schema), refused for a mission, whose status is a
+    # projection of its state machine (M0.0, mission spec §3 rule 2).
+    project_type = data.pop("project_type", None)
+    if project.project_type == "mission" and ("status" in data or project_type is not None):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "MISSION_STATUS_IS_PROJECTED",
+                "message": "A mission's status and type change only through POST /api/v1/missions/{id}:transition",
+            },
+        )
+    for field, value in data.items():
         setattr(project, field, value)
     await db.commit()
     await db.refresh(project)
@@ -208,6 +221,14 @@ async def _clear_project_dependencies(db: AsyncSession, project_id: uuid.UUID) -
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
     project = await _get_project_or_404(db, project_id)
+    if project.project_type == "mission":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "MISSION_DELETE_REFUSED",
+                "message": "A mission is never deleted; cancel it through POST /api/v1/missions/{id}:transition",
+            },
+        )
     await _clear_project_dependencies(db, project_id)
     await db.delete(project)
     await db.commit()

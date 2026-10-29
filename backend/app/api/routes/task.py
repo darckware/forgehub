@@ -71,6 +71,7 @@ from app.api.schemas.task import (
 )
 from app.core.config import settings
 from app.core.deps import ActorPrincipal, authorize_action
+from app.core.mission import assert_required_skills_writable, project_id_for_task_source
 from app.core.responsibility import resolve_responsibility_owner
 from app.core.task_dependencies import ensure_task_dependencies_satisfied
 from app.db.base import get_db
@@ -326,6 +327,14 @@ async def create_task(payload: ProjectTaskCreate, db: AsyncSession = Depends(get
     if payload.parent_task_id is not None:
         await _get_task_or_404(db, payload.parent_task_id)
 
+    if payload.required_skill_ids:
+        await assert_required_skills_writable(
+            db,
+            await project_id_for_task_source(db, payload.planning_item_id, payload.change_request_id),
+            payload.required_skill_ids,
+            [],
+        )
+
     task = ProjectTask(**payload.model_dump())
     db.add(task)
     await db.commit()
@@ -417,6 +426,16 @@ async def update_task(
         if data["parent_task_id"] == task_id:
             raise HTTPException(status_code=400, detail="A task cannot be its own parent")
         await _get_task_or_404(db, data["parent_task_id"])
+
+    if "required_skill_ids" in data:
+        if data["required_skill_ids"] is None:
+            raise HTTPException(status_code=422, detail="required_skill_ids cannot be null; send [] to clear it")
+        await assert_required_skills_writable(
+            db,
+            await project_id_for_task_source(db, task.planning_item_id, task.change_request_id),
+            data["required_skill_ids"],
+            list(task.required_skill_ids or []),
+        )
 
     if data.get("status") in ("in_progress", "done", "deployed"):
         await _ensure_dependencies_satisfied(db, task_id)

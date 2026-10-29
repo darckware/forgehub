@@ -52,6 +52,9 @@ class ProjectTaskBase(BaseModel):
     planned_start_date: date | None = None
     planned_end_date: date | None = None
     policy_id: uuid.UUID | None = None
+    # Skills the executor and reviewer must hold (mission spec §6.1); for a
+    # mission task, changeable only while the mission is planning.
+    required_skill_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode="after")
     def _validate_choices(self) -> "ProjectTaskBase":
@@ -106,6 +109,7 @@ class ProjectTaskUpdate(BaseModel):
     planning_item_id: uuid.UUID | None = None
     change_request_id: uuid.UUID | None = None
     policy_id: uuid.UUID | None = None
+    required_skill_ids: list[uuid.UUID] | None = Field(default=None, max_length=50)
 
     @model_validator(mode="after")
     def _validate_choices(self) -> "ProjectTaskUpdate":

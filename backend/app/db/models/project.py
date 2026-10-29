@@ -64,7 +64,10 @@ PROJECT_SOLUTION_TYPES = (
 # finalizado pelos controles de versão" -- creation and maintenance reuse the
 # exact same Project/Pipeline/PlanningItem machinery, this only classifies
 # intent). Set once at :authorize-delivery-planning time per project spec.
-PROJECT_TYPES = ("creation", "maintenance")
+# "mission" (M0.0, 2026-10-29): a coordination Project whose state lives in
+# project_missions (db/models/mission.py); created only through
+# POST /api/v1/missions, never through POST /projects.
+PROJECT_TYPES = ("creation", "maintenance", "mission")
 
 FORGEROUTER_TOOLS = ("claude", "codex", "antigravity")
 PROJECT_PLAN_STATUSES = ("draft", "approved", "baselined", "superseded")

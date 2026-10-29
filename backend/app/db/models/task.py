@@ -29,7 +29,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
@@ -128,6 +128,14 @@ class ProjectTask(Base, TimestampMixin):
         UUID(as_uuid=True),
         ForeignKey("company.policies.id", ondelete="SET NULL"),
         nullable=True,
+    )
+
+    # Skills the executor and the reviewer must hold (M0.0, mission spec
+    # §6.1). No FK (an array); route writes check that each id exists, and a
+    # mission task may change it only while the mission is `planning`. The
+    # P2 auto check flags a skill that is gone, inactive or not held.
+    required_skill_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=False, default=list, server_default="{}"
     )
 
     __table_args__ = (
