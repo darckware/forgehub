@@ -1,0 +1,80 @@
+# Isolated test Postgres for ForgeHub (Plano Integrado T.1, 2026-10-28).
+#
+# Own container, volume, network, port and credential -- nothing here is
+# shared with production (`forgehub_postgres` :5433 on foundation_network).
+# It is deliberately NOT on foundation_network: nothing in this stack can
+# reach a production container by name, and no production container can
+# reach this one.
+#
+#   docker compose -f test-env/docker-compose.yml up -d
+#
+# The password comes from test-env/.env.test (out of git; template in
+# .env.test.example). DB name and user are fixed here, not read from the
+# file, so the container can't be pointed at another database by an edit.
+name: forgehub-test
+
+services:
+  forgehub_test_postgres:
+    image: pgvector/pgvector:pg16
+    container_name: forgehub_test_postgres
+    restart: unless-stopped
+    env_file:
+      - .env.test
+    environment:
+      POSTGRES_DB: forgehub_test
+      POSTGRES_USER: forgehub_test
+    ports:
+      - "127.0.0.1:5439:5432"
+    volumes:
+      - forgehub_test_pgdata:/var/lib/postgresql/data
+      # Migrations assume the `company` schema already exists (alembic/env.py).
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    networks:
+      - forgehub_test_network
+    # Limits are set before the container exists: lack of resources must
+    # stop provisioning, never fall back to the production instance.
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forgehub_test -d forgehub_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # One-off runner for the backend's own tooling against the test database
+  # (alembic, pytest, reset), for hosts without backend/.venv:
+  #   docker compose -f test-env/docker-compose.yml run --rm tools alembic upgrade head
+  #   docker compose -f test-env/docker-compose.yml run --rm tools pytest
+  # Profile-gated, so `up` never starts it. Host networking only so it
+  # reaches the database exactly as a host process does (127.0.0.1:5439,
+  # the allowlisted target); it gets no production .env -- the repo root
+  # isn't mounted -- and ENVIRONMENT=test makes app/core/config.py refuse
+  # any other target before connecting.
+  tools:
+    profiles: ["tools"]
+    build:
+      context: ../backend
+    image: forgehub-test-tools:local
+    network_mode: host
+    working_dir: /app
+    environment:
+      ENVIRONMENT: test
+    volumes:
+      - ../backend:/app
+      # config.py resolves test-env/.env.test from the repo root, which is
+      # "/" for the code mounted at /app.
+      - ./.env.test:/test-env/.env.test:ro
+    mem_limit: 1g
+    cpus: 1.0
+    depends_on:
+      forgehub_test_postgres:
+        condition: service_healthy
+
+volumes:
+  forgehub_test_pgdata:
+    name: forgehub_test_pgdata
+
+networks:
+  forgehub_test_network:
+    name: forgehub_test_network

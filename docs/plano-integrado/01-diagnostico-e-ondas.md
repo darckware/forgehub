@@ -36,7 +36,14 @@ Correções aplicadas da revisão:
 - **0.14:** a rodada cruzada fechou com o Athos (#41585) e o Porthus (#41584, confirmação do delta em #41624). Os ajustes que a troca da D-1 exigiu estão no commit `fd179b2`.
 - **0.15:** o Marcelo decidiu D-1 a D-8 (09), e o Athos verificou o registro (#41625).
 
-A Onda 1 pode começar pela T.1. Nenhuma tarefa dela foi cadastrada ou implementada ainda.
+**Onda 1:** a T.1 foi implementada pelo Porthus no branch `feat/t1-test-postgres` e aguarda a revisão do Dartan (D-1). Ainda não houve merge.
+- O Postgres de teste é o `forgehub_test_postgres` (`test-env/docker-compose.yml`), em `127.0.0.1:5439`, com rede `forgehub_test_network`, volume `forgehub_test_pgdata`, 512 MB e 1 CPU. Fica fora da `foundation_network`.
+- Com `ENVIRONMENT=test`, o `app/core/config.py` não lê o `.env` da produção e recusa, antes de conectar, qualquer alvo fora da allowlist (`forgehub_test@127.0.0.1:5439`).
+- O `conftest.py` encerra a sessão do pytest no mesmo caso, e também sem `ENVIRONMENT=test`.
+- O `test-env/reset.sh` também recusa. As migrações estão aplicadas no banco de teste.
+- O `dev.sh` usa o banco de teste por padrão. `--prod-db` volta aos dados reais e mostra um aviso.
+
+A T.2 (seed fictício, backend e frontend de teste) depende da aprovação da T.1.
 
 ## Onda 1 — Provar a base e fechar os riscos imediatos
 

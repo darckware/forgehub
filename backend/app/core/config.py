@@ -4,10 +4,19 @@ forgehub.config.
 This is the single source of truth for configuration. Every other module
 (db.base, core.security, alembic/env.py) must import `settings` from here
 instead of reading os.environ directly.
+
+ENVIRONMENT=test (Plano Integrado T.1, 2026-10-28) switches the process to
+the isolated test Postgres (`test-env/`): the repo-root `.env` -- production
+credentials and integration tokens -- is not loaded at all, `test-env/.env.test`
+is, and Settings refuses to build unless the database target is on the test
+allowlist. The refusal happens while the settings object is constructed, i.e.
+before db/base.py can create an engine, so no connection is ever attempted.
 """
+import os
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Repo root, two levels up from backend/app/core/.
@@ -19,6 +28,66 @@ _ENV_FILE = _REPO_ROOT / ".env"
 # (pydantic-settings' env_file tuple: later files win); in practice the two
 # files don't share keys today.
 _APP_CONFIG_FILE = _REPO_ROOT / "forgehub.config"
+# Isolated test database (test-env/docker-compose.yml). Out of git; the
+# versioned template is test-env/.env.test.example.
+TEST_ENV_FILE = _REPO_ROOT / "test-env" / ".env.test"
+
+TEST_ENVIRONMENT = "test"
+
+# The only (host, port, database, user) targets a test process may reach.
+# An allowlist, not just the denylist below: any target nobody listed --
+# another app's instance, a typo, a new production port -- is refused too.
+TEST_DATABASE_ALLOWLIST: frozenset[tuple[str, int, str, str]] = frozenset({
+    ("127.0.0.1", 5439, "forgehub_test", "forgehub_test"),
+    ("localhost", 5439, "forgehub_test", "forgehub_test"),
+})
+# Known production markers, reported by name so the refusal says *why*.
+PRODUCTION_DATABASE_PORTS = frozenset({5433})
+PRODUCTION_DATABASE_HOSTS = frozenset({"forgehub_postgres"})
+PRODUCTION_DATABASE_NAMES = frozenset({"forgehub"})
+PRODUCTION_DATABASE_USERS = frozenset({"foundation"})
+
+
+class UnsafeDatabaseTargetError(RuntimeError):
+    """A test process was pointed at a database outside the test allowlist.
+
+    A RuntimeError, not a ValueError, so pydantic lets it propagate as-is
+    instead of folding it into a ValidationError."""
+
+
+def is_test_environment(value: str | None) -> bool:
+    return (value or "").strip().lower() == TEST_ENVIRONMENT
+
+
+def assert_test_database_target(host: str, port: int, database: str, user: str) -> None:
+    """Raise UnsafeDatabaseTargetError unless the target is on the test
+    allowlist. Pure check -- never opens a connection. The password is not
+    an input, so it can never end up in the error message."""
+    normalized_host = (host or "").strip().lower()
+    reasons = []
+    if port in PRODUCTION_DATABASE_PORTS:
+        reasons.append(f"port {port} is production")
+    if normalized_host in PRODUCTION_DATABASE_HOSTS:
+        reasons.append(f"host {normalized_host!r} is production")
+    if database in PRODUCTION_DATABASE_NAMES:
+        reasons.append(f"database {database!r} is production")
+    if user in PRODUCTION_DATABASE_USERS:
+        reasons.append(f"user {user!r} is production")
+    if (normalized_host, port, database, user) not in TEST_DATABASE_ALLOWLIST:
+        reasons.append("target is not on the test allowlist (forgehub_test@127.0.0.1:5439)")
+    if reasons:
+        raise UnsafeDatabaseTargetError(
+            f"ENVIRONMENT=test refuses database {user}@{normalized_host}:{port}/{database}: "
+            + "; ".join(reasons)
+        )
+
+
+def _env_files() -> tuple[str, ...]:
+    # Decided from the process environment, before any file is read: a test
+    # process must never load the production .env, not even to override it.
+    if is_test_environment(os.environ.get("ENVIRONMENT")):
+        return (str(_APP_CONFIG_FILE), str(TEST_ENV_FILE))
+    return (str(_ENV_FILE), str(_APP_CONFIG_FILE))
 
 
 # Response languages the in-app AI chat can be pinned to (Settings -> AI
@@ -52,7 +121,7 @@ def chat_response_language_allowed(value: str, current: str) -> bool:
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(str(_ENV_FILE), str(_APP_CONFIG_FILE)),
+        env_file=_env_files(),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -265,6 +334,14 @@ class Settings(BaseSettings):
     # hand can hold anything; this is what actually bounds the host.
     MAX_CONCURRENT_DISPATCHES_CEILING: int = 20
 
+    @model_validator(mode="after")
+    def _refuse_production_database_in_test(self) -> "Settings":
+        if is_test_environment(self.ENVIRONMENT):
+            assert_test_database_target(
+                self.POSTGRES_HOST, self.POSTGRES_PORT, self.POSTGRES_DB, self.POSTGRES_USER
+            )
+        return self
+
     @property
     def DATABASE_URL(self) -> str:
         """Async SQLAlchemy connection string (postgresql+asyncpg://...)."""
@@ -282,9 +359,15 @@ class Settings(BaseSettings):
         user: str | None = None,
         password: str | None = None,
     ) -> str:
-        """Build a connection URL for an arbitrary PostgreSQL instance."""
+        """Build a connection URL for an arbitrary PostgreSQL instance.
+
+        Under ENVIRONMENT=test this raises for anything off the test
+        allowlist -- the other instances it serves (Hindsight, ForgeRouter)
+        are production ones."""
         effective_password = password or self.FOUNDATION_POSTGRES_PASSWORD or self.POSTGRES_PASSWORD
         effective_user = user or self.FOUNDATION_POSTGRES_USER or self.POSTGRES_USER
+        if is_test_environment(self.ENVIRONMENT):
+            assert_test_database_target(host, port, db, effective_user)
         return f"postgresql+asyncpg://{effective_user}:{effective_password}@{host}:{port}/{db}"
 
 

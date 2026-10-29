@@ -5,18 +5,41 @@
 # runs `docker compose up -d --build` -- this script never touches it.
 #
 # Usage:
-#   ./dev.sh            start (or restart if already running)
-#   ./dev.sh stop        stop both dev servers
-#   ./dev.sh status       show whether they're up + health
+#   ./dev.sh [start] [--prod-db]   start (or restart if already running)
+#   ./dev.sh restart [--prod-db]   stop + start
+#   ./dev.sh stop                  stop both dev servers
+#   ./dev.sh status                show whether they're up + which database
+#
+# Database (Plano Integrado T.1, 2026-10-28): the dev backend runs against
+# the isolated test Postgres by default -- `forgehub_test` on 127.0.0.1:5439,
+# test-env/docker-compose.yml -- with ENVIRONMENT=test, so it never reads
+# the repo-root .env and app/core/config.py refuses any other database.
+# dev.sh creates test-env/.env.test, starts the container and migrates it
+# when needed. The test database starts empty (fictitious seed is T.2).
+# `--prod-db` restores the previous behavior -- the dev backend on the real
+# `forgehub_postgres` data, through .env -- and says so loudly.
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
+TEST_ENV_DIR="$ROOT_DIR/test-env"
 STATE_DIR="$ROOT_DIR/.dev"
 LOG_DIR="$STATE_DIR/logs"
 BACKEND_PID_FILE="$STATE_DIR/backend.pid"
 FRONTEND_PID_FILE="$STATE_DIR/frontend.pid"
+DB_MODE_FILE="$STATE_DIR/db_mode"
+
+DB_MODE="test"
+COMMAND=""
+for arg in "$@"; do
+  case "$arg" in
+    --prod-db) DB_MODE="prod" ;;
+    -*) echo "Unknown option: $arg"; echo "Usage: $0 [start|stop|restart|status] [--prod-db]"; exit 1 ;;
+    *) [ -z "$COMMAND" ] && COMMAND="$arg" || { echo "Usage: $0 [start|stop|restart|status] [--prod-db]"; exit 1; } ;;
+  esac
+done
+COMMAND="${COMMAND:-start}"
 
 BACKEND_PORT=8001
 FRONTEND_PORT=5172
@@ -71,11 +94,32 @@ cmd_stop() {
   stop_by_port "frontend" "$FRONTEND_PORT" "$FRONTEND_PID_FILE"
 }
 
+prod_db_warning() {
+  echo
+  echo "$(color '1;41;97' "  !!! --prod-db: the dev backend will use the PRODUCTION database (forgehub_postgres, real data) !!!  ")"
+  warn "Every write from this dev session lands in production. Drop --prod-db to go back to the test database."
+  echo
+}
+
+# Test database: env file, container and schema, each created only when
+# missing. Runs after the venv check, since migrating needs backend/.venv.
+prepare_test_db() {
+  if [ ! -f "$TEST_ENV_DIR/.env.test" ]; then
+    bash "$TEST_ENV_DIR/init-env.sh" || { err "Could not create test-env/.env.test"; exit 1; }
+  fi
+  info "Ensuring the test Postgres (forgehub_test_postgres, 127.0.0.1:5439) is up ..."
+  docker compose -f "$TEST_ENV_DIR/docker-compose.yml" up -d --wait forgehub_test_postgres >/dev/null 2>&1 \
+    || { err "Test Postgres didn't come up healthy -- check: docker compose -f test-env/docker-compose.yml logs"; exit 1; }
+  (cd "$BACKEND_DIR" && ENVIRONMENT=test .venv/bin/alembic upgrade head >>"$LOG_DIR/backend.log" 2>&1) \
+    || { err "Migrating the test database failed -- check $LOG_DIR/backend.log"; exit 1; }
+  ok "Test database ready (forgehub_test at Alembic head)"
+}
+
 check_config() {
   local failed=0
 
-  if [ ! -f "$ROOT_DIR/.env" ]; then
-    err ".env not found at repo root -- copy .env.example and fill in Postgres credentials first."
+  if [ "$DB_MODE" = "prod" ] && [ ! -f "$ROOT_DIR/.env" ]; then
+    err ".env not found at repo root -- --prod-db needs it (copy .env.example and fill in Postgres credentials)."
     failed=1
   fi
 
@@ -111,7 +155,10 @@ check_config() {
     err "Config checks failed -- fix the above before starting."
     exit 1
   fi
-  ok "Config checks passed (.env, backend venv, frontend deps)"
+  ok "Config checks passed (backend venv, frontend deps)"
+  if [ "$DB_MODE" = "test" ]; then
+    prepare_test_db
+  fi
 }
 
 start_backend() {
@@ -119,29 +166,46 @@ start_backend() {
   existing=$(port_owner_pids "$BACKEND_PORT")
   if [ -n "$existing" ]; then
     if [ -f "$BACKEND_PID_FILE" ]; then
-      ok "Backend already running on :$BACKEND_PORT"
+      local running_mode
+      running_mode=$(cat "$DB_MODE_FILE" 2>/dev/null || echo "unknown")
+      ok "Backend already running on :$BACKEND_PORT (database: $running_mode)"
+      [ "$running_mode" != "$DB_MODE" ] && warn "Requested database is '$DB_MODE' -- use ./dev.sh restart$([ "$DB_MODE" = prod ] && echo ' --prod-db') to switch."
       return
     fi
     err "Port $BACKEND_PORT is already in use (pid(s): $existing) by something dev.sh didn't start -- stop it manually first."
     exit 1
   fi
   info "Starting backend (uvicorn --reload) on :$BACKEND_PORT ..."
-  # .env's POSTGRES_HOST is the Docker container name (right for the deployed
-  # backend on foundation_network), which the host itself can't resolve --
-  # the dev backend then ran with every DB-backed loop failing on DNS. The
-  # container publishes its port on 127.0.0.1, so use that instead whenever
-  # the configured name doesn't resolve here. Only this process's env is
-  # changed; .env stays as the Docker deploy needs it.
-  local pg_host
-  pg_host=$(grep -E '^POSTGRES_HOST=' "$ROOT_DIR/.env" | tail -1 | cut -d= -f2- | tr -d '"'"'"' ')
+  local environment_override=""
   local pg_override=""
-  if [ -n "$pg_host" ] && ! getent hosts "$pg_host" >/dev/null 2>&1; then
-    pg_override="127.0.0.1"
-    info "POSTGRES_HOST=$pg_host doesn't resolve on this host -- dev backend uses 127.0.0.1 instead."
+  if [ "$DB_MODE" = "test" ]; then
+    # Settings read test-env/.env.test (127.0.0.1:5439) and never .env.
+    environment_override="test"
+  else
+    prod_db_warning
+    # .env's POSTGRES_HOST is the Docker container name (right for the deployed
+    # backend on foundation_network), which the host itself can't resolve --
+    # the dev backend then ran with every DB-backed loop failing on DNS. The
+    # container publishes its port on 127.0.0.1, so use that instead whenever
+    # the configured name doesn't resolve here. Only this process's env is
+    # changed; .env stays as the Docker deploy needs it.
+    local pg_host
+    pg_host=$(grep -E '^POSTGRES_HOST=' "$ROOT_DIR/.env" | tail -1 | cut -d= -f2- | tr -d '"'"'"' ')
+    if [ -n "$pg_host" ] && ! getent hosts "$pg_host" >/dev/null 2>&1; then
+      pg_override="127.0.0.1"
+      info "POSTGRES_HOST=$pg_host doesn't resolve on this host -- dev backend uses 127.0.0.1 instead."
+    fi
   fi
-  PG_OVERRIDE="$pg_override" python3 -c "
+  echo "$DB_MODE" > "$DB_MODE_FILE"
+  ENVIRONMENT_OVERRIDE="$environment_override" PG_OVERRIDE="$pg_override" python3 -c "
 import os, subprocess
 env = os.environ.copy()
+if env.get('ENVIRONMENT_OVERRIDE'):
+    env['ENVIRONMENT'] = env['ENVIRONMENT_OVERRIDE']
+elif env.get('ENVIRONMENT', '').strip().lower() == 'test':
+    # --prod-db must not inherit a shell's ENVIRONMENT=test: the guard would
+    # refuse .env's production target and the backend would never start.
+    del env['ENVIRONMENT']
 if env.get('PG_OVERRIDE'):
     env['POSTGRES_HOST'] = env['PG_OVERRIDE']
     # Same reason: ForgeRouter is 'forgerouter:2100' on foundation_network, 127.0.0.1:2100 here.
@@ -208,7 +272,11 @@ cmd_status() {
   local b_pids f_pids
   b_pids=$(port_owner_pids "$BACKEND_PORT" | tr '\n' ' ')
   f_pids=$(port_owner_pids "$FRONTEND_PORT" | tr '\n' ' ')
-  if [ -n "$b_pids" ]; then ok "Backend up on :$BACKEND_PORT (pid $b_pids)"; else warn "Backend not running"; fi
+  if [ -n "$b_pids" ]; then
+    ok "Backend up on :$BACKEND_PORT (pid $b_pids) -- database: $(cat "$DB_MODE_FILE" 2>/dev/null || echo unknown)"
+  else
+    warn "Backend not running"
+  fi
   if [ -n "$f_pids" ]; then ok "Frontend up on :$FRONTEND_PORT (pid $f_pids)"; else warn "Frontend not running"; fi
 }
 
@@ -221,16 +289,21 @@ cmd_start() {
   echo
   echo "    Frontend  →  http://localhost:$FRONTEND_PORT"
   echo "    Backend   →  http://localhost:$BACKEND_PORT/health"
+  if [ "$DB_MODE" = "prod" ]; then
+    echo "    Database  →  $(color '1;31' 'PRODUCTION (forgehub_postgres) -- --prod-db')"
+  else
+    echo "    Database  →  test (forgehub_test @ 127.0.0.1:5439; reset: test-env/reset.sh)"
+  fi
   echo
   info "Logs: $LOG_DIR/backend.log, $LOG_DIR/frontend.log"
   info "Stop with: ./dev.sh stop"
   info "Docker deploy (ports 8000/4173) is untouched -- run 'docker compose up -d --build' explicitly to deploy."
 }
 
-case "${1:-start}" in
+case "$COMMAND" in
   start)   cmd_start ;;
   stop)    cmd_stop ;;
   restart) cmd_stop; cmd_start ;;
   status)  cmd_status ;;
-  *) echo "Usage: $0 [start|stop|restart|status]"; exit 1 ;;
+  *) echo "Usage: $0 [start|stop|restart|status] [--prod-db]"; exit 1 ;;
 esac

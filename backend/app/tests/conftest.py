@@ -4,17 +4,50 @@ main.py's RequireAuthMiddleware guards every /api/v1/* route with a bearer
 token (it validates the JWT itself, not a user row), so every test client
 must send one. Domain test files keep their own `client` fixture (some add
 extra setup) and take `auth_headers` from here to build it.
+
+The suite only ever runs against the isolated test Postgres (test-env/,
+Plano Integrado T.1). The guard below runs while this file is imported --
+before app.db.base exists and before any fixture -- and ends the whole
+session unless ENVIRONMENT=test and the target is on the test allowlist.
+Run it as `ENVIRONMENT=test pytest` (see CLAUDE.md, Backend tests).
 """
 import uuid
 
 import pytest
-import pytest_asyncio
-from sqlalchemy import delete, select, text
 
-from app.core.security import create_access_token, hash_password
-from app.db.base import AsyncSessionLocal
-from app.db.models.agent import Agent
-from app.db.models.user import User
+
+def _abort_unless_test_database() -> None:
+    try:
+        from app.core.config import (
+            assert_test_database_target,
+            is_test_environment,
+            settings,
+        )
+    except Exception as exc:  # Settings itself refused the target
+        pytest.exit(f"Test database guard: {exc}", returncode=4)
+    if not is_test_environment(settings.ENVIRONMENT):
+        pytest.exit(
+            "Test database guard: the suite runs only with ENVIRONMENT=test "
+            f"(got {settings.ENVIRONMENT!r}); it never runs against production.",
+            returncode=4,
+        )
+    try:
+        assert_test_database_target(
+            settings.POSTGRES_HOST, settings.POSTGRES_PORT, settings.POSTGRES_DB, settings.POSTGRES_USER
+        )
+    except Exception as exc:
+        pytest.exit(f"Test database guard: {exc}", returncode=4)
+
+
+_abort_unless_test_database()
+
+import pytest_asyncio  # noqa: E402
+from sqlalchemy import delete, select, text  # noqa: E402
+
+from app.core.security import create_access_token, hash_password  # noqa: E402
+from app.db.base import AsyncSessionLocal  # noqa: E402
+from app.db.models.agent import Agent  # noqa: E402
+from app.db.models.user import User  # noqa: E402
 
 # The free-text `from_agent` most demand tests post with. create_demand
 # auto-resolves it to a real Agent row by profile_slug (_find_agent_by_slug),
