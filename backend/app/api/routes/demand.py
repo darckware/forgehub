@@ -43,7 +43,7 @@ from app.core.agent_runs import AgentRunDispatchError, dispatch_agent_run, poll_
 from app.core.config import settings
 from app.core.deps import get_current_admin
 from app.core.demand_workflow import WorkflowBlocked, assert_execution_allowed, ensure_workflow_allowed, invalidate_changed_approval, requires_reconciliation, record_transition
-from app.core.demand_dispatch_guard import reserve_dispatch
+from app.core.demand_dispatch_guard import ensure_task_dispatch_admissible, reserve_dispatch
 from app.core.completion_report import (
     completion_failure_reason,
     parse_completion_status,
@@ -1921,6 +1921,7 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
             continue
         try:
             await ensure_workflow_allowed(db, demand)
+            await ensure_task_dispatch_admissible(db, demand)
             await _ensure_demand_dependencies_satisfied(db, demand)
         except (TaskDependenciesBlocked, WorkflowBlocked):
             # Waiting is not a failed attempt and must not reserve the

@@ -88,6 +88,7 @@ from app.db.base import get_db
 from app.db.models.project import (
     ChangeRequest,
     PlanBaseline,
+    PlanBaselineItem,
     Project,
     ProjectForgeRouterConfig,
     ProjectPlan,
@@ -300,6 +301,22 @@ async def update_project_plan(
     return plan
 
 
+async def _refuse_mission_shortcut(db: AsyncSession, project_id: uuid.UUID) -> None:
+    """MCP_MISSION_TOOLS_SPEC.md §7 item 4 (M0.6b): a mission's plan is
+    approved and baselined only by the governed plan approval, which freezes
+    the per-task items the dispatch guard checks. Common projects keep the
+    generic routes unchanged."""
+    project = await db.get(Project, project_id)
+    if project is not None and project.project_type == "mission":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "USE_GOVERNED_PLAN_APPROVAL",
+                "message": "A mission plan is approved and baselined through the governed plan approval",
+            },
+        )
+
+
 @router.post("/plans/{plan_id}/approve", response_model=ProjectPlanOut)
 async def approve_project_plan(
     plan_id: uuid.UUID, db: AsyncSession = Depends(get_db)
@@ -307,6 +324,7 @@ async def approve_project_plan(
     """Mark a plan as approved -- the precondition for baselining it
     (SPEC.md 6.3.1: "Approved planning becomes baseline")."""
     plan = await _get_plan_or_404(db, plan_id)
+    await _refuse_mission_shortcut(db, plan.project_id)
     plan.status = "approved"
     plan.approved_at = datetime.now(timezone.utc)
     await db.commit()
@@ -317,6 +335,18 @@ async def approve_project_plan(
 @router.delete("/plans/{plan_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project_plan(plan_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
     plan = await _get_plan_or_404(db, plan_id)
+    # Deleting the plan would cascade into its baselines: a mission's
+    # baseline is immutable (M0.6b), so its plan stays.
+    if await db.scalar(
+        select(PlanBaseline.id)
+        .join(PlanBaselineItem, PlanBaselineItem.baseline_id == PlanBaseline.id)
+        .where(PlanBaseline.project_plan_id == plan_id)
+        .limit(1)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "BASELINE_IMMUTABLE", "message": "This plan froze a mission baseline and cannot be deleted"},
+        )
     await db.delete(plan)
     await db.commit()
 
@@ -333,6 +363,7 @@ async def create_plan_baseline(
     project_id: uuid.UUID, payload: PlanBaselineCreate, db: AsyncSession = Depends(get_db)
 ) -> PlanBaseline:
     await _get_project_or_404(db, project_id)
+    await _refuse_mission_shortcut(db, project_id)
     plan = await _get_plan_or_404(db, payload.project_plan_id)
 
     if plan.project_id != project_id:
