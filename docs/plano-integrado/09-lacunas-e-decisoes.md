@@ -61,6 +61,7 @@ despacho, que continuam com os gates próprios de cada tarefa.
 
 **Decisões do Marcelo em 29/10/2026:**
 - **Tela mínima de execuções da missão na M0** (tarefas, executor, estado, provas, revisor, aceite), antecipada da M.1 da Onda 3: a condução da Onda 1 por mensagens e monitores improvisados mostrou que sem ela o orquestrador não consegue gerenciar as execuções. Entra na especificação M0.SPEC.
+- **O orquestrador decide e agenda pela Operação 24x7** (04 §7), e podem existir várias missões cadastradas e ativas (04 §6). Entra na M0.SPEC.
 - **M0.SPEC passa do Daedalus para o Porthus**, com revisão do Dartan e do Aegis: agentes Hermes não editam repositório, e a especificação exige leitura exata do código. O Daedalus é consultado, sem editar.
 
 Responsáveis de produto (K6, aprovados em D-6): Ecossistema Foundation → Athos; ForgeHub → Daedalus;

@@ -152,7 +152,7 @@
     },
     {
       "id": "M0.SPEC",
-      "title": "Especificar contratos MCP/modelo/guards/contexto mínimo sem recuperação privada automática: arquivos, endpoints existentes/propostos, schemas, permissões, idempotência, erros, migrations, testes e rollback em `MCP_MISSION_TOOLS_SPEC.md`; escopo global prospectivo de conclusão e importação histórica com execução/revisão reais, sem bypass; aceite formal mínimo M0; inclui a **tela mínima de execuções da missão** (tarefas, executor, estado, provas, revisor, aceite), antecipada da M.1 por decisão de 29/10",
+      "title": "Especificar contratos MCP/modelo/guards/contexto mínimo sem recuperação privada automática: arquivos, endpoints existentes/propostos, schemas, permissões, idempotência, erros, migrations, testes e rollback em `MCP_MISSION_TOOLS_SPEC.md`; escopo global prospectivo de conclusão e importação histórica com execução/revisão reais, sem bypass; aceite formal mínimo M0; inclui a **tela mínima de execuções da missão** (tarefas, executor, estado, provas, revisor, aceite), antecipada da M.1 por decisão de 29/10; inclui o **ciclo de decisão do orquestrador pela Operação 24x7** (despachar, agendar, reatribuir, serializar alvos, perguntar/pausar) e várias missões com prioridade (04 §6–7)",
       "executor_agent_slug": "porthus",
       "reviewer_agent_slug": "dartan",
       "executor_label": "Porthus (consulta: Daedalus)",
@@ -160,7 +160,7 @@
       "depends_on": [
         "0.15"
       ],
-      "acceptance": "Revisores Dartan e Aegis aprovam os contratos antes de M0.0/M0.2/M0.6; tela mínima de execuções especificada (rotas, estados, permissões, 390px)",
+      "acceptance": "Revisores Dartan e Aegis aprovam os contratos antes de M0.0/M0.2/M0.6; tela mínima de execuções especificada (rotas, estados, permissões, 390px); ciclo de decisão e agendamento especificados com limites de autonomia e registro de cada decisão",
       "status": "planned",
       "project_task_id": null
     },

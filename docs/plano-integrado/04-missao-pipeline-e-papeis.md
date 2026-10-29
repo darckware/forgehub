@@ -227,6 +227,34 @@ missão? Posso ter várias missões em execução?" Sim, para as três.
 - Missões podem depender uma da outra (uma só começa quando a outra conclui), registrado como
   pré-requisito na abertura.
 
+### 7. O orquestrador decide e agenda pela Operação 24x7
+
+Marcelo, 29/10: "na missão o agente precisa tomar decisões, agendar tarefas na Operação 24x7 com o
+objetivo de finalizar as tarefas da melhor forma possível" e "posso ter várias missões cadastradas".
+
+O orquestrador não espera ser chamado: a Operação 24x7 executa um **ciclo de decisão** por missão
+ativa (agendado, e também disparado por eventos: tarefa concluída, falha, prazo, cota). Em cada ciclo
+ele lê o estado da missão e escolhe a próxima ação:
+
+- **despachar** as tarefas prontas, respeitando dependências, a prioridade entre missões e o teto de
+  concorrência ("um despacho por agente" continua valendo);
+- **agendar** o que não pode rodar agora, com `scheduled_at` no Messages: por exemplo, um executor sem
+  cota volta no horário em que ela reabre (28/10: o Porthus parou às 00:15 com "resets 3:30am", e a
+  M0.SPEC precisava voltar às 3:30, não esperar alguém lembrar);
+- **reatribuir** uma tarefa a outro executor elegível quando o atual está indisponível, sem nunca
+  tornar o revisor igual ao autor;
+- **pedir revisão**, **recusar com motivo** ou **devolver para correção** pelas rotas existentes;
+- **serializar** o que disputa o mesmo alvo: duas tarefas que publicam a mesma produção ou mexem no
+  mesmo worktree nunca rodam ao mesmo tempo (28/10: dois agentes publicaram a produção a partir de
+  branches diferentes);
+- **perguntar ao Marcelo** ou **pausar a missão** quando a decisão passa do seu nível de autonomia.
+
+Limites: toda decisão fica registrada com motivo na linha do tempo da missão; nada contorna os gates
+(aprovação de baseline, guard de conclusão, gate de publicação); o nível de autonomia (N0–N3) define o
+que ele decide sozinho e o que só propõe; o Marcelo pode desfazer ou travar qualquer decisão pela
+tela. Com várias missões ativas, cada uma tem seu ciclo, e a disputa por agente se resolve pela
+prioridade descrita na seção 6.
+
 ## Missão = projeto no Service Factory: o que os agentes conseguem hoje
 
 Para um grupo de agentes executar uma missão, ela precisa existir como projeto no Service Factory.
