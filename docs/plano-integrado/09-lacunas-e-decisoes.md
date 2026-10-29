@@ -79,6 +79,8 @@ despacho, que continuam com os gates próprios de cada tarefa.
 
 **Decisão do Marcelo (29/10/2026):** a missão é o orquestrador e gerencia o contexto da missão, o monitoramento da execução e as skills dos executores (04 §8). Entra em M0.0 (skills por tarefa e checagem P2), M0.7 (visão) e M0.8 (pacote de contexto versionado e propostas de skill ao dono, sem concessão automática).
 
+**Decisão do Marcelo (29/10/2026):** a missão decide a execução de forma independente e, quando tem dúvida, conversa com ele pelo Telegram (04 §9, ciclo §3.7), pelo `ask_marcelo` existente. Entra na M0.8.
+
 Responsáveis de produto (K6, aprovados em D-6): Ecossistema Foundation → Athos; ForgeHub → Daedalus;
 ForgeRouter → Atlas; ForgeVault → Aegis; Darckware → Kairos; Serviços de Manutenção → Hephaestus.
 Outros produtos recebem dono no inventário B.1, sem atribuição inventada. Não confundir dono do

@@ -287,6 +287,30 @@ especificação do ciclo).
 - Durante a execução, uma falha ou crítica cuja causa é falta de capacidade vira **proposta de skill**
   registrada na missão, e a lição alimenta a melhoria da skill depois (Fase G).
 
+### 9. Independência na execução e conversa pelo Telegram
+
+Marcelo, 29/10: "o sentimento da missão é que ela tomasse decisões na execução de forma independente;
+caso tenha dúvidas, conversar comigo pelo Telegram". O objetivo é um orquestrador que conduz a missão
+sozinho do início ao fim e só chama o Marcelo quando precisa dele, nunca para pedir licença para o que
+já foi aprovado.
+
+- **Decide sozinho** tudo o que é execução dentro da baseline aprovada: ordem, agendamento, retentativa,
+  reatribuição, pedir revisão, devolver para correção, integrar, atualizar o contexto, propor skills.
+  Cada decisão fica registrada com o raciocínio (seção 7).
+- **Pergunta quando tem dúvida de verdade:** especificação ambígua, duas saídas com impacto diferente,
+  risco que o plano não previu, crítica que contradiz o brief. Usa o `ask_marcelo` que já existe
+  (`core/agent_questions.py`): a pergunta vai pelo Telegram com o contexto em poucas linhas, as opções,
+  a recomendação dele, o que ele fará se não houver resposta e até quando espera. Respeita o horário de
+  silêncio (23h–7h, só urgente), e a resposta volta como tarefa no Messages.
+- **Não fica parado esperando:** enquanto a pergunta está aberta, segue com as tarefas que não dependem
+  dela. Sem resposta no prazo, aplica a própria recomendação **só** se ela for reversível e estiver dentro
+  da sua autonomia; senão, continua esperando e avisa de novo.
+- **Aprende com as respostas:** cada resposta vira decisão registrada e item do pacote de contexto.
+  Perguntas que se repetem com a mesma resposta são candidatas a regra, para subir a autonomia com
+  critério (Fase G).
+- **Continua humano, sempre:** aprovar plano e baseline, publicar em produção, aceitar a missão, gastar
+  além do orçamento, contato externo e credenciais.
+
 ## Missão = projeto no Service Factory: o que os agentes conseguem hoje
 
 Para um grupo de agentes executar uma missão, ela precisa existir como projeto no Service Factory.

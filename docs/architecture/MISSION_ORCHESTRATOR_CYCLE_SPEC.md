@@ -169,6 +169,20 @@ with reason `skill_gap`) and produces a `propose_skill_change`, which goes to th
 it needs approval, to Marcelo through `ask_marcelo`. A failure or critique attributed to missing
 capability also yields a proposal. The cycle never grants, installs or edits a skill.
 
+### 3.7 Independent execution, doubts through Telegram [PROPOSED, Marcelo 2026-10-29]
+
+04 §9. Within the approved baseline the cycle decides execution matters itself (§3 actions) without
+asking. `ask_marcelo` is reserved for genuine doubt (ambiguous spec, options with different impact, an
+unplanned risk, a critique contradicting the brief) and goes through the existing MCP `ask_marcelo` /
+`core/agent_questions.py` (Telegram, quiet hours 23:00–07:00 non-urgent deferred, answer returned as a
+Messages Task). The question carries: mission and task, a short context, options, the recommendation,
+the default action and `answer_by`. While open, the cycle keeps running the tasks that do not depend on
+it (decision `defer` with reason `awaiting_marcelo:<question_id>` only for the dependent ones). At
+`answer_by` without an answer it applies the recommendation **only if** it is reversible and within the
+autonomy level; otherwise it re-asks once and keeps waiting. The answer is recorded as a decision row and
+a context pack item. Tests: `test_doubt_asks_marcelo_with_options_and_default`,
+`test_open_question_blocks_only_dependent_tasks`, `test_irreversible_default_never_applied_without_answer`.
+
 ## 4. Decision record [PROPOSED table `mission_decisions`]
 
 | Column | Note |
