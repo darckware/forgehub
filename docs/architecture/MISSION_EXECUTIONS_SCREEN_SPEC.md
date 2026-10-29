@@ -126,6 +126,17 @@ Precedence top-down — the first matching rule wins:
 Timer source of truth is the server (`elapsed_seconds` at `generated_at`); the client only advances
 it locally between snapshots.
 
+## 4.1 Planning pipeline view [PROPOSED, Marcelo 2026-10-29]
+
+While a mission is `planning`, the screen leads with its planning pipeline instead of the task table:
+the eight stages P1–P8 of 04 "Validação do plano" as a stepper (`planning_stage`), and for the current
+stage what it is waiting for — validator result, which layer reviews are in and who is missing (with
+`infra_failure` retries shown as such, not as missing opinions), the consolidation table (item,
+origin, disposition, reason, needs decision), the cross reviews, and the list of decisions pending for
+Marcelo, each answerable from here through the `human_only` decision route. On a phone the stepper
+collapses to the current stage with previous/next. The same view reopens when a change request sends
+the mission back to planning.
+
 ## 5. Conflict detection
 
 Computed on every board build (and across **all** active missions plus non-mission in-flight demands,

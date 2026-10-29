@@ -149,6 +149,15 @@ Planned tests: `test_approved_task_not_done_until_integrated`, `test_integration
 `test_reverify_mismatch_returns_instead_of_review`, `test_infra_failure_reprocessed_not_rejected`,
 `test_review_infra_failure_reassigned_to_independent_reviewer`, `test_idle_active_mission_without_reason_alerts`.
 
+### 3.5 Conducting the planning pipeline [PROPOSED, Marcelo 2026-10-29]
+
+While the mission is `planning`, the same cycle conducts P1–P8 (main spec §3.1): it dispatches the
+layer reviews as review tasks to independent reviewers (closed checklists for agents on free models),
+retries or replaces a reviewer on `infra_failure` (§3.4), drafts the consolidation for the planner,
+dispatches the cross reviews, and raises each flagged item to Marcelo with `ask_marcelo`. It advances
+`planning_stage` only through `planning:advance`, whose exit conditions it cannot waive; it never
+decides a flagged item and never approves the baseline.
+
 ## 4. Decision record [PROPOSED table `mission_decisions`]
 
 | Column | Note |

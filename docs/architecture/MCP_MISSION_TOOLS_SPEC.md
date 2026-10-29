@@ -275,12 +275,12 @@ verifier, status or evidence, and a mission has no `ProjectScope`.
 
 ## 3. State machine and `Project.status` projection [PROPOSED, M0.0]
 
-`MISSION_STATES = ("draft","ready","active","verifying","awaiting_acceptance","paused","completed","cancelled")`
-(pt-BR labels: rascunho, pronta, ativa, em verificação, aguardando aceite, pausada, concluída, cancelada).
+`MISSION_STATES = ("draft","planning","ready","active","verifying","awaiting_acceptance","paused","completed","cancelled")`
+(pt-BR labels: rascunho, em planejamento, pronta, ativa, em verificação, aguardando aceite, pausada, concluída, cancelada).
 
 | Mission state | `Project.status` written in the **same transaction** |
 |---|---|
-| draft, ready | planned |
+| draft, planning, ready | planned |
 | active, verifying, awaiting_acceptance | active |
 | paused | on_hold |
 | completed | completed |
@@ -295,18 +295,41 @@ Rules:
    rules). For a common project `project_type` stays non-patchable as today (`ProjectUpdate` has no such field).
 3. Mission completion is never inferred from `Project.status='completed'` (04).
 
+### 3.1 Planning pipeline inside `planning` [PROPOSED, M0.0, Marcelo 2026-10-29]
+
+04 "Validação do plano" (P1–P8). Column `project_missions.planning_stage String(20)` with CHECK in
+(`draft_plan`,`auto_check`,`critical_review`,`consolidation`,`cross_review`,`decisions`,`application`,`baseline`),
+only meaningful while `state='planning'`. Stage changes go through
+`POST /api/v1/missions/{project_id}/planning:advance` `{to, reason, idempotency_key}` [PROPOSED] and are
+recorded in `mission_decisions` (cycle spec §4). The backend checks each exit condition:
+
+| Leaving | Requires |
+|---|---|
+| auto_check | the plan validator passes on the current `ProjectPlan` version (graph acyclic, author ≠ reviewer including release nodes, environment prerequisites) |
+| critical_review | one review artifact per required layer, from a reviewer independent of the planner; a missing one only with Marcelo's recorded decision |
+| consolidation | every review item has a disposition (accept/adjust/reject) and a reason; items needing a decision flagged |
+| cross_review | skippable only when the mission's risk is `low` (recorded); otherwise two cross reviews from different layers |
+| decisions | no flagged item without Marcelo's decision (`human_only`) |
+| application | validator passes again; an independent verifier records that sampled corrections are in the text |
+
+`baseline` ends in the existing baseline approval (§7), which performs `planning → ready`. A change
+request after the baseline re-enters at `auto_check` (and `critical_review` when scope or risk changes).
+Tests: `test_planning_stage_exit_conditions`, `test_planning_cannot_skip_decisions`,
+`test_change_request_reenters_planning`.
+
 Allowed transitions in M0 (anything else → 409 `MISSION_TRANSITION_NOT_ALLOWED`):
 
 | From → To | Who | Preconditions checked by the backend |
 |---|---|---|
-| draft → ready | Marcelo | brief artifact version `approved` by Marcelo; ≥1 criterion, each with method + verifier; orchestrator membership active; `deadline_at`, `budget_limit` set; a baseline exists (§7) |
+| draft → planning | Marcelo | brief artifact version `approved` by Marcelo; orchestrator membership active |
+| planning → ready | Marcelo | planning pipeline finished (§3.1); ≥1 criterion, each with method + verifier; `deadline_at`, `budget_limit` set; a baseline exists (§7) |
 | ready → active | Marcelo, or orchestrator with `mission.orchestrate` | `current_baseline_id` not superseded; dependency missions completed (cycle spec §6.3); orchestrator under its active-mission limit |
 | active → verifying | orchestrator or Marcelo | all criteria `proven` |
 | verifying → active | anyone who can mark a criterion `failed` | a criterion went `failed` or a task reopened |
 | verifying → awaiting_acceptance | orchestrator or Marcelo | dossier artifact version registered (§8) |
 | awaiting_acceptance → completed | **only** via the acceptance decision (§8) | all §8 conditions |
 | awaiting_acceptance → active | Marcelo (rejecting the dossier) | reason |
-| ready/active/verifying → paused | Marcelo; orchestrator only when blocked (reason `blocked:*`) | reason; `paused_from_state` saved |
+| planning/ready/active/verifying → paused | Marcelo; orchestrator only when blocked (reason `blocked:*`) | reason; `paused_from_state` saved |
 | paused → paused_from_state | Marcelo | reason |
 | any non-terminal → cancelled | Marcelo | reason; queued mission demands archived through `decide_demand(action="archive")`; in-flight runs are **not** killed — they follow the existing uncertain/`confirm_inactive` path [backend/app/core/demand_workflow.py:114-129] |
 | completed → active (reopen) | Marcelo | reason (M0 implements; M.1 adds delegation) |

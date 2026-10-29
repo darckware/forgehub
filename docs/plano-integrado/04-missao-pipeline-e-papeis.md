@@ -40,12 +40,12 @@ finalização da missão". Tudo o mais neste documento serve a estas regras.
 
 ### Estados
 
-`rascunho` → `pronta` → `ativa` → `em verificação` → `aguardando aceite` → `concluída`
+`rascunho` → `em planejamento` → `pronta` → `ativa` → `em verificação` → `aguardando aceite` → `concluída`
 (ou `cancelada` com motivo, de qualquer estado; `pausada` e de volta, seção 6; uma crítica ou `reaberta` volta para `ativa`)
 
 ### 1. Quando começar (definição de "pronta")
 
-A missão só passa de `rascunho` para `pronta` quando **todos** os itens abaixo estão cumpridos. O
+A missão passa de `rascunho` para `em planejamento` quando o brief é aprovado, e de `em planejamento` para `pronta` quando o pipeline de planejamento (seção "Validação do plano") termina e **todos** os itens abaixo estão cumpridos. O
 sistema verifica e mostra o que falta:
 
 | # | Condição | Como se verifica |
@@ -428,6 +428,30 @@ O brief é a base do contexto enviado em cada despacho, junto com as anotações
 itens de contexto filtrados por destinatário (M.2). Mudou o brief ou um critério? Registrar nova versão, invalidar `pronta`/baseline afetada e aprovar change request antes de novos despachos; avisar os membros. O pacote registra fontes canônicas e visibilidade por papel; dados pessoais não são copiados entre Maia e Lara.
 
 ### Validação do plano
+
+**O planejamento é o pipeline da missão (Marcelo, 29/10: "dado a missão, o planejamento é tudo e
+precisa ser discutido e validado").** Ele segue o processo que tornou o plano integrado executável na
+Fase 0 (pareceres por camada, consolidação, rodada cruzada, decisões, aplicação verificada). Estado
+`em planejamento`, com a etapa atual visível na tela de execuções (M0.7) e conduzida pelo ciclo do
+orquestrador (M0.8), como qualquer tarefa:
+
+| Etapa | O que acontece | Quem | Sai quando |
+|---|---|---|---|
+| P1 Rascunho | Plano a partir do brief: tarefas, dependências, papéis, critérios ligados, riscos, ambiente, prazo e orçamento | Planejador | Plano completo no `ProjectPlan` |
+| P2 Checagem automática | Os itens 1 abaixo e um validador do plano (como `scripts/validate-integrated-plan.py`): grafo sem ciclo, autor ≠ revisor inclusive nas publicações, pré-requisitos de ambiente, projeções sincronizadas | Sistema | Tudo verde |
+| P3 Revisão crítica | Um parecer por camada afetada (arquitetura, backend, telas, segurança, LGPD, infraestrutura, documentação, negócio), no formato do `revisao/ROTEIRO-DE-REVISAO.md`: bloqueia / importante / melhoria, cada um com evidência. Revisores nomeados por camada, independentes do planejador; agentes em modelo gratuito recebem roteiro fechado | Revisores | Todos os pareceres entregues ou com ausência decidida |
+| P4 Consolidação | Cada item do parecer com análise: aceitar, ajustar ou rejeitar, sempre com motivo; afirmações verificadas no código antes de aceitas; itens que precisam de decisão marcados | Orquestrador | Nenhum parecer sem análise |
+| P5 Rodada cruzada | Dois revisores de camadas diferentes procuram contradições criadas pela própria consolidação | 2 revisores | Sem contradição aberta |
+| P6 Decisões | O Marcelo decide cada item marcado, um a um | Marcelo | Nenhum item "bloqueia" sem decisão |
+| P7 Aplicação | O plano e os documentos são corrigidos num só registro citando cada item; o validador roda de novo; um verificador confere por amostra que as correções estão no texto, não só no resumo | Planejador + verificador | Validador verde e verificação feita |
+| P8 Baseline | O Marcelo aprova o plano corrigido; vira baseline | Marcelo | Missão `pronta` |
+
+Proporcional ao risco: uma missão pequena pode ter dois revisores e pular a P5, mas nunca pular P2,
+P4, P6 e P8. Falha de infraestrutura de um revisor (cota, erro do provedor) é retentativa ou troca por
+outro revisor independente, nunca parecer omitido. Depois da baseline, só change request, que passa por
+P2, P4 e P8 (e P3 quando muda escopo ou risco).
+
+Passos já existentes, que continuam dentro das etapas acima:
 
 O plano da missão usa o **Plano do projeto que já existe** (`ProjectPlan`: rascunho → aprovado →
 baseline → substituído) e o **change request** para mudanças depois da baseline.

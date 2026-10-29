@@ -75,6 +75,8 @@ despacho, que continuam com os gates próprios de cada tarefa.
 
 **Decisão do Marcelo (29/10/2026):** a missão precisa manter a execução até o fim, como foi feito à mão na Onda 1. A M0.8 ganha a §3.4 da `MISSION_ORCHESTRATOR_CYCLE_SPEC.md`: integrar a entrega aprovada, reverificar antes da revisão, tratar falha de infraestrutura como retentativa e não como recusa, e vigiar o próprio ciclo.
 
+**Decisão do Marcelo (29/10/2026):** "dado a missão, o planejamento é tudo e precisa ser discutido e validado; pode ser pipeline da missão". O planejamento vira o pipeline P1–P8 dentro do novo estado `em planejamento` (04 "Validação do plano"), no mesmo formato da Fase 0: rascunho, checagem automática, revisão crítica por camada, consolidação, rodada cruzada, decisões do Marcelo, aplicação verificada e baseline. Entra em M0.0 (estado e etapas), M0.7 (visão na tela) e M0.8 (o ciclo conduz).
+
 Responsáveis de produto (K6, aprovados em D-6): Ecossistema Foundation → Athos; ForgeHub → Daedalus;
 ForgeRouter → Atlas; ForgeVault → Aegis; Darckware → Kairos; Serviços de Manutenção → Hephaestus.
 Outros produtos recebem dono no inventário B.1, sem atribuição inventada. Não confundir dono do
