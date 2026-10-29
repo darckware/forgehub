@@ -64,6 +64,7 @@ from vpn_control import VpnControl, VpnPolicyError
 from remote_fs import make_remote_fs_router
 from host_exec import AgentCache, make_host_exec_router
 from forgevault_proxy import VaultClient, make_forgevault_router
+from evidence_probe import make_evidence_router
 from hindsight_retention import read_status as read_hindsight_retention_status
 from server_monitoring import collector as monitoring_collector
 
@@ -4982,6 +4983,8 @@ async def open_terminal_agent(req: TerminalAgentRequest, x_bridge_token: str | N
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 # See forgevault_proxy.py (Remote Access secrets in ForgeVault, infra/Production only).
 app.include_router(make_forgevault_router(_check_token))
+# See evidence_probe.py (M0.6a: read-only file/git evidence for the completion guard).
+app.include_router(make_evidence_router(_check_token))
 
 
 # ---------------------------------------------------------------------------

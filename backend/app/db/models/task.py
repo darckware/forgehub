@@ -50,6 +50,9 @@ TASK_STATUSES = (
     "done",
     "deployed",
     "cancelled",
+    # M0.6a: reviewed and approved, waiting for its commit to reach the
+    # mission mainline (core/task_completion_guard.py).
+    "in_review",
 )
 
 # Canonical execution runtimes backed by AgentRuntimeProfile.  Keep this

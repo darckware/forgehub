@@ -45,7 +45,18 @@ async def client(auth_headers):
 
 
 @pytest_asyncio.fixture
-async def world(tmp_path):
+async def admin_client(admin_headers):
+    """Completing a task records the authenticated principal (M0.6a)."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test", headers=admin_headers) as ac:
+        yield ac
+
+
+@pytest_asyncio.fixture
+async def world(tmp_path, bind_evidence_bridge):
+    # file: evidence is checked on the host through the bridge (M0.6a); the
+    # real bridge router answers for tmp_path in process.
+    bind_evidence_bridge(tmp_path)
     suffix = uuid.uuid4().hex[:8]
     rules_json = json.dumps(RULES, sort_keys=True)
     async with AsyncSessionLocal() as session:
@@ -247,7 +258,7 @@ async def _grant_decide_authority(client, agent_id: uuid.UUID) -> None:
     assert resp.status_code == 201, resp.text
 
 
-async def test_no_binding_means_no_approval_request(client, world, tmp_path, monkeypatch):
+async def test_no_binding_means_no_approval_request(client, admin_client, world, tmp_path, monkeypatch):
     """Confirms the mechanism is inert without an active binding -- deletes
     the one `world` seeded, then drives dispatch/evidence and checks no
     ApprovalRequest is created (Fase 1/2 behavior keeps working alone)."""
@@ -286,17 +297,18 @@ async def test_no_binding_means_no_approval_request(client, world, tmp_path, mon
         ).scalar_one_or_none()
     assert pending is None
 
-    # And the task can still go straight to done (Fase 1's own gate is all
-    # that applies) since nothing is pending.
-    done = await client.patch(f"/api/v1/tasks/{world['task_id']}", json={"status": "done"})
-    assert done.status_code == 200, done.text
+    # Nothing is pending, so only the global completion guard (M0.6a)
+    # applies -- and it still wants an independent review.
+    done = await admin_client.patch(f"/api/v1/tasks/{world['task_id']}", json={"status": "done"})
+    assert done.status_code == 409, done.text
+    assert done.json()["detail"]["code"] == "COMPLETION_NO_INDEPENDENT_REVIEW"
 
 
-async def test_task_cannot_be_marked_done_while_approval_pending(client, world, tmp_path, monkeypatch):
+async def test_task_cannot_be_marked_done_while_approval_pending(client, admin_client, world, tmp_path, monkeypatch):
     _mock_dispatch(monkeypatch)
     await _dispatch_and_verify(client, world, tmp_path, monkeypatch)
 
-    blocked = await client.patch(f"/api/v1/tasks/{world['task_id']}", json={"status": "done"})
+    blocked = await admin_client.patch(f"/api/v1/tasks/{world['task_id']}", json={"status": "done"})
     assert blocked.status_code == 409, blocked.text
     assert "governed approval" in blocked.json()["detail"]
 
@@ -408,10 +420,13 @@ async def test_reviewer_rejects_and_task_becomes_blocked(client, world, tmp_path
         assert task.status == "blocked"
 
 
-async def test_binding_scoped_to_one_project_does_not_affect_another(client, world, tmp_path, monkeypatch):
+async def test_binding_scoped_to_one_project_does_not_affect_another(
+    client, admin_client, world, tmp_path, monkeypatch
+):
     """`world`'s PolicyBinding is scoped to `world["project_id"]` only.
     A second, unrelated project with its own task -- no binding of its own
-    -- must complete straight to done, exactly as Fase 1/2 alone would
+    -- gets no approval request (completing it is then the global guard's
+    job, M0.6a), exactly as Fase 1/2 alone would
     (production-realistic version of test_no_binding_means_no_approval_
     request, proving isolation rather than just absence)."""
     suffix = uuid.uuid4().hex[:8]
@@ -465,8 +480,11 @@ async def test_binding_scoped_to_one_project_does_not_affect_another(client, wor
             ).scalar_one_or_none()
         assert pending is None, "a binding scoped to world's project must not leak into another project"
 
-        done = await client.patch(f"/api/v1/tasks/{other_task_id}", json={"status": "done"})
-        assert done.status_code == 200, done.text
+        # No approval gate here; the global completion guard (M0.6a) still
+        # wants an independent review.
+        done = await admin_client.patch(f"/api/v1/tasks/{other_task_id}", json={"status": "done"})
+        assert done.status_code == 409, done.text
+        assert done.json()["detail"]["code"] == "COMPLETION_NO_INDEPENDENT_REVIEW"
     finally:
         async with AsyncSessionLocal() as session:
             await session.execute(
