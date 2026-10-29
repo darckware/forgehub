@@ -1272,6 +1272,10 @@ class AgentRunRequest(BaseModel):
     hermes_profile: str | None = None
     max_budget_usd: float | None = None
     work_package_hash: str | None = None
+    # The agent's autonomous_runs flag (2026-10-28): in execute mode, run the
+    # external CLI without permission prompts. Headless runs have nobody to
+    # approve a tool, so a prompt is an automatic denial. Plan mode ignores it.
+    autonomous: bool = False
 
 
 def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[str], dict[str, str]]:
@@ -1321,29 +1325,41 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
     # so the Messages dispatch was recorded as completed with the work half
     # done. model_ref/routing_group/api_key stay on AgentRunRequest so older
     # callers aren't rejected, but are ignored here.
+    autonomous = req.autonomous and req.mode == "execute"
+
     if req.runtime_type == "claude":
+        env = _native_runtime_env()
+        if autonomous:
+            # The bridge runs as root, where Claude Code refuses to skip
+            # permissions unless told it is sandboxed (as claude-yolo.sh does).
+            permission_args = ["--dangerously-skip-permissions"]
+            env["IS_SANDBOX"] = "1"
+        else:
+            permission_args = ["--permission-mode", "plan" if req.mode == "plan" else "acceptEdits"]
         command = [
             resolve_runtime_executable("claude"),
             "--print",
             "--output-format",
             "json",
-            "--permission-mode",
-            "plan" if req.mode == "plan" else "acceptEdits",
+            *permission_args,
             "--no-session-persistence",
         ]
         if req.max_budget_usd is not None:
             command.extend(["--max-budget-usd", str(req.max_budget_usd)])
         command.append(req.prompt)
-        return command, _native_runtime_env()
+        return command, env
 
     if req.runtime_type == "codex":
+        if autonomous:
+            sandbox_args = ["--dangerously-bypass-approvals-and-sandbox"]
+        else:
+            sandbox_args = ["--sandbox", "read-only" if req.mode == "plan" else "workspace-write"]
         return (
             [
                 resolve_runtime_executable("codex"),
                 "exec",
                 "--json",
-                "--sandbox",
-                "read-only" if req.mode == "plan" else "workspace-write",
+                *sandbox_args,
                 "-C",
                 str(project_dir),
                 req.prompt,
@@ -1358,7 +1374,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
             req.prompt,
             "--mode",
             "plan" if req.mode == "plan" else "accept-edits",
-            "--sandbox",
+            *(["--dangerously-skip-permissions"] if autonomous else ["--sandbox"]),
             "--print-timeout",
             f"{req.max_seconds}s",
         ],

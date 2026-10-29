@@ -341,6 +341,8 @@ class AgentUpdate(BaseModel):
     # clears the override and falls back to the runtime convention (see
     # core/agent_profile_files.py); that is why it is not min_length=1.
     home_path: str | None = Field(default=None, max_length=1000)
+    # Dispatched runs skip permission prompts (see Agent.autonomous_runs).
+    autonomous_runs: bool | None = None
     # The agent's declared specialty (2026-08-05, see
     # docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md) -- a
     # channel only ever suggests this when adding the agent as a member,
@@ -422,6 +424,7 @@ class AgentOut(AgentBase):
     home_path: str | None = None
     effective_home_path: str | None = None
     default_role: str | None = None
+    autonomous_runs: bool = False
 
 
 class AgentListItemOut(AgentOut):

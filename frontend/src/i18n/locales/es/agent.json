@@ -362,5 +362,12 @@
       "syncResult": "Se comprobaron {{checked}} agente(s) y se completaron {{updated}} entorno(s) de ejecución desde el disco.",
       "unregisteredProfiles": "Perfiles de Hermes en disco sin agente registrado: {{profiles}}"
     }
+  },
+  "autonomy": {
+    "title": "Ejecución autónoma",
+    "description": "Cuando está activada, las tareas despachadas por Mensajes se ejecutan sin pedir confirmación de comandos y ediciones.",
+    "on": "Activada — sin confirmación",
+    "off": "Desactivada — pide confirmación",
+    "hint": "Sin nadie para aprobar, una solicitud de confirmación se rechaza y la tarea termina sin hacer nada. El modo plan sigue siendo de solo lectura. Solo administradores."
   }
 }

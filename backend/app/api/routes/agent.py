@@ -107,7 +107,7 @@ from app.api.schemas.prompt_technique import ImprovePromptRequest
 from app.core import agent_mcp, agent_profile_files, agent_runtime_sync, agent_telegram, forgerouter_sync, hermes_sync
 from app.core.mcp_catalog_apply import apply_global_servers_to_agent
 from app.core.config import settings
-from app.core.deps import get_current_admin
+from app.core.deps import get_current_admin, get_current_username
 from app.core.prompt_improvement import build_prompt_improvement_request, get_prompt_technique
 from app.core.secrets import decrypt_secret, encrypt_secret
 from app.db.base import get_db
@@ -1067,10 +1067,24 @@ async def get_agent(
 
 @router.patch("/{agent_id}", response_model=AgentOut)
 async def update_agent(
-    agent_id: uuid.UUID, payload: AgentUpdate, db: AsyncSession = Depends(get_db)
+    agent_id: uuid.UUID,
+    payload: AgentUpdate,
+    db: AsyncSession = Depends(get_db),
+    username: str = Depends(get_current_username),
 ) -> Agent:
     agent = await _get_agent_or_404(db, agent_id)
     updates = payload.model_dump(exclude_unset=True)
+    # Autonomy lets dispatched runs act without any approval, so only an
+    # admin may change it; null is "leave as is", never a NOT NULL write.
+    if "autonomous_runs" in updates:
+        if updates["autonomous_runs"] is None:
+            updates.pop("autonomous_runs")
+        else:
+            user = (
+                await db.execute(select(User).where(User.username == username))
+            ).scalar_one_or_none()
+            if user is None or not user.is_active or not user.is_admin:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     api_key = updates.pop("forgerouter_api_key", None)
     clear_api_key = updates.pop("clear_forgerouter_api_key", False)
     if api_key:

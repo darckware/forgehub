@@ -14,6 +14,7 @@ import {
   Tag,
   Trash2,
   Users,
+  Zap,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -499,6 +500,36 @@ export default function AgentDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Autonomy (2026-10-28): a dispatched run is headless, so a CLI
+              that asks to approve a tool gets it auto-denied. Only the
+              external runtimes read it; Hermes dispatch is always --yolo. */}
+          {agent.runtime_type && isExternalRuntime(agent.runtime_type) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  <Zap className="h-5 w-5" />
+                  {t("autonomy.title")}
+                </CardTitle>
+                <CardDescription>{t("autonomy.description")}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select
+                    className="max-w-xs"
+                    value={agent.autonomous_runs ? "on" : "off"}
+                    onChange={(e) => updateAgent.mutate({ autonomous_runs: e.target.value === "on" })}
+                    disabled={updateAgent.isPending}
+                  >
+                    <option value="on">{t("autonomy.on")}</option>
+                    <option value="off">{t("autonomy.off")}</option>
+                  </Select>
+                  {updateAgent.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                </div>
+                <p className="text-xs text-muted-foreground">{t("autonomy.hint")}</p>
+              </CardContent>
+            </Card>
+          )}
 
           <AgentProfileFilesCard agent={agent} />
 

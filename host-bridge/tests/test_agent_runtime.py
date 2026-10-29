@@ -103,3 +103,54 @@ def test_external_runtimes_ignore_forgerouter_credential(monkeypatch, tmp_path, 
     for key in ("FORGEROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
         assert key not in env
     assert "fr-secret" not in env.values()
+
+
+_AUTONOMY_FLAGS = {
+    "claude": "--dangerously-skip-permissions",
+    "codex": "--dangerously-bypass-approvals-and-sandbox",
+    "agy": "--dangerously-skip-permissions",
+}
+
+
+def _command_for(monkeypatch, tmp_path, runtime, **fields):
+    monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "test-token")
+    bridge_app = importlib.import_module("app")
+    monkeypatch.setattr(bridge_app, "resolve_runtime_executable", lambda name, *, env=None: f"/bin/{name}")
+    req = bridge_app.AgentRunRequest(
+        run_id="00000000-0000-0000-0000-000000000001",
+        runtime_type=runtime,
+        project_path=str(tmp_path),
+        prompt="do it",
+        **fields,
+    )
+    return bridge_app._agent_run_command(req, tmp_path)
+
+
+@pytest.mark.parametrize("runtime", ["claude", "codex", "agy"])
+def test_autonomous_execute_skips_permission_prompts(monkeypatch, tmp_path, runtime) -> None:
+    """A headless run has nobody to approve a tool: autonomy must turn the
+    prompt off, or the CLI auto-denies it (Dartan's review #41628)."""
+    command, env = _command_for(monkeypatch, tmp_path, runtime, autonomous=True)
+
+    assert _AUTONOMY_FLAGS[runtime] in command
+    assert "--sandbox" not in command
+    if runtime == "claude":
+        assert "--permission-mode" not in command
+        assert env["IS_SANDBOX"] == "1"
+
+
+@pytest.mark.parametrize("runtime", ["claude", "codex", "agy"])
+def test_without_autonomy_runs_keep_their_guards(monkeypatch, tmp_path, runtime) -> None:
+    command, env = _command_for(monkeypatch, tmp_path, runtime)
+
+    assert _AUTONOMY_FLAGS[runtime] not in command
+    # Only what the bridge itself inherited, never set by the bridge.
+    assert env.get("IS_SANDBOX") == os.environ.get("IS_SANDBOX")
+
+
+@pytest.mark.parametrize("runtime", ["claude", "codex", "agy"])
+def test_plan_mode_stays_read_only_even_when_autonomous(monkeypatch, tmp_path, runtime) -> None:
+    command, _env = _command_for(monkeypatch, tmp_path, runtime, autonomous=True, mode="plan")
+
+    assert _AUTONOMY_FLAGS[runtime] not in command
+    assert "plan" in command or "read-only" in command

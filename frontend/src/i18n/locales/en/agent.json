@@ -356,5 +356,12 @@
       "syncResult": "{{checked}} agent(s) checked, {{updated}} runtime(s) filled in from disk.",
       "unregisteredProfiles": "Hermes profiles on disk with no agent registered: {{profiles}}"
     }
+  },
+  "autonomy": {
+    "title": "Autonomous runs",
+    "description": "When on, tasks dispatched through Messages run without asking to confirm commands and edits.",
+    "on": "On — no confirmation",
+    "off": "Off — asks for confirmation",
+    "hint": "With nobody there to approve, a confirmation prompt is denied and the task ends having done nothing. Plan mode stays read-only. Admins only."
   }
 }
