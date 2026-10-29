@@ -1,6 +1,6 @@
 {
   "title": "Onda 1 — base comprovada",
-  "updated_at": "2026-10-27",
+  "updated_at": "2026-10-28",
   "scope": "Planejamento consolidado autorizado; nenhuma execução/cadastro criado por esta edição",
   "external_prerequisites": {
     "0.14": [
@@ -23,9 +23,9 @@
     {
       "id": "0.15",
       "title": "**Registro da aprovação de consolidação** do Marcelo e dos limites/defaults em 09; corrigir documentos com referência aos itens do consolidado",
-      "executor_agent_slug": "aramis",
+      "executor_agent_slug": "porthus",
       "reviewer_agent_slug": "athos",
-      "executor_label": "Aramis (registro), Marcelo (autoridade)",
+      "executor_label": "Porthus (registro), Marcelo (autoridade)",
       "reviewer_label": "Athos",
       "depends_on": [
         "0.14"
@@ -37,10 +37,10 @@
     {
       "id": "T.1",
       "title": "Postgres de teste em **contêiner próprio**, volume/rede/credencial/porta próprios; Alembic e guard que rejeita banco/host/credencial de produção; `dev.sh` e suíte usam somente esse ambiente",
-      "executor_agent_slug": "aramis",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Aramis (apoio Hephaestus)",
-      "reviewer_label": "Porthus",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus (apoio Hephaestus)",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "0.15"
       ],
@@ -51,10 +51,10 @@
     {
       "id": "T.2",
       "title": "Backend/frontend de teste com limites de recurso, seed fictício reproduzível e reset explícito",
-      "executor_agent_slug": "aramis",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Aramis (apoio Hephaestus)",
-      "reviewer_label": "Porthus",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus (apoio Hephaestus)",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "T.1"
       ],
@@ -65,10 +65,10 @@
     {
       "id": "T.3",
       "title": "Credenciais exclusivas de teste e integrações externas simuladas; primeiro o deny de egress/stubs, depois iniciar o app de teste",
-      "executor_agent_slug": "aramis",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Aramis (apoio Aegis)",
-      "reviewer_label": "Porthus",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus (apoio Aegis)",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "T.2"
       ],
@@ -123,10 +123,10 @@
     {
       "id": "N.0",
       "title": "Validar o navegador atual do Workspace (ligar, navegar, uma rotina, um teste em segundo plano) e registrar o que falha",
-      "executor_agent_slug": "aramis",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Aramis",
-      "reviewer_label": "Porthus",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "T.2",
         "T.3"
@@ -138,10 +138,10 @@
     {
       "id": "V-a",
       "title": "Validar roteiro V.1–V.15 por tela/API com dados fictícios, relatando defeitos e correções",
-      "executor_agent_slug": "aramis",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Aramis",
-      "reviewer_label": "Porthus",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "T.2",
         "T.3"
@@ -167,10 +167,10 @@
     {
       "id": "M0.0",
       "title": "Tipo missão e base mínima de coordenação conforme 04; migrar CHECK/schema/guard sem alterar criação/manutenção; preservar critérios, membros e revisões existentes",
-      "executor_agent_slug": "aramis",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Aramis",
-      "reviewer_label": "Porthus",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "M0.SPEC",
         "T.2",
@@ -184,9 +184,9 @@
       "id": "M0.1",
       "title": "Inventário e cadastro idempotente do produto Ecossistema Foundation/ciclo vigente e do projeto comum Plano integrado, sem duplicar registros existentes",
       "executor_agent_slug": "atlas",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Atlas (apoio Aramis nas tools)",
-      "reviewer_label": "Porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Atlas (apoio Porthus nas tools)",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "V-a",
         "M0.R"
@@ -198,10 +198,10 @@
     {
       "id": "M0.2a",
       "title": "MCP create_internal_project/manage_project_members; papéis e permissão por projeto",
-      "executor_agent_slug": "aramis",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Aramis",
-      "reviewer_label": "Porthus",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "M0.0"
       ],
@@ -212,10 +212,10 @@
     {
       "id": "M0.2b",
       "title": "MCP submit_project_plan/add_task_dependency; aprovação só pela tela na primeira onda",
-      "executor_agent_slug": "aramis",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Aramis",
-      "reviewer_label": "Porthus",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "M0.2a",
         "M0.6b"
@@ -227,10 +227,10 @@
     {
       "id": "M0.2c",
       "title": "MCP assign_task/dispatch_task/report_task_execution, reutilizando Messages",
-      "executor_agent_slug": "aramis",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Aramis",
-      "reviewer_label": "Porthus",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "M0.2b",
         "M0.6a",
@@ -243,10 +243,10 @@
     {
       "id": "M0.2d",
       "title": "MCP attach_project_document/get_my_mission_role e minhas tarefas",
-      "executor_agent_slug": "aramis",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Aramis",
-      "reviewer_label": "Porthus",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "M0.2a"
       ],
@@ -257,10 +257,10 @@
     {
       "id": "M0.6a",
       "title": "Guard global prospectivo de done/deployed: execução git/file/db verificada e revisão independente; auditoria da credencial, preservando conclusões históricas",
-      "executor_agent_slug": "aramis",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Aramis",
-      "reviewer_label": "Porthus",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "M0.0"
       ],
@@ -271,10 +271,10 @@
     {
       "id": "M0.6b",
       "title": "Baseline imutável com ids e hash de conteúdo; guard em todos os caminhos de despacho; alteração exige change request",
-      "executor_agent_slug": "aramis",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Aramis",
-      "reviewer_label": "Porthus",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "M0.0"
       ],
@@ -302,9 +302,9 @@
       "id": "M0.4",
       "title": "Instruções versionadas e ensaio M0 com runner/MCP simulados de teste; sem usar perfis, bridge ou credenciais de produção",
       "executor_agent_slug": "athos",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Athos (apoio Aramis)",
-      "reviewer_label": "Porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Athos (apoio Porthus)",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "M0.3"
       ],
@@ -333,9 +333,9 @@
       "id": "C.0",
       "title": "**Linha de base** (fase 0 do diagnóstico): matriz por perfil com memória nativa (uso × limite), banco e modos do Hindsight (`auto_retain`, `auto_recall`, `recall_budget`, tags), hook ativo, pasta da KB, compactação e limite real de contexto por rota",
       "executor_agent_slug": "mnemosyne",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Mnemosyne (levantamento; apoio Aramis)",
-      "reviewer_label": "Porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Mnemosyne (levantamento; apoio Porthus)",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "M0.5"
       ],
@@ -360,10 +360,10 @@
     {
       "id": "C.2b",
       "title": "Isolamento completo e classificação de recuperação: completar a contenção C.2a com política C.1, allowed_consumers, validade/metadados e modo observação",
-      "executor_agent_slug": "aramis",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Aramis (código; Mnemosyne confere isolamento)",
-      "reviewer_label": "Porthus",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus (código; Mnemosyne confere isolamento)",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "C.1",
         "C.2.R",
@@ -377,10 +377,10 @@
     {
       "id": "A.1",
       "title": "Quadro com todos os agentes das cartas (externos sempre presentes) + saúde de canal/gateway",
-      "executor_agent_slug": "aramis",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Aramis (API) (apoio: Dartan)",
-      "reviewer_label": "Porthus",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus (API e tela)",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "T.2",
         "T.3"
@@ -392,10 +392,10 @@
     {
       "id": "A.2",
       "title": "Rotinas na timeline (passado e próximas 24 h) com desfecho; alerta de rotina perdida",
-      "executor_agent_slug": "aramis",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Aramis (apoio: Dartan)",
-      "reviewer_label": "Porthus",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "A.1"
       ],
@@ -457,10 +457,10 @@
     {
       "id": "C.2a",
       "title": "Contenção mínima pré-política: negar KB de outros agentes e conteúdo pessoal/cliente fora do dono; patch do hook compartilhado, fixtures e modo observação sem texto nos logs",
-      "executor_agent_slug": "aramis",
-      "reviewer_agent_slug": "porthus",
-      "executor_label": "Aramis",
-      "reviewer_label": "Porthus",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "M0.SPEC",
         "T.2",

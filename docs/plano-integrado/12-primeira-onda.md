@@ -47,7 +47,7 @@ primeira missão, o aceite é de Marcelo. M.1n automatiza o que esse registro m�
 
 ## Limites globais
 
-- Aramis/Codex implementa; Porthus/Claude Code revisa. Comparar identidades registradas; autor/coautor
+- Porthus/Claude Code implementa; Dartan/agy revisa (decisão D-1 de 28/10: Codex sem cota). Aramis/Codex volta como executor ou revisor quando a cota voltar, por nova atribuição. Comparar identidades registradas; autor/coautor
   não valida sua própria entrega. Toda tarefa tem um dono, colaboradores e verificador distintos.
 - T.1 → T.2 → T.3 antecede V-a/N.0 e toda validação que altere estado. Não rodar o pytest atual com
   defaults de produção. Primeiro testes unitários sem conftest (`--noconftest`) e guard explícito.
@@ -83,36 +83,36 @@ A [matriz JSON](onda1-tarefas.json) é canônica para a Onda 1. As tabelas de 07
 | ID | Responsável | Verificador | Predecessores |
 |---|---|---|---|
 | 0.14 | athos | porthus | — |
-| 0.15 | aramis | athos | 0.14 |
-| T.1 | aramis | porthus | 0.15 |
-| T.2 | aramis | porthus | T.1 |
-| T.3 | aramis | porthus | T.2 |
+| 0.15 | porthus | athos | 0.14 |
+| T.1 | porthus | dartan | 0.15 |
+| T.2 | porthus | dartan | T.1 |
+| T.3 | porthus | dartan | T.2 |
 | T.4a | hephaestus | aegis | T.2, T.3 |
 | T.6 | athos | aegis | T.2, T.3 |
 | F.1 | porthus | aegis | 0.15 |
-| N.0 | aramis | porthus | T.2, T.3 |
-| V-a | aramis | porthus | T.2, T.3 |
+| N.0 | porthus | dartan | T.2, T.3 |
+| V-a | porthus | dartan | T.2, T.3 |
 | M0.SPEC | daedalus | porthus | 0.15 |
-| M0.0 | aramis | porthus | M0.SPEC, T.2, T.3 |
-| M0.1 | atlas | porthus | V-a, M0.R |
-| M0.2a | aramis | porthus | M0.0 |
-| M0.2b | aramis | porthus | M0.2a, M0.6b |
-| M0.2c | aramis | porthus | M0.2b, M0.6a, M0.6b |
-| M0.2d | aramis | porthus | M0.2a |
-| M0.6a | aramis | porthus | M0.0 |
-| M0.6b | aramis | porthus | M0.0 |
+| M0.0 | porthus | dartan | M0.SPEC, T.2, T.3 |
+| M0.1 | atlas | dartan | V-a, M0.R |
+| M0.2a | porthus | dartan | M0.0 |
+| M0.2b | porthus | dartan | M0.2a, M0.6b |
+| M0.2c | porthus | dartan | M0.2b, M0.6a, M0.6b |
+| M0.2d | porthus | dartan | M0.2a |
+| M0.6a | porthus | dartan | M0.0 |
+| M0.6b | porthus | dartan | M0.0 |
 | M0.3 | athos | themis | M0.2c, M0.2d, T.6 |
-| M0.4 | athos | porthus | M0.3 |
+| M0.4 | athos | dartan | M0.3 |
 | M0.5 | athos | porthus | M0.1, M0.4, M0.R, C.2.R |
-| C.0 | mnemosyne | porthus | M0.5 |
+| C.0 | mnemosyne | dartan | M0.5 |
 | C.1 | athos | mnemosyne | C.0 |
-| C.2b | aramis | porthus | C.1, C.2.R, T.2, T.3 |
-| A.1 | aramis | porthus | T.2, T.3 |
-| A.2 | aramis | porthus | A.1 |
+| C.2b | porthus | dartan | C.1, C.2.R, T.2, T.3 |
+| A.1 | porthus | dartan | T.2, T.3 |
+| A.2 | porthus | dartan | A.1 |
 | B0 | hephaestus | aegis | T.2, T.3 |
 | M0.R | hephaestus | porthus | M0.2c, M0.2d, M0.6a, M0.6b, M0.4, B0, V-a |
 | A.R | hephaestus | porthus | A.1, A.2, B0 |
-| C.2a | aramis | porthus | M0.SPEC, T.2, T.3 |
+| C.2a | porthus | dartan | M0.SPEC, T.2, T.3 |
 | C.2.R | athos | aegis | C.2a |
 | C.2b.R | athos | aegis | C.2b |
 
@@ -165,7 +165,7 @@ provam o fluxo declarado.
 - [ ] Primeiro confirmar o guard e os stubs ativos; não rodar a suíte com `.env` de produção.
 - [ ] Percorrer V.1–V.15 com fixtures; dispatch/incidente/ticket e publicação são simulados. Registrar falhas reais antes de corrigir cada defeito em tarefa própria.
 - [ ] N.0 usa página local de teste e sessão dedicada, sem ler/fechar abas do operador; documenta o que o browser atual permite e o que falta.
-- [ ] Conferir 390px e desktop, permissões e rollback do teste; Aramis entrega relatório, Porthus verifica. V-b fica para a Onda 2 e usa somente ferramentas existentes.
+- [ ] Conferir 390px e desktop, permissões e rollback do teste; Porthus entrega relatório, Dartan verifica. V-b fica para a Onda 2 e usa somente ferramentas existentes.
 
 ### 4. M0.SPEC/F.1 — Contratos antes de código
 

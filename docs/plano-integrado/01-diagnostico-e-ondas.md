@@ -21,7 +21,7 @@ Correções aplicadas da revisão:
 - **A1/A2/A3:** primeira missão = C.0+C.1; plano integrado = projeto comum de acompanhamento no
   produto Ecossistema Foundation. Missão é projeto de coordenação ligado aos projetos executores;
   estado próprio e mapeamento explícito para Project.status estão no [04](04-missao-pipeline-e-papeis.md).
-- **D2/K2:** executor de código Aramis; revisão Porthus. Claude Code e Porthus são a mesma identidade
+- **D2/K2:** executor de código Porthus; revisão Dartan (D-1, 28/10: Codex sem cota). Claude Code e Porthus são a mesma identidade
   e nunca satisfazem independência entre si. Comparar ids registrados, não rótulos.
 - **F1/F6:** T.2+T.3 precedem V-a e qualquer validação que altere estado. O registro de missão e do
   trabalho real fica em produção; ensaios mutantes usam dados fictícios na área de teste.

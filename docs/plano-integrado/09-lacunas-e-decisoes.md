@@ -38,22 +38,28 @@
 
 Marcelo aprovou nesta conversa incorporar as correções e fechar a primeira onda. Este registro não
 atribui a ele decisões operacionais que não foram apresentadas individualmente. Para tornar o plano
-concreto, Aramis adota abaixo as recomendações existentes como **premissas revisáveis de planejamento**.
+concreto, o redator adotou abaixo as recomendações existentes como **premissas revisáveis de planejamento**.
 Permissões de produção, gasto, publicação, Foundation e dados pessoais continuam com os gates próprios.
 Nenhuma identidade, produto, credencial, VM ou task foi criada por este registro.
 
-| Premissa revisável (não aprovação individual) | Tratamento proposto nesta consolidação | Limite / confirmação na execução |
-|---|---|---|
-| D-1 | Aramis implementa; Porthus revisa código/telas/testes; Dartan pode revisar quando disponível | Revalidar cota e registro ao atribuir; nunca Porthus implementador e Claude Code revisor |
-| D-2 | C.0+C.1 é a primeira missão; plano integrado é projeto comum no Ecossistema Foundation | Abertura após M0.4/M0.R e contenção C.2.R; prazo, orçamento, papéis e baseline exata antes do despacho |
-| D-3 | Projeto coordenador vinculado aos projetos executores; gates de 04 | M0.0/M.1 especificam migrations; não aplicar código parcial antigo |
-| D-4 | Linux na Onda 1; Windows T.4b na Onda 2 | **Pendente de alvo/capacidade/custo:** nenhum host Windows escolhido, nenhuma VM/compra autorizada |
-| D-5 | Negócio/brief em pt-BR; spec técnica/ADR/API/código em inglês conforme padrão 18 | Foundation continua em inglês conforme sua política própria; esta consolidação preserva pt-BR do plano |
-| D-6 | Referências de responsáveis propostas abaixo | Titularidade/delegação no banco só após validação do registro e confirmação do cadastro/baseline |
-| D-7 | Manter a regra da Lara sem contato por rotina | Nenhum envio/prospecção autorizado por esta aprovação |
-| D-8 | Kairos como reviewer em missão comercial | Usar vocabulário de papéis existente; sem criar função nova |
+**Decisão do Marcelo (0.15, 28/10/2026):** D-1 a D-8 foram apresentadas uma a uma e aprovadas como
+na tabela abaixo. A D-1 mudou: o Codex (Aramis) está sem cota, então **Porthus implementa e Dartan
+revisa**. A D-4 foi aprovada como "decidir depois": a Onda 1 é só Linux, e a máquina Windows é escolhida
+antes da T.4b. Essas aprovações valem para o desenho. Não liberam gasto, publicação, credencial nem
+despacho, que continuam com os gates próprios de cada tarefa.
 
-Responsáveis de produto propostos (K6): Ecossistema Foundation → Athos; ForgeHub → Daedalus;
+| Decisão | O que foi decidido | Limite / confirmação na execução |
+|---|---|---|
+| D-1 | **Decidido em 28/10:** Porthus implementa; Dartan revisa código/telas/testes (Aramis/Codex sem cota) | Revalidar a cota do agy antes de cada atribuição; sem cota do Dartan, a revisão espera, nunca vira autorrevisão. Porthus e Claude Code são a mesma identidade |
+| D-2 | **Aprovado em 28/10:** C.0+C.1 é a primeira missão; plano integrado é projeto comum no Ecossistema Foundation | Abertura após M0.4/M0.R e contenção C.2.R; prazo, orçamento, papéis e baseline exata antes do despacho |
+| D-3 | **Aprovado em 28/10:** Projeto coordenador vinculado aos projetos executores; gates de 04 | M0.0/M.1 especificam migrations; não aplicar código parcial antigo |
+| D-4 | **Aprovado em 28/10:** Linux na Onda 1; Windows T.4b na Onda 2 | **Pendente de alvo/capacidade/custo:** nenhum host Windows escolhido, nenhuma VM/compra autorizada |
+| D-5 | **Aprovado em 28/10:** Negócio/brief em pt-BR; spec técnica/ADR/API/código em inglês conforme padrão 18 | Foundation continua em inglês conforme sua política própria; esta consolidação preserva pt-BR do plano |
+| D-6 | **Aprovado em 28/10:** Referências de responsáveis propostas abaixo | Titularidade/delegação no banco só após validação do registro e confirmação do cadastro/baseline |
+| D-7 | **Aprovado em 28/10:** Manter a regra da Lara sem contato por rotina | Nenhum envio/prospecção autorizado por esta aprovação |
+| D-8 | **Aprovado em 28/10:** Kairos como reviewer em missão comercial | Usar vocabulário de papéis existente; sem criar função nova |
+
+Responsáveis de produto (K6, aprovados em D-6): Ecossistema Foundation → Athos; ForgeHub → Daedalus;
 ForgeRouter → Atlas; ForgeVault → Aegis; Darckware → Kairos; Serviços de Manutenção → Hephaestus.
 Outros produtos recebem dono no inventário B.1, sem atribuição inventada. Não confundir dono do
 produto com executor de código ou aprovação de produção.
