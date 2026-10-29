@@ -158,6 +158,17 @@ dispatches the cross reviews, and raises each flagged item to Marcelo with `ask_
 `planning_stage` only through `planning:advance`, whose exit conditions it cannot waive; it never
 decides a flagged item and never approves the baseline.
 
+### 3.6 Maintaining the mission context and the executors' skills [PROPOSED, Marcelo 2026-10-29]
+
+04 §8, main spec §6.1. After every decision, integration, annotation or lesson the cycle writes a new
+`mission_context_versions` row (reason required) and, for tasks already queued whose slice changed,
+refreshes the slice before `reserve_dispatch` runs. A `CONTEXT_MISSING:` report becomes a pack item and,
+if the task cannot finish without it, a `return`. Before dispatching or scheduling, the cycle re-checks the
+task's required skills against the executor and the reviewer; a gap blocks that task (decision `defer`
+with reason `skill_gap`) and produces a `propose_skill_change`, which goes to the skill owner and, when
+it needs approval, to Marcelo through `ask_marcelo`. A failure or critique attributed to missing
+capability also yields a proposal. The cycle never grants, installs or edits a skill.
+
 ## 4. Decision record [PROPOSED table `mission_decisions`]
 
 | Column | Note |

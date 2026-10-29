@@ -166,7 +166,7 @@
     },
     {
       "id": "M0.0",
-      "title": "Tipo missão e base mínima de coordenação conforme 04; migrar CHECK/schema/guard sem alterar criação/manutenção; preservar critérios, membros e revisões existentes; estado `em planejamento` com as etapas P1–P8 e suas condições de saída (04 Validação do plano)",
+      "title": "Tipo missão e base mínima de coordenação conforme 04; migrar CHECK/schema/guard sem alterar criação/manutenção; preservar critérios, membros e revisões existentes; estado `em planejamento` com as etapas P1–P8 e suas condições de saída (04 Validação do plano); `required_skill_ids` por tarefa e checagem de skills de executor e revisor na P2",
       "executor_agent_slug": "porthus",
       "reviewer_agent_slug": "dartan",
       "executor_label": "Porthus",
@@ -176,7 +176,7 @@
         "T.2",
         "T.3"
       ],
-      "acceptance": "Migração ida/volta em fixture; tipos existentes intactos; projeto comum não recebe gate de missão indevidamente; etapas de planejamento com condições de saída testadas",
+      "acceptance": "Migração ida/volta em fixture; tipos existentes intactos; projeto comum não recebe gate de missão indevidamente; etapas de planejamento com condições de saída testadas; falta de skill aparece na checagem automática",
       "status": "planned",
       "project_task_id": null
     },
@@ -284,7 +284,7 @@
     },
     {
       "id": "M0.7",
-      "title": "**Tela mínima de execuções da missão** conforme `MISSION_EXECUTIONS_SCREEN_SPEC.md`: tarefas e dependências, executor/revisor com bloqueio autor = revisor, estados com tempo e prazo, provas verificadas, conflitos de worktree/branch/produção, publicado por ambiente, ações só pelas rotas com guard; várias missões com filtro e prioridade; visão do pipeline de planejamento (etapas, pareceres, consolidação, decisões pendentes)",
+      "title": "**Tela mínima de execuções da missão** conforme `MISSION_EXECUTIONS_SCREEN_SPEC.md`: tarefas e dependências, executor/revisor com bloqueio autor = revisor, estados com tempo e prazo, provas verificadas, conflitos de worktree/branch/produção, publicado por ambiente, ações só pelas rotas com guard; várias missões com filtro e prioridade; visão do pipeline de planejamento (etapas, pareceres, consolidação, decisões pendentes); versão de contexto de cada despacho e skills por tarefa visíveis",
       "executor_agent_slug": "porthus",
       "reviewer_agent_slug": "dartan",
       "executor_label": "Porthus",
@@ -300,7 +300,7 @@
     },
     {
       "id": "M0.8",
-      "title": "**Ciclo de decisão do orquestrador pela Operação 24x7** conforme `MISSION_ORCHESTRATOR_CYCLE_SPEC.md`: despachar, agendar com `scheduled_at` (inclusive retorno de cota), reatribuir, pedir revisão, recusar, serializar alvos, perguntar/pausar; `mission_decisions` com motivo; publicação em produção serializada em todo o Messages (D-M0-2); **continuação até o fim** (§3.4): integrar a entrega aprovada, reverificar antes da revisão, falha de infraestrutura ≠ recusa, vigia do próprio ciclo; o ciclo conduz o pipeline de planejamento sem decidir itens nem aprovar a baseline",
+      "title": "**Ciclo de decisão do orquestrador pela Operação 24x7** conforme `MISSION_ORCHESTRATOR_CYCLE_SPEC.md`: despachar, agendar com `scheduled_at` (inclusive retorno de cota), reatribuir, pedir revisão, recusar, serializar alvos, perguntar/pausar; `mission_decisions` com motivo; publicação em produção serializada em todo o Messages (D-M0-2); **continuação até o fim** (§3.4): integrar a entrega aprovada, reverificar antes da revisão, falha de infraestrutura ≠ recusa, vigia do próprio ciclo; o ciclo conduz o pipeline de planejamento sem decidir itens nem aprovar a baseline; o ciclo mantém o **pacote de contexto** versionado da missão e propõe skills faltantes ao dono (04 §8)",
       "executor_agent_slug": "porthus",
       "reviewer_agent_slug": "dartan",
       "executor_label": "Porthus",
@@ -309,7 +309,7 @@
         "M0.2c",
         "M0.6b"
       ],
-      "acceptance": "Cada ação com limite de autonomia, registro e gate testados em ambiente isolado; reagendamento por cota comprovado; duas publicações simultâneas da produção recusadas; tarefa aprovada só termina integrada; missão ativa nunca fica parada sem motivo registrado",
+      "acceptance": "Cada ação com limite de autonomia, registro e gate testados em ambiente isolado; reagendamento por cota comprovado; duas publicações simultâneas da produção recusadas; tarefa aprovada só termina integrada; missão ativa nunca fica parada sem motivo registrado; todo despacho registra a versão de contexto; skill faltante bloqueia a tarefa e gera proposta, nunca concessão",
       "status": "planned",
       "project_task_id": null
     },

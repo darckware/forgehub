@@ -255,6 +255,38 @@ que ele decide sozinho e o que só propõe; o Marcelo pode desfazer ou travar qu
 tela. Com várias missões ativas, cada uma tem seu ciclo, e a disputa por agente se resolve pela
 prioridade descrita na seção 6.
 
+### 8. A missão é o orquestrador: contexto, execução e skills
+
+Marcelo, 29/10: "o importante da missão: ela se torna um orquestrador, precisa gerenciar o contexto da
+missão, monitorar a execução e a necessidade de skills para os agentes executores". Os executores
+rodam sem memória entre execuções; tudo o que eles sabem da missão chega pelo orquestrador.
+
+**1. Contexto da missão (pacote vivo, não só o brief)**
+- O orquestrador mantém um **pacote de contexto** versionado: brief aprovado, baseline do plano,
+  decisões registradas (as do Marcelo e as do ciclo), estado atual de cada tarefa, entregas já
+  integradas, críticas e lições, anotações do Marcelo. Cada decisão ou entrega gera nova versão.
+- Cada despacho leva **o recorte do pacote que aquela tarefa precisa** (allowlist por papel e tarefa,
+  M0.SPEC §6), com a versão e o hash. A tarefa que recebeu contexto antigo é refeita ou atualizada, não
+  aceita como está.
+- O executor relata no resultado o que usou e o que faltou; contexto faltante vira item do pacote.
+- O pacote nunca copia dado pessoal (Maia) ou de cliente (Lara) para quem não tem direito, e respeita
+  as camadas da Fase C (memória, Hindsight, Base de Conhecimento, Foundation).
+
+**2. Monitoramento da execução:** o ciclo das seções 6 e 7 e a continuação até o fim (§3.4 da
+especificação do ciclo).
+
+**3. Skills dos executores**
+- Cada tarefa declara as **skills necessárias** (do cadastro `skills`) no planejamento.
+- Na checagem automática (P2), o sistema confere que o executor e o revisor atribuídos têm essas skills
+  (`agent_skills`) e que a skill está instalada no runtime deles. Falta vira item da consolidação, não
+  surpresa na execução.
+- Diante de uma falta, o orquestrador **propõe**: atribuir uma skill existente a outro executor
+  elegível, conceder a skill ao executor atual, ou criar uma skill nova. Conceder ou criar skill passa
+  pelo dono canônico (skills compartilhadas e Foundation: Athos, com backup e revisão) e pela aprovação
+  aplicável. O orquestrador nunca instala nem edita skill por conta própria.
+- Durante a execução, uma falha ou crítica cuja causa é falta de capacidade vira **proposta de skill**
+  registrada na missão, e a lição alimenta a melhoria da skill depois (Fase G).
+
 ## Missão = projeto no Service Factory: o que os agentes conseguem hoje
 
 Para um grupo de agentes executar uma missão, ela precisa existir como projeto no Service Factory.

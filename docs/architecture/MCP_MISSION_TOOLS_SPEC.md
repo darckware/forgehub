@@ -611,6 +611,33 @@ the simulated runner and test `agt_` credentials, never production profiles, bri
 
 ---
 
+
+### 6.1 Mission context pack and executor skills [PROPOSED, Marcelo 2026-10-29]
+
+04 §8. Two additions on top of the allowlist above:
+
+**Context pack.** Table `mission_context_versions(id uuid PK, project_id FK projects, version int,
+content_hash String(64), sources JSONB, created_by_type/created_by_id, reason Text not null, created_at)`
+with `UNIQUE(project_id, version)`. `sources` lists the canonical items the version is built from (brief
+artifact version, baseline id, decision row ids, integrated commits, annotations, lessons), never their
+copied text when the item already lives elsewhere. A new version is written by the cycle after any
+decision, integration or annotation (cycle spec §3.6). Every mission dispatch stores
+`context_version_id` and the hash of the allowlisted slice it carried; the completion report gains an
+optional `CONTEXT_MISSING:` line, recorded as a pack item. A delivery made on a superseded version that
+the newer one changes materially is `return`ed (cycle §3.4), not reviewed.
+
+**Skills.** Column `project_tasks.required_skill_ids UUID[] not null default '{}'` [PROPOSED, M0.0],
+editable only while the mission is `planning` (afterwards by change request). The P2 auto check
+(§3.1) adds, per task: each required skill exists and is `active`; the assigned executor **and** reviewer
+hold it in `agent_skills`; and, when the skill has a runtime file, it is present in that agent's runtime
+(through the existing profile/skills readers, read-only). A gap is a consolidation item, never a silent
+pass. `propose_skill_change(task_id, kind in (assign_other_agent, grant_to_agent, create_skill),
+skill_id?, agent_id?, reason, idempotency_key)` [PROPOSED tool] only records a proposal routed to the
+skill's canonical owner (Athos for shared/Foundation skills); granting or creating a skill stays with that
+owner and its approval. Tests: `test_auto_check_flags_missing_skill_for_executor_and_reviewer`,
+`test_required_skills_locked_after_baseline`, `test_propose_skill_never_grants`,
+`test_dispatch_records_context_version`, `test_stale_context_delivery_returned`.
+
 ## 7. Plan submission and baseline approval [PROPOSED, M0.2b + M0.6b]
 
 1. `submit_project_plan` creates/updates a `ProjectPlan` in `draft` [backend/app/db/models/project.py:188] and runs

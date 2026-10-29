@@ -137,6 +137,12 @@ Marcelo, each answerable from here through the `human_only` decision route. On a
 collapses to the current stage with previous/next. The same view reopens when a change request sends
 the mission back to planning.
 
+## 4.2 Context and skills on the screen [PROPOSED, Marcelo 2026-10-29]
+
+Each task row shows the context version it was dispatched with (stale ones flagged) and its required
+skills with a check per executor and reviewer; a mission-level panel lists the context pack versions
+(what changed and why) and the open skill proposals with their owner and status.
+
 ## 5. Conflict detection
 
 Computed on every board build (and across **all** active missions plus non-mission in-flight demands,
