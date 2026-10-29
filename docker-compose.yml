@@ -35,6 +35,9 @@ services:
       # (host-bridge/app.py) running directly on the host, via the
       # extra_hosts entry below.
       CHAT_BRIDGE_URL: http://host.docker.internal:8910
+      DARCKWARE_AGENT_TOKEN_FILE: /run/secrets/darckware_agent_token
+    secrets:
+      - darckware_agent_token
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # Localhost only (2026-09-27): the public IP reaches no system -- web
@@ -129,3 +132,7 @@ networks:
   # Workspace e chat da Lara (2026-10-06).
   foundation_network:
     external: true
+
+secrets:
+  darckware_agent_token:
+    file: /run/forgehub-secrets/darckware_agent_token

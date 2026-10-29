@@ -194,9 +194,10 @@ class Settings(BaseSettings):
     # credentials on purpose: the agent token is the same one Lara's MCP uses
     # (read/write), the approver token is ForgeHub-only and is what lets an
     # e-mail to a client actually leave -- the drafter can never approve.
-    # Empty URL/token = integration off (routes answer 503).
+    # Empty URL and token (or unreadable token file) = integration off (routes answer 503).
     DARCKWARE_API_URL: str = "http://darckware-backend:8020"
     DARCKWARE_AGENT_TOKEN: str = ""
+    DARCKWARE_AGENT_TOKEN_FILE: str = ""
     DARCKWARE_APPROVER_TOKEN: str = ""
     # "Traduzir" on a client demand (2026-10-14): a plain ForgeRouter chat
     # completion billed to this agent's own key -- Lara, who owns the client
