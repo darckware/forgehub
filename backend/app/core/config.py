@@ -140,6 +140,11 @@ class Settings(BaseSettings):
 
     # Auth
     JWT_SECRET: str = "dev_only_insecure_jwt_secret_change_me"
+    # Key material for core/secrets.py (encrypted credentials at rest). Empty
+    # = derive from JWT_SECRET, as before. Separate so JWT_SECRET can be
+    # rotated without making every stored credential unreadable (2026-10-29:
+    # production ran on the public code default above).
+    SECRETS_ENCRYPTION_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 

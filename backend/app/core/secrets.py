@@ -10,7 +10,11 @@ from app.core.config import settings
 def _fernet() -> Fernet:
     # JWT_SECRET is already required to remain stable and secret. Deriving a
     # distinct fixed-size key avoids introducing a second deployment secret.
-    digest = hashlib.sha256(f"forgehub-credentials:{settings.JWT_SECRET}".encode()).digest()
+    # SECRETS_ENCRYPTION_KEY, when set, replaces it as the key material -- the
+    # same derivation, so setting it to the previous JWT_SECRET keeps every
+    # stored ciphertext readable after a JWT_SECRET rotation.
+    material = settings.SECRETS_ENCRYPTION_KEY or settings.JWT_SECRET
+    digest = hashlib.sha256(f"forgehub-credentials:{material}".encode()).digest()
     return Fernet(base64.urlsafe_b64encode(digest))
 
 
