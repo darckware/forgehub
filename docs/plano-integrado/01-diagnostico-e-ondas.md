@@ -64,6 +64,12 @@ A M0.0 foi implementada pelo Porthus no branch `feat/m0-0-mission-base` (29/10) 
 - **Pipeline de planejamento** (P1–P8) em `planning:advance`, só em ordem; cada tentativa, aplicada ou recusada, fica em `mission_decisions`. A P2 confere as skills exigidas (`project_tasks.required_skill_ids`) do executor e dos revisores elegíveis.
 - **Recusa por falta de dado:** ambiente e pré-requisitos de ambiente, pareceres por camada, disposições, rodada cruzada, itens para decisão, verificação da aplicação e dossiê ainda não têm onde ser lidos. Essas saídas recusam com `not_recorded` até as fatias M0.2b/M0.2d/M0.6b/M0.7 criarem os dados.
 
+A M0.6a foi implementada pelo Porthus no branch `feat/m0-6a-completion-guard` (29/10) e aguarda a revisão do Dartan (D-1). Ainda não houve merge, migração fora do banco de teste nem reinício do bridge.
+- **Guard global e prospectivo:** toda transição nova para `done`/`deployed`, em qualquer projeto, exige execução `verified`, evidência `git:`/`file:`/`db:` conferida e revisão aprovada por outro agente, com dependências e subtarefas concluídas. Tarefas já concluídas continuam como estão, sem backfill.
+- **Evidência no host:** `file:` e `git:` são conferidos pelo host-bridge (`/v1/evidence/verify`, `/v1/git/is-ancestor`), porque o contêiner do backend não tem `git` nem as pastas dos projetos. Bridge inalcançável = "não verificado" (409).
+- **Missão:** a aprovação da revisão deixa a tarefa `in_review` até o commit estar em `develop`. `deployed` é sempre recusado com `DEPLOYED_WITHOUT_RELEASE` enquanto não houver `environment_releases`.
+- **Na publicação (M0.R):** `systemctl restart forgehub-chat-bridge` antes de liberar o backend. Sem isso, nenhuma tarefa com evidência `git:`/`file:` é concluída.
+
 ## Onda 1 — Provar a base e fechar os riscos imediatos
 
 O detalhamento executável está em [12 — Primeira onda](12-primeira-onda.md), com responsáveis,

@@ -51,6 +51,7 @@ import {
   useDeleteTask,
   useTasks,
   useUpdateTask,
+  taskUpdateErrorMessage,
   type ProjectTask,
   type TaskCreateInput,
 } from "@/hooks/useTask";
@@ -825,6 +826,9 @@ function ProjectPlanningAndTasksManager({
               isSubmitting={updateTask.isPending}
               submitLabel={t("central.saveTask")}
             />
+            {updateTask.isError && (
+              <p className="mt-2 text-sm text-destructive">{taskUpdateErrorMessage(updateTask.error)}</p>
+            )}
           </CardContent>
         </Card>
       )}

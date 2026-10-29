@@ -12,7 +12,10 @@ Each integration has its own path prefix:
   never executes anything and finishes at once), ``/v1/messages/send``
   (Telegram and every cross-channel message: nothing is sent), ``/v1/servers/*``
   for fictitious targets only (RFC 5737 / ``.test``; a client's or production
-  host is refused). Refused: ``/v1/exec``, ``/v1/fs/*``, ``/v1/remote-fs/*``,
+  host is refused), ``/v1/evidence/verify`` and ``/v1/git/is-ancestor``
+  (M0.6a's read-only evidence probes) for fictitious roots only (under
+  ``/srv/forgehub-test/``: fixed commits and files, see STUB_COMMITS/STUB_FILES;
+  any other root is refused). Refused: ``/v1/exec``, ``/v1/fs/*``, ``/v1/remote-fs/*``,
   ``/v1/forgevault/*`` (ForgeVault: no secret exists here) and everything else.
 - ``/darckware/api/internal/{agent|approver}/...`` -- Darckware. Clients are the
   seed's two fictitious ones; an e-mail is queued in memory and never sent, even
@@ -171,6 +174,59 @@ def _hosts_in(body: Any) -> list[str]:
     return found
 
 
+#: Fictitious repositories/folders the evidence probes answer for. Nothing on
+#: disk is read: a path is only a name the stub recognizes.
+STUB_EVIDENCE_ROOT = "/srv/forgehub-test/"
+#: commit sha -> integrated in "develop"?
+STUB_COMMITS = {
+    "5ab1e0c0ffee0000000000000000000000000001": True,
+    "5ab1e0c0ffee0000000000000000000000000002": False,
+}
+STUB_FILES = ("README.md", "docs/entrega.md")
+_SHA_CHARS = set("0123456789abcdef")
+
+
+def _stub_commit(ref: str) -> str | None:
+    ref = ref.strip().lower()
+    if not 7 <= len(ref) <= 64 or set(ref) - _SHA_CHARS:
+        return None
+    return next((sha for sha in STUB_COMMITS if sha.startswith(ref)), None)
+
+
+def _evidence(path: str, body: Any, request: Request, auth: str) -> JSONResponse:
+    integration = "host-bridge"
+    operation = "evidence.verify" if path == "evidence/verify" else "git.is_ancestor"
+    root = str((body or {}).get("root") or (body or {}).get("repo") or "")
+    normalized = root.rstrip("/") + "/"
+    if not root.startswith("/") or ".." in root.split("/") or not normalized.startswith(STUB_EVIDENCE_ROOT):
+        return _refuse(integration, request, operation,
+                       f"{root or 'no root'} is not a fictitious evidence root ({STUB_EVIDENCE_ROOT})",
+                       destination=root or None, auth=auth)
+    now = datetime.now(timezone.utc).isoformat()
+    if operation == "git.is_ancestor":
+        sha = _stub_commit(str(body.get("commit") or ""))
+        ref = str(body.get("ref") or "")
+        result: dict[str, Any] = {
+            "is_ancestor": bool(sha and ref == "develop" and STUB_COMMITS[sha]),
+            "commit_found": sha is not None, "ref_found": ref == "develop", "stub": True,
+        }
+    elif body.get("kind") == "git":
+        sha = _stub_commit(str(body.get("ref") or ""))
+        result = ({"kind": "git", "ok": True, "exists": True, "commit": sha, "committed_at": now,
+                   "reason": "commit exists (stub)", "stub": True} if sha else
+                  {"kind": "git", "ok": False, "exists": False, "reason": "commit not found (stub)", "stub": True})
+    elif body.get("kind") == "file":
+        name = str(body.get("ref") or "")
+        result = ({"kind": "file", "ok": True, "exists": True, "modified_at": now,
+                   "reason": "file exists (stub)", "stub": True} if name in STUB_FILES else
+                  {"kind": "file", "ok": False, "exists": False, "reason": "file does not exist (stub)", "stub": True})
+    else:
+        return _refuse(integration, request, operation, "kind must be git or file", destination=root,
+                       auth=auth, status=400)
+    return _reply(integration, request, 200, result, operation=operation, outcome="stubbed",
+                  destination=root, auth=auth)
+
+
 @app.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def host_bridge(path: str, request: Request):
     integration = "host-bridge"
@@ -233,6 +289,9 @@ async def host_bridge(path: str, request: Request):
                        "note": "forgehub test stub: nothing was sent"},
                       operation=f"message.send.{platform or 'unknown'}", outcome="stubbed",
                       destination=destination, auth=auth)
+
+    if path in ("evidence/verify", "git/is-ancestor") and request.method == "POST":
+        return _evidence(path, body, request, auth)
 
     if path.startswith("servers/"):
         operation = f"servers.{path[len('servers/'):]}"

@@ -9,13 +9,12 @@ and 6.2 used as a pattern for dependency-style blocking):
 - 6.4.1 Planned/assigned/executed remain distinct states: creating a
   TaskAssignment moves the task status from "planned" to "assigned";
   creating a TaskExecution moves it to "in_progress"; it never silently
-  jumps to "done" -- only an explicit PATCH with status="done" does that,
-  and only once at least one execution is "completed" or "verified".
-  Enforced by `_ensure_evidence_verified` (2026-08-17, layered
-  task-execution governance): a task with an execution history is gated
-  on its *latest* attempt, not any prior "completed" one -- a task with
-  no executions at all (never dispatched to an agent) is unaffected, so
-  manually-tracked/human-finished tasks keep working exactly as before.
+  jumps to "done". Since M0.6a (Plano Integrado, 2026-10-29) every new
+  transition to "done"/"deployed" -- here and in every other writer --
+  goes through core/task_completion_guard.py: verified latest execution,
+  evidence that checks out, an independent approved review, dependencies
+  and subtasks done. A task with no execution can no longer be completed
+  (prospective: tasks already done stay done).
 - 6.4.2 Each task can have multiple executions -- enforced naturally by
   allowing repeated POSTs to the executions sub-resource; attempt_number
   auto-increments per task.
@@ -32,8 +31,8 @@ and 6.2 used as a pattern for dependency-style blocking):
   (`parent_task_id`) hasn't reached "done"/"deployed" -- the fan-out half
   of layered task-execution governance (2026-08-17): an area breaks a task
   into subtasks via the same self-FK, dispatches each individually, and
-  the parent can't complete until all of them have (`_ensure_subtasks_
-  completed`).
+  the parent can't complete until all of them have (the completion guard's
+  COMPLETION_SUBTASKS_OPEN).
 - A task must trace back to the planning item it was split from
   (core traceability invariant, CLAUDE.md / SPEC 5.4) -- planning_item_id
   is required on create and must reference an existing PlanningItem.
@@ -73,6 +72,12 @@ from app.core.config import settings
 from app.core.deps import ActorPrincipal, authorize_action
 from app.core.mission import assert_required_skills_writable, project_id_for_task_source
 from app.core.responsibility import resolve_responsibility_owner
+from app.core.task_completion_guard import (
+    COMPLETION_TARGET_STATUSES,
+    assert_task_completion_allowed,
+    completion_audit_event,
+    principal_from_authorization,
+)
 from app.core.task_dependencies import ensure_task_dependencies_satisfied
 from app.db.base import get_db
 from app.db.models.agent import Agent, AgentServiceCredential, SubAgent
@@ -437,30 +442,30 @@ async def update_task(
             list(task.required_skill_ids or []),
         )
 
-    if data.get("status") in ("in_progress", "done", "deployed"):
+    # M0.6a: a *new* transition to done/deployed goes through the global
+    # completion guard (repeating the current status is not a transition, so
+    # historical done tasks stay editable and are never re-judged).
+    completion_target = (
+        data["status"]
+        if data.get("status") in COMPLETION_TARGET_STATUSES and data["status"] != task.status
+        else None
+    )
+    if data.get("status") == "in_progress":
         await _ensure_dependencies_satisfied(db, task_id)
-    if data.get("status") == "done":
-        await _ensure_evidence_verified(db, task_id)
-        await _ensure_subtasks_completed(db, task_id)
+    proof = None
+    principal = None
+    if completion_target is not None:
+        principal = await principal_from_authorization(db, authorization)
+        await _ensure_no_pending_task_approval(db, task_id)
+        proof = await assert_task_completion_allowed(db, task, completion_target, principal)
 
     for field, value in data.items():
         setattr(task, field, value)
 
-    if data.get("status") == "done":
-        audit_payload: dict = {}
-        if task.planning_item_id:
-            audit_payload["planning_item_id"] = str(task.planning_item_id)
-        if task.change_request_id:
-            audit_payload["change_request_id"] = str(task.change_request_id)
-        db.add(
-            AuditEvent(
-                entity_type="project_task",
-                entity_id=task.id,
-                event_type="task_completed",
-                actor="system",
-                payload=audit_payload,
-            )
-        )
+    if completion_target is not None:
+        if completion_target == "done" and task.completed_at is None:
+            task.completed_at = datetime.now(timezone.utc)
+        db.add(completion_audit_event(task, completion_target, principal, proof, via="patch_task"))
 
     await db.commit()
     await db.refresh(task)
@@ -483,66 +488,29 @@ async def _ensure_dependencies_satisfied(db: AsyncSession, task_id: uuid.UUID) -
     await ensure_task_dependencies_satisfied(db, task_id)
 
 
-async def _ensure_subtasks_completed(db: AsyncSession, task_id: uuid.UUID) -> None:
-    """Layered task-execution governance, Fase 4 (plan: resilient-twirling-
-    blossom): the fan-out half of "área despacha seus próprios subagentes"
-    -- a responsible area breaks a task into subtasks via the existing
-    `parent_task_id` self-FK (create_task already validates it, list_tasks
-    already filters by it; dispatch stays 1:1 per subtask, nothing new
-    there). The only piece that didn't already exist: a parent cannot be
-    marked done while any of its own subtasks (parent_task_id == task_id)
-    hasn't reached a terminal "delivered" state -- same shape as
-    `_ensure_dependencies_satisfied` above, just walking the parent/child
-    axis instead of the explicit TaskDependency axis."""
-    stmt = select(ProjectTask.id, ProjectTask.status).where(ProjectTask.parent_task_id == task_id)
-    result = await db.execute(stmt)
-    for subtask_id, subtask_status in result.all():
-        if subtask_status not in ("done", "deployed"):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Cannot complete task: subtask {subtask_id} is not done (status={subtask_status})",
-            )
-
-
-async def _ensure_evidence_verified(db: AsyncSession, task_id: uuid.UUID) -> None:
-    """Layered task-execution governance, Fase 1.5 (plan: resilient-
-    twirling-blossom): a task that was actually dispatched to an agent
-    cannot be marked done while its latest execution attempt hasn't been
-    verified (core/task_evidence.py) or explicitly completed. A task with
-    no executions at all -- never dispatched, tracked/finished by hand --
-    is deliberately unaffected: this closes the gap where a *dispatched*
-    task's narrated-but-unverified result got accepted as done, without
-    forcing every task in the system through agent dispatch."""
-    result = await db.execute(
-        select(TaskExecution)
-        .where(TaskExecution.task_id == task_id)
-        .order_by(TaskExecution.attempt_number.desc())
-        .limit(1)
-    )
-    latest = result.scalar_one_or_none()
-    if latest is None:
-        return
-    if latest.status not in ("verified", "completed"):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Cannot complete task: latest execution (attempt {latest.attempt_number}) "
-                f"has status={latest.status!r}, not verified/completed"
-            ),
+async def _ensure_no_pending_task_approval(db: AsyncSession, task_id: uuid.UUID) -> None:
+    """Fase 3: if a governed approval decision is outstanding for this exact
+    execution, a direct PATCH status=done must wait for that decision --
+    request_task_approval (core/governed_approval.py) only ever creates one
+    when an active project_task policy binding exists. Evidence, review and
+    dependencies are the completion guard's job (core/task_completion_guard.py,
+    M0.6a), which replaced `_ensure_evidence_verified`."""
+    latest_id = (
+        await db.execute(
+            select(TaskExecution.id)
+            .where(TaskExecution.task_id == task_id)
+            .order_by(TaskExecution.attempt_number.desc())
+            .limit(1)
         )
-
-    # Fase 3: if a governed approval decision is outstanding for this exact
-    # execution, a direct PATCH status=done must wait for that decision --
-    # request_task_approval (core/governed_approval.py) only ever creates
-    # one when an active project_task policy binding exists, so this stays
-    # a no-op (nothing pending, nothing to check here) until someone
-    # deliberately turns that layer on.
+    ).scalar_one_or_none()
+    if latest_id is None:
+        return
     pending = (
         await db.execute(
             select(ApprovalRequest.id).where(
                 ApprovalRequest.target_type == "project_task",
                 ApprovalRequest.target_id == task_id,
-                ApprovalRequest.target_revision_id == latest.id,
+                ApprovalRequest.target_revision_id == latest_id,
                 ApprovalRequest.status == "pending",
             )
         )

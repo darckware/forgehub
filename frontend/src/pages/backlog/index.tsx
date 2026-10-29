@@ -49,6 +49,7 @@ import {
   useCreateTask,
   useDeleteTask,
   useUpdateTask,
+  taskUpdateErrorMessage,
   useTasks,
   type ProjectTask,
   type TaskCreateInput,
@@ -149,7 +150,7 @@ function TaskRow({
         />
         {updateTask.isError && (
           <p className="mt-2 text-sm text-destructive">
-            {(updateTask.error as Error)?.message}
+            {taskUpdateErrorMessage(updateTask.error)}
           </p>
         )}
       </li>

@@ -89,8 +89,7 @@ async def test_dependencies_gate_every_execution_entry(
         response = await client.post(f"/api/v1/tasks/{task_id}/executions", json={"executor_type": "agent"})
         assert response.status_code == 409, response.text
     elif entry == "execution_update":
-        response = await client.patch(f"/api/v1/tasks/{predecessor_id}", json={"status": "done"})
-        assert response.status_code == 200, response.text
+        await _set_status(predecessor_id, "done")
         response = await client.post(f"/api/v1/tasks/{task_id}/executions", json={"executor_type": "agent"})
         assert response.status_code == 201, response.text
         execution_id = response.json()["id"]
@@ -167,8 +166,7 @@ async def test_dependencies_gate_every_execution_entry(
                     ready.dispatch_status = "completed"
                     await db.commit()
             assert len(starts) == (1 if entry == "scheduler" else 0)
-            finished = await client.patch(f"/api/v1/tasks/{predecessor_id}", json={"status": "done"})
-            assert finished.status_code == 200, finished.text
+            await _set_status(predecessor_id, "done")
             async with AsyncSessionLocal() as db:
                 await demand_routes.run_scheduled_dispatch_pass(db)
             async with AsyncSessionLocal() as db:
@@ -198,13 +196,11 @@ async def test_every_prerequisite_must_finish(client, dependency_pair, created_i
     )
     assert response.status_code == 201, response.text
     created_ids["task_dependencies"].append(response.json()["id"])
-    response = await client.patch(f"/api/v1/tasks/{first_id}", json={"status": "done"})
-    assert response.status_code == 200, response.text
+    await _set_status(first_id, "done")
     response = await client.post(f"/api/v1/tasks/{task_id}/dispatch", json={})
     assert response.status_code == 409, response.text
     assert [item["task_id"] for item in response.json()["detail"]["blocking"]] == [second_id]
-    response = await client.patch(f"/api/v1/tasks/{second_id}", json={"status": "done"})
-    assert response.status_code == 200, response.text
+    await _set_status(second_id, "done")
     response = await client.post(f"/api/v1/tasks/{task_id}/dispatch", json={})
     assert response.status_code == 400, response.text
     assert "dependencies" not in response.json()["detail"]
@@ -220,12 +216,13 @@ async def test_unfinished_dependency_states_block_dispatch(client, dependency_pa
     assert response.json()["detail"]["blocking"][0]["status"] == predecessor_status
 
 
-async def test_deployed_dependency_allows_completion(client, dependency_pair):
+async def test_deployed_dependency_allows_completion(admin_client, dependency_pair):
     predecessor_id, task_id = dependency_pair
-    response = await client.patch(f"/api/v1/tasks/{predecessor_id}", json={"status": "deployed"})
-    assert response.status_code == 200, response.text
-    response = await client.patch(f"/api/v1/tasks/{task_id}", json={"status": "done"})
-    assert response.status_code == 200, response.text
+    await _set_status(predecessor_id, "deployed")
+    response = await admin_client.patch(f"/api/v1/tasks/{task_id}", json={"status": "done"})
+    # The dependency gate passed; the next one (no execution yet) is what stops it.
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "COMPLETION_NO_EXECUTION"
 
 
 async def test_indirect_dependency_cycle_rejected(client, dependency_pair, created_ids, planning_item_id):
@@ -287,6 +284,24 @@ async def client(auth_headers):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test", headers=auth_headers) as ac:
         yield ac
+
+
+@pytest_asyncio.fixture
+async def admin_client(admin_headers):
+    """Completing a task records the authenticated principal (M0.6a), so the
+    PATCHes that reach the completion guard need a real user."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test", headers=admin_headers) as ac:
+        yield ac
+
+
+async def _set_status(task_id: str, status: str) -> None:
+    """Setup only: puts a *predecessor* in a status directly, like a task
+    finished before the completion guard existed (M0.6a). Completing a task
+    through the API needs proof; that is test_task_completion_guard.py's job."""
+    async with AsyncSessionLocal() as db:
+        (await db.get(ProjectTask, uuid.UUID(str(task_id)))).status = status
+        await db.commit()
 
 
 @pytest_asyncio.fixture
@@ -534,7 +549,7 @@ def test_task_execution_normalizes_legacy_runtime_name():
 
 @pytest.mark.asyncio
 async def test_task_cannot_complete_with_unfinished_dependency(
-    client: AsyncClient, created_ids, planning_item_id
+    client: AsyncClient, admin_client: AsyncClient, created_ids, planning_item_id
 ):
     """Mirrors SPEC 6.2.9 (blocked stages prevent dependents from
     advancing), applied at task granularity: a task depending on a
@@ -560,23 +575,21 @@ async def test_task_cannot_complete_with_unfinished_dependency(
     assert dependency.status_code == 201, dependency.text
     created_ids["task_dependencies"].append(dependency.json()["id"])
 
-    blocked = await client.patch(f"/api/v1/tasks/{main_id}", json={"status": "done"})
+    blocked = await admin_client.patch(f"/api/v1/tasks/{main_id}", json={"status": "done"})
     assert blocked.status_code == 409
+    assert blocked.json()["detail"]["code"] == "COMPLETION_DEPENDENCIES_OPEN"
 
-    from app.core.dispatch_signal import reset_scheduled_dispatch_signal, wait_for_scheduled_dispatch
-    reset_scheduled_dispatch_signal()
-    finish_dep = await client.patch(f"/api/v1/tasks/{dep_id}", json={"status": "done"})
-    assert finish_dep.status_code == 200
-    assert await wait_for_scheduled_dispatch(0.05)
+    await _set_status(dep_id, "done")
 
-    unblocked = await client.patch(f"/api/v1/tasks/{main_id}", json={"status": "done"})
-    assert unblocked.status_code == 200
-    assert unblocked.json()["status"] == "done"
+    unblocked = await admin_client.patch(f"/api/v1/tasks/{main_id}", json={"status": "done"})
+    # Dependency gate passed; completing still needs proof (M0.6a).
+    assert unblocked.status_code == 409
+    assert unblocked.json()["detail"]["code"] == "COMPLETION_NO_EXECUTION"
 
 
 @pytest.mark.asyncio
 async def test_task_cannot_complete_with_unfinished_subtask(
-    client: AsyncClient, created_ids, planning_item_id
+    client: AsyncClient, admin_client: AsyncClient, created_ids, planning_item_id
 ):
     """Layered task-execution governance, Fase 4 (plan: resilient-twirling-
     blossom): the fan-out half -- a parent task cannot be marked done while
@@ -599,30 +612,34 @@ async def test_task_cannot_complete_with_unfinished_subtask(
     sub_id = sub_resp.json()["id"]
     created_ids["project_tasks"].append(sub_id)
 
-    blocked = await client.patch(f"/api/v1/tasks/{parent_id}", json={"status": "done"})
+    blocked = await admin_client.patch(f"/api/v1/tasks/{parent_id}", json={"status": "done"})
     assert blocked.status_code == 409, blocked.text
-    assert "subtask" in blocked.json()["detail"]
+    assert blocked.json()["detail"]["code"] == "COMPLETION_SUBTASKS_OPEN"
 
-    finish_sub = await client.patch(f"/api/v1/tasks/{sub_id}", json={"status": "done"})
-    assert finish_sub.status_code == 200
+    await _set_status(sub_id, "done")
 
-    unblocked = await client.patch(f"/api/v1/tasks/{parent_id}", json={"status": "done"})
-    assert unblocked.status_code == 200
-    assert unblocked.json()["status"] == "done"
+    unblocked = await admin_client.patch(f"/api/v1/tasks/{parent_id}", json={"status": "done"})
+    # Subtask gate passed; completing still needs proof (M0.6a).
+    assert unblocked.status_code == 409
+    assert unblocked.json()["detail"]["code"] == "COMPLETION_NO_EXECUTION"
 
 
 @pytest.mark.asyncio
-async def test_task_with_no_subtasks_is_unaffected(client: AsyncClient, created_ids, planning_item_id):
-    """A leaf task (no children at all) must keep completing exactly as
-    before -- the new gate only engages when parent_task_id rows actually
-    exist for it."""
+async def test_task_with_no_subtasks_is_unaffected(
+    client: AsyncClient, admin_client: AsyncClient, created_ids, planning_item_id
+):
+    """A leaf task (no children at all) is never refused for subtasks --
+    the subtask gate only engages when parent_task_id rows actually exist
+    for it (completing still needs the M0.6a proof)."""
     resp = await client.post("/api/v1/tasks", json=_task_payload(planning_item_id, title="Leaf task"))
     assert resp.status_code == 201
     task_id = resp.json()["id"]
     created_ids["project_tasks"].append(task_id)
 
-    done = await client.patch(f"/api/v1/tasks/{task_id}", json={"status": "done"})
-    assert done.status_code == 200, done.text
+    done = await admin_client.patch(f"/api/v1/tasks/{task_id}", json={"status": "done"})
+    # The subtask gate doesn't engage; the next one (no execution) does.
+    assert done.status_code == 409, done.text
+    assert done.json()["detail"]["code"] == "COMPLETION_NO_EXECUTION"
 
 
 @pytest.mark.asyncio
@@ -708,8 +725,7 @@ async def test_dispatch_blocked_by_unfinished_dependency(
     assert "unfinished dependencies" in detail["message"]
     assert detail["blocking"][0]["task_id"] == predecessor_id
 
-    finish_predecessor = await client.patch(f"/api/v1/tasks/{predecessor_id}", json={"status": "done"})
-    assert finish_predecessor.status_code == 200
+    await _set_status(predecessor_id, "done")
 
     unblocked = await client.post(f"/api/v1/tasks/{dependent_id}/dispatch", json={})
     # Dependency gate passed -- next gate (no active agent assignment) is
