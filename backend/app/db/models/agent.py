@@ -29,6 +29,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -128,6 +129,19 @@ class Agent(Base, TimestampMixin):
     telegram_account: Mapped[str | None] = mapped_column(String(100), nullable=True)
     has_profile: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
+    )
+    # Run this agent's dispatched work without permission prompts
+    # (2026-10-28, Marcelo: "adicionar parâmetro de autonomia ao agente. Sem
+    # confirmação"). A dispatched run is headless: nobody is there to approve
+    # a tool, so the CLI auto-denies it and the run ends with nothing done --
+    # Dartan's review #41628 died on its first `git show`. Only the external
+    # runtimes read it (claude --dangerously-skip-permissions, codex
+    # --dangerously-bypass-approvals-and-sandbox, agy
+    # --dangerously-skip-permissions; see host-bridge/app.py's
+    # _agent_run_command); Hermes dispatch already runs with --yolo. "plan"
+    # mode stays read-only regardless.
+    autonomous_runs: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
     )
     mission: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_path: Mapped[str | None] = mapped_column(Text, nullable=True)

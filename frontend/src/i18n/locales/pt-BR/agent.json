@@ -356,5 +356,12 @@
       "syncResult": "{{checked}} agente(s) verificado(s), {{updated}} runtime(s) preenchido(s) a partir do disco.",
       "unregisteredProfiles": "Profiles Hermes no disco sem agente registrado: {{profiles}}"
     }
+  },
+  "autonomy": {
+    "title": "Execução autônoma",
+    "description": "Quando ligada, as tarefas despachadas pelo Messages rodam sem pedir confirmação de comandos e edições.",
+    "on": "Ligada — sem confirmação",
+    "off": "Desligada — pede confirmação",
+    "hint": "Sem ninguém para aprovar, um pedido de confirmação é recusado e a tarefa termina sem fazer nada. O modo plano continua só leitura. Só administradores alteram."
   }
 }

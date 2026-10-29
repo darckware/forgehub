@@ -68,6 +68,7 @@ async def dispatch_agent_run(
         "max_seconds": max_seconds,
         "max_budget_usd": max_budget_usd,
         "hermes_profile": agent.profile_slug if agent.runtime_type == "hermes" else None,
+        "autonomous": bool(agent.autonomous_runs),
     }
     async with httpx.AsyncClient(timeout=15) as client:
         response = await client.post(

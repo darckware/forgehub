@@ -177,6 +177,9 @@ export const agentSchema = z.object({
   // docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md) -- a
   // channel only ever suggests this, never imposes it.
   default_role: z.string().nullable().optional(),
+  // Dispatched runs skip permission prompts (external runtimes only; Hermes
+  // dispatch already runs with --yolo). Admin-only to change.
+  autonomous_runs: z.boolean().optional().default(false),
   sub_agents: z.array(subAgentSchema).optional().default([]),
   agent_skills: z.array(agentSkillSchema).optional().default([]),
   cost_rates: z.array(agentCostRateSchema).optional().default([]),
@@ -200,6 +203,7 @@ export const agentInputSchema = z.object({
   // Declared specialty (2026-08-05, see
   // docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md).
   default_role: z.string().nullable().optional(),
+  autonomous_runs: z.boolean().optional(),
 });
 
 export const agentUpdateSchema = agentInputSchema.partial();

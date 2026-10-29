@@ -1267,6 +1267,7 @@ class AgentRunRequest(BaseModel):
     routing_group: str = "auto"
     api_key: str = ""
     mode: str = "execute"  # plan | execute
+    autonomous: bool = False
     max_seconds: int = 1800
     # Required when runtime_type == "hermes": which /root/.hermes/profiles/<slug>
     # to run as (Athos, Aegis, ...). Ignored for every other runtime_type.
@@ -1354,6 +1355,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
         "antigravity": "dartan",
     }.get(req.runtime_type)
     messages_mcp = _messages_mcp_config(req.agent_slug or default_agent_slug)
+    autonomous = req.autonomous and req.mode == "execute"
     effective_model = (
         f"forgerouter/{req.routing_group}"
         if req.model_ref == "forgerouter/auto"
@@ -1379,13 +1381,18 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
             # for the project-settings.json flow -- just never wired into
             # this ad hoc agent-runs dispatch path before now.
             agent_env = {**agent_env, "ANTHROPIC_BASE_URL": FORGEROUTER_ANTHROPIC_BASE_URL}
+        permission_args = ["--dangerously-skip-permissions"] if autonomous else [
+            "--permission-mode",
+            "plan" if req.mode == "plan" else "acceptEdits",
+        ]
+        if autonomous:
+            agent_env["IS_SANDBOX"] = "1"
         command = [
             resolve_runtime_executable("claude", env=agent_env),
             "--print",
             "--output-format",
             "json",
-            "--permission-mode",
-            "plan" if req.mode == "plan" else "acceptEdits",
+            *permission_args,
             "--no-session-persistence",
             *model_args,
             "--mcp-config",
@@ -1407,6 +1414,11 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
             # force Codex's provider back to ForgeRouter.
             for override in FORGEROUTER_CODEX_OVERRIDES:
                 codex_overrides += ["-c", override]
+        sandbox_args = (
+            ["--dangerously-bypass-approvals-and-sandbox"]
+            if autonomous
+            else ["--sandbox", "read-only" if req.mode == "plan" else "workspace-write"]
+        )
         return (
             [
                 resolve_runtime_executable("codex", env=agent_env),
@@ -1416,8 +1428,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
                 _codex_messages_mcp_override(
                     messages_mcp["mcpServers"]["forgehub"]["env"]["FORGEHUB_AGENT_SLUG"]
                 ),
-                "--sandbox",
-                "read-only" if req.mode == "plan" else "workspace-write",
+                *sandbox_args,
                 "-C",
                 str(project_dir),
                 *codex_overrides,
@@ -1427,6 +1438,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
             agent_env,
         )
 
+    agy_sandbox_args = [] if autonomous else ["--sandbox"]
     return (
         [
             resolve_runtime_executable("agy", env=agent_env),
@@ -1434,7 +1446,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
             req.prompt,
             "--mode",
             "plan" if req.mode == "plan" else "accept-edits",
-            "--sandbox",
+            *agy_sandbox_args,
             "--print-timeout",
             f"{req.max_seconds}s",
 
