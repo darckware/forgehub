@@ -22,6 +22,7 @@ from app.db.models.project import ChangeRequest, PlanBaseline, PlanBaselineItem,
 from app.db.models.task import ProjectTask
 
 DISPATCHABLE_MISSION_STATES = ("active", "verifying")
+TERMINAL_MISSION_STATES = ("completed", "cancelled")
 # A CR that is not yet applied still has to produce the next baseline.
 OPEN_CHANGE_REQUEST_STATUSES = ("pending", "approved")
 
@@ -49,7 +50,9 @@ async def task_missions(db, task: ProjectTask) -> list[ProjectMission]:
 
 async def _governing_mission(db, task: ProjectTask, missions: list[ProjectMission]) -> ProjectMission:
     # An executor project may serve several missions: the one whose current
-    # baseline froze this task governs it; otherwise the first refuses it.
+    # baseline froze this task governs it. Otherwise a non-terminal mission
+    # refuses it (TASK_NOT_IN_BASELINE), and a closed one only when every
+    # mission is closed -- a finished mission must not mask the real cause.
     for mission in missions:
         if mission.current_baseline_id is not None and await db.scalar(
             select(PlanBaselineItem.id).where(
@@ -57,7 +60,7 @@ async def _governing_mission(db, task: ProjectTask, missions: list[ProjectMissio
             )
         ):
             return mission
-    return missions[0]
+    return next((m for m in missions if m.state not in TERMINAL_MISSION_STATES), missions[0])
 
 
 async def assert_task_baseline_current(db, task: ProjectTask) -> None:

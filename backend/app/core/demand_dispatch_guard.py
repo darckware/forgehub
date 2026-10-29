@@ -26,10 +26,11 @@ async def ensure_task_dispatch_admissible(db, demand):
 
 async def reserve_dispatch(db, demand, target_agent_id, command_text):
     from app.api.routes.demand import _agents_already_running, _dispatch_slots, _ensure_demand_dependencies_satisfied
+    from app.core.dispatch_targets import DISPATCH_ADMISSION_LOCK
 
     # One short transaction serializes only the admission decision. The
     # bridge call happens after commit and does not hold this lock.
-    await db.execute(select(func.pg_advisory_xact_lock(0x464844495350)))
+    await db.execute(select(func.pg_advisory_xact_lock(DISPATCH_ADMISSION_LOCK)))
     await db.flush()
     current = (await db.execute(select(AgentDemand).where(AgentDemand.id == demand.id)
         .with_for_update().execution_options(populate_existing=True))).scalar_one()

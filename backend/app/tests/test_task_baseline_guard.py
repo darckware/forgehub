@@ -16,19 +16,24 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 import pytest_asyncio
 from fastapi import HTTPException
 from sqlalchemy import func, select, text
 
 from app.api.routes import demand as demand_routes
+from app.api.routes import execution as execution_routes
 from app.core.deps import ActorPrincipal, authorize_action
 from app.core.plan_baseline import BaselineCreationError, create_mission_baseline
 from app.db.base import AsyncSessionLocal
 from app.db.models.artifact import ArtifactVersion, ArtifactVersionStatus
+from app.db.models.channel import ChatChannel, ChatChannelMember, ChatChannelMessage
 from app.db.models.demand import AgentDemand
+from app.db.models.execution import ExecutionLease, ExecutionWave, ExecutionWorkPackage
 from app.db.models.governance import Approval, AuthorityDelegation
-from app.db.models.mission import MissionAcceptanceCriterion, ProjectMission
+from app.db.models.mission import MissionAcceptanceCriterion, MissionProjectLink, ProjectMission
+from app.db.models.orchestration import AgentRuntimeProfile
 from app.db.models.notification import Notification
 from app.db.models.project import ChangeRequest, PlanBaseline, Project, ProjectPlan
 from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution, TaskExecutionTarget
@@ -119,6 +124,13 @@ async def _cleanup(world: World) -> None:
              f"(SELECT id FROM company.planning_items WHERE project_id IN ({projects}))")
     async with AsyncSessionLocal() as db:
         for statement in (
+            f"DELETE FROM company.chat_channels WHERE project_id IN ({projects})",
+            f"DELETE FROM company.execution_leases WHERE work_package_id IN "
+            f"(SELECT id FROM company.execution_work_packages WHERE task_id IN ({tasks}))",
+            f"DELETE FROM company.task_executions WHERE task_id IN ({tasks})",
+            f"DELETE FROM company.execution_work_packages WHERE task_id IN ({tasks})",
+            f"DELETE FROM company.execution_waves WHERE project_id IN ({projects})",
+            f"DELETE FROM company.agent_runtime_profiles WHERE name LIKE 'm06b-{world.tag}-%'",
             f"DELETE FROM company.agent_demands WHERE origin_id IN ({tasks})",
             f"DELETE FROM company.approvals WHERE entity_id IN ({tasks})",
             f"UPDATE company.project_missions SET current_baseline_id = NULL WHERE project_id IN ({projects})",
@@ -648,3 +660,176 @@ async def test_migration_roundtrip_refuses_with_active_mission(world):
     assert down.returncode == 0, down.stderr[-2000:]
     assert up.returncode == 0, up.stderr[-2000:]
     assert REVISION in _alembic("current").stdout
+
+
+# ---------------------------------------------------------------------------
+# Review #41754: paths outside Messages, governing mission, holding clause
+# ---------------------------------------------------------------------------
+class BridgeRecorder:
+    """Replaces httpx inside routes/execution.py: records any runner call."""
+
+    HTTPError = httpx.HTTPError
+
+    def __init__(self):
+        self.calls: list[str] = []
+        recorder = self
+
+        class _Client:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def post(self, url, **kwargs):
+                recorder.calls.append(url)
+                raise httpx.ConnectError("no runner in this test")
+
+        self.AsyncClient = _Client
+
+
+async def _work_package(mission: Mission, task: ProjectTask, baseline_id: uuid.UUID) -> uuid.UUID:
+    """An issued package in an active wave, ready for :dispatch."""
+    async with AsyncSessionLocal() as db:
+        assignment_id = await db.scalar(select(TaskAssignment.id).where(
+            TaskAssignment.task_id == task.id, TaskAssignment.status == "active"))
+        profile = AgentRuntimeProfile(agent_id=await _assignee(task.id), name=f"m06b-{mission.world.tag}-{task.title}",
+                                      runtime_type="claude")
+        wave = ExecutionWave(project_id=mission.project_id, baseline_id=baseline_id, name="m06b wave", status="active",
+                             idempotency_key=f"m06b-{uuid.uuid4().hex}")
+        db.add_all([profile, wave])
+        await db.flush()
+        package = ExecutionWorkPackage(
+            task_id=task.id, assignment_id=assignment_id, runtime_profile_id=profile.id, execution_wave_id=wave.id,
+            baseline_id=baseline_id, revision=1, payload={"constraints": {"max_seconds": 60}}, payload_hash="0" * 64,
+            idempotency_key=f"m06b-{uuid.uuid4().hex}", status="issued",
+        )
+        db.add(package)
+        await db.commit()
+        return package.id
+
+
+async def _package_dispatch(world: World, package_id):
+    async with world.client() as client:
+        return await client.post(f"/api/v1/work-packages/{package_id}:dispatch", json={})
+
+
+async def _leases(package_id) -> int:
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(select(func.count(ExecutionLease.id)).where(ExecutionLease.work_package_id == package_id))
+
+
+@pytest.mark.asyncio
+async def test_work_package_dispatch_guarded(world, runner, monkeypatch):
+    bridge = BridgeRecorder()
+    monkeypatch.setattr(execution_routes, "httpx", bridge)
+    mission = await _mission(world)
+    a = await mission.task("pkg-changed")
+    b = await mission.task("pkg-busy", executor=await world.agent("exec-pkg"))
+    baseline_id = await mission.baseline([a.id, b.id])
+
+    # Baseline guard: content changed after approval -> 409, nothing created.
+    await _update(ProjectTask, a.id, title="pkg-changed later")
+    package_a = await _work_package(mission, a, baseline_id)
+    response = await _package_dispatch(world, package_a)
+    assert response.status_code == 409 and _code(response) == "TASK_CONTENT_CHANGED", response.text
+    assert (await _executions(a.id), await _leases(package_a)) == (0, 0)
+
+    # Target serialization: a Messages run of the same mission holds its worktree.
+    sibling = await mission.task("holder", executor=await world.agent("exec-holder"))
+    current = await mission.baseline([a.id, b.id, sibling.id], name="v2")
+    assert (await _dispatch(world, sibling.id)).status_code == 200
+    package_b = await _work_package(mission, b, current)
+    response = await _package_dispatch(world, package_b)
+    assert response.status_code == 409 and str(response.json()["detail"]).startswith("TARGET_BUSY: worktree:"), response.text
+    assert (await _executions(b.id), await _leases(package_b)) == (0, 0)
+    # Only the Messages holder ever started; the runner was never called.
+    assert bridge.calls == [] and len(runner.runs) == 1
+
+
+async def _channel_message(project_id, agent_id) -> tuple[uuid.UUID, uuid.UUID]:
+    async with AsyncSessionLocal() as db:
+        channel = ChatChannel(name=f"m06b-{uuid.uuid4().hex[:6]}", project_id=project_id,
+                              working_directory_path="/srv/forgehub-test/m06b-channel")
+        db.add(channel)
+        await db.flush()
+        db.add(ChatChannelMember(channel_id=channel.id, agent_id=agent_id, is_human=False))
+        message = ChatChannelMessage(channel_id=channel.id, author_type="human", author_label="Marcelo",
+                                     content="run this ad hoc")
+        db.add(message)
+        await db.commit()
+        return channel.id, message.id
+
+
+@pytest.mark.asyncio
+async def test_channel_dispatch_in_mission_requires_task(world, runner):
+    mission = await _mission(world)
+    executor = await world.common_project()
+    executor_id = uuid.UUID(executor["id"])
+    async with AsyncSessionLocal() as db:
+        db.add(MissionProjectLink(mission_project_id=mission.project_id, executor_project_id=executor_id,
+                                  linked_by="test"))
+        await db.commit()
+    common = await world.common_project()
+    for project_id, refused in ((mission.project_id, True), (executor_id, True), (uuid.UUID(common["id"]), False)):
+        channel_id, message_id = await _channel_message(project_id, mission.executor)
+        async with world.client() as client:
+            response = await client.post(f"/api/v1/channels/{channel_id}/messages/{message_id}:dispatch-task",
+                                         json={"agent_id": str(mission.executor)})
+        if refused:
+            assert response.status_code == 409 and _code(response) == "MISSION_DISPATCH_REQUIRES_TASK", response.text
+            async with AsyncSessionLocal() as db:
+                assert (await db.get(ChatChannelMessage, message_id)).triggered_demand_id is None
+        else:
+            assert response.status_code == 200, response.text
+    # Only the common-project channel started a run.
+    assert len(runner.runs) == 1
+
+
+@pytest.mark.asyncio
+async def test_closed_mission_does_not_mask_baseline_refusal(world, runner):
+    """An executor project serving a completed mission and an active one: a
+    task frozen in neither is refused by the active one (TASK_NOT_IN_BASELINE),
+    not by the closed one (MISSION_NOT_ACTIVE)."""
+    closed, active = await _mission(world), await _mission(world)
+    await _force(closed.project_id, state="completed")
+    executor = await world.common_project()
+    executor_id = uuid.UUID(executor["id"])
+    await _update(Project, executor_id, working_directory_path=f"/srv/forgehub-test/linked-{uuid.uuid4().hex[:6]}")
+    async with AsyncSessionLocal() as db:
+        for mission in (closed, active):  # the closed one is linked, and created, first
+            db.add(MissionProjectLink(mission_project_id=mission.project_id, executor_project_id=executor_id,
+                                      linked_by="test"))
+        await db.commit()
+    await active.baseline([(await active.task("frozen")).id])
+    agent = await world.agent("exec-linked")
+    task = await _task(executor_id, "outside both baselines")
+    await _assign(task.id, agent, await _member(executor_id, agent))
+
+    response = await _dispatch(world, task.id)
+    assert response.status_code == 409 and _code(response) == "TASK_NOT_IN_BASELINE", response.text
+    assert response.json()["detail"]["mission_project_id"] == str(active.project_id)
+
+    # Every mission closed: the closed one still refuses.
+    await _force(active.project_id, state="cancelled")
+    response = await _dispatch(world, task.id)
+    assert _code(response) == "MISSION_NOT_ACTIVE", response.text
+    assert runner.runs == []
+
+
+@pytest.mark.asyncio
+async def test_empty_dispatch_error_still_holds_targets(world, runner):
+    """A failed run with a run id and an empty error is uncertain (as in
+    _in_flight_dispatch_filter): it keeps holding the mission worktree."""
+    mission = await _mission(world)
+    a = await mission.task("empty error")
+    b = await mission.task("waits", executor=await world.agent("exec-empty"))
+    await mission.baseline([a.id, b.id])
+    receipt = (await _dispatch(world, a.id)).json()
+    await _update(AgentDemand, uuid.UUID(receipt["demand_id"]), dispatch_status="failed", dispatch_error="")
+    held = await _dispatch(world, b.id)
+    assert held.status_code == 409 and str(held.json()["detail"]).startswith("TARGET_BUSY: worktree:"), held.text
+    assert runner.runs == [receipt["agent_run_id"]]
