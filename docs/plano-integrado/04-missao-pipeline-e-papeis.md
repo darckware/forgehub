@@ -478,10 +478,13 @@ orquestrador (M0.8), como qualquer tarefa:
 | P7 Aplicação | O plano e os documentos são corrigidos num só registro citando cada item; o validador roda de novo; um verificador confere por amostra que as correções estão no texto, não só no resumo | Planejador + verificador | Validador verde e verificação feita |
 | P8 Baseline | O Marcelo aprova o plano corrigido; vira baseline | Marcelo | Missão `pronta` |
 
-Proporcional ao risco: uma missão pequena pode ter dois revisores e pular a P5, mas nunca pular P2,
+As etapas avançam **só em ordem**, e o risco e as camadas de revisão exigidas são fixados na P1.
+Proporcional ao risco: uma missão de risco baixo pode ter dois revisores e pular a P5, mas nunca pular P2,
 P4, P6 e P8. Falha de infraestrutura de um revisor (cota, erro do provedor) é retentativa ou troca por
-outro revisor independente, nunca parecer omitido. Depois da baseline, só change request, que passa por
-P2, P4 e P8 (e P3 quando muda escopo ou risco).
+outro revisor independente, nunca parecer omitido. Depois da baseline, só change request: a missão
+mantém o estado, o change request percorre P2, P4, P6, P7 e P8 (e P3/P5 quando muda escopo, critério ou
+risco), e só as tarefas que ele afeta esperam a nova baseline. Mudar o objetivo da missão não é change
+request: é outra missão.
 
 Passos já existentes, que continuam dentro das etapas acima:
 

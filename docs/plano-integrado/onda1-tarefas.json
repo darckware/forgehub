@@ -264,7 +264,7 @@
       "depends_on": [
         "M0.0"
       ],
-      "acceptance": "Transições novas protegidas em todos os projetos; importação histórica cria execução e revisão com prova real, nunca PATCH direto nem run_id inventado",
+      "acceptance": "Transições novas protegidas em todos os projetos; importação histórica cria execução e revisão com prova real, nunca PATCH direto nem run_id inventado; tarefa de missão com código só fica done com o commit integrado na mainline, inclusive pela aprovação de revisão",
       "status": "planned",
       "project_task_id": null
     },

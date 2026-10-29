@@ -299,21 +299,36 @@ Rules:
 
 04 "Validação do plano" (P1–P8). Column `project_missions.planning_stage String(20)` with CHECK in
 (`draft_plan`,`auto_check`,`critical_review`,`consolidation`,`cross_review`,`decisions`,`application`,`baseline`),
-only meaningful while `state='planning'`. Stage changes go through
-`POST /api/v1/missions/{project_id}/planning:advance` `{to, reason, idempotency_key}` [PROPOSED] and are
-recorded in `mission_decisions` (cycle spec §4). The backend checks each exit condition:
+only meaningful while `state='planning'`. Two more columns are fixed in P1 and locked afterwards (change
+request to alter): `risk_level String(10)` CHECK in (`low`,`medium`,`high`) and
+`required_review_layers String[]` (subset of `architecture`,`backend`,`frontend`,`security`,`lgpd`,
+`infrastructure`,`documentation`,`business`), both required to leave `draft_plan`.
+Stage changes go through `POST /api/v1/missions/{project_id}/planning:advance`
+`{to, reason, idempotency_key}` [PROPOSED] and are recorded in `mission_decisions` (cycle spec §4).
+**`to` must be the next stage in order** (`draft_plan → auto_check → critical_review → consolidation →
+cross_review → decisions → application → baseline`); the only exception is `consolidation → decisions`
+when `risk_level='low'` (cross review skipped, recorded). Anything else → 409
+`PLANNING_STAGE_OUT_OF_ORDER`. The backend checks each exit condition:
 
 | Leaving | Requires |
 |---|---|
+| draft_plan | a `ProjectPlan` version in `draft` with every task, dependency, role, criterion link, environment, deadline and budget field filled; `risk_level` and `required_review_layers` set |
 | auto_check | the plan validator passes on the current `ProjectPlan` version (graph acyclic, author ≠ reviewer including release nodes, environment prerequisites) |
-| critical_review | one review artifact per required layer, from a reviewer independent of the planner; a missing one only with Marcelo's recorded decision |
+| critical_review | one review artifact per layer in `required_review_layers`, from a reviewer independent of the planner; a missing one only with Marcelo's recorded decision |
 | consolidation | every review item has a disposition (accept/adjust/reject) and a reason; items needing a decision flagged |
-| cross_review | skippable only when the mission's risk is `low` (recorded); otherwise two cross reviews from different layers |
+| cross_review | two cross reviews from reviewers of different layers (stage skipped only when `risk_level='low'`) |
 | decisions | no flagged item without Marcelo's decision (`human_only`) |
 | application | validator passes again; an independent verifier records that sampled corrections are in the text |
 
-`baseline` ends in the existing baseline approval (§7), which performs `planning → ready`. A change
-request after the baseline re-enters at `auto_check` (and `critical_review` when scope or risk changes).
+`baseline` ends in the existing baseline approval (§7), which performs `planning → ready`.
+
+**Change request after the baseline (no mission state change).** The mission keeps its state
+(`ready`/`active`/`verifying`); the change request carries its own `planning_stage` (same column on the
+CR row [PROPOSED]) and runs `auto_check → consolidation → decisions → application → baseline`, adding
+`critical_review` (and `cross_review` unless `risk_level='low'`) when it changes scope, criteria or
+risk. Only the tasks the CR touches are blocked by the M0.6b guard until the new baseline; the others
+keep running. A CR that changes the objective of the mission is refused (409 `CR_CHANGES_OBJECTIVE`):
+that is a new mission.
 Tests: `test_planning_stage_exit_conditions`, `test_planning_cannot_skip_decisions`,
 `test_change_request_reenters_planning`.
 
@@ -466,6 +481,18 @@ or uncertain holds an equal target. Applies to tasks of mission projects in M0; 
 Messages work is an open decision (§11 D-M0-2) because it changes global behavior.
 
 ---
+
+
+### Integration before `done` for mission tasks [PROPOSED, M0.6a, review #41645]
+
+For a task of a mission project whose deliverable is code (it declares a `git:` evidence), the
+completion guard (`assert_task_completion_allowed`) additionally requires that the evidenced commit is an
+ancestor of the mission mainline (`develop` unless the mission sets another), checked through the
+host-bridge git ancestry probe (cycle §3.4). This applies to **every** path that can set `done`, in
+particular `PATCH /orchestration/reviews/{id}` [EXISTS backend/app/api/routes/orchestration.py:525-531],
+which today sets `task.status="done"` directly on approval: under M0.6a, an approved review on a mission
+task sets the execution `verified` and leaves the task `in_review` until `integrate` succeeds. Test:
+`test_review_approval_does_not_mark_mission_task_done_before_integration`.
 
 ## 5. MCP tool contracts (M0.2a–d) [PROPOSED]
 
