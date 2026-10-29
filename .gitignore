@@ -47,3 +47,4 @@ dist/
 # Isolated implementation worktrees
 .worktrees/
 claude-yolo.sh
+test-env/.prod-secret-hashes

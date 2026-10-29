@@ -11,6 +11,7 @@ import pytest
 
 from app import main
 from app.core.config import Settings
+from app.tests.fixtures.test_settings import safe_test_integration_values
 
 TEST_DB = dict(
     POSTGRES_HOST="127.0.0.1", POSTGRES_PORT=5439, POSTGRES_DB="forgehub_test", POSTGRES_USER="forgehub_test"
@@ -18,7 +19,9 @@ TEST_DB = dict(
 
 
 def _settings(**values) -> Settings:
-    return Settings(_env_file=None, **values)
+    # T.3's integration/credential check is tested in
+    # tests_unit/test_test_integration_policy.py; satisfy it here.
+    return Settings(_env_file=None, **{**safe_test_integration_values(), **values})
 
 
 def test_background_workers_are_off_in_test_even_when_enabled():

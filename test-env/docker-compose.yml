@@ -19,10 +19,20 @@
 #   127.0.0.1:5439 -> forgehub_test_postgres  172.25.0.10:5432  (dev.sh, pytest, reset.sh)
 #   127.0.0.1:8002 -> forgehub_test_backend   172.25.0.11:8000
 #   127.0.0.1:4174 -> forgehub_test_frontend  172.25.0.12:4173
+#   127.0.0.1:8003 -> forgehub_test_stubs     172.25.0.13:8900  (T.3: integration stub + its call log)
 #
 # The gateway only forwards inbound connections; nothing inside the network
 # can use it to get out (it is not their route, and it only dials those
 # three fixed addresses).
+#
+# T.3 (2026-10-29) adds forgehub_test_stubs: every external integration the
+# backend has (host-bridge -- agent runs, Telegram/cross-channel messages,
+# servers, files, ForgeVault --, Darckware and its e-mail queue, ForgeRouter,
+# Tailscale, weather) points at it, and under ENVIRONMENT=test config.py
+# refuses to start with any other target or with a production credential.
+# The stub records each call (no content) on its own volume,
+# forgehub_test_stublog; list them with
+#   curl -s http://127.0.0.1:8003/_stub/calls
 #
 # The password comes from test-env/.env.test (out of git; template in
 # .env.test.example). DB name and user are fixed here, not read from the
@@ -74,17 +84,22 @@ services:
       ENVIRONMENT: test
       POSTGRES_HOST: forgehub_test_postgres
       POSTGRES_PORT: "5432"
-      # No integration target: the network has no route out anyway, and
-      # these make a stray call fail on the spot instead of waiting on DNS.
-      # Simulated integrations are T.3.
-      CHAT_BRIDGE_URL: ""
-      CHAT_BRIDGE_TOKEN: ""
-      DARCKWARE_API_URL: ""
-      FORGEROUTER_URL: ""
+      # Every integration goes to the stub, by its in-network name (T.3).
+      # .env.test holds the host addresses (127.0.0.1:8003, through the
+      # gateway) for dev.sh; these override them inside the network.
+      CHAT_BRIDGE_URL: http://forgehub_test_stubs:8900
+      DARCKWARE_API_URL: http://forgehub_test_stubs:8900/darckware
+      FORGEROUTER_URL: http://forgehub_test_stubs:8900/forgerouter
+      TAILSCALE_API_URL: http://forgehub_test_stubs:8900/tailscale
+      WEATHER_API_URL: http://forgehub_test_stubs:8900/weather
+      WEATHER_REVERSE_GEOCODE_URL: http://forgehub_test_stubs:8900/weather
     volumes:
       # config.py resolves test-env/.env.test from the repo root, which is
-      # "/" for the code at /app. Nothing else from the host is mounted.
+      # "/" for the code at /app. The other file is the salted hashes of the
+      # production secrets (init-env.sh), so the credential check has
+      # something to compare against without the production .env.
       - ./.env.test:/test-env/.env.test:ro
+      - ./.prod-secret-hashes:/test-env/.prod-secret-hashes:ro
     networks:
       forgehub_test_network:
         ipv4_address: 172.25.0.11
@@ -99,6 +114,47 @@ services:
     depends_on:
       forgehub_test_postgres:
         condition: service_healthy
+      forgehub_test_stubs:
+        condition: service_healthy
+
+  # Integration stub (T.3, backend/app/tests/fixtures/integration_stub.py):
+  # answers in place of the host-bridge, Darckware, ForgeRouter, Tailscale
+  # and weather services, never reaches any of them (the network has no route
+  # out), and writes one line per call to /stub-log/calls.jsonl. It loads the
+  # same Settings as the backend, so it checks the test tokens and refuses to
+  # start under the same rules.
+  forgehub_test_stubs:
+    build:
+      context: ../backend
+    image: forgehub-test-backend:local
+    container_name: forgehub_test_stubs
+    restart: unless-stopped
+    command: ["uvicorn", "app.tests.fixtures.integration_stub:app", "--host", "0.0.0.0", "--port", "8900"]
+    environment:
+      ENVIRONMENT: test
+      POSTGRES_HOST: forgehub_test_postgres
+      POSTGRES_PORT: "5432"
+      CHAT_BRIDGE_URL: http://forgehub_test_stubs:8900
+      DARCKWARE_API_URL: http://forgehub_test_stubs:8900/darckware
+      FORGEROUTER_URL: http://forgehub_test_stubs:8900/forgerouter
+      TAILSCALE_API_URL: http://forgehub_test_stubs:8900/tailscale
+      WEATHER_API_URL: http://forgehub_test_stubs:8900/weather
+      WEATHER_REVERSE_GEOCODE_URL: http://forgehub_test_stubs:8900/weather
+    volumes:
+      - ./.env.test:/test-env/.env.test:ro
+      - ./.prod-secret-hashes:/test-env/.prod-secret-hashes:ro
+      - forgehub_test_stublog:/stub-log
+    networks:
+      forgehub_test_network:
+        ipv4_address: 172.25.0.13
+    mem_limit: 128m
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8900/_stub/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
 
   # The test frontend: the production image's build, with an nginx config
   # whose /api goes to forgehub_test_backend -- the production one proxies to
@@ -165,6 +221,7 @@ services:
       # config.py resolves test-env/.env.test from the repo root, which is
       # "/" for the code mounted at /app.
       - ./.env.test:/test-env/.env.test:ro
+      - ./.prod-secret-hashes:/test-env/.prod-secret-hashes:ro
     mem_limit: 1g
     cpus: 1.0
     depends_on:
@@ -176,6 +233,8 @@ services:
 volumes:
   forgehub_test_pgdata:
     name: forgehub_test_pgdata
+  forgehub_test_stublog:
+    name: forgehub_test_stublog
 
 networks:
   forgehub_test_network:

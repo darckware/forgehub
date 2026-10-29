@@ -48,7 +48,10 @@ logger = logging.getLogger(__name__)
 
 # The bridge endpoint that forwards to Telegram/Discord/Slack (host-bridge's
 # /v1/messages/send -> `hermes send` -> Hermes' send_message_tool).
-_BRIDGE_MESSAGES_URL = f"{settings.CHAT_BRIDGE_URL.rstrip('/')}/v1/messages/send"
+def _bridge_messages_url() -> str:
+    # Read per call, not at import: CHAT_BRIDGE_URL is the integration's one
+    # switch point (the stub under ENVIRONMENT=test, T.3).
+    return f"{settings.CHAT_BRIDGE_URL.rstrip('/')}/v1/messages/send"
 
 
 # Asking for the answer on Telegram, in plain words, inside the request body
@@ -175,7 +178,7 @@ async def _deliver_telegram(db: AsyncSession, demand: AgentDemand) -> bool:
         payload["profile"] = profile
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
-            _BRIDGE_MESSAGES_URL,
+            _bridge_messages_url(),
             json=payload,
             headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
         )

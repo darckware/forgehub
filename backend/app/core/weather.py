@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from app.db.models.personal import PersonalLocation
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
-NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 DEFAULT_WEATHER_LATITUDE = -22.9068
 DEFAULT_WEATHER_LONGITUDE = -43.1729
 DEFAULT_WEATHER_LOCATION = "Rio de Janeiro (RJ)"
@@ -70,7 +69,7 @@ async def reverse_geocode(latitude: float, longitude: float) -> tuple[str | None
     headers = {"User-Agent": "ForgeHubPersonal/1.0 (daily summary weather)", "Accept-Language": "pt-BR"}
     try:
         async with httpx.AsyncClient(timeout=8) as client:
-            response = await client.get(NOMINATIM_REVERSE_URL, params=params, headers=headers)
+            response = await client.get(settings.WEATHER_REVERSE_GEOCODE_URL, params=params, headers=headers)
             response.raise_for_status()
             address = response.json().get("address") or {}
     except (httpx.HTTPError, ValueError, AttributeError):

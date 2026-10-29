@@ -12,7 +12,9 @@ def _fernet() -> Fernet:
     # distinct fixed-size key avoids introducing a second deployment secret.
     # SECRETS_ENCRYPTION_KEY, when set, replaces it as the key material -- the
     # same derivation, so setting it to the previous JWT_SECRET keeps every
-    # stored ciphertext readable after a JWT_SECRET rotation.
+    # stored ciphertext readable after a JWT_SECRET rotation. The test
+    # environment always sets its own (T.3), so nothing encrypted with the
+    # production key can be decrypted there.
     material = settings.SECRETS_ENCRYPTION_KEY or settings.JWT_SECRET
     digest = hashlib.sha256(f"forgehub-credentials:{material}".encode()).digest()
     return Fernet(base64.urlsafe_b64encode(digest))
