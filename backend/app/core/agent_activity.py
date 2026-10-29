@@ -35,6 +35,7 @@ from app.api.schemas.agent_activity import (
     ActivityTopologyRelationOut,
     AgentActivityOut,
 )
+from app.core import agent_profile_files
 from app.core.agent_activity_alerts import build_runtime_incidents
 from app.core.agent_activity_timeline import dispatch_interval
 from app.core.forgerouter_sync import (
@@ -212,6 +213,24 @@ def _runtime_events_by_agent(
     return latest
 
 
+def _profile_issues(agent: Agent) -> list[str]:
+    """Why this agent's profile reads as unhealthy, if it does.
+
+    `has_profile` is only ever set by the Hermes Foundation sync, so an
+    external runtime (claude/codex/agy) never has it -- its "profile" is
+    the runtime's own home directory, not a Hermes profile. For those, the
+    evidence is that home actually being on disk.
+    """
+    if agent.has_profile:
+        return []
+    if agent.runtime_type in agent_profile_files.RUNTIME_DEFAULT_HOMES:
+        home = agent.effective_home_path
+        if agent_profile_files.resolve_home_dir(home) is not None:
+            return []
+        return [f"Runtime home not found: {home}"]
+    return ["Profile metadata is not registered"]
+
+
 def build_activity_agents(
     *,
     agents: Iterable[Agent],
@@ -309,6 +328,7 @@ def build_activity_agents(
             reason = None
 
         checked_at = datetime.now(timezone.utc)
+        profile_issues = _profile_issues(agent)
         result.append(
             ActivityAgentOut(
                 id=agent.id,
@@ -323,13 +343,13 @@ def build_activity_agents(
                 current_work=current_work,
                 latest_checkpoint=latest_checkpoint,
                 profile_summary=ActivityProfileSummaryOut(
-                    status="healthy" if agent.has_profile else "warning",
+                    status="warning" if profile_issues else "healthy",
                     checked_at=checked_at,
                     runtime_native=True,
                     canonical_path=f"/agents/{agent.id}",
                     profile_path=agent.effective_home_path,
                     last_heartbeat_at=last_heartbeat_at,
-                    issues=[] if agent.has_profile else ["Profile metadata is not registered"],
+                    issues=profile_issues,
                 ),
                 live=ActivityLiveStateOut(**vars(live)) if live is not None else None,
             )
