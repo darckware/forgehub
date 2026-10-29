@@ -17,7 +17,9 @@ from app.api.schemas.execution import (
 )
 from app.core.config import settings
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
+from app.core.dispatch_targets import ACTIVE_EXECUTION_STATES, DISPATCH_ADMISSION_LOCK, assert_task_targets_free
 from app.core.secrets import decrypt_secret
+from app.core.task_baseline_guard import assert_task_baseline_current
 from app.core.task_dependencies import blocking_task_dependencies, ensure_task_dependencies_satisfied
 from app.db.base import get_db
 from app.db.models.agent import Agent, SubAgent
@@ -34,7 +36,6 @@ from app.db.models.project import ChangeRequest, PlanBaseline, Project, ProjectF
 from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
 
 router = APIRouter(prefix="/api/v1", tags=["execution-runtime"])
-ACTIVE_EXECUTION_STATES = ("pending", "running", "recovering", "reconciling")
 
 
 def _canonical(value: dict | list) -> str:
@@ -356,6 +357,13 @@ async def dispatch_package(package_id: uuid.UUID, principal: ActorPrincipal = De
     package = await _package(db, package_id); wave = await _wave(db, package.execution_wave_id); await authorize_action(db, principal, "planning.execution.dispatch", project_id=wave.project_id)
     if package.status != "issued" or wave.status != "active": raise HTTPException(409, "Issued package and active wave are required")
     await ensure_task_dependencies_satisfied(db, package.task_id)
+    # M0.6b: same baseline guard and target serialization as reserve_dispatch,
+    # under the same lock (held until the commit that creates the lease), and
+    # before any TaskExecution/lease exists.
+    await db.execute(select(func.pg_advisory_xact_lock(DISPATCH_ADMISSION_LOCK)))
+    guarded_task = await db.get(ProjectTask, package.task_id)
+    await assert_task_baseline_current(db, guarded_task)
+    await assert_task_targets_free(db, guarded_task, (await db.get(Project, wave.project_id)).working_directory_path)
     running = int(await db.scalar(select(func.count(TaskExecution.id)).join(ExecutionWorkPackage, ExecutionWorkPackage.id == TaskExecution.work_package_id).where(ExecutionWorkPackage.execution_wave_id == wave.id, TaskExecution.status.in_(ACTIVE_EXECUTION_STATES))) or 0)
     if running >= wave.wip_limit: raise HTTPException(409, "Wave WIP limit reached")
     if await db.scalar(select(TaskExecution.id).where(TaskExecution.work_package_id == package.id, TaskExecution.status.in_(ACTIVE_EXECUTION_STATES))): raise HTTPException(409, "Work package already has an active execution")

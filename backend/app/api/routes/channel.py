@@ -1365,6 +1365,20 @@ async def dispatch_channel_message(
     agent = await _get_agent_or_404(db, payload.agent_id)
     await _get_agent_member_or_404(db, channel_id, agent.id)
 
+    # M0.6b: inside a mission (or an executor project of one) the baseline
+    # guard only sees a run that names its ProjectTask; an ad-hoc handoff
+    # would run outside the approved plan.
+    if payload.project_task_id is None and channel.project_id is not None:
+        from app.core.task_completion_guard import mission_project_ids_for
+
+        channel_project = await db.get(Project, channel.project_id)
+        if channel_project is not None and await mission_project_ids_for(db, channel_project):
+            raise HTTPException(status_code=409, detail={
+                "code": "MISSION_DISPATCH_REQUIRES_TASK",
+                "message": "This channel belongs to a mission; dispatch a task of its approved baseline",
+                "project_id": str(channel.project_id),
+            })
+
     sender_id = message.author_agent_id or channel.orchestrator_agent_id or agent.id
     sender = await db.get(Agent, sender_id)
     # The channel's explicit checkout wins. A project-backed channel may use

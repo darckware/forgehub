@@ -4,6 +4,7 @@ from app.db.models.project import (  # noqa: F401
     Project,
     ProjectPlan,
     PlanBaseline,
+    PlanBaselineItem,
     ChangeRequest,
     ProjectStructureNode,
     ProjectForgeRouterConfig,
@@ -28,6 +29,7 @@ from app.db.models.backlog import (  # noqa: F401
 from app.db.models.task import (  # noqa: F401
     ProjectTask,
     TaskDependency,
+    TaskExecutionTarget,
     TaskRequiredSkill,
     TaskAssignment,
     TaskExecution,

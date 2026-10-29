@@ -48,6 +48,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.task_baseline_guard import assert_task_baseline_current
 from app.api.schemas.task import (
     ResponsibilityAreaCreate,
     ResponsibilityAreaOut,
@@ -1006,6 +1007,9 @@ async def _dispatch_task_by_id(
         )
 
     await ensure_task_dependencies_satisfied(db, task.id)
+    # M0.6b: early, non-authoritative baseline check (reserve_dispatch repeats
+    # it under its lock), so a refused dispatch leaves no TaskExecution row.
+    await assert_task_baseline_current(db, task)
 
     project_id = await _resolve_task_project_id(db, task)
     project = await db.get(Project, project_id)
