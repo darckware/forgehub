@@ -81,6 +81,12 @@ despacho, que continuam com os gates próprios de cada tarefa.
 
 **Decisão do Marcelo (29/10/2026):** a missão decide a execução de forma independente e, quando tem dúvida, conversa com ele pelo Telegram (04 §9, ciclo §3.7), pelo `ask_marcelo` existente. Entra na M0.8.
 
+**Decisão do Marcelo (29/10/2026), após a M0.0 (#41652, revisão Dartan #41657):** criar a **M0.0b, registro do planejamento** (Porthus faz, Dartan revisa), antes da M0.2b e da M0.R. A M0.0 entregou as etapas P1–P8 recusando corretamente, mas sem onde ler o ambiente das tarefas, os pareceres por camada, as disposições dos itens, as revisões cruzadas, a verificação por amostra e o dossiê; sem a M0.0b nenhuma missão sai da P1.
+
+**Ressalvas da revisão da M0.0 (#41657), sem bloqueio:**
+- **DT-M0-1:** skills exigidas por tarefa em dois lugares (`task_required_skills`, já usada pela tela de tarefa, e `project_tasks.required_skill_ids`, da M0.0). Unificar na M0.2b.
+- `GET /api/v1/missions/{id}` responde a qualquer usuário ou agente autenticado; restringir a membros da missão e admins na M0.2d.
+
 Responsáveis de produto (K6, aprovados em D-6): Ecossistema Foundation → Athos; ForgeHub → Daedalus;
 ForgeRouter → Atlas; ForgeVault → Aegis; Darckware → Kairos; Serviços de Manutenção → Hephaestus.
 Outros produtos recebem dono no inventário B.1, sem atribuição inventada. Não confundir dono do

@@ -181,6 +181,20 @@
       "project_task_id": null
     },
     {
+      "id": "M0.0b",
+      "title": "Registro do planejamento da missão: ambiente e pré-requisitos por tarefa; pareceres de revisão por camada (projeto, camada, revisor, versão do plano); itens de revisão com disposição (aceitar/ajustar/recusar), motivo e marcação de decisão do Marcelo; revisões cruzadas; verificação por amostra das correções aplicadas; dossiê de entrega; ligar cada condição de saída P1–P7 e `verifying → awaiting_acceptance` a esses registros (hoje recusam por `not_recorded`)",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "M0.0"
+      ],
+      "acceptance": "Uma missão de teste percorre P1→baseline só com registros reais; cada condição de saída recusa sem o registro e passa com ele; revisor do parecer ≠ planejador; item sem disposição ou sem decisão do Marcelo bloqueia; nenhuma condição passa por falta de dado",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
       "id": "M0.1",
       "title": "Inventário e cadastro idempotente do produto Ecossistema Foundation/ciclo vigente e do projeto comum Plano integrado, sem duplicar registros existentes",
       "executor_agent_slug": "atlas",
@@ -218,7 +232,8 @@
       "reviewer_label": "Dartan",
       "depends_on": [
         "M0.2a",
-        "M0.6b"
+        "M0.6b",
+        "M0.0b"
       ],
       "acceptance": "Plano vira proposta, nunca autoaprovado; ciclo recusado; aprovação e hash por usuário autorizado",
       "status": "planned",
@@ -457,6 +472,7 @@
       "executor_label": "Hephaestus",
       "reviewer_label": "Aegis",
       "depends_on": [
+        "M0.0b",
         "M0.2c",
         "M0.2d",
         "M0.6a",

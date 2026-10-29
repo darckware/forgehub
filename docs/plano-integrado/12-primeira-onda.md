@@ -94,9 +94,10 @@ A [matriz JSON](onda1-tarefas.json) é canônica para a Onda 1. As tabelas de 07
 | V-a | porthus | dartan | T.2, T.3 |
 | M0.SPEC | porthus | dartan | 0.15 |
 | M0.0 | porthus | dartan | M0.SPEC, T.2, T.3 |
+| M0.0b | porthus | dartan | M0.0 |
 | M0.1 | atlas | dartan | V-a, M0.R |
 | M0.2a | porthus | dartan | M0.0 |
-| M0.2b | porthus | dartan | M0.2a, M0.6b |
+| M0.2b | porthus | dartan | M0.2a, M0.6b, M0.0b |
 | M0.2c | porthus | dartan | M0.2b, M0.6a, M0.6b |
 | M0.2d | porthus | dartan | M0.2a |
 | M0.6a | porthus | dartan | M0.0 |
@@ -112,7 +113,7 @@ A [matriz JSON](onda1-tarefas.json) é canônica para a Onda 1. As tabelas de 07
 | A.1 | porthus | dartan | T.2, T.3 |
 | A.2 | porthus | dartan | A.1 |
 | B0 | hephaestus | aegis | T.2, T.3 |
-| M0.R | hephaestus | aegis | M0.2c, M0.2d, M0.6a, M0.6b, M0.4, B0, V-a, M0.7, M0.8 |
+| M0.R | hephaestus | aegis | M0.0b, M0.2c, M0.2d, M0.6a, M0.6b, M0.4, B0, V-a, M0.7, M0.8 |
 | A.R | hephaestus | aegis | A.1, A.2, B0 |
 | C.2a | porthus | dartan | M0.SPEC, T.2, T.3 |
 | C.2.R | athos | aegis | C.2a |
