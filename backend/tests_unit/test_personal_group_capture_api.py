@@ -1,6 +1,7 @@
 import json
 import uuid
 import asyncio
+import os
 
 import httpx
 import pytest
@@ -10,7 +11,7 @@ from sqlalchemy import select,delete
 from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker
 
 from app.api.routes import personal,personal_contacts
-from app.core.config import settings
+from app.core.config import assert_test_database_target, settings
 from app.core.deps import ActorPrincipal,get_actor_principal
 from app.db.base import get_db
 from app.db.models.personal import PersonalCaptureSuggestion,PersonalContact,PersonalContactMessage,PersonalDemand,PersonalWhatsAppGroup
@@ -183,7 +184,9 @@ async def test_demand_completion_records_authenticated_agent_date_status_and_aud
 
 @pytest_asyncio.fixture
 async def context(tmp_path,monkeypatch):
-    assert settings.POSTGRES_PORT==55439 and settings.POSTGRES_DB=='forgehub_personal_capture_test', 'Fixture DB required; never run on production'
+    assert settings.ENVIRONMENT == 'test', 'Isolated test environment required'
+    assert_test_database_target(settings.POSTGRES_HOST, settings.POSTGRES_PORT, settings.POSTGRES_DB, settings.POSTGRES_USER)
+    assert os.environ.get('PERSONAL_CAPTURE_TEST_RESET') == '1', 'Explicit consent to clear synthetic personal capture fixtures required'
     engine=create_async_engine(settings.DATABASE_URL);sessions=async_sessionmaker(engine,expire_on_commit=False)
     record={'ts':1000.0,'quando':'2026-10-27T10:00:00Z','chat':CHAT,'grupo':'Grupo sintético','autor':'Solicitante fictício','autor_id':'fixture-author','texto':'Pedido fictício'}
     (tmp_path/'_monitoramento.json').write_text(json.dumps({'enabled':[CHAT]}))
@@ -230,6 +233,26 @@ async def test_group_capture_requires_real_monitored_source_and_creates_pending_
     (root/'_monitoramento.json').write_text('{"enabled":[]}')
     assert (await client.post(BASE+'/groups',json={'whatsapp_id':CHAT})).status_code==422
     assert (await client.get(BASE+'/groups')).json()==[]
+
+
+@pytest.mark.asyncio
+async def test_group_reference_is_not_a_suggestion_uuid(context):
+    client, _, _, record, _ = context
+    reference = message_reference(CHAT, record)
+    response = await client.post(BASE+f'/suggestions/{reference}:accept', json={})
+    assert response.status_code == 422
+    assert (await client.get(BASE+'/suggestions')).json() == []
+    assert (await client.get(BASE+'/demands')).json() == []
+
+    captured = (await client.post(BASE+'/groups/captures', json={
+        'whatsapp_id': CHAT, 'message_ref': reference, 'title': 'Proposta fictícia'
+    })).json()
+    uuid.UUID(captured['id'])
+    assert captured['id'] != reference
+    assert (await client.get(BASE+'/demands')).json() == []
+    accepted = await client.post(BASE+f"/suggestions/{captured['id']}:accept", json={})
+    assert accepted.status_code == 200, accepted.text
+    assert len((await client.get(BASE+'/demands')).json()) == 1
 
 @pytest.mark.asyncio
 async def test_accept_retry_concurrency_creates_one_demand_with_structured_origin_and_audit(context):

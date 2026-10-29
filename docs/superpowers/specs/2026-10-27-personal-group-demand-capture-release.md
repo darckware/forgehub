@@ -1,6 +1,6 @@
 # Personal group capture release
 
-Published on 2026-10-27 from `fix/personal-group-demand-capture`, implementation commits `dab6be5` and `721ae6c`. Original authorization is ForgeHub request #41598, explicitly covering tests, commit, push and deploy; Marcelo resumed that work in the current conversation. Independent review #41615 approved the implementation with nonblocking findings.
+Historical release report from `fix/personal-group-demand-capture`, implementation commits `dab6be5` and `721ae6c`. Diagnostic forwarding #41682 establishes that attempt #41598 (message `17503e23-ced6-429b-9ab0-d4fbb88bc16e`) stopped at the executor's trusted-directory check before preflight or file changes. Do not attribute this report's implementation, tests, commits, push, or deployment to that attempt, or use this historical report as fresh authorization or execution evidence. Fresh repository verification is recorded in `2026-10-29-personal-group-capture-verification.md`. The original report recorded independent review #41615; that historical statement is not approval of later changes.
 
 Root cause: group history exposed no persisted capture suggestion UUID. Maia passed invented identifiers to an acceptance tool that correctly requires a real UUID. The group intake API now validates a monitored source message, creates a real pending suggestion, and preserves group and requester provenance. Acceptance still requires Marcelo's explicit approval. Two new tools must also be included in Maia's scoped ForgeHub allowlist.
 
