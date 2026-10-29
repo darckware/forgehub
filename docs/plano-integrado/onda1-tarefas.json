@@ -68,7 +68,7 @@
       "executor_agent_slug": "porthus",
       "reviewer_agent_slug": "dartan",
       "executor_label": "Porthus (apoio Aegis)",
-      "reviewer_label": "Dartan",
+      "reviewer_label": "Dartan (segundo revisor: Aegis)",
       "depends_on": [
         "T.2"
       ],
@@ -422,9 +422,9 @@
       "id": "M0.R",
       "title": "Publicação manual da base/guards/tools M0 com backup e rollback testados; aprovação de Marcelo do conteúdo exato antes de produção",
       "executor_agent_slug": "hephaestus",
-      "reviewer_agent_slug": "porthus",
+      "reviewer_agent_slug": "aegis",
       "executor_label": "Hephaestus",
-      "reviewer_label": "Porthus",
+      "reviewer_label": "Aegis",
       "depends_on": [
         "M0.2c",
         "M0.2d",
@@ -442,9 +442,9 @@
       "id": "A.R",
       "title": "Publicar A.1/A.2 pelo mesmo gate manual, backup do escopo e rollback testados",
       "executor_agent_slug": "hephaestus",
-      "reviewer_agent_slug": "porthus",
+      "reviewer_agent_slug": "aegis",
       "executor_label": "Hephaestus",
-      "reviewer_label": "Porthus",
+      "reviewer_label": "Aegis",
       "depends_on": [
         "A.1",
         "A.2",
@@ -460,7 +460,7 @@
       "executor_agent_slug": "porthus",
       "reviewer_agent_slug": "dartan",
       "executor_label": "Porthus",
-      "reviewer_label": "Dartan",
+      "reviewer_label": "Dartan (segundo revisor: Aegis)",
       "depends_on": [
         "M0.SPEC",
         "T.2",

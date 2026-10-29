@@ -33,6 +33,11 @@ assert 'B0' in ancestors('M0.R') and 'B0' in ancestors('A.R')
 assert {'M0.2c','M0.2d','M0.6a','M0.6b','M0.4'}<=ancestors('M0.R')
 assert {'A.1','A.2'}<=ancestors('A.R')
 assert 'F.1' not in ancestors('M0.4')
+# A release node (.R) publishes its dependencies' work: its reviewer may not have authored any of it.
+for r in rows:
+ if r['id'].endswith('.R'):
+  for d in r['depends_on']:
+   assert r['reviewer_agent_slug']!=tasks[d]['executor_agent_slug'],('release reviewed by author',r['id'],d)
 # Source table and detailed matrix must match; only historical 0.13 sits outside matrix.
 source={}
 for line in (root/'07-fases-de-implementacao.md').read_text().splitlines():

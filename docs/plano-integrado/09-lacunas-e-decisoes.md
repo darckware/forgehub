@@ -82,7 +82,7 @@ sua conclusão não aprova políticas/credenciais/deploy que cada tarefa ainda p
 6. A.1/A.2 seguem T.2+T.3; M.0 documental pode avançar conforme 07, sem iniciar execução mutante antes do isolamento.
 7. As decisões da spec da Missão (coordenador, quem cria, dono da documentação) são substituídas pelo contrato do 04; não reabrir a lista histórica.
 8. Fase C: a indicação antiga de começar C.0/C.1 imediatamente está **superada**: ambas são executadas após a abertura M0.5; antes disso apenas preparação de leitura, e
-   que C.2 (isolamento do `knowledge_cycle.py`) segue dividido: C.2a/C.2.R contêm o hook antes da missão; C.2b/C.2b.R completam a política depois de C.1; Aramis escreve, Porthus revisa e Athos publica pelo processo canônico.
+   que C.2 (isolamento do `knowledge_cycle.py`) segue dividido: C.2a/C.2.R contêm o hook antes da missão; C.2b/C.2b.R completam a política depois de C.1; Porthus escreve, Dartan revisa (com o Aegis como segundo revisor na C.2a) e Athos publica pelo processo canônico.
 9. Fase P: anotações em todos os níveis do Service Factory, herdadas no despacho das tarefas, e o MCP
    completo para os agentes operarem o módulo sem a tela.
 10. Fase E (Darckware): projeto aprovado pelo cliente no portal vira projeto no Service Factory
