@@ -134,3 +134,26 @@ Permissions, deletion/retention, billing, and legal policy remain owned by their
 - Browser: desktop and narrow viewport, light/dark, `pt-BR`/`en`, keyboard, reduced motion, loading/empty/error/degraded/success states as applicable.
 - Canonical sibling: existing shared `ConfirmDialog` consumers and domain CRUD forms.
 - Failure-path evidence: `frontend/src/pages/agent-activity/index.test.tsx` and domain-specific tests.
+
+## Messages execution tracking (2026-10-29)
+
+The “Em execução” group follows unfinished work across dispatched/running processes,
+failed attempts, and queued retries. An attempt ending does not close the task.
+Failed attempts show “Aguardando correção”, “Bloqueada”, or “Aguardando verificação”
+when completion evidence is missing; the stored reason and output remain accessible.
+Only a live process animates. Accepted completion uses the existing backend completion
+contract and evidence checks; this UI change does not introduce independent review
+or automatic retries. The operator's explicit reprocess action retains existing
+approval, reconciliation, dependency and capacity gates. Open work has no bulk cleanup
+or archive action in its execution group and is excluded from age-based cleanup and
+automatic retention. Explicit individual archiving remains available.
+
+### Failed-attempt diagnostic handoff
+
+Known failed attempts create one source-linked diagnostic task before archive, in the same transaction.
+The check retains request, command, output, run identity, project/task context and attachment references.
+Messages shows bidirectional navigation between archived attempt and current check. Failed checks stay
+blocked; they do not generate more checks. Pending checks remain in execution tracking and show their
+scheduled time. Quota continuations use recognized provider reset + five minutes; approving one preserves
+that schedule. Existing authorization gates still apply. Linked messages/attachments are protected from
+deletion and excluded from bulk cleanup. The same dispatch/completion workers handle this flow.

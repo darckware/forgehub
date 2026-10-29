@@ -76,7 +76,11 @@
       "dispatched": "Disparado, aguardando o agente iniciar...",
       "running": "Agente em execução...",
       "completed": "Concluído",
-      "failed": "Falhou"
+      "failed": "Falhou",
+      "awaitingVerification": "Aguardando verificação",
+      "needsCorrection": "Aguardando correção",
+      "blocked": "Bloqueada",
+      "queuedRetry": "Aguardando nova tentativa"
     }
   },
   "sendToOutgoing": {
@@ -230,6 +234,9 @@
     "openSummary": "Abrir resumo #{{number}}",
     "sourceCount": "{{count}} registros de origem arquivados",
     "uncertain": "Reconciliação pendente",
-    "requireApproval": "Exigir aprovação de Marcelo antes de executar"
+    "requireApproval": "Exigir aprovação de Marcelo antes de executar",
+    "openFailedSource": "Ver tentativa original #{{number}}",
+    "openFailureCheck": "Ver checagem #{{number}}",
+    "originalRequest": "Ver pedido original"
   }
 }

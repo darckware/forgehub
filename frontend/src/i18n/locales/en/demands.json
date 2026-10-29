@@ -76,7 +76,11 @@
       "dispatched": "Dispatched, waiting for the agent to start...",
       "running": "Agent is running...",
       "completed": "Completed",
-      "failed": "Failed"
+      "failed": "Failed",
+      "awaitingVerification": "Awaiting verification",
+      "needsCorrection": "Awaiting correction",
+      "blocked": "Blocked",
+      "queuedRetry": "Awaiting retry"
     }
   },
   "sendToOutgoing": {
@@ -230,6 +234,9 @@
     "openSummary": "Open summary #{{number}}",
     "sourceCount": "{{count}} archived source records",
     "uncertain": "Reconciliation pending",
-    "requireApproval": "Require Marcelo's approval before execution"
+    "requireApproval": "Require Marcelo's approval before execution",
+    "openFailedSource": "View original attempt #{{number}}",
+    "openFailureCheck": "View check #{{number}}",
+    "originalRequest": "View original request"
   }
 }

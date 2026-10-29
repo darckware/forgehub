@@ -1,6 +1,6 @@
 # Messages execution and recovery
 
-Last updated: 2026-10-24
+Last updated: 2026-10-29
 
 This is the engineering reference for the AgentDemand dispatch pipeline. The ecosystem process
 contract is `/root/.hermes/foundation/30_docs/FORGEHUB_MESSAGE.md`; the sole general MCP usage
@@ -42,6 +42,7 @@ the inherited default directory does not infer a project from the message body.
 | `demand.py:_in_flight_dispatch_filter`, `_dispatch_slots`, `_agents_already_running` | Count active/reserved/uncertain attempts for global and per-agent capacity. |
 | `demand.py:run_dispatch_completion_pass`, `get_dispatch_status`, `_finalize_dispatch` | Poll, lock, recheck run identity and record terminal outcomes. |
 | `demand.py:run_dispatch_timeout_pass` | Preserve uncertainty when a deadline expires. |
+| `backend/app/core/demand_failure_check.py` | Atomically link one diagnostic task to a known failure, preserve context, then archive the failed message; schedule recognized quota resets. |
 | `backend/app/core/demand_workflow.py:requires_reconciliation`, `decide_demand`, `record_transition` | Govern investigation, exact-run confirmation, retry authorization and audit history. |
 | `demand.py:list_pending_for_agent` | Acknowledge mail; archive completed informational returns with audit while retaining runnable Tasks. |
 | `backend/app/core/feedback.py:deliver_feedback`, `run_feedback_pass` | Deliver eligible outcomes with refreshed eligibility under a lock; suppress historical communications. |
@@ -71,8 +72,8 @@ A clean process exit is not completed work. The runner input ends with the contr
 line with evidence. `_finalize_dispatch` records `completed` only for `DONE`; `PARTIAL`,
 `BLOCKED` or a missing line (a reply cut short, an ignored contract) record `failed` with the reason
 in `dispatch_error`, keep `dispatch_result`, notify, create no return message and release no
-dependent work. That failure is known, not uncertain, so reprocessing stays available within the
-retry budget. The contract is added only to the runner input; the Telegram dispatch notice and
+dependent work. That failure is known, not uncertain. The linked diagnostic handoff described below
+continues its investigation; failed diagnostic tasks remain blocked for intervention. The contract is added only to the runner input; the Telegram dispatch notice and
 the stored body stay as written. Cause: on 2026-10-24 runs that stopped mid-task ("Now let me...")
 with exit 0 were filed under Completed.
 
@@ -89,10 +90,11 @@ after predecessor acceptance. `test_factory_mcp.py` covers omitted-recipient sel
 self-scheduling. `test_task.py` covers dependency gates and task-status scheduling wake-up.
 Other focused suites cover dispatch reservations, feedback and workflow authorization.
 
-The implementation owner reported 135 relevant regression tests passing. The isolated full backend
-run reported 949 passed, 21 failed, 4 errors and 1 skipped; see
-`/tmp/forgehub-dispatch-suite.log`. This is not a wholly passing suite and does not establish that
-its failures predate the change. No tests were run solely for this documentation edit.
+Current failure-check regression coverage includes atomic archive/handoff, rollback, concurrent
+finalizers, uniqueness, pending-inbox authorization, source blocking questions, preservation of future
+reset schedules during approval, attachment/message deletion protection, and starvation prevention.
+The failure-check release was validated against the isolated test database; historical full-suite
+observations do not establish a clean current full backend suite. See the deployment runbook below.
 
 ## Production observation — 2026-10-21
 
@@ -106,3 +108,43 @@ The final observed pipeline state had messages #39622, #39623 and #39624 at disp
 #39624 had correctly queued behind Athos before capacity became available.
 These observations verify process completion, recovery and dispatch ordering; they do not establish
 acceptance of the routines' business deliverables. This is a dated snapshot of the observed state.
+
+## Failed execution checks (2026-10-29)
+
+The message tracks an attempt; its diagnostic task carries the unfinished work forward. For a known
+failure, the finalizer creates a new Task addressed to the original requester (fallback executor),
+with `failure_check_source_id` pointing to the failed message. This field is server-owned, unique,
+and separate from `reply_to_id` (informational returns) and `origin_id` (ProjectTask identity).
+
+Creation and archival share the source row lock and transaction: no archive without a linked task,
+and no duplicate task when multiple workers finalize the same attempt. The original run ID, error,
+output and attachments remain on the original record. The diagnostic snapshot carries the request,
+command, project/task, cwd, requester, origin-channel context, evidence and attachment URLs. Long
+snapshots use explicitly marked excerpts and a protected link to the full original.
+
+The existing completion worker also reconciles eligible historical failures in bounded batches.
+Archived/consolidated records, stale/uncertain runs and failures without an owner are not revived.
+A failed check never generates another check. The operator may investigate its block or authorize
+a correction through the existing workflow; automated handoff is not an unlimited retry loop.
+
+For recognized native CLI quota output with an explicit reset time and timezone, the check/continuation
+is assigned to the same developer and scheduled for reset + five minutes, or now if that instant has
+already elapsed. The continuation first checks existing effects before resuming the original scope.
+The currently recognized format includes `resets 1:30pm (America/Sao_Paulo)` in a usage-limit error,
+with the reset date resolved relative to the recorded attempt finish. Unknown reset formats are not
+guessed: the requester's diagnostic must establish the date or route the work to an available
+Codex/Claude/agy developer, preserving role and reviewer independence. Arbitrary automatic developer
+substitution is not implemented.
+
+Checks inherit approval requirements; prior content hashes are never reused. Both scheduled dispatch
+and pending-inbox consumption enforce the source's current approval, Moodle authorization and blocking
+questions. Approving a check preserves a future reset schedule. ProjectTask acceptance and dependency
+rules remain separate from process completion.
+
+Messages presents open attempts/checks in “Em execução”, with the actual pending stage and scheduled
+time. Only live processes animate. The context panel navigates both ways between failed source and
+check; result and error remain readable. Source-linked messages and attachment evidence cannot be
+deleted through the API. Cleanup excludes linked history and unfinished work; automatic retention
+only archives completed messages.
+
+Deployment and recovery: [Messages failure checks runbook](../runbooks/MESSAGES_FAILURE_CHECKS.md).

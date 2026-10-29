@@ -2,7 +2,7 @@
 messages precisam ter um plano de limpeza podendo ficar até 60 dias").
 
 What it protects:
-  - only terminal mail (completed/failed) past DEMAND_RETENTION_DAYS is
+  - only completed mail past DEMAND_RETENTION_DAYS is
     touched -- an open thread never ages out just because nobody looked;
   - it archives, never deletes -- the record survives;
   - a row still inside the window is left alone, whatever its state.
@@ -65,21 +65,23 @@ async def _demand(agent_id, *, dispatch_status: str, age_days: int) -> uuid.UUID
         return demand_id
 
 
-async def test_archives_terminal_mail_past_the_window(agent):
+async def test_archives_completed_mail_but_keeps_failed_work_open(agent):
     old_completed = await _demand(agent, dispatch_status="completed", age_days=DEMAND_RETENTION_DAYS + 1)
     old_failed = await _demand(agent, dispatch_status="failed", age_days=DEMAND_RETENTION_DAYS + 5)
 
     async with AsyncSessionLocal() as db:
         archived = await run_demand_retention_sweep(db)
 
-    assert archived == 2
+    assert archived >= 1
     async with AsyncSessionLocal() as session:
         statuses = (
             await session.execute(
-                select(AgentDemand.status).where(AgentDemand.id.in_([old_completed, old_failed]))
+                select(AgentDemand.id, AgentDemand.status).where(AgentDemand.id.in_([old_completed, old_failed]))
             )
-        ).scalars().all()
-    assert set(statuses) == {"archived"}
+        ).all()
+    by_id = dict(statuses)
+    assert by_id[old_completed] == "archived"
+    assert by_id[old_failed] != "archived"
 
 
 async def test_leaves_recent_terminal_mail_alone(agent):

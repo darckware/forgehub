@@ -811,11 +811,12 @@ async def _mission_count() -> int:
 @pytest.mark.asyncio
 async def test_migration_upgrade_downgrade_roundtrip(world):
     assert await _mission_count() == 0
+    original_revision = _alembic("current").stdout
     mission = await world.create_mission()
     try:
         refused = _alembic("downgrade", PRE_M0_REVISION)
         assert refused.returncode != 0 and "Refusing to downgrade M0.0" in refused.stderr
-        assert "f2c7a4e9b1d3" in _alembic("current").stdout
+        assert _alembic("current").stdout == original_revision
 
         async with AsyncSessionLocal() as db:
             await db.execute(text(f"DELETE FROM company.audit_events WHERE entity_id = '{mission['project_id']}'"))

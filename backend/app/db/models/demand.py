@@ -306,6 +306,12 @@ class AgentDemand(Base, TimestampMixin):
     # requires_response=false; when true, the same text also becomes the
     # body of the auto-generated return message (see reply_to_id below).
     dispatch_result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Server-owned diagnostic continuation. One check per failed message;
+    # distinct from reply_to_id (an informational return) and origin_id
+    # (a Software Factory task). RESTRICT preserves the execution evidence.
+    failure_check_source_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agent_demands.id", ondelete="RESTRICT"), nullable=True
+    )
     # Set only on an auto-generated return message -- points back at the
     # original dispatched message it answers. A real self-referential FK
     # (unlike origin_id's deliberate polymorphism): both sides are always
@@ -447,6 +453,8 @@ class AgentDemand(Base, TimestampMixin):
     notice_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     __table_args__ = (
+        Index("uq_agent_demands_failure_check_source", "failure_check_source_id", unique=True),
+        CheckConstraint("failure_check_source_id IS NULL OR failure_check_source_id <> id", name="ck_demands_check_not_self"),
         CheckConstraint(f"status IN {DEMAND_STATUSES}", name="ck_agent_demands_status"),
         CheckConstraint(
             f"converted_entity_type IS NULL OR converted_entity_type IN {DEMAND_CONVERT_TARGETS}",

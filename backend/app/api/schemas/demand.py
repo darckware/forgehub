@@ -277,6 +277,7 @@ class DemandOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    failure_check_source_id: uuid.UUID | None = None
     number: int
     from_agent: str
     subject: str
