@@ -300,7 +300,7 @@
     },
     {
       "id": "M0.8",
-      "title": "**Ciclo de decisão do orquestrador pela Operação 24x7** conforme `MISSION_ORCHESTRATOR_CYCLE_SPEC.md`: despachar, agendar com `scheduled_at` (inclusive retorno de cota), reatribuir, pedir revisão, recusar, serializar alvos, perguntar/pausar; `mission_decisions` com motivo; publicação em produção serializada em todo o Messages (D-M0-2)",
+      "title": "**Ciclo de decisão do orquestrador pela Operação 24x7** conforme `MISSION_ORCHESTRATOR_CYCLE_SPEC.md`: despachar, agendar com `scheduled_at` (inclusive retorno de cota), reatribuir, pedir revisão, recusar, serializar alvos, perguntar/pausar; `mission_decisions` com motivo; publicação em produção serializada em todo o Messages (D-M0-2); **continuação até o fim** (§3.4): integrar a entrega aprovada, reverificar antes da revisão, falha de infraestrutura ≠ recusa, vigia do próprio ciclo",
       "executor_agent_slug": "porthus",
       "reviewer_agent_slug": "dartan",
       "executor_label": "Porthus",
@@ -309,7 +309,7 @@
         "M0.2c",
         "M0.6b"
       ],
-      "acceptance": "Cada ação com limite de autonomia, registro e gate testados em ambiente isolado; reagendamento por cota comprovado; duas publicações simultâneas da produção recusadas",
+      "acceptance": "Cada ação com limite de autonomia, registro e gate testados em ambiente isolado; reagendamento por cota comprovado; duas publicações simultâneas da produção recusadas; tarefa aprovada só termina integrada; missão ativa nunca fica parada sem motivo registrado",
       "status": "planned",
       "project_task_id": null
     },

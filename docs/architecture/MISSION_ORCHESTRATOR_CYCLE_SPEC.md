@@ -116,6 +116,39 @@ Effects: `reserve_dispatch` treats the agent as busy until `unavailable_until` (
 tasks (the 2026-10-28 case: Porthus stopped at 00:15 with "resets 3:30am" → M0.SPEC rescheduled to
 03:35 automatically, not on someone's memory). When the time passes, an event triggers a cycle (§2.2).
 
+### 3.4 Continuation until the end of the mission [PROPOSED, Marcelo 2026-10-29]
+
+Marcelo, 2026-10-29: "esse processo de monitoramento das execuções das tarefas é que precisa ter a
+missão, para manter a continuação da execução até o final da missão". On 2026-10-28/29 Wave 1 ran
+by hand (dispatch, watch, re-verify, request review, merge, dispatch the next task); four steps of that
+loop are not covered above and are part of M0.8:
+
+1. **Integrate.** A task whose review is `approved` is not finished while its branch is outside the
+   mission's mainline. Action `integrate`: the executor (never the reviewer) merges the approved commit
+   into the mainline (`develop`) by the existing git flow; a conflict returns the task to the executor
+   with the conflicting files listed, and the integrated result is re-checked (validator/tests named in
+   the task) before the next dependent task is dispatched. Integration never publishes: production stays
+   behind the publication gate (§3, D-M0-2, D-M0-7). Decision row `action='integrate'`.
+2. **Independent re-verification before review.** Before `request_review`, the cycle re-runs the
+   evidence a task declares (typed verifiers of M0.6a: git, file, db, test command in the test
+   environment) as a principal other than the executor, and, for tasks that touch an environment,
+   compares an environment sentinel (row counts and id hashes of named tables) taken before dispatch and
+   after delivery. A mismatch is `return`, not `request_review`.
+3. **Infrastructure failure is not rejection.** A run or review that ends on a runtime/infra error
+   (quota or usage limit, provider 4xx/5xx such as agy `INVALID_ARGUMENT`, permission auto-denied,
+   timeout without output) is classified `infra_failure`: the cycle `reprocess`es once, then `schedule`s
+   at the known reset time (§3.3) or reassigns the **same role** (a review stays a review by another
+   independent reviewer). It never counts as `changes_requested` and never as the executor's failure.
+4. **Watchdog of the cycle itself.** Every active mission must have a cycle run at least every
+   `MISSION_CYCLE_MAX_GAP` (default 30 min) and, while not paused, either a task in flight, a task
+   scheduled, or a recorded `defer`/`ask_marcelo` reason. A gap or an idle mission without a reason
+   raises an Operação 24x7 alert (A.2 lost-routine path) and appears on the executions screen (M0.7).
+   The mission only stops at `completed` (Marcelo's acceptance), `cancelled` or `paused`.
+
+Planned tests: `test_approved_task_not_done_until_integrated`, `test_integration_conflict_returns_to_executor`,
+`test_reverify_mismatch_returns_instead_of_review`, `test_infra_failure_reprocessed_not_rejected`,
+`test_review_infra_failure_reassigned_to_independent_reviewer`, `test_idle_active_mission_without_reason_alerts`.
+
 ## 4. Decision record [PROPOSED table `mission_decisions`]
 
 | Column | Note |
@@ -123,7 +156,7 @@ tasks (the 2026-10-28 case: Porthus stopped at 00:15 with "resets 3:30am" → M0
 | id UUID PK | |
 | mission_project_id FK projects | |
 | cycle_id UUID null | routine run id; null for Marcelo's direct actions on the screen |
-| action String(40) | CHECK in (`dispatch`,`schedule`,`reassign`,`request_review`,`return`,`reprocess`,`ask_marcelo`,`pause`,`defer`,`undo`,`lock`,`unlock`) |
+| action String(40) | CHECK in (`dispatch`,`schedule`,`reassign`,`request_review`,`return`,`reprocess`,`integrate`,`reverify`,`ask_marcelo`,`pause`,`defer`,`undo`,`lock`,`unlock`) |
 | task_id, demand_id, review_id, question_id | nullable FKs to what the action touched |
 | reason Text not null | required for every row |
 | facts JSONB | the proposal's `reason_facts` the decision relied on (board snapshot hash + the specific values) |

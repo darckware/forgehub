@@ -73,6 +73,8 @@ despacho, que continuam com os gates próprios de cada tarefa.
 - **D-M0-6:** a falta de autorização em `POST /projects/plans/{id}/approve` dos projetos comuns vira tarefa separada, fora da M0, a registrar no projeto do plano.
 - **D-M0-7:** o gate de publicação do Hephaestus é a autoridade do que está em produção; a tarefa de publicação também pode relatar.
 
+**Decisão do Marcelo (29/10/2026):** a missão precisa manter a execução até o fim, como foi feito à mão na Onda 1. A M0.8 ganha a §3.4 da `MISSION_ORCHESTRATOR_CYCLE_SPEC.md`: integrar a entrega aprovada, reverificar antes da revisão, tratar falha de infraestrutura como retentativa e não como recusa, e vigiar o próprio ciclo.
+
 Responsáveis de produto (K6, aprovados em D-6): Ecossistema Foundation → Athos; ForgeHub → Daedalus;
 ForgeRouter → Atlas; ForgeVault → Aegis; Darckware → Kairos; Serviços de Manutenção → Hephaestus.
 Outros produtos recebem dono no inventário B.1, sem atribuição inventada. Não confundir dono do
