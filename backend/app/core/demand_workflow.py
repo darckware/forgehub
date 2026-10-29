@@ -77,6 +77,27 @@ def record_transition(db, demand, action, *, actor="system", extra=None):
 
 async def ensure_workflow_allowed(db, demand):
     assert_execution_allowed(demand)
+    await _ensure_context_authorizations(db, demand)
+    if demand.failure_check_source_id is not None:
+        source = await db.get(AgentDemand, demand.failure_check_source_id)
+        if source is None:
+            raise WorkflowBlocked("The original task context is unavailable")
+        if source.requires_approval and (
+            source.approval_status != "approved" or source.approved_content_hash != approval_fingerprint(source)
+        ):
+            raise WorkflowBlocked("The original task authorization is no longer valid")
+        await _ensure_context_authorizations(db, source)
+
+
+async def _ensure_context_authorizations(db, demand):
+    """Archive is only presentation; source-specific authorizations still apply."""
+    from app.db.models.moodle_approval import MoodleApproval
+    from app.core.config import settings
+    linked = await db.scalar(select(MoodleApproval).where(MoodleApproval.message_id == demand.id))
+    if linked and (not settings.MOODLE_APPROVAL_ENABLED or linked.state != "approved" or linked.executor_id != demand.target_agent_id
+                   or linked.expires_at <= datetime.now(timezone.utc)
+                   or linked.message_hash != approval_fingerprint(demand)):
+        raise WorkflowBlocked("Moodle authorization is missing or no longer valid")
     question = await db.scalar(select(AgentQuestion.id).where(
         AgentQuestion.origin_demand_id == demand.id, AgentQuestion.blocking.is_(True),
         AgentQuestion.status == "pending",
@@ -144,7 +165,8 @@ async def decide_demand(db, demand, payload, *, actor):
         demand.requires_approval = True
         demand.approval_status = "approved"
         demand.approved_content_hash = approval_fingerprint(demand)
-        demand.scheduled_at = now
+        if not (demand.failure_check_source_id is not None and demand.scheduled_at and demand.scheduled_at > now):
+            demand.scheduled_at = now
     elif payload.action == "reject":
         if demand.dispatch_status == "completed":
             raise WorkflowBlocked("Use the governed completion review for completed executions")

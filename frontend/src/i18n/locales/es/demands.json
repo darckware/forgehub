@@ -75,7 +75,11 @@
       "dispatched": "Despacho, esperando que el agente empiece...",
       "running": "El agente está corriendo...",
       "completed": "Terminado",
-      "failed": "Falló"
+      "failed": "Falló",
+      "awaitingVerification": "Pendiente de verificación",
+      "needsCorrection": "Pendiente de corrección",
+      "blocked": "Bloqueada",
+      "queuedRetry": "Pendiente de reintento"
     }
   },
   "sendToOutgoing": {
@@ -229,6 +233,9 @@
     "openSummary": "Abrir resumen #{{number}}",
     "sourceCount": "{{count}} registros de origen archivados",
     "uncertain": "Conciliación pendiente",
-    "requireApproval": "Exigir aprobación de Marcelo antes de ejecutar"
+    "requireApproval": "Exigir aprobación de Marcelo antes de ejecutar",
+    "openFailedSource": "Ver intento original #{{number}}",
+    "openFailureCheck": "Ver comprobación #{{number}}",
+    "originalRequest": "Ver solicitud original"
   }
 }

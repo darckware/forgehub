@@ -9,9 +9,14 @@ export function DemandContextPanel({ demand, demands, projectName, onOpen }: {
   const { t } = useTranslation("demands");
   const sources = demands.filter(item => item.consolidated_into_id === demand.id);
   const summary = demands.find(item => item.id === demand.consolidated_into_id);
-  if (!demand.context_area && !projectName && !demand.requires_approval && !sources.length && !summary) return null;
+  const failedSource = demands.find(item => item.id === demand.failure_check_source_id);
+  const failureCheck = demands.find(item => item.failure_check_source_id === demand.id);
+  if (!demand.context_area && !projectName && !demand.requires_approval && !sources.length && !summary && !demand.failure_check_source_id && !failureCheck) return null;
   return <div className="mt-3 space-y-2 rounded-md border bg-muted/30 p-3 text-sm">
     {(projectName || demand.context_area) && <p className="font-medium">{projectName ?? demand.context_area}</p>}
+    {failedSource && <Button variant="outline" size="sm" onClick={() => onOpen(failedSource)}>{t("workflow.openFailedSource", { number: failedSource.number })}</Button>}
+    {!failedSource && demand.failure_check_source_id && <Link className="text-primary underline" to={`/demands?message=${demand.failure_check_source_id}`}>{t("workflow.originalRequest")}</Link>}
+    {failureCheck && <Button variant="outline" size="sm" onClick={() => onOpen(failureCheck)}>{t("workflow.openFailureCheck", { number: failureCheck.number })}</Button>}
     {demand.requires_approval && <p>{t(`workflow.${demand.approval_status ?? "pending"}`)}{" "}
       <Link className="text-primary underline" to={`/personal?tab=agent-work&workSearch=${encodeURIComponent(`#${demand.number}`)}`}>{t("workflow.deliberate")}</Link>
     </p>}

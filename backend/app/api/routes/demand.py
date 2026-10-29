@@ -544,7 +544,16 @@ async def list_pending_for_agent(
         .order_by(AgentDemand.created_at)
         .with_for_update(skip_locked=True)
     )
-    pending = list(result.scalars().all())
+    pending = []
+    for candidate in result.scalars().all():
+        if candidate.failure_check_source_id is not None:
+            try:
+                await ensure_workflow_allowed(db, candidate)
+            except WorkflowBlocked:
+                # A polling agent must obey the same gates as the runner;
+                # do not even acknowledge a check before it is authorized.
+                continue
+        pending.append(candidate)
     now = datetime.now(timezone.utc)
     for demand in pending:
         demand.agent_processed_at = now
@@ -1150,6 +1159,10 @@ async def delete_demand(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)
     demand = await _get_demand_or_404(db, demand_id, lock=True)
     if demand.dispatch_status in ("dispatched", "running") or (demand.agent_run_id and demand.dispatch_status is None) or requires_reconciliation(demand):
         raise HTTPException(409, "Reconcile or finish the execution before deleting")
+    if demand.failure_check_source_id is not None or await db.scalar(
+        select(AgentDemand.id).where(AgentDemand.failure_check_source_id == demand.id).limit(1)
+    ):
+        raise HTTPException(409, "Execution checks and their source evidence cannot be deleted; archive them instead")
     if await db.scalar(select(AgentDemand.id).where(AgentDemand.consolidated_into_id == demand.id).limit(1)):
         raise HTTPException(409, "A summary with linked history cannot be deleted")
     attachments = (
@@ -1327,6 +1340,11 @@ async def download_attachment(
 async def delete_attachment(
     demand_id: uuid.UUID, attachment_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 ) -> None:
+    demand = await _get_demand_or_404(db, demand_id, lock=True)
+    if demand.failure_check_source_id is not None or await db.scalar(
+        select(AgentDemand.id).where(AgentDemand.failure_check_source_id == demand_id).limit(1)
+    ):
+        raise HTTPException(409, "Attachments in linked execution history must be preserved")
     attachment = (
         await db.execute(
             select(DemandAttachment).where(
@@ -1663,6 +1681,9 @@ async def _fail_dispatch(
         title=title,
         message=f"#{demand.number}: {reason}",
     )
+    await db.flush()
+    from app.core.demand_failure_check import ensure_failure_check
+    await ensure_failure_check(db, demand.id)
 
 
 async def _add_dispatch_failed_notification(
@@ -1733,10 +1754,12 @@ async def run_dispatch_timeout_pass(db: AsyncSession) -> int:
 
 
 async def run_demand_retention_sweep(db: AsyncSession) -> int:
-    """Auto-archives terminal mail past its retention window (2026-08-15,
+    """Auto-archives completed mail past its retention window (2026-08-15,
     Marcelo: "as messages precisam ter um plano de limpeza podendo ficar
     até 60 dias" -- see DEMAND_RETENTION_DAYS's own docstring for the
-    scope this deliberately keeps: archive, never delete, terminal only).
+    scope this deliberately keeps: archive, never delete, completed only).
+    A failed attempt leaves unfinished work in the execution group until
+    correction or verification; it must not age out of that group.
 
     `updated_at` stands in for "became terminal" -- there is no dedicated
     timestamp for that transition, and _finalize_dispatch/_fail_dispatch's
@@ -1750,7 +1773,7 @@ async def run_demand_retention_sweep(db: AsyncSession) -> int:
         await db.execute(
             select(AgentDemand).where(
                 AgentDemand.status != "archived",
-                AgentDemand.dispatch_status.in_(("completed", "failed")),
+                AgentDemand.dispatch_status == "completed",
                 AgentDemand.updated_at < cutoff,
             )
         )
@@ -2154,6 +2177,15 @@ async def _finalize_dispatch(db: AsyncSession, demand_id: uuid.UUID, run: dict[s
                 execution.status = "reported"
                 execution.evidence_ref = _extract_evidence_ref(reply_body)
 
+    if locked.dispatch_status == "failed" and not historical:
+        await db.flush()
+        from app.core.demand_failure_check import ensure_failure_check
+        await ensure_failure_check(db, locked.id)
+
+    if historical:
+        # Reconcile execution evidence without reviving archived mail.
+        return None
+
     # Channel narration (see db/models/channel.py's module docstring): a
     # ChatChannel message can trigger a real dispatch via this exact
     # pipeline (POST /channels/{id}/messages/{message_id}:dispatch-task,
@@ -2302,6 +2334,11 @@ async def run_dispatch_completion_pass(db: AsyncSession) -> None:
         except Exception:
             await db.rollback()
             logger.exception("Dispatch completion failed for demand %s", demand_id)
+
+    # Same worker also picks up known failures from before this feature or
+    # from a start rejection. It creates diagnostic work, never replays it.
+    from app.core.demand_failure_check import run_failure_check_pass
+    await run_failure_check_pass(db)
 
 
 @router.get("/{demand_id}/dispatch-status", response_model=DispatchStatusOut)

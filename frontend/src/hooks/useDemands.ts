@@ -48,8 +48,31 @@ export const attachmentSchema = z.object({
 
 export type DemandAttachment = z.infer<typeof attachmentSchema>;
 
+/** Attempt outcome is distinct from the work's lifecycle. A failed attempt
+ * remains open for correction or verification; it is never a live process. */
+export function isExecutionOpen(demand: Demand): boolean {
+  return demand.status !== "archived" &&
+    (["dispatched", "running", "failed"].includes(demand.dispatch_status ?? "") ||
+      (demand.dispatch_status === null && ((demand.dispatch_attempts ?? 0) > 0 || Boolean(demand.failure_check_source_id))));
+}
+
+export function executionStage(demand: Demand): string | null {
+  if (demand.dispatch_status === null && isExecutionOpen(demand)) return "queuedRetry";
+  if (demand.dispatch_status !== "failed") return demand.dispatch_status;
+  if (demand.failure_check_source_id) return "blocked";
+  const reason = demand.dispatch_error ?? "";
+  if (reason.includes("without the completion report") || reason.startsWith("Briefing lacks")) return "awaitingVerification";
+  if (reason.includes("STATUS: BLOCKED") || requiresReconciliation(demand)) return "blocked";
+  return "needsCorrection";
+}
+
+export function isRetentionEligible(demand: Demand): boolean {
+  return !demand.failure_check_source_id && (demand.status === "archived" || demand.dispatch_status === "completed");
+}
+
 export const demandSchema = z.object({
   id: z.string(),
+  failure_check_source_id: z.string().nullable().default(null),
   // Human-readable display number (#1, #2, ...) -- reference an existing
   // message as another item's origin by typing this instead of its UUID.
   number: z.number(),
@@ -198,6 +221,7 @@ export function isIncomingItem(d: Demand, agentId: string): boolean {
   return (
     d.origin_type !== "incubation" &&
     d.status !== "archived" &&
+    !isExecutionOpen(d) &&
     d.target_agent_id === agentId &&
     d.target_agent_id === d.from_agent_id &&
     d.dispatch_status !== "dispatched" &&

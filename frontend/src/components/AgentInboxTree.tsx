@@ -106,9 +106,9 @@ export function SimpleDemandGroup<T>({
   expanded: boolean;
   onToggleExpanded: () => void;
   onSelect: () => void;
-  onCleanup: () => void;
+  onCleanup?: () => void;
   /** Requeues every failed message in this group (2026-08-13). Only the
-   * Failed group passes this -- reprocessing is meaningless anywhere else.
+   * execution group passes this for attempts awaiting correction.
    * Does not dispatch inline: the backend clears each item's execution
    * state and the scheduled pass picks them up under the concurrency cap,
    * so a bulk retry can't start dozens of runs at once. */
@@ -150,7 +150,7 @@ export function SimpleDemandGroup<T>({
             <ActionIcon icon={RotateCw} label={`Reprocess all in ${label}`} onClick={onReprocess} />
           )}
           {onArchive && <ActionIcon icon={Archive} label={`Archive all in ${label}`} onClick={onArchive} />}
-          <ActionIcon icon={Trash2} label={`Clean up ${label}`} destructive onClick={onCleanup} />
+          {onCleanup && <ActionIcon icon={Trash2} label={`Clean up ${label}`} destructive onClick={onCleanup} />}
         </div>
       </div>
       {/* `active` além de `expanded` (2026-07-26): `messages` é a lista da

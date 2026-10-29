@@ -47,6 +47,9 @@ import { contextKey } from "@/lib/demandContext";
 import { DemandContextPanel } from "./DemandContextPanel";
 import {
   computeInboxTotalCount,
+  isExecutionOpen,
+  executionStage,
+  isRetentionEligible,
   downloadDemandAttachment,
   isIncomingItem,
   canReprocess,
@@ -98,7 +101,7 @@ const CONVERT_TARGET_LABELS: Record<ConvertTarget, string> = {
  * Excludes a terminal dispatch (2026-07-28, Marcelo: "executou move para
  * completed, não fica tendo da Outgoing") -- Outgoing is "still moving",
  * not a permanent sent-log; once resolved it lives only in
- * Completed/Failed, symmetric with how those two already work as their
+ * Completed, symmetric with how those two already work as their
  * own lifecycle-stage groups. Also excludes self-addressed items
  * (2026-08-15, Marcelo: "se o próprio agente que vai executar então ele
  * não tem saída e sim uma entrada") -- work a sender addressed to itself
@@ -108,6 +111,7 @@ function isOutboxItem(d: Demand): boolean {
   return (
     (Boolean(d.from_agent_id && d.target_agent_id) || d.origin_type === "task") &&
     !selfDirected &&
+    !isExecutionOpen(d) &&
     d.origin_type !== "incubation" &&
     d.dispatch_status !== "dispatched" &&
     d.dispatch_status !== "running" &&
@@ -141,44 +145,15 @@ function isCompletedItem(d: Demand): boolean {
   return d.status !== "archived" && d.dispatch_status === "completed";
 }
 
-/** Which folder the message list/reading pane are scoped to. Three
- * top-level groups (PROPOSTA-INBOX-DISPATCH §6, reorganized 2026-07-24 to
- * group by direction first, agent second):
- * - "inbox": agentId null = every non-archived message (the root "Incoming"
- *   view); NO_AGENT_ID = only messages with no target agent ("Admin"); a
- *   string = only messages dispatched TO that agent.
- * - "outbox": agentId null = every message counted by isOutboxItem;
- *   NO_AGENT_ID = same, but with no from_agent_id ("Admin", i.e. sent by
- *   the logged-in user or a Task-origin compose); a string = same, sent by
- *   that agent.
- * - "archived": the Archived tree, where groupId null means the Archived
- *   root (uncategorized) and a string means a specific user-created
- *   subfolder. Nothing lands here on creation any more -- archiving is
- *   always an explicit action (the Archive button or a drag onto a
- *   folder). Tipo=Nota used to file straight in here, and went away with
- *   the type itself (2026-07-26); the group was labelled "Anotações"
- *   because of it, and is now honestly named "Arquivadas".
- * - "incubation" / "running" / "failed": flat groups (SimpleDemandGroup, not
- *   AgentDirectionTree -- no per-agent breakdown) added 2026-07-25.
- *   "incubation" = Tipo=Backlog (see isIncubationItem), the one keyed off what
- *   the item *is* rather than off its dispatch state -- backlog work
- *   hasn't been dispatched because it isn't a task yet, not because it's
- *   queued. The other three are lifecycle, mirroring dispatch_status:
- *   "running" = "dispatched"/"running" (the aggregate view a single-item
- *   reading pane can't give you when several dispatches are in flight at
- *   once), "failed" = "failed", "completed" = "completed" (added
- *   2026-07-26 -- the tree had a home for in-flight and for broken work,
- *   but finished work fell back into Incoming/Outgoing with nowhere of its
- *   own). All four sit between Outgoing and Archived, which stays last.
- * Each row's messages render inline, directly under itself in the tree
- * (see AgentDirectionTree/InboxGroupTree) rather than in a separate pane. */
+/** Execution stays open across failed attempts and queued retries. Only an
+ * accepted completion leaves this group; archived items remain explicit history.
+ * Inbox/outbox and completed/archived views retain their per-agent grouping. */
 type SelectedFolder =
   | { kind: "inbox"; agentId: string | null }
   | { kind: "outbox"; agentId: string | null }
   | { kind: "archived"; groupId: string | null; agentId?: string | null }
   | { kind: "incubation" }
   | { kind: "running" }
-  | { kind: "failed" }
   | { kind: "completed"; agentId: string | null };
 
 /** What the cleanup confirm dialog is about to delete -- either an
@@ -187,22 +162,23 @@ type SelectedFolder =
  * groups (the sidebar's per-group cleanup icon). */
 type CleanupTarget =
   | { kind: "age"; days: number | null }
-  | { kind: "group"; scope: "inbox" | "outbox" | "incubation" | "running" | "failed" | "completed" | "notes" };
+  | { kind: "group"; scope: "inbox" | "outbox" | "incubation" | "completed" | "notes" };
 
 /** What the group archive icon (2026-07-27) is about to file under
  * Arquivadas -- only offered on groups where "I'm done looking at this" is
  * the common case. Unlike CleanupTarget there's no age-based sweep here:
  * bulk archive is only ever reached from a group's own hover icon. */
-type ArchiveTarget = { scope: "completed" | "failed" };
+type ArchiveTarget = { scope: "completed" };
 
 function archiveTargetIds(target: ArchiveTarget, demands: Demand[]): string[] {
-  if (target.scope === "completed") return demands.filter(isCompletedItem).map((d) => d.id);
-  return demands.filter((d) => d.status !== "archived" && d.dispatch_status === "failed").map((d) => d.id);
+  return target.scope === "completed" ? demands.filter(isCompletedItem).map((d) => d.id) : [];
 }
 
 function cleanupTargetIds(target: CleanupTarget, demands: Demand[]): string[] {
+  const protectedSources = new Set(demands.map(d => d.failure_check_source_id).filter(Boolean));
+  demands = demands.filter(d => !d.failure_check_source_id && !protectedSources.has(d.id));
   if (target.kind === "age") {
-    // Scoped to terminal/archived mail only (2026-08-15, Marcelo: "as
+    // Scoped to completed/archived mail only (2026-08-15, Marcelo: "as
     // messages precisam ter um plano de limpeza" -- same boundary as the
     // automatic 60-day retention sweep, DEMAND_RETENTION_DAYS). An open
     // thread (Incoming/Outgoing/Incubation) or an in-flight dispatch
@@ -210,9 +186,7 @@ function cleanupTargetIds(target: CleanupTarget, demands: Demand[]): string[] {
     // it ended is. Before this, "Clear all" deleted literally every
     // demand in the table regardless of state, which is what wiped an
     // in-progress Incubation decision the one time it was used unscoped.
-    const eligible = demands.filter(
-      (d) => d.status === "archived" || d.dispatch_status === "completed" || d.dispatch_status === "failed"
-    );
+    const eligible = demands.filter(isRetentionEligible);
     if (target.days === null) return eligible.map((d) => d.id);
     const cutoffMs = Date.now() - target.days * 24 * 60 * 60 * 1000;
     return eligible.filter((d) => new Date(d.updated_at).getTime() < cutoffMs).map((d) => d.id);
@@ -220,12 +194,6 @@ function cleanupTargetIds(target: CleanupTarget, demands: Demand[]): string[] {
   if (target.scope === "inbox") return demands.filter((d) => d.status !== "archived").map((d) => d.id);
   if (target.scope === "outbox") return demands.filter((d) => d.status !== "archived" && isOutboxItem(d)).map((d) => d.id);
   if (target.scope === "incubation") return demands.filter(isIncubationItem).map((d) => d.id);
-  if (target.scope === "running")
-    return demands
-      .filter((d) => d.status !== "archived" && (d.dispatch_status === "dispatched" || d.dispatch_status === "running"))
-      .map((d) => d.id);
-  if (target.scope === "failed")
-    return demands.filter((d) => d.status !== "archived" && d.dispatch_status === "failed").map((d) => d.id);
   if (target.scope === "completed") return demands.filter(isCompletedItem).map((d) => d.id);
   return demands.filter((d) => d.status === "archived").map((d) => d.id);
 }
@@ -532,6 +500,13 @@ function ReadingPane({
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
         <Markdown content={demand.body} />
 
+        {demand.dispatch_result && (
+          <section className="space-y-2 rounded-md border border-border/60 p-3">
+            <h3 className="text-sm font-medium">{t("form.dispatchResult")}</h3>
+            <Markdown content={demand.dispatch_result} />
+          </section>
+        )}
+
         {demand.attachments.length > 0 && (
           <div className="space-y-1.5">
             <p className="text-xs font-medium uppercase text-muted-foreground">{t("reading.attachments")}</p>
@@ -550,7 +525,7 @@ function ReadingPane({
           </div>
         )}
 
-        {demand.dispatch_status && (
+        {executionStage(demand) && (
           <div className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/20 p-3 text-sm">
             {(demand.dispatch_status === "dispatched" || demand.dispatch_status === "running") && (
               <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
@@ -561,10 +536,14 @@ function ReadingPane({
             {demand.dispatch_status === "failed" && (
               <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
             )}
-            <span>
-              {t(`dispatch.status.${demand.dispatch_status}`)}
+            <div className="min-w-0">
+              <span>{t(`dispatch.status.${executionStage(demand)}`)}</span>
+              {demand.dispatch_status === null && demand.scheduled_at && (
+                <p className="mt-1 text-xs text-muted-foreground">{t("form.scheduledAt")}: {formatTimestamp(demand.scheduled_at, i18n.language)}</p>
+              )}
               {dispatchStatus.data?.reply_demand_id && ` — ${t("dispatch.replyArrived")}`}
-            </span>
+              {demand.dispatch_error && <p className="mt-1 break-words text-xs text-muted-foreground">{demand.dispatch_error}</p>}
+            </div>
           </div>
         )}
       </div>
@@ -605,6 +584,11 @@ function DemandListRow({
           <span className={cn("truncate text-sm", demand.status === "new" ? "font-semibold" : "font-medium")}>
             {demand.from_agent}
           </span>
+          {isExecutionOpen(demand) && demand.dispatch_status !== "dispatched" && demand.dispatch_status !== "running" && (
+            <Badge variant="warning" className="shrink-0 px-1.5 py-0 text-[10px]">
+              {t(`dispatch.status.${executionStage(demand)}`)}
+            </Badge>
+          )}
           {awaitingResponse && (
             <Badge variant="warning" title={t("pending.tooltip")} className="shrink-0 px-1.5 py-0 text-[10px]">
               {t("pending.sigla")}
@@ -619,7 +603,7 @@ function DemandListRow({
               with useDemands' faster polling while anything is in flight,
               so this doesn't just animate forever on stale data. */}
           {(demand.dispatch_status === "dispatched" || demand.dispatch_status === "running") && (
-            <span title={t(`dispatch.status.${demand.dispatch_status}`)}>
+            <span title={t(`dispatch.status.${executionStage(demand)}`)}>
               <Loader2 className="h-3 w-3 shrink-0 animate-spin text-amber-500" />
             </span>
           )}
@@ -671,7 +655,7 @@ export default function DemandsPage() {
   // the previous per-component default). Only top-level rows -- nested
   // Notes subfolders keep their own independent local state.
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
-  const GROUP_KEYS = ["inbox", "outbox", "incubation", "running", "failed", "completed", "notes"] as const;
+  const GROUP_KEYS = ["inbox", "outbox", "incubation", "running", "completed", "notes"] as const;
   const allGroupsExpanded = GROUP_KEYS.every((key) => expandedGroups[key]);
   function toggleGroup(key: string) {
     setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -762,7 +746,7 @@ export default function DemandsPage() {
     setFormMode(null);
     if (item.status === "archived") setFolder({ kind: "archived", groupId: item.group_id, agentId: null });
     else if (item.origin_type === "incubation") setFolder({ kind: "incubation" });
-    else if (item.dispatch_status === "failed") setFolder({ kind: "failed" });
+    else if (isExecutionOpen(item)) setFolder({ kind: "running" });
     else if (item.dispatch_status === "completed") setFolder({ kind: "completed", agentId: null });
     else if (item.dispatch_status) setFolder({ kind: "running" });
     else setFolder({ kind: "inbox", agentId: null });
@@ -808,8 +792,7 @@ export default function DemandsPage() {
     }
     if (folder.kind === "incubation") return all.filter(isIncubationItem);
     if (folder.kind === "running")
-      return all.filter((d) => d.status !== "archived" && (d.dispatch_status === "dispatched" || d.dispatch_status === "running"));
-    if (folder.kind === "failed") return all.filter((d) => d.status !== "archived" && d.dispatch_status === "failed");
+      return all.filter(isExecutionOpen);
     if (folder.kind === "completed") {
       const completed = all.filter(isCompletedItem);
       // Grouped by target_agent_id -- the agent actually dispatched to run
@@ -889,17 +872,7 @@ export default function DemandsPage() {
     [visible]
   );
   const incubationCount = useMemo(() => visible.filter(isIncubationItem).length, [visible]);
-  const runningCount = useMemo(
-    () =>
-      visible.filter(
-        (d) => d.status !== "archived" && (d.dispatch_status === "dispatched" || d.dispatch_status === "running")
-      ).length,
-    [visible]
-  );
-  const failedCount = useMemo(
-    () => visible.filter((d) => d.status !== "archived" && d.dispatch_status === "failed").length,
-    [visible]
-  );
+  const runningCount = useMemo(() => visible.filter(isExecutionOpen).length, [visible]);
 
   const completedCount = useMemo(() => visible.filter(isCompletedItem).length, [visible]);
   const agentCompletedCounts = useMemo(() => {
@@ -1010,8 +983,6 @@ export default function DemandsPage() {
       ? t("emptyBacklogMessage")
       : folder.kind === "running"
       ? t("emptyRunningMessage")
-      : folder.kind === "failed"
-      ? t("emptyFailedMessage")
       : folder.kind === "completed"
       ? t("emptyCompletedMessage")
       : "Nothing dispatched here yet.";
@@ -1049,13 +1020,9 @@ export default function DemandsPage() {
                         ? t("outgoingFolder")
                         : cleanupConfirm.scope === "incubation"
                           ? t("backlogFolder")
-                          : cleanupConfirm.scope === "running"
-                            ? t("runningFolder")
-                            : cleanupConfirm.scope === "failed"
-                              ? t("failedFolder")
-                              : cleanupConfirm.scope === "completed"
-                                ? t("completedFolder")
-                                : t("archivedFolder"),
+                          : cleanupConfirm.scope === "completed"
+                            ? t("completedFolder")
+                            : t("archivedFolder"),
                 })
               : cleanupConfirm.days === null
                 ? t("cleanup.confirmClearAllDescription")
@@ -1093,7 +1060,7 @@ export default function DemandsPage() {
           archiveConfirm === null
             ? ""
             : t("archive.confirmGroupDescription", {
-                group: archiveConfirm.scope === "completed" ? t("completedFolder") : t("failedFolder"),
+                group: t("completedFolder"),
               })
         }
         confirmLabel={t("archive.confirmButton")}
@@ -1360,21 +1327,6 @@ export default function DemandsPage() {
               expanded={Boolean(expandedGroups.running)}
               onToggleExpanded={() => toggleGroup("running")}
               onSelect={() => selectFolder({ kind: "running" })}
-              onCleanup={() => setCleanupConfirm({ kind: "group", scope: "running" })}
-              messages={filtered}
-              renderMessage={renderMessage}
-              emptyMessage={emptyMessage}
-            />
-            <SimpleDemandGroup
-              icon={XCircle}
-              label={t("failedFolder")}
-              count={failedCount}
-              active={folder.kind === "failed"}
-              expanded={Boolean(expandedGroups.failed)}
-              onToggleExpanded={() => toggleGroup("failed")}
-              onSelect={() => selectFolder({ kind: "failed" })}
-              onCleanup={() => setCleanupConfirm({ kind: "group", scope: "failed" })}
-              onArchive={() => setArchiveConfirm({ scope: "failed" })}
               onReprocess={() => setReprocessConfirm(true)}
               messages={filtered}
               renderMessage={renderMessage}
