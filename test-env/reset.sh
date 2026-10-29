@@ -2,7 +2,8 @@
 # Reset the isolated test database: drop and recreate the `company` and
 # `public` schemas, then migrate to Alembic head (Plano Integrado T.1).
 #
-#   ./test-env/reset.sh
+#   ./test-env/reset.sh          # empty database at Alembic head
+#   ./test-env/reset.sh --seed   # same, then the fictitious seed (T.2)
 #
 # The work is done by backend/app/scripts/reset_test_database.py, which
 # refuses before connecting unless ENVIRONMENT=test and the target is
@@ -17,6 +18,14 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+script_args=()
+for arg in "$@"; do
+  case "$arg" in
+    --seed) script_args+=(--seed) ;;
+    *) echo "usage: test-env/reset.sh [--seed]" >&2; exit 64 ;;
+  esac
+done
+
 if [ ! -f "$DIR/.env.test" ]; then
   echo "test-env/.env.test is missing -- run test-env/init-env.sh first." >&2
   exit 1
@@ -30,4 +39,4 @@ for var in ENVIRONMENT POSTGRES_HOST POSTGRES_PORT POSTGRES_DB POSTGRES_USER POS
 done
 
 exec docker compose -f "$DIR/docker-compose.yml" run --rm -T "${passthrough[@]}" \
-  tools python -m app.scripts.reset_test_database
+  tools python -m app.scripts.reset_test_database "${script_args[@]}"

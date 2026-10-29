@@ -44,6 +44,15 @@ def test_allowlisted_target_passes(host):
     assert_test_database_target(host, 5439, "forgehub_test", "forgehub_test")
 
 
+def test_in_network_container_name_passes_only_on_its_own_port():
+    # forgehub_test_backend's target inside the internal test network (T.2).
+    assert_test_database_target("forgehub_test_postgres", 5432, "forgehub_test", "forgehub_test")
+    with pytest.raises(UnsafeDatabaseTargetError, match="not on the test allowlist"):
+        assert_test_database_target("forgehub_test_postgres", 5439, "forgehub_test", "forgehub_test")
+    with pytest.raises(UnsafeDatabaseTargetError, match="host 'forgehub_postgres' is production"):
+        assert_test_database_target("forgehub_postgres", 5432, "forgehub_test", "forgehub_test")
+
+
 @pytest.mark.parametrize(
     "override, reason",
     [
