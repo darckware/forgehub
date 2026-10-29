@@ -16,6 +16,7 @@ def safe_test_integration_values(origin: str = STUB_ORIGIN) -> dict[str, str]:
         "AGENT_ACTIVITY_WEBHOOK_SECRET": secrets.token_hex(32),
         "DARCKWARE_AGENT_TOKEN": secrets.token_hex(32),
         "DARCKWARE_APPROVER_TOKEN": secrets.token_hex(32),
+        "FORGEROUTER_TEST_API_KEY": "frtest_" + secrets.token_hex(32),
         "DARCKWARE_AGENT_TOKEN_FILE": "",
         "RECAPTCHA_SECRET_KEY": "",
         "FORGEROUTER_SSO_SECRET": "",

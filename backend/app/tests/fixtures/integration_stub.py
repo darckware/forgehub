@@ -26,8 +26,12 @@ as one JSON line in ``calls.jsonl`` on the stub's own volume, and listed by
 query strings, tokens. A destination is an address (a Telegram chat id, an
 e-mail recipient, a host), all fictitious in the test data.
 
-Credentials are checked against the test's own (test-env/.env.test): a call with
-any other token -- a production one -- is answered 401 and recorded as such.
+Credentials are checked against the test's own (test-env/.env.test): the
+bridge's X-Bridge-Token against CHAT_BRIDGE_TOKEN, Darckware's Bearer against
+the agent/approver token of the path, ForgeRouter's Bearer against
+FORGEROUTER_TEST_API_KEY (which must also carry the ``frtest_`` prefix). A call
+with any other token -- a production one -- is answered 401 and recorded as
+``auth=rejected``; the value is never recorded.
 """
 from __future__ import annotations
 
@@ -43,7 +47,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
-from app.core.test_integration_policy import is_fictitious_host
+from app.core.test_integration_policy import (
+    FORGEROUTER_TEST_KEY_PREFIX,
+    check_test_credential,
+    is_fictitious_host,
+)
 from app.scripts.seed_test_database import CLIENTS, seed_id
 
 #: Swapped by tests for a temporary file. The container mounts its volume here.
@@ -81,7 +89,7 @@ def record(
         "destination": destination,
         "outcome": outcome,  # "stubbed" | "refused" | "unauthorized" | "not_found"
         "status": status,
-        "auth": auth,  # "test" | "invalid" | "missing" | None (not checked)
+        "auth": auth,  # "test" | "rejected" | "missing" | None (not checked)
     }
     line = json.dumps(entry, ensure_ascii=False)
     with _lock:
@@ -113,10 +121,9 @@ def _refuse(integration: str, request: Request, operation: str, reason: str, *,
                   operation=operation, outcome="refused", destination=destination, auth=auth)
 
 
-def _check(presented: str | None, expected: str) -> str:
-    if not presented:
-        return "missing"
-    return "test" if expected and presented == expected else "invalid"
+def _bearer(request: Request) -> str | None:
+    header = request.headers.get("authorization") or ""
+    return (header.removeprefix("Bearer ").strip() or None) if header.startswith("Bearer ") else None
 
 
 async def _json(request: Request) -> Any:
@@ -167,7 +174,7 @@ def _hosts_in(body: Any) -> list[str]:
 @app.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def host_bridge(path: str, request: Request):
     integration = "host-bridge"
-    auth = _check(request.headers.get("x-bridge-token"), settings.CHAT_BRIDGE_TOKEN)
+    auth = check_test_credential(request.headers.get("x-bridge-token"), settings.CHAT_BRIDGE_TOKEN)
     if auth != "test":
         return _reply(integration, request, 401, {"detail": "invalid bridge token"},
                       operation=path, outcome="unauthorized", auth=auth)
@@ -270,8 +277,7 @@ async def darckware(credential: str, path: str, request: Request):
     expected = {"agent": settings.DARCKWARE_AGENT_TOKEN, "approver": settings.DARCKWARE_APPROVER_TOKEN}.get(credential)
     if expected is None:
         return _refuse(integration, request, path, f"unknown credential path {credential!r}", status=404)
-    header = request.headers.get("authorization") or ""
-    auth = _check(header.removeprefix("Bearer ").strip() if header.startswith("Bearer ") else None, expected)
+    auth = check_test_credential(_bearer(request), expected)
     if auth != "test":
         return _reply(integration, request, 401, {"detail": "invalid token"},
                       operation=path, outcome="unauthorized", auth=auth)
@@ -356,10 +362,11 @@ async def darckware(credential: str, path: str, request: Request):
 async def forgerouter(path: str, request: Request):
     integration = "forgerouter"
     if path == "v1/chat/completions" and request.method == "POST":
-        header = request.headers.get("authorization") or ""
-        auth = "test" if header.startswith("Bearer ") and len(header) > len("Bearer ") else "missing"
+        # Only the test key: FORGEROUTER_TEST_API_KEY of .env.test, frtest_ prefix.
+        auth = check_test_credential(_bearer(request), settings.FORGEROUTER_TEST_API_KEY,
+                                     prefix=FORGEROUTER_TEST_KEY_PREFIX)
         if auth != "test":
-            return _reply(integration, request, 401, {"detail": "missing API key"}, operation="chat.completions",
+            return _reply(integration, request, 401, {"detail": "invalid API key"}, operation="chat.completions",
                           outcome="unauthorized", auth=auth)
         body = await _json(request)
         return _reply(integration, request, 200, {

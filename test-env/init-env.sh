@@ -37,7 +37,9 @@ for line in lines:
     m = re.match(r"\s*([A-Z0-9_]+)=(.*)$", line)
     if m and m.group(2).strip() == "change-me":
         size = 24 if m.group(1) == "POSTGRES_PASSWORD" else 32
-        line = f"{m.group(1)}={secrets.token_hex(size)}"
+        # The ForgeRouter test key carries the prefix the stub requires.
+        prefix = "frtest_" if m.group(1) == "FORGEROUTER_TEST_API_KEY" else ""
+        line = f"{m.group(1)}={prefix}{secrets.token_hex(size)}"
         filled.append(m.group(1))
     out.append(line)
 target.write_text("\n".join(out) + "\n", encoding="utf-8")

@@ -39,6 +39,7 @@ FAKE_PRODUCTION = {
     "AGENT_ACTIVITY_WEBHOOK_SECRET": "prod-webhook-" + "c" * 40,
     "DARCKWARE_APPROVER_TOKEN": "prod-approver-" + "d" * 40,
     "POSTGRES_PASSWORD": "prod-db-" + "e" * 40,
+    "FORGEROUTER_API_KEY": "sk-fr-prod-" + "f" * 40,
 }
 
 #: Every setting named in the task, with a production or client value it
@@ -78,6 +79,7 @@ def _test_values(origin: str = STUB_HOST) -> dict[str, object]:
         "JWT_SECRET": _token(), "CHAT_BRIDGE_TOKEN": _token(), "SECRETS_ENCRYPTION_KEY": _token(),
         "AGENT_ACTIVITY_WEBHOOK_SECRET": _token(),
         "DARCKWARE_AGENT_TOKEN": _token(), "DARCKWARE_APPROVER_TOKEN": _token(),
+        "FORGEROUTER_TEST_API_KEY": policy.FORGEROUTER_TEST_KEY_PREFIX + _token(),
         "DARCKWARE_AGENT_TOKEN_FILE": "", "RECAPTCHA_SECRET_KEY": "", "FORGEROUTER_SSO_SECRET": "",
         "CHAT_BRIDGE_URL": origin,
         "DARCKWARE_API_URL": f"{origin}/darckware",
@@ -264,7 +266,7 @@ def stubbed(tmp_path, monkeypatch, production_env):
 
     s = build()
     for name in (*policy.INTEGRATION_URL_SETTINGS, *policy.REQUIRED_TEST_SECRETS, "DARCKWARE_AGENT_TOKEN",
-                 "DARCKWARE_APPROVER_TOKEN", "DARCKWARE_AGENT_TOKEN_FILE"):
+                 "DARCKWARE_APPROVER_TOKEN", "DARCKWARE_AGENT_TOKEN_FILE", "FORGEROUTER_TEST_API_KEY"):
         monkeypatch.setattr(config.settings, name, getattr(s, name))
     monkeypatch.setattr(integration_stub, "LOG_PATH", tmp_path / "calls.jsonl")
     seen: list[str] = []
@@ -327,7 +329,7 @@ async def test_production_token_is_answered_unauthorized(stubbed, monkeypatch):
     with pytest.raises(HTTPException) as exc:
         await dw.request("GET", "/clients")
     assert exc.value.detail["code"] == "darckware_credential"
-    assert _calls(stubbed)[-1]["auth"] == "invalid"
+    assert _calls(stubbed)[-1]["auth"] == "rejected"
     assert FAKE_PRODUCTION["DARCKWARE_APPROVER_TOKEN"] not in stubbed.log.read_text()
 
 
@@ -358,13 +360,135 @@ async def test_forgevault_is_refused(stubbed):
 async def test_forgerouter_goes_to_the_stub(stubbed, monkeypatch):
     from app.core import forgerouter_llm
 
-    async def fake_key(db, slug):
-        return "fr-test-key"
+    async def test_key(db, slug):
+        return config.settings.FORGEROUTER_TEST_API_KEY
 
-    monkeypatch.setattr(forgerouter_llm, "agent_api_key", fake_key)
+    monkeypatch.setattr(forgerouter_llm, "agent_api_key", test_key)
     reply = await forgerouter_llm.chat(None, "lara", "forgerouter/standard", [{"role": "user", "content": "texto"}])
     assert "test stub" in reply
-    assert _calls(stubbed)[-1]["integration"] == "forgerouter"
+    assert _calls(stubbed)[-1] == {**_calls(stubbed)[-1], "integration": "forgerouter", "auth": "test"}
+
+
+@pytest.mark.parametrize("presented,auth", [
+    (FAKE_PRODUCTION["FORGEROUTER_API_KEY"], "rejected"),  # a production key
+    ("qualquer-chave", "rejected"),  # anything non-empty, as the old check accepted
+    (policy.FORGEROUTER_TEST_KEY_PREFIX + "0" * 64, "rejected"),  # right prefix, not the test key
+    (None, "missing"),
+])
+async def test_forgerouter_refuses_any_key_but_the_test_one(stubbed, presented, auth):
+    headers = {"Authorization": f"Bearer {presented}"} if presented else {}
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(f"{config.settings.FORGEROUTER_URL}/v1/chat/completions",
+                                 json={"model": "forgerouter/standard", "messages": []}, headers=headers)
+        accepted = await client.post(
+            f"{config.settings.FORGEROUTER_URL}/v1/chat/completions", json={"model": "forgerouter/standard"},
+            headers={"Authorization": f"Bearer {config.settings.FORGEROUTER_TEST_API_KEY}"})
+    assert resp.status_code == 401
+    assert accepted.status_code == 200
+    rejected, ok = _calls(stubbed)
+    assert (rejected["outcome"], rejected["auth"]) == ("unauthorized", auth)
+    assert (ok["outcome"], ok["auth"]) == ("stubbed", "test")
+    log = stubbed.log.read_text()
+    assert config.settings.FORGEROUTER_TEST_API_KEY not in log
+    if presented:
+        assert presented not in log
+
+
+async def test_forgerouter_test_key_without_prefix_is_rejected(stubbed, monkeypatch):
+    """Even when it equals the configured value, a key without the frtest_
+    prefix is not a test key (a settings validated elsewhere can't widen it)."""
+    unprefixed = _token()
+    monkeypatch.setattr(config.settings, "FORGEROUTER_TEST_API_KEY", unprefixed)
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(f"{config.settings.FORGEROUTER_URL}/v1/chat/completions", json={},
+                                 headers={"Authorization": f"Bearer {unprefixed}"})
+    assert resp.status_code == 401 and _calls(stubbed)[-1]["auth"] == "rejected"
+
+
+async def test_forgerouter_without_a_test_key_refuses_everything(stubbed, monkeypatch):
+    monkeypatch.setattr(config.settings, "FORGEROUTER_TEST_API_KEY", "")
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(f"{config.settings.FORGEROUTER_URL}/v1/chat/completions", json={},
+                                 headers={"Authorization": f"Bearer {policy.FORGEROUTER_TEST_KEY_PREFIX}{_token()}"})
+    assert resp.status_code == 401 and _calls(stubbed)[-1]["auth"] == "rejected"
+
+
+async def test_agents_use_the_test_forgerouter_key_under_test(monkeypatch):
+    """Under ENVIRONMENT=test no agent key is read from ForgeRouter's registry
+    or the database copy: every agent uses FORGEROUTER_TEST_API_KEY."""
+    from app.core import forgerouter_llm, forgerouter_sync
+
+    agent = SimpleNamespace(name="Agente Teste", forgerouter_api_key_encrypted="never-decrypted")
+
+    class _Db:
+        async def execute(self, _stmt):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: agent))
+
+    async def registry():
+        raise AssertionError("ForgeRouter's registry read under test")
+
+    key = policy.FORGEROUTER_TEST_KEY_PREFIX + _token()
+    monkeypatch.setattr(forgerouter_sync, "read_forgerouter_agent_keys", registry)
+    monkeypatch.setattr(config.settings, "ENVIRONMENT", "test")
+    monkeypatch.setattr(config.settings, "FORGEROUTER_TEST_API_KEY", key)
+    assert await forgerouter_llm.agent_api_key(_Db(), "agente-teste") == key
+    monkeypatch.setattr(config.settings, "FORGEROUTER_TEST_API_KEY", "")
+    with pytest.raises(forgerouter_llm.LlmError) as exc:
+        await forgerouter_llm.agent_api_key(_Db(), "agente-teste")
+    assert exc.value.kind == "not_configured"
+
+
+@pytest.mark.parametrize("value", ["", policy.FORGEROUTER_TEST_KEY_PREFIX + _token()])
+def test_forgerouter_test_key_convention_is_accepted(production_env, value):
+    assert build(FORGEROUTER_TEST_API_KEY=value).FORGEROUTER_TEST_API_KEY == value
+
+
+@pytest.mark.parametrize("value", ["change-me", _token(), policy.FORGEROUTER_TEST_KEY_PREFIX + "curta",
+                                   FAKE_PRODUCTION["FORGEROUTER_API_KEY"]])
+def test_forgerouter_test_key_off_convention_is_refused(production_env, value):
+    with pytest.raises(UnsafeTestConfigurationError) as exc:
+        build(FORGEROUTER_TEST_API_KEY=value)
+    assert "FORGEROUTER_TEST_API_KEY" in str(exc.value)
+    assert value not in str(exc.value)
+
+
+def test_forgerouter_test_key_equal_to_production_is_refused(production_env):
+    """A production key that happens to carry the prefix is still refused by hash."""
+    prod_like = policy.FORGEROUTER_TEST_KEY_PREFIX + "9" * 40
+    production_env.write_text(production_env.read_text() + f"FORGEROUTER_API_KEY_2={prod_like}\n")
+    with pytest.raises(UnsafeTestConfigurationError) as exc:
+        build(FORGEROUTER_TEST_API_KEY=prod_like)
+    assert "equal to a production secret" in str(exc.value) and prod_like not in str(exc.value)
+
+
+@pytest.mark.parametrize("credential,token,auth", [
+    ("agent", lambda: config.settings.DARCKWARE_APPROVER_TOKEN, "rejected"),  # the other credential's token
+    ("approver", lambda: config.settings.DARCKWARE_AGENT_TOKEN, "rejected"),
+    ("agent", lambda: FAKE_PRODUCTION["DARCKWARE_APPROVER_TOKEN"], "rejected"),
+    ("agent", lambda: "", "missing"),
+])
+async def test_darckware_accepts_only_the_paths_own_test_token(stubbed, credential, token, auth):
+    value = token()
+    headers = {"Authorization": f"Bearer {value}"} if value else {}
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"{config.settings.DARCKWARE_API_URL}/api/internal/{credential}/clients",
+                                headers=headers)
+    assert resp.status_code == 401
+    assert (_calls(stubbed)[-1]["outcome"], _calls(stubbed)[-1]["auth"]) == ("unauthorized", auth)
+    if value:
+        assert value not in stubbed.log.read_text()
+
+
+@pytest.mark.parametrize("presented,expected,prefix,result", [
+    ("abc", "abc", "", "test"),
+    ("abc", "abd", "", "rejected"),
+    ("abc", "", "", "rejected"),  # no test credential configured: nothing is accepted
+    (None, "abc", "", "missing"),
+    ("frtest_x", "frtest_x", "frtest_", "test"),
+    ("x", "x", "frtest_", "rejected"),
+])
+def test_check_test_credential(presented, expected, prefix, result):
+    assert policy.check_test_credential(presented, expected, prefix=prefix) == result
 
 
 async def test_tailscale_is_refused(stubbed):

@@ -16,7 +16,9 @@ process could touch the real world:
   and the activity-webhook secret must be the test's own: set, not the code
   default, distinct from each other, and not equal to any secret of the
   production `.env`. The comparison is by SHA-256 only; no value is ever kept,
-  logged or put in an error message.
+  logged or put in an error message. The ForgeRouter key the stub accepts is
+  marked as a test key by its own prefix (`frtest_`), so the stub can refuse
+  any other key -- a production one included -- without knowing it.
 
 Pure functions, no I/O except reading the production reference (the repo-root
 `.env`, or the hash file test-env/init-env.sh writes for containers that don't
@@ -25,6 +27,7 @@ have it). Imported by app/core/config.py, which must not be imported here.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import re
 import secrets
@@ -145,8 +148,31 @@ REQUIRED_TEST_SECRETS: dict[str, str] = {
 #: Optional under test, but when set they must not be a production value.
 OPTIONAL_TEST_SECRETS = (
     "DARCKWARE_AGENT_TOKEN", "DARCKWARE_APPROVER_TOKEN", "FORGEROUTER_SSO_SECRET", "POSTGRES_PASSWORD",
+    "FORGEROUTER_TEST_API_KEY",
 )
 MIN_TEST_SECRET_LENGTH = 32
+
+#: A ForgeRouter key is a test key only when it carries this prefix *and* is
+#: the FORGEROUTER_TEST_API_KEY of .env.test. ForgeRouter never issues it.
+FORGEROUTER_TEST_KEY_PREFIX = "frtest_"
+
+
+def is_test_forgerouter_key(value: str | None) -> bool:
+    """The convention's shape: the prefix, then at least MIN_TEST_SECRET_LENGTH characters."""
+    return bool(value) and value.startswith(FORGEROUTER_TEST_KEY_PREFIX) and (
+        len(value) >= len(FORGEROUTER_TEST_KEY_PREFIX) + MIN_TEST_SECRET_LENGTH)
+
+
+def check_test_credential(presented: str | None, expected: str | None, *, prefix: str = "") -> str:
+    """How the integration stub classifies a presented credential: "test" only
+    when it equals the test's own (non-empty) value and carries `prefix`;
+    "missing" when nothing was sent; "rejected" otherwise. Constant-time
+    comparison; neither value is ever returned."""
+    if not presented:
+        return "missing"
+    if not expected or not presented.startswith(prefix):
+        return "rejected"
+    return "test" if hmac.compare_digest(presented.encode("utf-8"), expected.encode("utf-8")) else "rejected"
 
 #: A key of the production .env is a secret when its name says so.
 _SECRET_KEY_NAME = re.compile(r"(SECRET|TOKEN|PASSWORD|_KEY$|^KEY$|API_KEY)", re.IGNORECASE)
@@ -247,6 +273,12 @@ def credential_problems(values: dict[str, str], reference: ProductionReference |
         if value in seen:
             problems.append(f"{name} is equal to {seen[value]}; each test credential needs its own value")
         seen[value] = name
+    forgerouter_key = values.get("FORGEROUTER_TEST_API_KEY") or ""
+    if forgerouter_key and not is_test_forgerouter_key(forgerouter_key):
+        problems.append(
+            f"FORGEROUTER_TEST_API_KEY must be {FORGEROUTER_TEST_KEY_PREFIX}<at least {MIN_TEST_SECRET_LENGTH} "
+            "characters> -- test-env/init-env.sh generates one"
+        )
     for name in OPTIONAL_TEST_SECRETS:
         value = values.get(name) or ""
         if value and (matched := _production_match(value, reference)):
