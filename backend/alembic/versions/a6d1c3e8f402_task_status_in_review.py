@@ -9,13 +9,13 @@ Downgrade refuses while any task is in_review: moving it to another status
 silently is a decision for the operator, never the migration.
 
 Revision ID: a6d1c3e8f402
-Revises: f2c7a4e9b1d3
+Revises: e83c1a7d29b4
 """
 import sqlalchemy as sa
 from alembic import op
 
 revision = "a6d1c3e8f402"
-down_revision = "f2c7a4e9b1d3"
+down_revision = "e83c1a7d29b4"
 branch_labels = None
 depends_on = None
 
