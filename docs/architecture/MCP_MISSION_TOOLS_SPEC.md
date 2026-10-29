@@ -1,0 +1,785 @@
+# M0.SPEC — Minimal Mission: contracts, model, guards and MCP tools
+
+**Status:** proposed specification for review (M0.SPEC, Plano Integrado Onda 1). Not implemented.
+**Author:** Porthus. **Reviewers:** Dartan (first), Aegis (second). **Consulted:** Daedalus (read-only).
+**Date:** 2026-10-29. **Base commit read:** `develop` @ `dcfe941`.
+**Language:** English per decision D-5 (technical spec/API in English; business brief in pt-BR).
+
+This specification is the authoritative contract for M0.0, M0.6a, M0.6b, M0.2a–d, the minimal
+mission executions screen (decided 2026-10-29) and the orchestrator decision cycle (decided
+2026-10-29). Nothing written here exists until an implementation slice ships it with tests.
+
+## Index
+
+| Document | Covers |
+|---|---|
+| This file | §0 conventions · §1 inventory (existing × proposed) · §2 M0.0 model and migration · §3 state projection · §4 guards M0.6a/M0.6b · §5 MCP tool contracts (M0.2a–d) · §6 minimal context allowlist · §7 plan submission · §8 minimal formal acceptance · §9 planned tests · §10 deferred to M.1 · §11 open decisions · §12 what was not verified |
+| [MISSION_EXECUTIONS_SCREEN_SPEC.md](MISSION_EXECUTIONS_SCREEN_SPEC.md) | Minimal mission executions screen: routes, execution state model, conflicts, environments, actions, permissions, loading/empty/error, 390/1440 px, tests |
+| [MISSION_ORCHESTRATOR_CYCLE_SPEC.md](MISSION_ORCHESTRATOR_CYCLE_SPEC.md) | Orchestrator decision cycle via Operação 24x7 (actions, N0–N3 limits, decision record, gates, undo/lock) and multiple missions (priority, per-orchestrator limit, inter-mission dependency, listing/filtering) |
+
+Source documents: `docs/plano-integrado/04-missao-pipeline-e-papeis.md` (states, roles, §6–§7),
+`07-fases-de-implementacao.md` (M0 row), `12-primeira-onda.md` §4/§5/§6, `09-lacunas-e-decisoes.md`
+(D-1…D-8, 2026-10-29 decisions), `08-inteligencia-operacional.md` (N0–N3).
+
+Mapping of `12-primeira-onda.md` §4 checklist to this spec:
+
+| §4 item | Section |
+|---|---|
+| Inventory/reuse `project.py`, `task.py`, `governance.py`, `orchestration.py`, `factory_server.py`; existing vs proposed | §1 |
+| Per tool: input/output, actor/scope, HTTP status and MCP error, idempotency key and conflict, audit, limit/timeout, rollback | §5 (and §0.3–§0.6 for shared rules) |
+| `project_type=mission` as planned migration + 04 state projection; preserve creation/maintenance, `ProjectAgentMembership`, `TaskExecutionReview` | §2, §3 |
+| Minimal context by allowlist, no broad retrieval before C.2b; canaries; simulated runner and test `agt_` | §6, §9.6 |
+| `submit_project_plan` only submits; approval/baseline on screen by authorized user; no approver token in the tool | §7 |
+| Common guards M0.6a/b: hash/ids, replay, revoked permission, uncertain cancellation, rollback | §4 |
+| Minimal formal acceptance (12 "Aceite mínimo persistido da M0") | §8 |
+| Executions screen (29/10) | screen spec |
+| Orchestrator decision cycle and multiple missions (04 §6–§7) | cycle spec |
+
+---
+
+## 0. Conventions used by every contract
+
+### 0.1 Labels
+
+- **[EXISTS file:line]** — verified in `develop@dcfe941` by reading the code; the line is the
+  decorator or definition.
+- **[PROPOSED]** — does not exist; to be built by the slice named next to it.
+- **[EXTEND file:line]** — existing code that the named slice changes.
+
+### 0.2 Identities and authorization
+
+- Agents call with their own `agt_` `AgentServiceCredential` (`FORGEHUB_AGENT_TOKEN`), resolved by
+  `get_actor_principal` [EXISTS backend/app/core/deps.py:29] and authorized by `authorize_action`
+  [EXISTS backend/app/core/deps.py:59] against an `AuthorityDelegation`
+  [EXISTS backend/app/db/models/governance.py:221] scoped to the mission project. Deny by default.
+- Humans call with JWT. In M0 every human write on a mission requires `is_admin` (Marcelo) except
+  where noted; `authorize_action` already returns `("admin", None)` for admins.
+- No shared bridge token (`X-Bridge-Token`) for any mission write. No borrowed credential. Missing or
+  invalid `agt_` is a blocker the tool surfaces, never a fallback (12 §6).
+- `RequireAuthMiddleware` only admits `agt_` on listed prefixes [EXISTS backend/app/main.py:200-232].
+  Today an `agt_` caller reaches `GET /api/v1/projects|tasks|planning-items` and `PATCH /api/v1/tasks/*`
+  only. **Finding:** `POST /api/v1/tasks` and `POST /api/v1/planning-items` are not on that list, so
+  the existing MCP tools `create_project_task` / `create_planning_item`
+  [EXISTS backend/app/mcp/factory_server.py:371,391] should be refused 401 for an `agt_`-only caller
+  (code reading, not run — §12). M0.2a adds the prefix `/api/v1/missions/` and the exact task
+  sub-paths listed in §5 to the `agt_` admission list [EXTEND backend/app/main.py:200]; each route
+  still calls `authorize_action` itself.
+
+New delegation action keys [PROPOSED, M0.2a], all project-scoped, `max_risk` respected:
+
+| Action key | Grants | Typical grantee |
+|---|---|---|
+| `mission.manage` | create the mission project, manage members/links | orchestrator (Athos) |
+| `mission.plan.submit` | submit a plan for approval (never approve) | orchestrator, planner |
+| `planning.execution.manage` | **exists** (used by `backend/app/api/routes/task.py:149`); M0 reuses it for assign, dependency, dispatch | orchestrator |
+| `mission.orchestrate` | decision-cycle actions (schedule, reassign, request review, return for correction, propose pause) | orchestrator |
+| `mission.execution.report` | report an execution of a task **assigned to the caller** | executors |
+| `mission.accept` | reserved; **refused in M0** (first mission is accepted by Marcelo only, 04 "Aceite mínimo M0") | — |
+
+### 0.3 Error contract (HTTP → MCP)
+
+All new routes return `detail` as an object `{ "code": "<UPPER_SNAKE>", "message": "<pt-BR or en text>", ...context }`.
+The MCP keeps the existing `FactoryError` surface [EXISTS backend/app/mcp/factory_server.py:49,65-92]
+and formats it as `ForgeHub <METHOD> <path> failed (<status>): <code>: <message>`. Existing routes keep
+their string `detail`; a guard added to an existing route uses the object form.
+
+| HTTP | Meaning | MCP behavior |
+|---|---|---|
+| 400 | malformed input | tool error, no retry |
+| 401 | missing/invalid/expired/revoked `agt_` | tool error `UNAUTHENTICATED`, no retry, no fallback credential |
+| 403 | no delegation / not a member / separation of duties | tool error, no retry |
+| 404 | not found **or not visible to the caller** (no existence leak across projects) | tool error |
+| 409 | guard refusal or idempotency conflict (`code` says which) | tool error; caller fixes cause |
+| 422 | semantic validation | tool error |
+| 502/504 | upstream (host-bridge) outcome uncertain | tool error `UPSTREAM_UNCERTAIN`; **never auto-retried**; reconcile first |
+
+Timeout: the MCP client uses 30 s [EXISTS backend/app/mcp/factory_server.py:72]. A timeout on a write is reported as
+`UPSTREAM_UNCERTAIN`; the caller must re-read state (or replay the same idempotency key, §0.4), never
+issue a different write.
+
+### 0.4 Idempotency
+
+Every write tool takes a required `idempotency_key` (1–150 chars, caller-generated, e.g.
+`<agent>-<task>-<purpose>-<uuid4>`). The server stores receipts in **[PROPOSED, M0.2a] table
+`company.agent_command_receipts`**:
+
+| Column | Type | Note |
+|---|---|---|
+| id | UUID PK (python default) | |
+| principal_type, principal_id | String(20), UUID | who called |
+| idempotency_key | String(150) | |
+| command | String(80) | e.g. `mission.dispatch_task` |
+| request_hash | String(64) | sha256 of canonical JSON of the request body |
+| response_status | Integer | |
+| response_body | JSONB | |
+| target_type, target_id | String(50), UUID nullable | for audit joins |
+| created_at/updated_at | TimestampMixin | |
+
+`UNIQUE (principal_type, principal_id, idempotency_key)`. Same key + same hash → the stored response is
+returned (HTTP 200 with header `Idempotent-Replay: true`). Same key + different hash → 409
+`IDEMPOTENCY_KEY_REUSED`. Receipts are written in the same transaction as the effect. Retention 30 days
+(swept by the existing retention loop pattern; sweep is a M0.2a sub-item). Where a natural key exists
+(e.g. a membership `(project_id, agent_id)` already has `UNIQUE` [EXISTS orchestration.py model,
+backend/app/db/models/orchestration.py:166-167]) it is checked as well.
+
+Dispatch has a stronger rule: it **never** produces a second run for the same task while a previous
+one is active, reserved or uncertain — this reuses `reserve_dispatch`
+[EXISTS backend/app/core/demand_dispatch_guard.py:13] and the uncertain-run short-circuit in
+`_dispatch_task_by_id` [EXISTS backend/app/api/routes/task.py:969 (block at 997-1019)].
+
+### 0.5 Audit
+
+Every mission write appends an `AuditEvent` [EXISTS backend/app/db/models/governance.py:108] with:
+`entity_type` (`project`, `project_task`, `task_execution`, `mission`), `entity_id`, `event_type`
+(names below), `actor` = authenticated display name (**never** `"system"` or `"forgehub"` for an act
+of an agent or person — 04 §2), and `payload` with at least
+`{principal_type, principal_id, authority_source, delegation_id, idempotency_key, reason?}`.
+**Finding (fixed by M0.6a):** today `update_task` audits completion as `actor="system"`
+[backend/app/api/routes/task.py:436-444] and `dispatch_task` as `actor="forgehub"` [backend/app/api/routes/task.py:1161-1167].
+
+### 0.6 Rollback convention
+
+Each slice ships: an Alembic migration with a working `downgrade()` tested up/down on the isolated
+test database (T.1); a feature switch `MISSION_TOOLS_ENABLED` [PROPOSED, `core/config.py`, default
+`false`] that makes the new MCP tools and `/api/v1/missions/*` writes return 503
+`MISSION_TOOLS_DISABLED` without touching data; guards are **not** switchable (disabling a guard is a
+code rollback through the deploy gate, never a flag). Rolling back never deletes executions, reviews,
+receipts or audit rows.
+
+---
+
+## 1. Inventory: existing × proposed
+
+### 1.1 Existing, reused as-is or extended
+
+| Capability | Where | Use in M0 |
+|---|---|---|
+| Project CRUD | `POST/GET/PATCH/DELETE /api/v1/projects` [EXISTS backend/app/api/routes/project.py:142,161,167,172,208] | mission is a Project; PATCH gains the mission guard (§3) |
+| `PROJECT_TYPES = ("creation","maintenance")`, CHECK `ck_projects_project_type` | [EXISTS backend/app/db/models/project.py:67,100] | M0.0 adds `mission` |
+| `ProjectCreate` does **not** expose `project_type` | [EXISTS backend/app/api/schemas/project.py:26-55] | kept; missions are created only through §5.1 |
+| ProjectPlan CRUD + approve | [EXISTS backend/app/api/routes/project.py:219,233,246,251,282,296] | approve (`:282`) has **no** authorization beyond login; M0.6b refuses it for mission projects (§7) |
+| PlanBaseline create/list/get | [EXISTS backend/app/api/routes/project.py:306,347,361]; model [EXISTS backend/app/db/models/project.py:229] | snapshot only of plan text/cost/date; M0.6b adds per-task items + hashes |
+| ChangeRequest CRUD | [EXISTS backend/app/api/routes/project.py:374,424,437,461,522]; model [EXISTS backend/app/db/models/project.py:263] | the only way to change a baselined mission task |
+| Task CRUD, `TASK_STATUSES` | [EXISTS backend/app/api/routes/task.py:303,338,380,388,456]; [EXISTS backend/app/db/models/task.py:44] | PATCH gains M0.6a/b guards |
+| `_authorize_agent_task_update` (`planning.execution.manage` for `agt_`) | [EXISTS backend/app/api/routes/task.py:110] | reused |
+| `_ensure_evidence_verified` (only `done`, only if executions exist) | [EXISTS backend/app/api/routes/task.py:488] | replaced by the global M0.6a guard |
+| Executions create/list/get/patch | [EXISTS backend/app/api/routes/task.py:543,609,622,632] | `report_task_execution` builds on it |
+| Dependencies with cycle check (advisory lock) | [EXISTS backend/app/api/routes/task.py:708,745,756] | `add_task_dependency` wraps `:708` |
+| Assignments | [EXISTS backend/app/api/routes/task.py:807,853] | `assign_task` wraps `:807` |
+| Task dispatch via Messages | [EXISTS backend/app/api/routes/task.py:946 → `_dispatch_task_by_id` :969] | `dispatch_task` tool wraps it; guards added |
+| Memberships | `POST/GET /orchestration/projects/{id}/memberships`, `GET /orchestration/agents/{id}/memberships`, `PATCH /orchestration/memberships/{id}` [EXISTS backend/app/api/routes/orchestration.py:230,255,270,286] | `manage_project_members` wraps them; R.1 must preserve |
+| Eligible memberships | [EXISTS backend/app/api/routes/orchestration.py:410] | reassign eligibility |
+| Reviews | `POST/GET /orchestration/executions/{id}/reviews`, `PATCH /orchestration/reviews/{id}` [EXISTS backend/app/api/routes/orchestration.py:452,481,496] | independent review = `TaskExecutionReview` [EXISTS backend/app/db/models/orchestration.py:216] |
+| Review dispatch (work-package only) | [EXISTS backend/app/api/routes/orchestration.py:640] | **not** usable for Messages executions (409 without work package); M0 uses §5.11 |
+| Legacy direct dispatch | [EXISTS backend/app/api/routes/orchestration.py:565] returns 410 | untouched |
+| Governed approval requests (hash-bound, idempotent decisions) | `GET /governed/approval-requests[/{id}]`, `POST /governed/approval-requests/{id}:decide` [EXISTS backend/app/api/routes/governed_approval.py:40,52,64]; models `ApprovalRequest`, `ApprovalDecisionRecord` [EXISTS backend/app/db/models/governance.py:187,246] | plan approval (§7) and mission acceptance (§8) add target types to `:decide` |
+| Delegations | `GET/POST /governed/authority-delegations`, `:revoke` [EXISTS backend/app/api/routes/governed_approval.py:104,114,154] | mission delegations |
+| Legacy approvals | `/governance/approvals*` [EXISTS backend/app/api/routes/governance.py:52,89,107,115,123]; approving a `project_task` auto-dispatches [EXISTS backend/app/api/routes/governance.py:180] | auto-dispatch must pass M0.6b (it does, via `reserve_dispatch`); legacy approvals are **not** a plan/acceptance path for missions |
+| Audit events read | [EXISTS backend/app/api/routes/governance.py:234,252] | mission timeline source |
+| Evidence verification `file:`/`git:`/`db:` | [EXISTS backend/app/core/task_evidence.py:78,99,126,140,164] | reused by M0.6a |
+| Messages dispatch choke point | `_execute_dispatch` → `reserve_dispatch` [EXISTS backend/app/api/routes/demand.py:1462,1497; backend/app/core/demand_dispatch_guard.py:13] | M0.6b baseline guard and target serialization go here |
+| Scheduled dispatch | `run_scheduled_dispatch_pass` [EXISTS backend/app/api/routes/demand.py:1854], `wake_scheduled_dispatch` [EXISTS backend/app/core/dispatch_signal.py:18] | `scheduled_at` scheduling (cycle spec) |
+| Operator decisions on messages | `POST /demands/{id}/decision` [EXISTS backend/app/api/routes/demand.py:1190] → `decide_demand` [EXISTS backend/app/core/demand_workflow.py:95]; bulk [EXISTS backend/app/api/routes/demand.py:856] | reused for uncertain-run resolution |
+| Agent work list | `GET /demands/agent-work` [EXISTS backend/app/api/routes/demand.py:843] (`WORK_VIEWS` [EXISTS backend/app/core/demand_management.py:9]) | screen reuses per execution |
+| Message history | `GET /demands/{id}/history` [EXISTS backend/app/api/routes/demand.py:1199] | screen drill-down |
+| Agent activity | `GET /agent-activity`, `/stream`, `/timeline`, `/snapshot` [EXISTS backend/app/api/routes/agent_activity.py:179,250,295,324] | screen: live state of executors |
+| DocLink | `GET/POST/DELETE /api/v1/docs/links`, `GET /docs/links/by-entity` [EXISTS backend/app/api/routes/docs.py:375,385,401,434] | `attach_project_document` |
+| Artifacts | `POST/GET /api/v1/artifacts`, versions [EXISTS backend/app/api/routes/artifact.py:110,153,169,233,292,329] | brief/dossier as versioned artifact |
+| Routines (Operação 24x7) | `/operations/routines*` [EXISTS backend/app/api/routes/operations.py:749,760,779,807,816]; `run_routine_generation_pass` [EXISTS backend/app/api/routes/operations.py:239] | cycle trigger (cycle spec) |
+| Agent questions (ask Marcelo, blocking) | `POST/GET /operations/agent-questions` [EXISTS backend/app/api/routes/operations.py:1004,1053]; MCP `ask_marcelo` [EXISTS host-bridge/forgehub_messages_mcp.py:625] | cycle "ask Marcelo" |
+| Existing MCP factory tools | `list_projects`, `get_project_context`, `list_planning_items`, `list_project_tasks`, `update_task_status`, `report_governance_blocker`, `create_planning_item`, `create_project_task`, `release_planning_for_execution`, … [EXISTS backend/app/mcp/factory_server.py:107-442] | kept; `update_task_status` becomes subject to M0.6a |
+
+### 1.2 Proposed (none of these exist)
+
+| Item | Kind | Slice |
+|---|---|---|
+| `project_type='mission'` | migration (CHECK) | M0.0 |
+| `company.project_missions` | table | M0.0 |
+| `company.mission_project_links` | table | M0.0 |
+| `company.mission_acceptance_criteria`, `company.mission_criterion_tasks` | tables | M0.0 |
+| `company.plan_baseline_items`; `plan_baselines.content_hash`, `plan_baselines.superseded_at` | table + columns | M0.6b |
+| `company.task_execution_targets` | table | M0.6b (target serialization) |
+| `company.environment_releases` | table | screen slice (M0.7, §11 D-M0-1) |
+| `company.agent_command_receipts` | table | M0.2a |
+| `/api/v1/missions/*` routes | API | M0.2a–d, screen, cycle |
+| MCP tools §5 | MCP | M0.2a–d (+ cycle tools, §11) |
+| `assert_task_completion_allowed`, `assert_task_baseline_current`, `build_mission_dispatch_context` | core functions | M0.6a, M0.6b, M0.2c |
+
+---
+
+## 2. M0.0 — minimal model and migration [PROPOSED]
+
+One Alembic revision `m0_0_mission_base` (name indicative), schema `company`, UUID PKs with Python
+default, `TimestampMixin`, string FKs (`ForeignKey("company.<table>.id")`), statuses as `String` +
+`CheckConstraint` — the conventions in `CLAUDE.md`.
+
+### 2.1 `projects` CHECK
+
+`PROJECT_TYPES = ("creation", "maintenance", "mission")`; drop and recreate
+`ck_projects_project_type`. No data change. Downgrade refuses (raises) if any row has
+`project_type='mission'` — the operator must decide what to do with them; a downgrade never rewrites
+a mission into a common project silently.
+
+### 2.2 `project_missions` (1:1 extension of a mission Project — the single state machine, 04 §Modelo)
+
+| Column | Type | Constraint / note |
+|---|---|---|
+| project_id | UUID PK, FK `company.projects.id` ON DELETE RESTRICT | a mission project cannot be deleted while the extension exists (`DELETE /projects/{id}` [backend/app/api/routes/project.py:208] gains a 409 for missions) |
+| state | String(30) | CHECK in `MISSION_STATES` (§3) |
+| paused_from_state | String(30) null | set only while `state='paused'` (CHECK) |
+| priority | Integer, default 100 | lower = more urgent; 1–1000 CHECK (cycle spec §6) |
+| orchestrator_agent_id | UUID FK `company.agents.id` | exactly one orchestrator (04 Papéis); must also be an active `coordinator` membership (route rule) |
+| autonomy_level | String(2), default `N0` | CHECK in (`N0`,`N1`,`N2`,`N3`); **routes refuse anything but `N0` in Onda 1** (08 "Onda 1 opera em N0") |
+| brief_artifact_id | UUID FK `company.artifacts.id` null | the `BRIEF.md` artifact |
+| current_baseline_id | UUID FK `company.plan_baselines.id` null | the baseline in force |
+| deadline_at | timestamptz null | required to leave `draft` |
+| budget_limit | Numeric(14,2) null | required to leave `draft` |
+| paused_seconds | Integer default 0 | paused time does not count against the deadline (04 §6) |
+| state_changed_at | timestamptz | |
+| state_reason | Text null | required for pause/cancel/reopen |
+| acceptance_request_id | UUID FK `company.approval_requests.id` null | §8 |
+| row_version | Integer default 1 | optimistic lock; every transition sends `expected_row_version` |
+
+### 2.3 `mission_project_links` (coordinator ↔ executor projects, D-3)
+
+`id`, `mission_project_id` FK projects (CASCADE), `executor_project_id` FK projects (RESTRICT),
+`linked_by` String(150), `UNIQUE(mission_project_id, executor_project_id)`, CHECK
+`mission_project_id <> executor_project_id`. Route rule: `mission_project_id` must be a mission;
+`executor_project_id` must **not** be a mission (no nested missions in M0). An executor project can
+be linked to several missions (04).
+
+### 2.4 Acceptance criteria (needed by the minimal acceptance, §8)
+
+`mission_acceptance_criteria`: `id`, `mission_project_id` FK, `code` String(20) (e.g. `AC-1`),
+`statement` Text, `verification_method` Text (how it is proven), `verifier_agent_id` FK agents null,
+`verifier_is_marcelo` Boolean, CHECK exactly one verifier, `status` String(20) CHECK in
+(`open`,`proven`,`failed`), `evidence_ref` String(500) null, `decided_by` String(150) null,
+`decided_at` null, `UNIQUE(mission_project_id, code)`.
+`mission_criterion_tasks`: `criterion_id` FK (CASCADE), `task_id` FK `company.project_tasks.id`
+(RESTRICT), `UNIQUE(criterion_id, task_id)`; route rule: the task belongs to the mission project or a
+linked executor project (04 §Modelo).
+
+`ScopeItemAcceptanceCriterion` [EXISTS backend/app/db/models/system_scope.py:297] was considered and
+**not** reused: it hangs off `project_scope_items` (a software-delivery scope element), has no
+verifier, status or evidence, and a mission has no `ProjectScope`.
+
+### 2.5 What M0.0 must preserve
+
+- `creation`/`maintenance` projects: no row in `project_missions`, no mission guard, identical API
+  responses (test §9.1).
+- `ProjectAgentMembership` [backend/app/db/models/orchestration.py:117], `TaskExecutionReview` [:216],
+  `ProjectLoopPolicy` [:171] untouched; roles reuse `PROJECT_AGENT_ROLES` [:32] — no new role list.
+- Existing criteria, members and reviews keep their ids (no backfill, no rewrite).
+
+---
+
+## 3. State machine and `Project.status` projection [PROPOSED, M0.0]
+
+`MISSION_STATES = ("draft","ready","active","verifying","awaiting_acceptance","paused","completed","cancelled")`
+(pt-BR labels: rascunho, pronta, ativa, em verificação, aguardando aceite, pausada, concluída, cancelada).
+
+| Mission state | `Project.status` written in the **same transaction** |
+|---|---|
+| draft, ready | planned |
+| active, verifying, awaiting_acceptance | active |
+| paused | on_hold |
+| completed | completed |
+| cancelled | cancelled |
+
+Rules:
+
+1. Only `POST /api/v1/missions/{project_id}:transition` [PROPOSED, M0.0] changes `state`; it writes
+   the projection and an `AuditEvent(entity_type="mission", event_type="mission_<from>_to_<to>")`.
+2. `PATCH /api/v1/projects/{id}` [EXTEND backend/app/api/routes/project.py:172] refuses `status` **and** `project_type` for a
+   mission (409 `MISSION_STATUS_IS_PROJECTED`); other fields stay editable (subject to the brief/baseline
+   rules). For a common project `project_type` stays non-patchable as today (`ProjectUpdate` has no such field).
+3. Mission completion is never inferred from `Project.status='completed'` (04).
+
+Allowed transitions in M0 (anything else → 409 `MISSION_TRANSITION_NOT_ALLOWED`):
+
+| From → To | Who | Preconditions checked by the backend |
+|---|---|---|
+| draft → ready | Marcelo | brief artifact version `approved` by Marcelo; ≥1 criterion, each with method + verifier; orchestrator membership active; `deadline_at`, `budget_limit` set; a baseline exists (§7) |
+| ready → active | Marcelo, or orchestrator with `mission.orchestrate` | `current_baseline_id` not superseded; dependency missions completed (cycle spec §6.3); orchestrator under its active-mission limit |
+| active → verifying | orchestrator or Marcelo | all criteria `proven` |
+| verifying → active | anyone who can mark a criterion `failed` | a criterion went `failed` or a task reopened |
+| verifying → awaiting_acceptance | orchestrator or Marcelo | dossier artifact version registered (§8) |
+| awaiting_acceptance → completed | **only** via the acceptance decision (§8) | all §8 conditions |
+| awaiting_acceptance → active | Marcelo (rejecting the dossier) | reason |
+| ready/active/verifying → paused | Marcelo; orchestrator only when blocked (reason `blocked:*`) | reason; `paused_from_state` saved |
+| paused → paused_from_state | Marcelo | reason |
+| any non-terminal → cancelled | Marcelo | reason; queued mission demands archived through `decide_demand(action="archive")`; in-flight runs are **not** killed — they follow the existing uncertain/`confirm_inactive` path [backend/app/core/demand_workflow.py:114-129] |
+| completed → active (reopen) | Marcelo | reason (M0 implements; M.1 adds delegation) |
+
+Pause effects (04 §6): `reserve_dispatch` refuses mission tasks while `paused` (keeps them queued,
+`WorkflowBlocked`); deadline clock stops (`paused_seconds`); cycle stops nagging. "Pause now" (cancel
+running) is **deferred to M.1**; in M0 running work finishes normally.
+
+---
+
+## 4. Guards
+
+### 4.1 M0.6a — global, prospective completion guard [PROPOSED]
+
+`async def assert_task_completion_allowed(db, task, target_status, principal) -> CompletionProof`
+in `backend/app/core/task_completion_guard.py` (new). Called for **every new transition** of any
+`ProjectTask` (all projects, not just missions) to `done` or `deployed`. It requires:
+
+1. Latest `TaskExecution` (highest `attempt_number`) exists and has `status='verified'`. `completed`
+   alone no longer suffices for new transitions, and "no executions at all" no longer passes
+   (today's `_ensure_evidence_verified` lets both through [backend/app/api/routes/task.py:488-507]).
+2. Its `evidence_ref` passed `verify_evidence` [backend/app/core/task_evidence.py:140] with a typed prefix
+   `git:`, `file:` or `db:` (04 §2 "Na Onda 1"); `file:` resolved inside the task's project
+   `working_directory_path`; `db:` only for the allowlisted entity types already in
+   `backend/app/core/task_evidence.py:48-58`; `git:` commit reachable in that project's repository. `host_execution:`
+   and browser evidence are refused until I.5/N.3.
+3. A `TaskExecutionReview` on that execution with `status='approved'` whose reviewer is independent:
+   `reviewer.agent_id` ≠ the executing agent (resolved: `TaskExecution.assignment_id → TaskAssignment.agent_id`,
+   else the dispatched `AgentDemand.target_agent_id` via `task_execution_id`), ≠ any co-author recorded
+   on the execution, membership `active` **and** `can_review`, same project (or, for a mission task, the
+   mission project). Identity is compared by registered agent id; Porthus = Claude Code, Aramis = Codex
+   are one identity each (D-1).
+4. Dependencies and subtasks done (existing `ensure_task_dependencies_satisfied`
+   [backend/app/core/task_dependencies.py:35] and `_ensure_subtasks_completed` [backend/app/api/routes/task.py:467]).
+5. `deployed` additionally requires the task to have been `done` first and, for a mission, an
+   `environment_releases` row for `production` citing the task (screen spec §5) — today `deployed`
+   has **no** evidence check at all [backend/app/api/routes/task.py:421-424].
+
+Call sites — every writer of `done` found in `develop@dcfe941`, all must call the guard:
+
+| Writer | Location | Today |
+|---|---|---|
+| `PATCH /tasks/{id}` (and MCP `update_task_status`) | [backend/app/api/routes/task.py:388-447] | evidence only if executions exist; `deployed` unchecked |
+| Review approved via PATCH | [backend/app/api/routes/orchestration.py:525-531] | sets `done` directly; no dependency/evidence/subtask check |
+| Review refresh (auto) | [backend/app/api/routes/orchestration.py:784-789] | same |
+| Governed task approval | [backend/app/core/governed_approval.py:379-388] | checks verified evidence and self-approval; no independent-review requirement |
+
+Additional fixes inside M0.6a: `create_execution_review` [backend/app/api/routes/orchestration.py:452] only rejects
+"executor reviews own execution" when `execution.assignment_id` is set; Messages dispatches without an
+assignment leave it NULL [backend/app/api/routes/task.py:1033], so the check silently passes — the guard resolves the
+executor as in (3). A review created directly with `status='approved'` (no feedback) must be refused
+(feedback is only enforced on PATCH today [backend/app/api/routes/orchestration.py:508-509]). The reviewer must be the caller:
+an `agt_` caller may only create/decide reviews for its own membership; a human admin may record a
+review only with `reviewer_membership_id` of an agent plus `recorded_by` audit (manual verification).
+
+**Historical work:** no backfill, no reopening. Tasks already `done` stay `done`; the screen shows them
+as "concluída sem prova (histórica)". Importing historical work (0.x) = create a `TaskExecution`
+(`reported`) with real `git:`/`file:`/`db:` evidence + independent review, then transition through the
+guard. No invented `run_id`, review or approval; without proof it stays `reported`/`blocked` (12 §5).
+
+Errors: 409 with `code` ∈ `COMPLETION_NO_EXECUTION`, `COMPLETION_EXECUTION_NOT_VERIFIED`,
+`COMPLETION_EVIDENCE_INVALID`, `COMPLETION_NO_INDEPENDENT_REVIEW`, `COMPLETION_REVIEWER_IS_EXECUTOR`,
+`COMPLETION_DEPENDENCIES_OPEN`, `COMPLETION_SUBTASKS_OPEN`, `DEPLOYED_WITHOUT_RELEASE`.
+Audit: `task_completed` / `task_deployed` with `actor` = principal and `payload.proof = {execution_id,
+evidence_ref, review_id, reviewer_agent_id}`.
+
+### 4.2 M0.6b — immutable baseline and dispatch guard [PROPOSED]
+
+**Model.** `plan_baselines` gains `content_hash` String(64) and `superseded_at` timestamptz null;
+new `plan_baseline_items(id, baseline_id FK CASCADE, task_id FK RESTRICT, content_hash String(64),
+UNIQUE(baseline_id, task_id))`. A baseline is immutable: no route updates it; superseding sets
+`superseded_at` and the new baseline's id on `project_missions.current_baseline_id`.
+
+**Canonical task content** (`canonical_hash` [EXISTS backend/app/core/governed_approval.py:21] over sorted JSON):
+`task_id, title, description, plan_brief, task_type, priority, planning_item_id, change_request_id,
+parent_task_id, sorted depends_on_task_ids, sorted execution targets (§4.3), linked criterion codes`,
+plus mission-level `brief_artifact_version_id` and the criteria `(code, statement, verification_method,
+verifier)` set. **Not** in the hash: assignee (reassignment is a cycle action, §11 D-M0-3), status,
+dates, costs. `plan_baselines.content_hash` = hash of the sorted item hashes + mission-level part.
+
+**Guard.** `async def assert_task_baseline_current(db, task) -> None` in
+`core/task_baseline_guard.py` (new). Applies when the task's project (or the mission it belongs to) has
+a baseline **with items** (legacy baselines without items do not trigger, so common projects are not
+blocked — 12 "Limites globais"). Refuses with 409 when:
+
+| Code | Condition |
+|---|---|
+| `BASELINE_SUPERSEDED` | the baseline cited by the mission is superseded |
+| `TASK_NOT_IN_BASELINE` | task added after approval without an approved+applied CR that produced a new baseline |
+| `TASK_CONTENT_CHANGED` | recomputed hash ≠ item hash (edited after approval) |
+| `BASELINE_FOREIGN_PROJECT` | baseline belongs to another project |
+| `MISSION_NOT_ACTIVE` | mission state ∉ {active, verifying} (draft/ready/paused/terminal) |
+| `CHANGE_REQUEST_PENDING` | a pending CR targets this task (CR invalidates prior authorization) |
+
+**Placement — all dispatch paths.** The authoritative call is inside `reserve_dispatch`
+[backend/app/core/demand_dispatch_guard.py:13], for demands with `origin_type='task'` (resolved by `origin_id`),
+right after `ensure_workflow_allowed`. Every path reaches it through `_execute_dispatch`
+[backend/app/api/routes/demand.py:1462,1497]: manual `POST /demands/{id}/dispatch` [backend/app/api/routes/demand.py:1995], `POST /tasks/{id}/dispatch`
+[backend/app/api/routes/task.py:946], the scheduled pass [backend/app/api/routes/demand.py:1854], legacy approval auto-dispatch [backend/app/api/routes/governance.py:180],
+reprocess [backend/app/api/routes/demand.py:687]. An early (non-authoritative) call also runs at the top of
+`_dispatch_task_by_id` so no `TaskExecution` row is created for a refused dispatch. Inside the
+scheduled pass, a `WorkflowBlocked` keeps the item queued (existing behavior [backend/app/api/routes/demand.py:1899-1905]) —
+it is not a failure and consumes no attempt.
+
+**Approval/MCP/reconciliation cannot bypass:** approving a legacy `Approval(project_task)` dispatches
+through the same path; `reconcile` [backend/app/api/routes/demand.py:1216] and `run_dispatch_completion_pass` only finalize
+existing runs and never start one; `authorize_retry` [backend/app/core/demand_workflow.py:130] raises the attempt
+budget but the next start still passes `reserve_dispatch`.
+
+**Replay, retry and uncertainty.** Retry of an uncertain outcome never clears `agent_run_id`
+(existing: `requires_reconciliation` [backend/app/core/demand_workflow.py:24] blocks; `confirm_inactive` requires the
+run id typed back [:120-129]). A replayed `dispatch_task` with the same idempotency key returns the
+original receipt; with a new key while a run is active/reserved/uncertain it returns the existing
+demand (existing short-circuit at backend/app/api/routes/task.py:997-1019) — never a second run.
+
+**Revoked permission.** `authorize_action` re-reads delegations on every call (`status='active'`,
+validity window) [backend/app/core/deps.py:96-102]; a revocation takes effect on the next request. An already-reserved
+run is not cancelled by revocation (M0); the screen flags it (`delegation_revoked_during_run`).
+
+**Rollback.** Migration downgrade drops `plan_baseline_items`, `task_execution_targets` and the two
+columns; refused if any mission is `active` (would leave dispatch unguarded) — operator pauses first.
+
+### 4.3 Target serialization (needed by the guard and the cycle) [PROPOSED, M0.6b]
+
+`task_execution_targets(id, task_id FK CASCADE, kind String(20) CHECK in ('worktree','branch','publish'),
+target_key String(500), UNIQUE(task_id, kind, target_key))`. Keys are normalized: `worktree` = absolute
+realpath; `branch` = `<repo-realpath>#<branch>`; `publish` = `<environment>:<deploy-target>` (e.g.
+`production:forgehub`). Implicit target: every Messages run already has `working_path`; for **mission**
+tasks `reserve_dispatch` treats `worktree:<realpath(working_path)>` as declared even if absent.
+
+Rule in `reserve_dispatch`: refuse (`WorkflowBlocked("TARGET_BUSY: <kind>:<key> held by #<number>")`,
+item stays queued) when another demand with `dispatch_status in ('dispatched','running')` or reserved
+or uncertain holds an equal target. Applies to tasks of mission projects in M0; extending it to all
+Messages work is an open decision (§11 D-M0-2) because it changes global behavior.
+
+---
+
+## 5. MCP tool contracts (M0.2a–d) [PROPOSED]
+
+All tools live in `backend/app/mcp/factory_server.py`, call the API with the caller's `agt_`
+(`_factory_call` [backend/app/mcp/factory_server.py:65]), and follow §0. Common limits: request body ≤ 64 KiB; text
+fields bounded as listed; 30 s client timeout; per-agent rate limit 60 writes/min [PROPOSED, simple
+in-process counter, 429 `RATE_LIMITED`]. "Rollback" = how an effect is undone without losing history.
+
+### 5.1 `create_internal_project` (M0.2a)
+
+- **Input:** `product_version_id: uuid`, `name: str(1..255)`, `description: str?`, `project_type: "mission"|"maintenance"|"creation"` (default `mission`), `working_directory_path: str?` (absolute), `executor_project_ids: [uuid]?` (mission only), `idempotency_key`.
+- **Output:** `{project_id, project_type, mission_state?: "draft", project_status: "planned", created: bool}`.
+- **Actor/scope:** agent with `mission.manage` scoped to the product (`authorize_action(product_id=...)`); admin user.
+- **HTTP:** `POST /api/v1/missions` [PROPOSED] for missions; for creation/maintenance it calls the existing `create_project` function [backend/app/api/routes/project.py:142] in-process (never an HTTP self-call), adding the `project_type` the public schema does not expose. 201 / 200 replay.
+- **Errors:** 404 version not found/invisible; 409 `PROJECT_NAME_EXISTS_IN_VERSION` (natural key `(product_version_id, lower(name))`, checked under advisory lock — returns the existing id in the body so the caller can reuse it, M0.1 idempotent registration); 422 non-absolute path; 403.
+- **Idempotency:** receipt (§0.4) + natural key.
+- **Audit:** `project_created` (+ `mission_created`), actor = agent.
+- **Rollback:** a `draft` mission with no tasks can be cancelled (`:transition → cancelled`); never hard-deleted by tool.
+
+### 5.2 `manage_project_members` (M0.2a)
+
+- **Input:** `project_id`, `operations: [{op: "add"|"update"|"suspend"|"release", agent_id, role ∈ PROJECT_AGENT_ROLES, can_review?: bool, can_approve?: bool, responsibilities?: str(≤2000), valid_to?: date}]` (≤20 ops), `idempotency_key`.
+- **Output:** `{memberships: [ProjectAgentMembershipOut], violations: []}`.
+- **Actor/scope:** `mission.manage` on that project; admin.
+- **HTTP:** `POST /api/v1/missions/{project_id}/members:apply` [PROPOSED] (one transaction) reusing the existing membership functions [backend/app/api/routes/orchestration.py:230,286].
+- **Validation (04 "Regras checadas ao nomear"):** exactly one active `coordinator` and it equals `orchestrator_agent_id`; code roles (`developer`, `architect`, `data_engineer`) only for external-runtime agents (`runtime_type ∈ claude|codex|agy`, "coding only by external agents"); agent active; `can_approve` refused for agents in M0 (approval is Marcelo's); charter `never_does` respected (`AgentCharter.never_does` [backend/app/db/models/operations.py:67]) — violations returned as 422 `MEMBER_RULE_VIOLATION` with the list.
+- **Errors:** 404, 403, 409 `LAST_COORDINATOR` (cannot remove the only coordinator of a non-terminal mission), 422.
+- **Idempotency:** receipt + natural `UNIQUE(project_id, agent_id)`.
+- **Audit:** one `membership_<op>` per op.
+- **Rollback:** `release` (status `released`), never delete — reviews RESTRICT memberships [backend/app/db/models/orchestration.py:225-229].
+
+### 5.3 `submit_project_plan` (M0.2b) — submits only
+
+See §7. **Input:** `project_id`, `plan: {name, scope_summary, estimated_start_date?, estimated_end_date?, estimated_cost?}`, `task_ids: [uuid]` (the tasks the baseline will authorize), `idempotency_key`. **Output:** `{plan_id, approval_request_id, plan_hash, checks: [{key, passed, detail}], status: "pending_approval"}`. **Actor:** `mission.plan.submit`. **HTTP:** `POST /api/v1/missions/{project_id}/plans:submit` [PROPOSED]; 201 / 200 replay; 409 `PLAN_CHECKS_FAILED` (with the failing checks) / `PLAN_ALREADY_PENDING` (returns its id) / `MISSION_NOT_DRAFT_OR_CR`; 422. **Audit:** `plan_submitted`. **Rollback:** `POST /api/v1/missions/{id}/plans/{plan_id}:withdraw` [PROPOSED] marks the request `withdrawn` (new value in the governed request status vocabulary, §11 D-M0-4); the plan stays `draft`. **Never** accepts an approver token, approver name or `approved` flag; any such field is a 422.
+
+### 5.4 `add_task_dependency` (M0.2b)
+
+- **Input:** `task_id`, `depends_on_task_id`, `dependency_type` (default `finish_to_start`; M0 accepts only it — the gate only understands finish-to-start), `idempotency_key`.
+- **Output:** `TaskDependencyOut` + `baseline_impact: "none"|"requires_change_request"`.
+- **Actor/scope:** `planning.execution.manage` on the task's project; both tasks in the same mission scope (mission project or linked executor projects), else 404.
+- **HTTP:** `POST /api/v1/tasks/{task_id}/dependencies` [EXISTS backend/app/api/routes/task.py:708] admitted for `agt_` [EXTEND main.py] plus `authorize_action` [EXTEND backend/app/api/routes/task.py:713].
+- **Errors:** 409 cycle (existing [backend/app/api/routes/task.py:723-736]); 409 `TASK_IN_BASELINE` when the dependent task is in a current baseline (adding a dependency changes its hash → CR required); 400 self-dependency.
+- **Idempotency:** receipt + natural `(task_id, depends_on_task_id)` [PROPOSED unique index; today duplicates are allowed].
+- **Audit:** `task_dependency_added`. **Rollback:** existing `DELETE` [backend/app/api/routes/task.py:756] (same baseline rule).
+
+### 5.5 `assign_task` (M0.2c)
+
+- **Input:** `task_id`, `agent_id`, `reason: str(1..2000)`, `idempotency_key`.
+- **Output:** `{assignment_id, membership_id, previous_assignment_id?, task_status}`.
+- **Actor/scope:** `planning.execution.manage` (and `mission.orchestrate` when it replaces an active assignment).
+- **HTTP:** `POST /api/v1/missions/{project_id}/tasks/{task_id}:assign` [PROPOSED] which releases the previous active assignment (`status='released'`, `unassigned_at`) and calls the existing creation logic [backend/app/api/routes/task.py:807] with `membership_id` set (automated dispatch requires it, [backend/app/db/models/task.py:244-251]).
+- **Rules:** target has an `active` membership with an executor role; agent ≠ the task's designated reviewer (§5.11) and ≠ reviewer of any open review of the task; refuse while a run is active/reserved/uncertain (409 `TASK_RUN_IN_FLIGHT`).
+- **Audit:** `task_assigned` / `task_reassigned` with reason. **Rollback:** reassign again (history kept).
+
+### 5.6 `dispatch_task` (M0.2c)
+
+- **Input:** `task_id`, `command_text?: str(≤4000)` (extra instruction; part of the demand content hash), `scheduled_at?: datetime` (future → scheduled, see cycle spec), `idempotency_key`.
+- **Output:** `{task_id, demand_id, demand_number, dispatch_status, agent_run_id?, scheduled_at?, task_status}` (shape of `TaskInboxDispatchOut` [backend/app/api/routes/task.py:946] + `scheduled_at`).
+- **Actor/scope:** `planning.execution.manage` on the project; human admin via screen.
+- **HTTP:** `POST /api/v1/tasks/{task_id}/dispatch` [EXISTS backend/app/api/routes/task.py:946], extended to accept `scheduled_at` and `idempotency_key` and to call `authorize_action` for `agt_` [EXTEND]. With `scheduled_at` in the future it creates the linked demand with `scheduled_at` and does **not** reserve; `run_scheduled_dispatch_pass` starts it when due through `reserve_dispatch`.
+- **Guards (in order):** M0.6b baseline (§4.2) → mission state → task not terminal → dependencies [backend/app/api/routes/task.py:1021] → assignment with membership (missions: required, no responsibility-area fallback) → target serialization (§4.3) → capacity/one-per-agent (existing).
+- **Errors:** 409 guard codes; 409 `Execution capacity is occupied` stays queued (not an error for scheduled items); 502 `UPSTREAM_UNCERTAIN` (existing [backend/app/api/routes/task.py:1144-1151]).
+- **Idempotency:** receipt; plus the no-second-run rule (§0.4).
+- **Audit:** `task.dispatched` with actor = principal [EXTEND backend/app/api/routes/task.py:1161-1167], `payload.context_manifest` (§6).
+- **Limit:** one in-flight run per task; global cap/one-per-agent unchanged. **Rollback:** a queued/scheduled demand is withdrawn with `decide_demand(action="archive")` [backend/app/core/demand_workflow.py:186]; a started run is never killed by rollback.
+
+### 5.7 `report_task_execution` (M0.2c) — DONE is a report, not acceptance
+
+- **Input:** `task_id`, `execution_id?` (default: the caller's latest open execution of that task), `status: "reported"|"failed"|"blocked"`, `summary: str(1..10000)`, `evidence: [str]` (each `git:<sha>` / `file:<relpath>` / `db:<type>:<uuid>`, 1..20), `idempotency_key`.
+- **Output:** `{execution_id, status: "reported"|"failed", verification: "queued"}`.
+- **Actor/scope:** `mission.execution.report` **and** the caller is the executor of that execution (assignment agent or demand target). Anyone else → 403.
+- **HTTP:** `POST /api/v1/tasks/{task_id}/executions/{execution_id}:report` [PROPOSED] (the generic PATCH [backend/app/api/routes/task.py:632] is not given to agents: it can set `verified`).
+- **Rules:** the caller can never set `verified`/`completed`; only `run_evidence_verification_pass` [backend/app/core/task_evidence.py:164] promotes `reported → verified`. Evidence outside the project root or on another project's repo is refused at report time (422 `EVIDENCE_OUT_OF_SCOPE`).
+- **Audit:** `execution_reported`. **Rollback:** a new report supersedes (keeps history in audit); the execution row is never deleted.
+
+### 5.8 `attach_project_document` (M0.2d)
+
+- **Input:** `project_id`, `entity_type ∈ {project, planning_item, project_task, mission_criterion}`, `entity_id`, `doc_path` (relative, under `docs/missions/<slug>/` or the project's `docs/`), `register_artifact: bool`, `artifact_type?`, `idempotency_key`.
+- **Output:** `{doc_link_id, artifact_id?, artifact_version_id?, content_hash}`.
+- **Actor/scope:** member of the project (any active role); `documentation` role for the mission brief/dossier.
+- **HTTP:** existing `POST /api/v1/docs/links` [backend/app/api/routes/docs.py:401] and artifact routes [backend/app/api/routes/artifact.py:110,233] composed by `POST /api/v1/missions/{project_id}/documents` [PROPOSED] (one transaction).
+- **Errors:** 422 `DOC_PATH_NOT_ALLOWED` (absolute, `..`, symlink escaping the root after realpath, outside allowed roots), 404 entity outside project.
+- **Idempotency:** receipt + natural `(doc_path, entity_type, entity_id)`.
+- **Audit:** `document_attached` with hash. **Rollback:** existing `DELETE /docs/links/{id}` [backend/app/api/routes/docs.py:434]; artifact versions are never deleted.
+
+### 5.9 `get_my_mission_role` (M0.2d, read)
+
+- **Input:** `project_id`. **Output:** `{project_id, mission_state, role, can_review, responsibilities, orchestrator, my_tasks: [{task_id, number, title, status, execution_state}], my_reviews: [{execution_id, task_id}]}`.
+- **Actor/scope:** the caller only; not a member → 404 (no existence leak). **HTTP:** `GET /api/v1/missions/{project_id}/me` [PROPOSED]. Read-only, no audit, no idempotency.
+
+### 5.10 `list_my_tasks` (M0.2d, read)
+
+`GET /api/v1/missions/me/tasks?state=` [PROPOSED] — tasks where the caller is executor or reviewer across missions it belongs to; same item shape as 5.9.
+
+### 5.11 `request_task_review` (needed by the screen and cycle; proposed as part of M0.2c — §11 D-M0-5)
+
+- **Input:** `task_id`, `execution_id`, `reviewer_agent_id`, `idempotency_key`.
+- **Effect:** creates `TaskExecutionReview(status='pending')` via the existing route logic [backend/app/api/routes/orchestration.py:452] **and** a Messages Task to the reviewer (`origin_type='task'`, `origin_id=task_id`, body: execution summary + evidence list + review instructions; `requires_response=false`), dispatched through the normal queue. The reviewer decides with `PATCH /orchestration/reviews/{id}` [backend/app/api/routes/orchestration.py:496] using its own `agt_` (admitted for that path [EXTEND main.py]); approval then lets the completion guard pass.
+- **Rules:** reviewer ≠ executor/co-author (§4.1.3); `can_review`; execution `verified`.
+- **HTTP:** `POST /api/v1/missions/{project_id}/tasks/{task_id}:request-review` [PROPOSED]. **Audit:** `review_requested`.
+
+### 5.12 `return_task_for_correction` (proposed with 5.11)
+
+`POST /api/v1/missions/{project_id}/tasks/{task_id}:return` [PROPOSED]; input `reason` (required),
+`execution_id`. If an open review exists it becomes `changes_requested` with the reason as feedback;
+otherwise an `AuditEvent(mission_task_returned)`; task `→ in_progress`; no automatic redispatch
+(orchestrator dispatches explicitly, 04 §1). Allowed to Marcelo and to an agent with
+`mission.orchestrate` that is **not** the executor.
+
+---
+
+## 6. Minimal dispatch context by allowlist [PROPOSED, M0.2c]
+
+`build_mission_dispatch_context(db, task) -> MissionDispatchContext` replaces the free composition in
+`_dispatch_task_by_id` [backend/app/api/routes/task.py:1066-1085] **for mission tasks only** (common tasks unchanged). The
+body is built only from these fields, each with source id + content hash recorded in
+`context_manifest`:
+
+| Allowed | Source |
+|---|---|
+| task number, title, description, plan_brief, type, priority | `project_tasks` |
+| baseline id and task content hash | `plan_baseline_items` |
+| mission name, objective section of the **approved** brief version | artifact version (approved) |
+| linked criteria `code + statement + verification_method` | `mission_acceptance_criteria` |
+| predecessor tasks `number + title + status` (no results) | `task_dependencies` |
+| executor role, reviewer name, working_path, declared targets | membership, `task_execution_targets` |
+| open critique/return reason for this task (correction tasks) | review feedback / audit |
+| evidence-format instruction and completion-report contract | constants already in use [backend/app/api/routes/task.py:1077-1085], `core/completion_report.py` |
+
+Never included: other tasks' results or messages, Knowledge Base search results, Hindsight recall,
+memory files, personal data (Maia) or client data (Lara), secrets, URLs with tokens, other missions.
+The allowlist covers only the **dispatch body**; the runtime's own hook (`knowledge_cycle.py`) is
+contained separately by C.2a/C.2.R (12 §8) and is not part of this contract.
+
+`context_manifest = [{source, id, hash}]` is stored in the `task.dispatched` audit payload (no new
+column). Size cap 32 KiB; over the cap → 422 `CONTEXT_TOO_LARGE` (the orchestrator splits the task;
+the builder never truncates silently).
+
+Rehearsal (M0.4) runs this builder against the **test** database with fixture canaries
+(`CANARY-MAIA-<uuid>` in a fictitious personal note, `CANARY-LARA-<uuid>` in a fictitious client
+record, `CANARY-KB-<uuid>` in a fixture KB file) and asserts none appears in the body (§9.6). It uses
+the simulated runner and test `agt_` credentials, never production profiles, bridge or credentials.
+
+---
+
+## 7. Plan submission and baseline approval [PROPOSED, M0.2b + M0.6b]
+
+1. `submit_project_plan` creates/updates a `ProjectPlan` in `draft` [backend/app/db/models/project.py:188] and runs
+   the automatic checks of 04 "Validação do plano" that M0 can compute: every criterion has ≥1 task;
+   every listed task has an active assignment with an executor role and a designated reviewer distinct
+   from the executor; dependencies acyclic (re-checked); every task in the mission scope; deadline and
+   budget set; brief approved. Checks that need M.1 (critical path vs deadline, document owners,
+   risks list, budget sum) are reported as `not_evaluated`, never as passed.
+2. It opens an `ApprovalRequest(target_type='project_plan', target_id=plan_id,
+   target_hash=<plan_hash>, approval_type='mission_plan_baseline', requested_by_type='agent')`
+   [model EXISTS backend/app/db/models/governance.py:187]. `policy_evaluation_id` is NOT NULL [backend/app/db/models/governance.py:206], so M0.6b
+   seeds a `Policy`/`PolicyVersion`/`PolicyBinding` `mission_plan_approval` with
+   `rules_snapshot = {deny_self_approval: true, human_only: true, expires_hours: 168}` (data migration).
+3. Marcelo approves on the screen through `POST /governed/approval-requests/{id}:decide`
+   [EXISTS backend/app/api/routes/governed_approval.py:64], extended [EXTEND :72-80] with a `project_plan` branch that:
+   requires `principal_type='user'` and `is_admin` (`human_only`), recomputes the plan hash and refuses
+   on mismatch (409 `PLAN_CHANGED_SINCE_SUBMISSION`), then in one transaction sets the plan `approved`,
+   creates the `PlanBaseline` + `plan_baseline_items`, supersedes the previous baseline, sets
+   `project_missions.current_baseline_id`, records `ApprovalDecisionRecord` (idempotent by key
+   [backend/app/db/models/governance.py:246]).
+4. For mission projects the generic shortcuts are refused: `POST /projects/plans/{id}/approve`
+   [backend/app/api/routes/project.py:282] and `POST /projects/{id}/baselines` [backend/app/api/routes/project.py:306] return 409
+   `USE_GOVERNED_PLAN_APPROVAL`. (For common projects they stay as they are; note they have no
+   authorization beyond login today — not changed by M0, listed in §11 D-M0-6.)
+5. Approval does **not** dispatch (04 §1 "não despacha automaticamente").
+6. After baseline: any change goes through `ChangeRequest` [backend/app/api/routes/project.py:374]; a CR in `approved` is
+   applied by submitting a new plan that references it (`plan.change_request_id` — reuse
+   `ProjectTask.change_request_id` for new tasks); the new approval creates the next baseline.
+
+---
+
+## 8. Minimal formal acceptance (M0) [PROPOSED]
+
+Per 12 "Aceite mínimo persistido da M0" and 04 "Aceite mínimo M0":
+
+1. Scriba prepares `docs/missions/<slug>/DOSSIE-DE-VALIDACAO.md` manually (template
+   `docs/plano-integrado/modelos/DOSSIE-DE-VALIDACAO.md`) and registers it as an Artifact version
+   (§5.8). The `awaiting_acceptance` transition requires that version.
+2. `POST /api/v1/missions/{project_id}/acceptance:request` [PROPOSED] (orchestrator or Marcelo) opens
+   `ApprovalRequest(target_type='mission_dossier', target_id=project_id,
+   target_revision_id=<artifact_version_id>, target_hash=sha256(<file bytes>),
+   approval_type='mission_acceptance')`, policy `mission_acceptance` (`human_only`, `deny_self_approval`).
+3. Marcelo decides through the same `:decide` route with a `mission_dossier` branch [EXTEND
+   backend/app/api/routes/governed_approval.py:72-80]. `approved` is accepted only if, re-checked at decision time:
+   every criterion `proven` with `evidence_ref`; every task linked to criteria is `done`/`deployed`
+   through the guard (or `cancelled` with an approved CR); no open `changes_requested` review; dossier
+   file hash unchanged; principal is user + admin. Then, same transaction: mission `completed`,
+   projection `completed`, `acceptance_request_id` set, delegations with `project_id` = mission and
+   action `mission.orchestrate`/`planning.execution.manage` revoked (04 §3 "autoridade do orquestrador
+   revogada"), audit `mission_accepted`.
+4. `rejected` (or `changes_requested`) → mission back to `active`, reason stored; critiques are written
+   by Marcelo in the dossier (M0) — the critique entity is M.1.
+5. Never inferred from `Project.status`, never from a name in Markdown, never from an agent token;
+   `mission.accept` delegation is refused in M0 (403 `ACCEPTANCE_RESERVED_TO_MARCELO`).
+
+Criterion decisions: `POST /api/v1/missions/{project_id}/criteria/{id}:decide` [PROPOSED]
+`{status: proven|failed, evidence_ref, reason}`; only the criterion's verifier (agent with `agt_`) or
+Marcelo; the verifier must not be the executor of any linked task (409 `VERIFIER_IS_EXECUTOR`); all
+linked tasks must be done through the guard before `proven`.
+
+---
+
+## 9. Planned tests
+
+Backend tests run only against the isolated test database (`ENVIRONMENT=test`, conftest guard T.1);
+pure-logic tests use `--noconftest` under `backend/tests_unit/`. Each test creates and cleans its own
+rows (CLAUDE.md test conventions).
+
+### 9.1 M0.0 — `backend/app/tests/test_mission_base.py`
+
+| Test | Proves |
+|---|---|
+| `test_migration_upgrade_downgrade_roundtrip` | CHECK accepts `mission`; downgrade restores the old CHECK; downgrade refuses while a mission row exists |
+| `test_common_projects_unchanged` | create/patch/list of `creation`/`maintenance` projects return identical shapes; no `project_missions` row; no mission guard fires |
+| `test_project_create_schema_does_not_accept_mission` | `POST /projects` with `project_type` is ignored/422 — missions only via `/missions` |
+| `test_patch_status_refused_for_mission` | `PATCH /projects/{id}` `status`/`project_type` → 409 `MISSION_STATUS_IS_PROJECTED` |
+| `test_state_projection_all_transitions` | each allowed transition writes the right `Project.status` in the same transaction; each disallowed pair → 409 |
+| `test_transition_preconditions` | draft→ready refused without approved brief / criteria / deadline / budget / baseline |
+| `test_autonomy_level_n0_only` | any level ≠ N0 refused in Onda 1 |
+| `test_existing_members_reviews_preserved` | memberships/reviews created before migration keep ids and fields |
+| `test_mission_delete_refused` | `DELETE /projects/{id}` on a mission → 409 |
+
+### 9.2 M0.6a — `backend/app/tests/test_task_completion_guard.py`
+
+| Test | Proves |
+|---|---|
+| `test_done_without_execution_refused` | new transition without any execution → 409 (all projects) |
+| `test_done_with_reported_not_verified_refused` | `reported`/`completed` but not `verified` → 409 |
+| `test_invented_evidence_refused` | `file:` missing / mtime before start / `git:` unknown sha / `db:` absent row → not verified |
+| `test_evidence_from_other_project_refused` | path outside project root, repo of another project → refused |
+| `test_reviewer_equals_executor_refused` | same agent id (with and without `assignment_id`) → 409 `COMPLETION_REVIEWER_IS_EXECUTOR` |
+| `test_reviewer_without_can_review_refused` | membership lacks `can_review` or is suspended |
+| `test_all_writers_call_guard` | PATCH `/tasks`, MCP `update_task_status`, PATCH `/orchestration/reviews` approve, review refresh, governed task approval — each refused without proof |
+| `test_deployed_requires_done_and_release` | `deployed` refused without prior `done` and a production release row |
+| `test_historical_done_untouched` | pre-existing `done` tasks keep status; no backfill |
+| `test_historical_import_through_guard` | reported execution + real evidence + independent review → done; without proof stays reported |
+| `test_audit_actor_is_principal` | `task_completed` actor equals the authenticated principal, never `system` |
+| `test_review_created_approved_without_feedback_refused` | direct approved review without feedback → 422 |
+
+### 9.3 M0.6b — `backend/app/tests/test_task_baseline_guard.py`
+
+| Test | Proves |
+|---|---|
+| `test_edit_after_approval_blocks_dispatch` | changing title/description/plan_brief/criteria/brief → `TASK_CONTENT_CHANGED` |
+| `test_added_task_without_cr_blocked` | `TASK_NOT_IN_BASELINE` |
+| `test_baseline_of_other_project_blocked` | `BASELINE_FOREIGN_PROJECT` |
+| `test_cr_pending_blocks_and_new_baseline_unblocks` | pending CR blocks; applied CR + new approval unblocks; old authorization not reusable |
+| `test_all_dispatch_paths_guarded` | `/tasks/{id}/dispatch`, `/demands/{id}/dispatch`, scheduled pass, legacy Approval auto-dispatch, reprocess — all refused (scheduled stays queued, no attempt consumed) |
+| `test_retry_does_not_duplicate_run` | replay same key → same receipt; new key while active/uncertain → existing demand, one `agent_run_id` |
+| `test_uncertain_keeps_run_id` | uncertain outcome keeps `agent_run_id`; only `confirm_inactive` with typed id releases |
+| `test_revoked_delegation_refused` | revoke then dispatch → 403; reserved run flagged, not killed |
+| `test_paused_mission_not_dispatched` | paused → stays queued |
+| `test_target_serialization` | two tasks same worktree/branch/publish target → second stays queued with `TARGET_BUSY` |
+| `test_common_project_legacy_baseline_not_blocked` | project with an item-less legacy baseline dispatches as before |
+| `test_migration_roundtrip_refuses_with_active_mission` | downgrade refused while a mission is active |
+
+### 9.4 M0.2a–d — `backend/app/tests/test_mission_mcp.py` (+ `tests_unit/test_mission_mcp_contract.py`)
+
+| Test | Proves |
+|---|---|
+| `test_create_internal_project_idempotent` | same key → same project; same name in version → 409 with existing id (M0.1 idempotent registration) |
+| `test_members_rules` | non-member, invalid role, two coordinators, code role for Hermes agent, `can_approve` for agent → refused |
+| `test_non_member_gets_404_not_403_on_reads` | no existence leak across projects |
+| `test_submit_plan_never_approves` | request pending; no baseline; approver fields → 422; agent cannot decide (`human_only`) |
+| `test_plan_hash_mismatch_on_decide` | edit after submit → 409 at decision |
+| `test_add_dependency_cycle_refused` / `test_dependency_on_baselined_task_requires_cr` | |
+| `test_assign_refused_when_reviewer_or_in_flight` | |
+| `test_dispatch_guards_order_and_retry` | guard order; retry without duplicate |
+| `test_report_cannot_set_verified` | executor reports; `verified` only from the verification pass; non-executor → 403 |
+| `test_attach_document_path_rules` | absolute, `..`, symlink escape, other project → refused |
+| `test_my_role_only_own` | agent sees only its own role/tasks |
+| `test_missing_or_foreign_agt_token` | missing → tool error, no fallback; another agent's token cannot act as the caller |
+| `test_tools_disabled_flag` | `MISSION_TOOLS_ENABLED=false` → 503, data untouched |
+| `test_error_mapping` (unit) | each HTTP status → MCP message format with `code` |
+
+### 9.5 M0.2 middleware — `backend/tests_unit/test_mission_auth_paths.py`
+
+Proves `agt_` reaches exactly the new mission paths and the listed task sub-paths, and still cannot
+reach `POST /projects/plans/{id}/approve`, baselines, `/governed/approval-requests/*:decide` for
+`project_plan`/`mission_dossier` decisions (route refuses agents), or any other path.
+
+### 9.6 Context allowlist — `backend/app/tests/test_mission_dispatch_context.py`
+
+`test_canaries_absent` (Maia/Lara/KB canaries never in the body), `test_manifest_lists_every_source`,
+`test_context_too_large_refused`, `test_common_task_body_unchanged`.
+
+### 9.7 Screen and cycle tests
+
+Listed in the two companion specs (§9 of each).
+
+---
+
+## 10. Deferred to M.1 (Onda 3) — explicitly out of M0
+
+- Full `/missions` module features beyond the executions screen: brief editor and version workflow,
+  critique entity and states (04 §4), automatic dossier generation (M.1n), lessons/metrics to Evolução.
+- Per-task named verifier entity and the full naming-rule checker (M.1e); orchestrator authority grant
+  and substitute (M.1f: Atlas default, 24 h escalation); mission channel (M.1j).
+- Plan validation checks that need data M0 does not have (critical path vs deadline, document owners,
+  risk list, budget sum) and plan generation from phases (M.1h).
+- Context by recipient (M.2) and broad retrieval (only after C.2b/C.2b.R).
+- `mission.accept` delegation; "pause now" cancelling running work; health traffic light with all
+  signals of 04 (cost, client, routines); client portal acceptance (E.3).
+- Autonomy above N0 (needs G.5/G.6/G.10/G.11b).
+- Extending target serialization to all Messages work (§11 D-M0-2) unless Marcelo decides otherwise.
+
+---
+
+## 11. Open decisions for Marcelo
+
+| # | Decision | Recommendation |
+|---|---|---|
+| D-M0-1 | The executions screen and the decision cycle have no slice id in `onda1-tarefas.json`. Add **M0.7 (screen, Dartan executes UI, Porthus reviews)** and **M0.8 (cycle, Porthus executes, Dartan reviews)**, both after M0.2c/M0.6a/b, before M0.R | Add them; Athos updates the matrix and projections in one change |
+| D-M0-2 | Target serialization (same worktree/branch/production) for **all** Messages work, not only mission tasks | Yes for `publish:production:*` globally (the 28/10 incident was outside any mission); mission-only for worktree/branch in M0 |
+| D-M0-3 | Reassignment of a baselined task without CR | Allowed (assignee not in hash), recorded with reason, eligibility + reviewer ≠ executor enforced |
+| D-M0-4 | Add `withdrawn` to governed approval request statuses | Yes (needed to retract a plan submission without deleting) |
+| D-M0-5 | `request_task_review` / `return_task_for_correction` in M0.2c (not listed in 07) | Include; without them the screen cannot "pedir revisão/recusar" through a guarded route |
+| D-M0-6 | `POST /projects/plans/{id}/approve` and baselines have no authorization for common projects | Out of M0 scope; open a separate hardening task |
+| D-M0-7 | Who records what is published in each environment (`environment_releases`): the publishing task's report (`publish:` evidence) or Hephaestus' gate | Both write through one route; the gate is the authority for production |
+
+## 12. What was not verified
+
+- No code was run; all statements are from reading `develop@dcfe941`. Line numbers point at the decorator, definition or the first line of the cited block;
+  they were re-checked once after writing.
+- The `agt_` refusal of `POST /api/v1/tasks` / `POST /api/v1/planning-items` (§0.2) is inferred from
+  `backend/app/main.py:200-232`; not exercised.
+- The real count of existing `PlanBaseline` rows and their projects (04 mentions 1) was not queried —
+  no database access in this task.
+- Whether any live job writes `TaskExecution.status='completed'` (which M0.6a stops accepting for new
+  `done` transitions) beyond the paths listed was checked by grep only.
+- Host-bridge behavior for a git ancestry check (`publish` conflict, screen spec §5) is designed, not
+  probed.
+- Side observation (not fixed here): `RequireAuthMiddleware` admits the bridge token for paths ending
+  in `/reprocess` [backend/app/main.py:285], but the route is `POST /api/v1/demands/{id}:reprocess`
+  [backend/app/api/routes/demand.py:687] (colon, not slash), so the carve-out appears not to match. Not exercised.
