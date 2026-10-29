@@ -38,7 +38,9 @@ QUIET_TZ = ZoneInfo("America/Sao_Paulo")
 QUIET_START = time(23, 0)
 QUIET_END = time(7, 0)
 COORDINATOR_SLUG = "athos"
-_BRIDGE_MESSAGES_URL = f"{settings.CHAT_BRIDGE_URL.rstrip('/')}/v1/messages/send"
+def _bridge_messages_url() -> str:
+    # Per call, like core/feedback.py: CHAT_BRIDGE_URL is the one switch point.
+    return f"{settings.CHAT_BRIDGE_URL.rstrip('/')}/v1/messages/send"
 
 # (profile_slug or None, "telegram:<chat>", text) -> raises on failure.
 TelegramSender = Callable[[str | None, str, str], Awaitable[None]]
@@ -119,7 +121,7 @@ async def _bridge_send(profile: str | None, target: str, text: str) -> None:
         payload["profile"] = profile
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
-            _BRIDGE_MESSAGES_URL, json=payload, headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN}
+            _bridge_messages_url(), json=payload, headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN}
         )
         response.raise_for_status()
 

@@ -23,6 +23,7 @@ from app.core.config import (
     UnsafeDatabaseTargetError,
     assert_test_database_target,
 )
+from app.tests.fixtures.test_settings import safe_test_integration_values
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 TEST_TARGET = dict(host="127.0.0.1", port=5439, database="forgehub_test", user="forgehub_test")
@@ -36,7 +37,9 @@ PRODUCTION_ENV = {
 
 
 def _settings(**values) -> Settings:
-    return Settings(_env_file=None, **values)
+    # T.3's integration/credential check is tested in
+    # tests_unit/test_test_integration_policy.py; satisfy it here.
+    return Settings(_env_file=None, **{**safe_test_integration_values(), **values})
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "LOCALHOST "])

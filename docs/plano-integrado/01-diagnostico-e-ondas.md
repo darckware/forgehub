@@ -49,6 +49,16 @@ A T.2 foi implementada pelo Porthus no branch `feat/t2-test-app` e aguarda a rev
 - Com `ENVIRONMENT=test`, nenhum laço de segundo plano do backend inicia. As integrações simuladas são da T.3.
 - `test-env/reset.sh --seed` zera, migra e aplica um seed fictício com IDs determinísticos. Dois resets seguidos dão dados idênticos.
 
+A T.3 foi implementada pelo Porthus no branch `feat/t3-test-integrations` (29/10) e aguarda a revisão do Dartan e do Aegis (D-1). Ainda não houve merge.
+- **Credenciais.** Com `ENVIRONMENT=test`, o backend só inicia com credenciais próprias do teste: `JWT_SECRET`, `CHAT_BRIDGE_TOKEN`, a chave de criptografia (`SECRETS_ENCRYPTION_KEY`) e o segredo do webhook de atividade.
+  - O `test-env/init-env.sh` gera esses valores.
+  - O backend recusa um valor padrão, repetido ou igual a qualquer segredo da produção. A comparação é por hash, sem mostrar valor.
+- **Integrações.** Cada integração tem um único ponto de troca, a URL no `config.py`, e só pode apontar para o stub local `forgehub_test_stubs` ou ficar vazia. Isso vale para host-bridge (despacho, Telegram e mensagens, servidores, arquivos, ForgeVault), Darckware e e-mail, ForgeRouter, Tailscale e clima.
+  - O stub simula o despacho, o Telegram, a fila de e-mail e os servidores fictícios.
+  - O stub recusa `/v1/exec`, `/v1/fs`, o ForgeVault e hosts de cliente ou da produção.
+  - Cada chamada fica registrada, sem conteúdo, em `GET 127.0.0.1:8003/_stub/calls`.
+- **Proposta, não implementada:** um ambiente "teste" no ForgeVault com segredos próprios. Nesta entrega nenhum segredo foi criado nem lido no ForgeVault.
+
 ## Onda 1 — Provar a base e fechar os riscos imediatos
 
 O detalhamento executável está em [12 — Primeira onda](12-primeira-onda.md), com responsáveis,

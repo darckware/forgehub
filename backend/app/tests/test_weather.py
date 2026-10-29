@@ -34,7 +34,7 @@ class _Client:
         return None
 
     async def get(self, url, params):
-        assert url == weather.OPEN_METEO_URL
+        assert url == (weather.settings.WEATHER_API_URL or weather.OPEN_METEO_URL)
         assert params["latitude"] == -22.9
         assert params["start_date"] == "2030-01-10"
         return _Response()
@@ -42,7 +42,7 @@ class _Client:
 
 class _FallbackClient(_Client):
     async def get(self, url, params):
-        assert url == weather.OPEN_METEO_URL
+        assert url == (weather.settings.WEATHER_API_URL or weather.OPEN_METEO_URL)
         assert params["latitude"] == weather.DEFAULT_WEATHER_LATITUDE
         assert params["longitude"] == weather.DEFAULT_WEATHER_LONGITUDE
         return _Response()
@@ -108,7 +108,7 @@ class _GeocodeClient(_Client):
         self.payload, self.fail = payload, fail
 
     async def get(self, url, params, headers=None):
-        assert url == weather.NOMINATIM_REVERSE_URL
+        assert url == weather.settings.WEATHER_REVERSE_GEOCODE_URL
         if self.fail:
             raise weather.httpx.ConnectError("offline")
         return SimpleNamespace(raise_for_status=lambda: None, json=lambda: self.payload)

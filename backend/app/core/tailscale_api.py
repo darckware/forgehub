@@ -13,11 +13,11 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.secrets import decrypt_secret
 from app.db.models.vpn import RemoteAccessSecret
 
 API_KEY_NAME = "tailscale_api_key"
-API_BASE = "https://api.tailscale.com/api/v2"
 AUTH_KEY_TTL_SECONDS = 24 * 3600
 
 
@@ -50,7 +50,7 @@ async def create_auth_key(api_key: str, tag: str, description: str, preauthorize
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.post(
-                f"{API_BASE}/tailnet/-/keys",
+                f"{settings.TAILSCALE_API_URL.rstrip('/')}/tailnet/-/keys",
                 json=body,
                 headers={"Authorization": f"Bearer {api_key}"},
             )

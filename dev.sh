@@ -104,12 +104,13 @@ prod_db_warning() {
 # Test database: env file, container and schema, each created only when
 # missing. Runs after the venv check, since migrating needs backend/.venv.
 prepare_test_db() {
-  if [ ! -f "$TEST_ENV_DIR/.env.test" ]; then
-    bash "$TEST_ENV_DIR/init-env.sh" || { err "Could not create test-env/.env.test"; exit 1; }
-  fi
-  info "Ensuring the test Postgres (forgehub_test_postgres, 127.0.0.1:5439) is up ..."
-  docker compose -f "$TEST_ENV_DIR/docker-compose.yml" up -d --wait forgehub_test_postgres forgehub_test_gateway >/dev/null 2>&1 \
-    || { err "Test Postgres didn't come up healthy -- check: docker compose -f test-env/docker-compose.yml logs"; exit 1; }
+  # Every start (T.3): creates the file when missing, adds test-only
+  # credentials it lacks (never changes a value already set) and refreshes
+  # the production-secret hashes the containers compare against.
+  bash "$TEST_ENV_DIR/init-env.sh" >/dev/null || { err "Could not prepare test-env/.env.test"; exit 1; }
+  info "Ensuring the test Postgres (127.0.0.1:5439) and integration stub (127.0.0.1:8003) are up ..."
+  docker compose -f "$TEST_ENV_DIR/docker-compose.yml" up -d --wait forgehub_test_postgres forgehub_test_stubs forgehub_test_gateway >/dev/null 2>&1 \
+    || { err "Test Postgres/stub didn't come up healthy -- check: docker compose -f test-env/docker-compose.yml logs"; exit 1; }
   (cd "$BACKEND_DIR" && ENVIRONMENT=test .venv/bin/alembic upgrade head >>"$LOG_DIR/backend.log" 2>&1) \
     || { err "Migrating the test database failed -- check $LOG_DIR/backend.log"; exit 1; }
   ok "Test database ready (forgehub_test at Alembic head)"
