@@ -175,6 +175,12 @@ class Settings(BaseSettings):
     # the schema would publish every route's shape.
     ENVIRONMENT: str = "production"
 
+    # Mission MCP tools switch (Plano Integrado M0.2a, MCP_MISSION_TOOLS_SPEC.md
+    # §0.6). Off = the mission MCP write contract (POST /missions with an
+    # idempotency_key, /missions/{id}/members:apply) answers 503
+    # MISSION_TOOLS_DISABLED without touching data. Guards are never behind it.
+    MISSION_TOOLS_ENABLED: bool = False
+
     # Google reCAPTCHA v2 (login screen, see api/routes/auth.py +
     # core/recaptcha.py). Empty = feature off (fail-open, same convention as
     # darckware's app/core/recaptcha.py) -- set once a key pair is

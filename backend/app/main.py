@@ -181,6 +181,46 @@ _PUBLIC_API_PATHS = {
 }
 
 
+def is_agent_command_path(method: str, path: str) -> bool:
+    """Paths an `agt_` AgentServiceCredential may reach (RequireAuthMiddleware).
+    Each admitted route still authorizes the agent itself; see
+    tests_unit/test_mission_auth_paths.py (M0.2a)."""
+    command_path = path.startswith((
+        "/api/v1/governed/", "/api/v1/executions/", "/api/v1/execution-waves/",
+        "/api/v1/work-packages/", "/api/v1/execution-runners", "/api/v1/pipeline-stages/",
+        "/api/v1/workspace-browser/", "/api/v1/products",
+        "/api/v1/tools",
+        # 2026-08-05, see docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md:
+        # /governance/ lets a delegated agent-orchestrator (e.g. Athos,
+        # once granted an AuthorityDelegation for
+        # "governance.approval.decide") decide an Approval with its own
+        # agt_ credential, same as a human would via JWT; /channels/
+        # lets an agent call POST /channels/{id}/tasks/propose with its
+        # own credential instead of only the shared bridge token.
+        "/api/v1/governance/", "/api/v1/channels/",
+        # 2026-10-07: Marcelo's personal tasks/agenda/notes; the route itself only admits the
+        # agents in settings.PERSONAL_AGENT_SLUGS (Maia).
+        "/api/v1/personal/",
+        # 2026-10-19: machine maintenance by agents; the routes check the
+        # delegation for "remote_access.execute" themselves.
+        "/api/v1/host-executions/agent",
+        # 2026-10-29 (M0.0): the mission's orchestrator acts with its own
+        # agt_; every /missions route calls authorize_action itself.
+        "/api/v1/missions/",
+    )) or path == "/api/v1/missions" or (
+        path.startswith("/api/v1/projects/") and ("/progress" in path or "/execution-waves" in path)
+    )
+    factory_read_path = method == "GET" and path.startswith((
+        "/api/v1/projects",
+        "/api/v1/tasks",
+        "/api/v1/planning-items",
+        "/api/v1/project-scopes/",
+        "/api/v1/blueprint-revisions/",
+    ))
+    factory_task_command = method == "PATCH" and path.startswith("/api/v1/tasks/")
+    return command_path or factory_read_path or factory_task_command
+
+
 class RequireAuthMiddleware(BaseHTTPMiddleware):
     """Almost none of the domain routers were wired up with their own auth
     dependency (only users.py/auth.py were) -- this was fine while the app
@@ -198,38 +238,7 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         auth_header = request.headers.get("authorization", "")
         token = auth_header[7:] if auth_header.lower().startswith("bearer ") else None
-        agent_command_path = path.startswith((
-            "/api/v1/governed/", "/api/v1/executions/", "/api/v1/execution-waves/",
-            "/api/v1/work-packages/", "/api/v1/execution-runners", "/api/v1/pipeline-stages/",
-            "/api/v1/workspace-browser/", "/api/v1/products",
-            "/api/v1/tools",
-            # 2026-08-05, see docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md:
-            # /governance/ lets a delegated agent-orchestrator (e.g. Athos,
-            # once granted an AuthorityDelegation for
-            # "governance.approval.decide") decide an Approval with its own
-            # agt_ credential, same as a human would via JWT; /channels/
-            # lets an agent call POST /channels/{id}/tasks/propose with its
-            # own credential instead of only the shared bridge token.
-            "/api/v1/governance/", "/api/v1/channels/",
-            # 2026-10-07: Marcelo's personal tasks/agenda/notes; the route itself only admits the
-            # agents in settings.PERSONAL_AGENT_SLUGS (Maia).
-            "/api/v1/personal/",
-            # 2026-10-19: machine maintenance by agents; the routes check the
-            # delegation for "remote_access.execute" themselves.
-            "/api/v1/host-executions/agent",
-            # 2026-10-29 (M0.0): the mission's orchestrator acts with its own
-            # agt_; every /missions route calls authorize_action itself.
-            "/api/v1/missions",
-        )) or (path.startswith("/api/v1/projects/") and ("/progress" in path or "/execution-waves" in path))
-        factory_read_path = request.method == "GET" and path.startswith((
-            "/api/v1/projects",
-            "/api/v1/tasks",
-            "/api/v1/planning-items",
-            "/api/v1/project-scopes/",
-            "/api/v1/blueprint-revisions/",
-        ))
-        factory_task_command = request.method == "PATCH" and path.startswith("/api/v1/tasks/")
-        agent_command_path = agent_command_path or factory_read_path or factory_task_command
+        agent_command_path = is_agent_command_path(request.method, path)
         if token and token.startswith("agt_") and agent_command_path:
             from sqlalchemy import select
             from app.db.base import AsyncSessionLocal
@@ -787,6 +796,21 @@ async def _agent_activity_retention_loop() -> None:
         await asyncio.sleep(DEMAND_RETENTION_POLL_INTERVAL_SECONDS)
 
 
+async def _command_receipt_retention_loop() -> None:
+    """Deletes agent command receipts past their 30-day retention (M0.2a,
+    MCP_MISSION_TOOLS_SPEC.md §0.4). Own task, like the other sweeps."""
+    from app.core.command_receipts import run_command_receipt_retention
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_command_receipt_retention(db)
+        except Exception:
+            logger.exception("Command receipt retention sweep failed")
+        await asyncio.sleep(DEMAND_RETENTION_POLL_INTERVAL_SECONDS)
+
+
 async def _active_turn_sweep_loop() -> None:
     """Fecha turnos que passaram do prazo sem reportar (2026-08-13)."""
     from app.core.active_turns import sweep_stale
@@ -899,6 +923,7 @@ async def _start_background_tasks() -> None:
         ("evidence-verification-poll", _evidence_verification_poll_loop),
         ("demand-retention-poll", _demand_retention_poll_loop),
         ("agent-activity-retention", _agent_activity_retention_loop),
+        ("command-receipt-retention", _command_receipt_retention_loop),
         ("host-schedule-poll", _host_schedule_poll_loop),
     )
     _background_tasks = [asyncio.create_task(worker(), name=name) for name, worker in workers]
