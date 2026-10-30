@@ -87,6 +87,11 @@ async def task_content_part(db, task: ProjectTask) -> dict[str, Any]:
         "depends_on_task_ids": sorted(str(d) for d in depends_on),
         "execution_targets": sorted(f"{kind}:{key}" for kind, key in targets),
         "criterion_codes": sorted(criterion_codes),
+        # M0.0b (§2.6): the environment approved with the plan.
+        "target_environment": task.target_environment,
+        "environment_prerequisites": (
+            None if task.environment_prerequisites is None else list(task.environment_prerequisites)
+        ),
     }
 
 

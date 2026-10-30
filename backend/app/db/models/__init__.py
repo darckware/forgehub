@@ -136,7 +136,13 @@ from app.db.models.mission import (  # noqa: F401
     MissionAcceptanceCriterion,
     MissionCriterionTask,
     MissionDecision,
+    MissionDossier,
+    MissionPlanReview,
+    MissionPlanVerification,
+    MissionPlanVersion,
     MissionProjectLink,
+    MissionReviewItem,
+    MissionReviewWaiver,
     ProjectMission,
 )
 from app.db.models.command_receipt import AgentCommandReceipt  # noqa: F401

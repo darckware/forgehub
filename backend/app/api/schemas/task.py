@@ -4,12 +4,15 @@ task_required_skills, task_assignments, task_executions).
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from app.db.models.task import (
     TASK_EXECUTION_RUNTIME_TYPES as _TASK_EXECUTION_RUNTIME_TYPES_TUPLE,
 )
 from app.db.models.task import TASK_STATUSES as _TASK_STATUSES_TUPLE
+from app.db.models.task import TASK_TARGET_ENVIRONMENTS
 
 # --------------------------------------------------------------------------
 # ProjectTask
@@ -31,6 +34,10 @@ TASK_TYPES = {
 # rationale behind each status, notably "done" vs "deployed".
 TASK_STATUSES = set(_TASK_STATUSES_TUPLE)
 TASK_PRIORITIES = {"low", "medium", "high", "critical"}
+# M0.0b (mission spec §2.6): environment a task's work lands in, and what must
+# exist there first. NULL prerequisites = not recorded; [] = recorded "none".
+TargetEnvironment = Annotated[str, StringConstraints(pattern=f"^({'|'.join(TASK_TARGET_ENVIRONMENTS)})$")]
+EnvironmentPrerequisite = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 
 
 class ProjectTaskBase(BaseModel):
@@ -55,6 +62,8 @@ class ProjectTaskBase(BaseModel):
     # Skills the executor and reviewer must hold (mission spec §6.1); for a
     # mission task, changeable only while the mission is planning.
     required_skill_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50)
+    target_environment: TargetEnvironment | None = None
+    environment_prerequisites: list[EnvironmentPrerequisite] | None = Field(default=None, max_length=20)
 
     @model_validator(mode="after")
     def _validate_choices(self) -> "ProjectTaskBase":
@@ -110,6 +119,8 @@ class ProjectTaskUpdate(BaseModel):
     change_request_id: uuid.UUID | None = None
     policy_id: uuid.UUID | None = None
     required_skill_ids: list[uuid.UUID] | None = Field(default=None, max_length=50)
+    target_environment: TargetEnvironment | None = None
+    environment_prerequisites: list[EnvironmentPrerequisite] | None = Field(default=None, max_length=20)
 
     @model_validator(mode="after")
     def _validate_choices(self) -> "ProjectTaskUpdate":

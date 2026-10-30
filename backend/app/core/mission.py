@@ -7,7 +7,8 @@ plan submission (M0.2b) and the cycle (M0.8).
 
 A condition whose data has no place to be read yet is reported as unmet with
 ``not_recorded: True``: it never passes for lack of data. Those are listed in
-``NOT_RECORDED_CONDITIONS`` and lifted by the slice that adds the data.
+``NOT_RECORDED_CONDITIONS`` and lifted by the slice that adds the data; M0.0b
+(§2.6, `core/mission_records.py`) lifted every one M0.0 had, so it is empty.
 """
 import uuid
 from datetime import datetime, timezone
@@ -17,6 +18,13 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.mission_records import (
+    current_plan_version,
+    dossier_items,
+    environment_items,
+    environment_prerequisite_items,
+    record_conditions,
+)
 from app.db.models.agent import AgentSkill, Skill
 from app.db.models.artifact import Artifact, ArtifactStatus, ArtifactVersion, ArtifactVersionStatus
 from app.db.models.backlog import PlanningItem
@@ -60,19 +68,10 @@ ALLOWED_TRANSITIONS: dict[tuple[str, str], frozenset[str]] = {
 REASON_REQUIRED_TARGETS = ("paused", "cancelled")
 REASON_REQUIRED_SOURCES = ("paused", "completed", "awaiting_acceptance")
 
-NOT_RECORDED_CONDITIONS = {
-    "ENVIRONMENT_NOT_RECORDED": "no table records a task's or plan's environment yet (M0.6b/M0.7)",
-    "ENVIRONMENT_PREREQUISITES_NOT_RECORDED": "no table records environment prerequisites yet (M0.6b/M0.7)",
-    "REVIEW_ARTIFACTS_NOT_RECORDED": (
-        "an Artifact has no project, review layer or author, so per-layer review opinions "
-        "cannot be read (M0.2d attach_project_document)"
-    ),
-    "REVIEW_DISPOSITIONS_NOT_RECORDED": "no table records review items and their dispositions yet",
-    "CROSS_REVIEWS_NOT_RECORDED": "no table records cross reviews yet",
-    "FLAGGED_ITEMS_NOT_RECORDED": "no table records items flagged for Marcelo's decision yet",
-    "APPLICATION_VERIFICATION_NOT_RECORDED": "no table records the sampled verification of applied corrections yet",
-    "DOSSIER_NOT_RECORDED": "the mission has no recorded dossier artifact version yet (§8, M0.2d)",
-}
+# code -> why it cannot be read yet. Lifted by M0.0b (§2.6): environment and
+# prerequisites (project_tasks columns), review artifacts, dispositions, cross
+# reviews, flagged items, application verification and the dossier.
+NOT_RECORDED_CONDITIONS: dict[str, str] = {}
 
 
 def mission_error(status_code: int, code: str, message: str, **context: Any) -> HTTPException:
@@ -81,10 +80,6 @@ def mission_error(status_code: int, code: str, message: str, **context: Any) -> 
 
 def _item(code: str, message: str, **context: Any) -> dict[str, Any]:
     return {"code": code, "message": message, **context}
-
-
-def _not_recorded(code: str) -> dict[str, Any]:
-    return {"code": code, "message": NOT_RECORDED_CONDITIONS[code], "not_recorded": True}
 
 
 def apply_mission_state(
@@ -139,6 +134,21 @@ async def assert_required_skills_writable(
         raise mission_error(
             409, "REQUIRED_SKILLS_LOCKED",
             "A mission task's required skills change only while the mission is in planning; "
+            "afterwards use a change request.",
+            mission_state=mission.state,
+        )
+
+
+async def assert_task_environment_writable(db: AsyncSession, project_id: uuid.UUID | None) -> None:
+    """§2.6: a mission task's environment and prerequisites change only while
+    the mission is `planning`, like its required skills."""
+    if project_id is None:
+        return
+    mission = await db.get(ProjectMission, project_id)
+    if mission is not None and mission.state != "planning":
+        raise mission_error(
+            409, "TASK_ENVIRONMENT_LOCKED",
+            "A mission task's environment changes only while the mission is in planning; "
             "afterwards use a change request.",
             mission_state=mission.state,
         )
@@ -213,15 +223,6 @@ async def _executors_by_task(
         if membership is not None and membership.agent_id == assignment.agent_id:
             executors[assignment.task_id] = membership
     return executors
-
-
-async def _draft_plan(db: AsyncSession, project_id: uuid.UUID) -> ProjectPlan | None:
-    return (await db.execute(
-        select(ProjectPlan)
-        .where(ProjectPlan.project_id == project_id, ProjectPlan.status == "draft")
-        .order_by(ProjectPlan.created_at.desc())
-        .limit(1)
-    )).scalars().first()
 
 
 def _find_cycle(edges: list[tuple[uuid.UUID, uuid.UUID]]) -> list[uuid.UUID] | None:
@@ -316,9 +317,7 @@ async def skill_check_items(
 async def _validator_items(db: AsyncSession, mission: ProjectMission) -> tuple[list[dict], list[dict]]:
     """The P2/P7 plan validator over what M0.0 can read."""
     project_id = mission.project_id
-    unmet: list[dict[str, Any]] = []
-    if await _draft_plan(db, project_id) is None:
-        unmet.append(_item("PLAN_DRAFT_MISSING", "No ProjectPlan version in draft for this mission"))
+    _plan, _version, unmet = await current_plan_version(db, project_id)
     tasks = await mission_tasks(db, project_id)
     if not tasks:
         unmet.append(_item("NO_TASKS", "The mission has no tasks"))
@@ -345,18 +344,17 @@ async def _validator_items(db: AsyncSession, mission: ProjectMission) -> tuple[l
                                task_id=str(task.id), task_number=task.number))
     gaps, not_evaluated = await skill_check_items(db, tasks, executors, memberships)
     unmet.extend(gaps)
-    unmet.append(_not_recorded("ENVIRONMENT_PREREQUISITES_NOT_RECORDED"))
+    unmet.extend(await environment_prerequisite_items(db, tasks))
     return unmet, not_evaluated
 
 
 async def _draft_plan_items(db: AsyncSession, mission: ProjectMission) -> list[dict[str, Any]]:
     project_id = mission.project_id
-    unmet: list[dict[str, Any]] = []
-    if await _draft_plan(db, project_id) is None:
-        unmet.append(_item("PLAN_DRAFT_MISSING", "No ProjectPlan version in draft for this mission"))
+    _plan, _version, unmet = await current_plan_version(db, project_id)
     tasks = await mission_tasks(db, project_id)
     if not tasks:
         unmet.append(_item("NO_TASKS", "The mission has no tasks"))
+    unmet.extend(environment_items(tasks))
     task_ids = {t.id for t in tasks}
     executors = await _executors_by_task(db, list(task_ids), await _active_memberships(db, project_id))
     for task in tasks:
@@ -384,7 +382,6 @@ async def _draft_plan_items(db: AsyncSession, mission: ProjectMission) -> list[d
         unmet.append(_item("RISK_LEVEL_MISSING", "risk_level is not set"))
     if not mission.required_review_layers:
         unmet.append(_item("REVIEW_LAYERS_MISSING", "required_review_layers is empty"))
-    unmet.append(_not_recorded("ENVIRONMENT_NOT_RECORDED"))
     return unmet
 
 
@@ -396,17 +393,12 @@ async def planning_exit_conditions(db: AsyncSession, mission: ProjectMission) ->
         return await _draft_plan_items(db, mission), []
     if stage == "auto_check":
         return await _validator_items(db, mission)
-    if stage == "critical_review":
-        return [_not_recorded("REVIEW_ARTIFACTS_NOT_RECORDED")], []
-    if stage == "consolidation":
-        return [_not_recorded("REVIEW_DISPOSITIONS_NOT_RECORDED")], []
-    if stage == "cross_review":
-        return [_not_recorded("CROSS_REVIEWS_NOT_RECORDED")], []
-    if stage == "decisions":
-        return [_not_recorded("FLAGGED_ITEMS_NOT_RECORDED")], []
+    if stage in ("critical_review", "consolidation", "cross_review", "decisions"):
+        return await record_conditions(db, mission), []
     if stage == "application":
         unmet, not_evaluated = await _validator_items(db, mission)
-        return unmet + [_not_recorded("APPLICATION_VERIFICATION_NOT_RECORDED")], not_evaluated
+        records = [u for u in await record_conditions(db, mission) if u not in unmet]
+        return unmet + records, not_evaluated
     return [_item("PLANNING_STAGE_UNKNOWN", f"No exit rule for stage {stage!r}")], []
 
 
@@ -517,7 +509,7 @@ async def transition_preconditions(
                                "Return to active needs a failed criterion or a reopened task"))
 
     elif (from_state, to_state) == ("verifying", "awaiting_acceptance"):
-        unmet.append(_not_recorded("DOSSIER_NOT_RECORDED"))
+        unmet.extend(await dossier_items(db, mission))
 
     return unmet
 

@@ -271,6 +271,154 @@ verifier, status or evidence, and a mission has no `ProjectScope`.
   `ProjectLoopPolicy` [:171] untouched; roles reuse `PROJECT_AGENT_ROLES` [:32] — no new role list.
 - Existing criteria, members and reviews keep their ids (no backfill, no rewrite).
 
+### 2.6 Planning records (M0.0b) [PROPOSED, M0.0b, Marcelo 2026-10-29]
+
+M0.0 shipped P1–P8 refusing with `not_recorded` because nothing recorded the data the §3.1 exit
+conditions read. M0.0b adds those records; every code of `NOT_RECORDED_CONDITIONS`
+(`backend/app/core/mission.py`) is lifted by one of them (table at the end). One Alembic revision on
+top of `d3f7a1c9e2b5`. Conventions as §2: schema `company`, UUID PKs with Python default,
+`TimestampMixin`, string FKs, enum-like fields as `String` + `CheckConstraint`.
+
+**Who is the planner.** The planner of a plan version is **(a)** the author of that `ProjectPlan`
+version, as recorded in `mission_plan_versions`, and **(b)** the mission's orchestrator. (a) wrote the
+text being reviewed; (b) conducts the pipeline, disposes of review items and is accountable for the
+plan whoever typed it (04 Papéis: the orchestrator owns the plan) — a reviewer who is either of them
+reviews their own work. `ProjectPlan` has no author column and `POST /projects/{id}/plans` has no
+principal, so the author is recorded on the mission side (below), never inferred.
+
+**Current plan version.** The mission's latest `ProjectPlan` in `draft` (as `_draft_plan` already
+reads). Every record below carries the `project_plan_id` it was written against, and **only records of
+the current version count** for a stage exit. Registering a new version (i) supersedes the mission's
+previous `draft` plans (`status='superseded'`) and (ii) while the mission is `planning`, sets
+`planning_stage` back to `draft_plan` — the reviews, dispositions, cross reviews and verification of
+the old version stay as history and no longer count. A plan created through the generic
+`POST /projects/{id}/plans` becomes the newest draft with no `mission_plan_versions` row, so every exit
+refuses `PLAN_VERSION_NOT_REGISTERED` until a version is registered here (fail closed). Exit
+conditions from `critical_review` on are **cumulative**: leaving a stage re-checks the record
+conditions of every earlier record stage on the current version, so a version swap can never leave a
+later stage with nothing to check.
+
+#### 2.6.1 Tables
+
+**`project_tasks` (two new columns) — environment per task (P1 "environment", P2 "environment prerequisites").**
+
+| Column | Type | Constraint / note |
+|---|---|---|
+| target_environment | String(20) null | CHECK in (`test`,`homolog`,`production`) — the environment the task's work lands in; same vocabulary as the `<environment>` of `task_execution_targets` `publish:<environment>:<target>` (§4.3) plus `homolog`, which the M0.7 `environment_releases` CHECK must add |
+| environment_prerequisites | Text[] null | what must exist in that environment before the task runs (e.g. "test database at head"). `NULL` = not recorded; `[]` = recorded as "none". ≤ 20 entries, each 1–500 chars (route) |
+
+Written through the existing `POST /api/v1/tasks` and `PATCH /api/v1/tasks/{id}` (an `agt_` caller
+already reaches `PATCH` with `planning.execution.manage`), exactly like `required_skill_ids`: for a
+**mission** task only while the mission is `planning` (409 `TASK_ENVIRONMENT_LOCKED`), free for a
+common project. A change on a mission task appends `AuditEvent(entity_type="mission",
+event_type="mission_task_environment_set")`. Both fields join the §4.2 canonical task content, so a
+baselined task whose environment changes is refused by the dispatch guard (`TASK_CONTENT_CHANGED`).
+
+**`mission_plan_versions` — the author of each plan version.**
+
+| Column | Type | Constraint / note |
+|---|---|---|
+| project_plan_id | UUID PK, FK `project_plans.id` ON DELETE CASCADE | one row per plan version |
+| mission_project_id | UUID FK `projects.id` ON DELETE CASCADE | |
+| author_type | String(10) | CHECK in (`user`,`agent`) — the authenticated principal, never a body field |
+| author_id | UUID | user id or agent id |
+| author_name | String(150) | display name at the time |
+
+**`mission_plan_reviews` — per-layer opinions (P3) and cross reviews (P5).**
+
+| Column | Type | Constraint / note |
+|---|---|---|
+| id | UUID PK | |
+| mission_project_id | UUID FK `projects.id` CASCADE | |
+| project_plan_id | UUID FK `project_plans.id` CASCADE | the version reviewed; must be current when written |
+| kind | String(10) | CHECK in (`layer`,`cross`) |
+| layer | String(20) | CHECK in `REVIEW_LAYERS`; for `layer` it must be in the mission's `required_review_layers` (route, 422 `LAYER_NOT_REQUIRED`) |
+| reviewer_agent_id | UUID FK `agents.id` | **the authenticated `agt_` agent**; not a body field (the schema forbids extra fields) |
+| artifact_version_id | UUID FK `artifact_versions.id` | the review document (artifact + version) |
+| summary | Text null | |
+| | | `UNIQUE(project_plan_id, kind, layer, reviewer_agent_id)` |
+
+**`mission_review_waivers` — Marcelo's decision that a layer goes without an opinion (P3).**
+`id`, `mission_project_id` FK CASCADE, `project_plan_id` FK CASCADE, `layer` (CHECK `REVIEW_LAYERS`),
+`reason` Text (CHECK non-blank), `decided_by` String(150), `decided_by_user_id` FK `users.id`,
+`UNIQUE(project_plan_id, layer)`.
+
+**`mission_review_items` — what a review raised (P4) and Marcelo's decisions on it (P6).**
+
+| Column | Type | Constraint / note |
+|---|---|---|
+| id | UUID PK | |
+| review_id | UUID FK `mission_plan_reviews.id` CASCADE | the opinion it came from (gives plan version and mission) |
+| text | Text | CHECK non-blank |
+| disposition | String(10) null | CHECK in (`accept`,`adjust`,`reject`) |
+| disposition_reason | Text null | CHECK `(disposition IS NULL) = (disposition_reason IS NULL)` and non-blank when set |
+| disposed_by | String(150) null; disposed_at timestamptz null | |
+| needs_marcelo_decision | Boolean default false | set by the reviewer on creation or by the disposer; **never cleared** once true (409 `FLAG_CANNOT_BE_CLEARED`) |
+| marcelo_decision | String(10) null | CHECK in (`accept`,`adjust`,`reject`); CHECK `marcelo_decision IS NULL OR needs_marcelo_decision` |
+| marcelo_reason | Text null; marcelo_decided_by String(150) null; marcelo_user_id FK `users.id` null; marcelo_decided_at null | CHECK all four null together with `marcelo_decision` |
+
+The **effective disposition** of an item is `marcelo_decision` when set, else `disposition`.
+
+**`mission_plan_verifications` — sampled verification of the applied corrections (P7).**
+`id`, `mission_project_id` FK CASCADE, `project_plan_id` FK CASCADE, `verifier_agent_id` FK `agents.id`
+(the authenticated agent), `sampled_item_ids` UUID[] (review items), `result` String(20) CHECK in
+(`confirmed`,`discrepancies`), `notes` Text null.
+
+**`mission_dossiers` — the dossier version for `verifying → awaiting_acceptance` (§8 item 1).**
+`id`, `mission_project_id` FK CASCADE, `artifact_version_id` FK `artifact_versions.id`, `file_sha256`
+String(64) CHECK `~ '^[0-9a-f]{64}$'`, `registered_by_type` String(10) CHECK (`user`,`agent`),
+`registered_by_id` UUID, `registered_by` String(150). The hash is the one declared by the registrant
+(the backend container cannot read the repository files — the same limit as M0.6a evidence); when the
+artifact version has a `checksum` (`<hex>` or `sha256:<hex>`) they must match (409
+`DOSSIER_HASH_MISMATCH`). Re-hashing the file bytes is the acceptance decision's job (§8 item 3, out of
+M0.0b).
+
+#### 2.6.2 Routes (all under `/api/v1/missions/{project_id}`, already on the `agt_` admission list)
+
+| Route | Writes | Who | Mission state / stage | Notable refusals |
+|---|---|---|---|---|
+| `POST /plans` `{name, scope_summary?, estimated_start_date?, estimated_end_date?, estimated_cost?}` | `ProjectPlan(status='draft')` + `mission_plan_versions` (author = caller); supersedes older drafts; stage → `draft_plan` | admin; orchestrator with `mission.orchestrate`; active member with `mission.plan.submit` | `draft` or `planning` | 409 `MISSION_NOT_PLANNING` |
+| `POST /plan-reviews` `{project_plan_id, kind, layer, artifact_version_id, summary?}` | `mission_plan_reviews` | **agent only** (`agt_`): active `can_review` member of the mission with `mission.plan.review` | `planning`; `layer` in `critical_review`, `cross` in `cross_review` | 403 `REVIEW_REQUIRES_AGENT`; 409 `REVIEWER_IS_PLANNER`, `PLAN_VERSION_NOT_CURRENT`, `PLAN_VERSION_NOT_REGISTERED`, `PLANNING_STAGE_MISMATCH`, `REVIEW_ALREADY_RECORDED`; 422 `LAYER_NOT_REQUIRED`, `ARTIFACT_VERSION_NOT_FOUND` |
+| `POST /plan-reviews/{review_id}/items` `{text, needs_marcelo_decision?}` | `mission_review_items` | the review's own reviewer (same checks as above) | stage of the review's kind | 403 `NOT_REVIEW_AUTHOR` |
+| `POST /review-items/{item_id}:dispose` `{disposition, reason, needs_marcelo_decision?}` | disposition, reason, flag | admin; orchestrator with `mission.orchestrate` | `consolidation`, `cross_review`, `decisions` | 409 `ITEM_ALREADY_DECIDED` (after Marcelo's decision), `FLAG_CANNOT_BE_CLEARED`; 422 reason blank |
+| `POST /review-items/{item_id}:decide` `{decision, reason}` | Marcelo's decision | **admin user (JWT) only** | `consolidation`, `cross_review`, `decisions` | 403 `MARCELO_DECISION_REQUIRES_ADMIN` (agent token or non-admin); 409 `ITEM_NOT_FLAGGED`, `ITEM_ALREADY_DECIDED` |
+| `POST /review-waivers` `{project_plan_id, layer, reason}` | `mission_review_waivers` | **admin user (JWT) only** | `critical_review` | 403 `MARCELO_DECISION_REQUIRES_ADMIN`; 409 `WAIVER_ALREADY_RECORDED` |
+| `POST /plan-verifications` `{project_plan_id, sampled_item_ids, result, notes?}` | `mission_plan_verifications` | agent only, same eligibility as a reviewer (not a planner) | `application` | 409 `SAMPLE_ITEM_INVALID` (not an accept/adjust item of this version); 422 `SAMPLE_TOO_SMALL` (fewer than `min(3, n)` of the `n` accepted/adjusted items) |
+| `POST /dossier` `{artifact_version_id, file_sha256}` | `mission_dossiers` | admin; orchestrator with `mission.orchestrate`; active member with `mission.dossier.register` | `verifying` | 409 `MISSION_NOT_VERIFYING`, `DOSSIER_HASH_MISMATCH`; 422 `ARTIFACT_VERSION_NOT_FOUND` |
+| `GET /planning-records` | — (reads the current version's records) | any authenticated caller (as `GET /missions/{id}`) | any | |
+
+New delegation action keys (project-scoped, §0.2): `mission.plan.review`, `mission.dossier.register`
+(`mission.plan.submit` and `mission.orchestrate` already listed). Errors use the §0.3 object form.
+Every write appends `AuditEvent(entity_type="mission", entity_id=<mission project id>)` with the §0.5
+payload: `mission_plan_version_registered`, `mission_plan_review_recorded`,
+`mission_review_item_recorded`, `mission_review_item_disposed`, `mission_review_item_decided`,
+`mission_review_waived`, `mission_plan_verification_recorded`, `mission_dossier_registered`,
+`mission_task_environment_set`.
+
+#### 2.6.3 Exit conditions read from the records (§3.1)
+
+| Leaving | Record condition (on the current plan version) | Unmet code | Lifts |
+|---|---|---|---|
+| draft_plan | the newest draft has a `mission_plan_versions` row; every mission task has `target_environment` | `PLAN_VERSION_NOT_REGISTERED`, `TASK_ENVIRONMENT_MISSING` | `ENVIRONMENT_NOT_RECORDED` |
+| auto_check (and the P7 re-run) | every mission task has `environment_prerequisites` recorded (`[]` allowed); every `publish:<env>:…` target of a task names that task's `target_environment` | `TASK_ENVIRONMENT_PREREQUISITES_MISSING`, `PUBLISH_TARGET_ENVIRONMENT_MISMATCH` | `ENVIRONMENT_PREREQUISITES_NOT_RECORDED` |
+| critical_review | per required layer: a `layer` review by a non-planner, or Marcelo's waiver | `LAYER_REVIEW_MISSING` | `REVIEW_ARTIFACTS_NOT_RECORDED` |
+| consolidation | + every item of the version's reviews has a disposition with a non-blank reason | `ITEM_WITHOUT_DISPOSITION`, `ITEM_WITHOUT_REASON` | `REVIEW_DISPOSITIONS_NOT_RECORDED` |
+| cross_review | + two `cross` reviews by different non-planner reviewers on different layers | `CROSS_REVIEWS_INSUFFICIENT` | `CROSS_REVIEWS_NOT_RECORDED` |
+| decisions | + (cross condition unless `risk_level='low'`) + every flagged item has Marcelo's decision | `FLAGGED_ITEM_UNDECIDED` | `FLAGGED_ITEMS_NOT_RECORDED` |
+| application | + validator again + the latest verification of the version, by a non-planner, is `confirmed` with a valid sample | `APPLICATION_VERIFICATION_MISSING`, `APPLICATION_VERIFICATION_DISCREPANCIES` | `APPLICATION_VERIFICATION_NOT_RECORDED` |
+| verifying → awaiting_acceptance | a `mission_dossiers` row registered during the current `verifying` stay (`created_at ≥ state_changed_at`) | `DOSSIER_MISSING` | `DOSSIER_NOT_RECORDED` |
+
+"Non-planner" is re-checked at exit, not only at write time. After M0.0b `NOT_RECORDED_CONDITIONS` is
+empty: no exit passes for lack of data. Still **not evaluated** (reported, never passed): runtime
+installation of skills (§6.1). Out of M0.0b: MCP tools (M0.2a–d), `submit_project_plan` and the
+governed baseline approval (M0.2b), `acceptance:request`/`:decide` (§8 items 2–5), the screen,
+the cycle (M0.8), `environment_releases` (M0.7). Change-request re-entry into the pipeline (§3.1)
+still has no `planning_stage` on the CR row: M0.2b.
+
+**Rollback.** The downgrade drops the six tables and the two `project_tasks` columns; it does not
+touch missions, plans or baselines. Records already written are lost on downgrade (they are the
+pipeline's evidence: dump them first if a mission is mid-planning).
+
 ---
 
 ## 3. State machine and `Project.status` projection [PROPOSED, M0.0]
@@ -341,7 +489,7 @@ Allowed transitions in M0 (anything else → 409 `MISSION_TRANSITION_NOT_ALLOWED
 | ready → active | Marcelo, or orchestrator with `mission.orchestrate` | `current_baseline_id` not superseded; dependency missions completed (cycle spec §6.3); orchestrator under its active-mission limit |
 | active → verifying | orchestrator or Marcelo | all criteria `proven` |
 | verifying → active | anyone who can mark a criterion `failed` | a criterion went `failed` or a task reopened |
-| verifying → awaiting_acceptance | orchestrator or Marcelo | dossier artifact version registered (§8) |
+| verifying → awaiting_acceptance | orchestrator or Marcelo | dossier artifact version registered during the current `verifying` stay (§2.6, §8) |
 | awaiting_acceptance → completed | **only** via the acceptance decision (§8) | all §8 conditions |
 | awaiting_acceptance → active | Marcelo (rejecting the dossier) | reason |
 | planning/ready/active/verifying → paused | Marcelo; orchestrator only when blocked (reason `blocked:*`) | reason; `paused_from_state` saved |
@@ -420,7 +568,8 @@ UNIQUE(baseline_id, task_id))`. A baseline is immutable: no route updates it; su
 
 **Canonical task content** (`canonical_hash` [EXISTS backend/app/core/governed_approval.py:21] over sorted JSON):
 `task_id, title, description, plan_brief, task_type, priority, planning_item_id, change_request_id,
-parent_task_id, sorted depends_on_task_ids, sorted execution targets (§4.3), linked criterion codes`,
+parent_task_id, sorted depends_on_task_ids, sorted execution targets (§4.3), linked criterion codes,
+target_environment, environment_prerequisites` (the last two since M0.0b, §2.6),
 plus mission-level `brief_artifact_version_id` and the criteria `(code, statement, verification_method,
 verifier)` set. **Not** in the hash: assignee (reassignment is a cycle action, §11 D-M0-3), status,
 dates, costs. `plan_baselines.content_hash` = hash of the sorted item hashes + mission-level part.
