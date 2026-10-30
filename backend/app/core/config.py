@@ -68,7 +68,10 @@ class Settings(BaseSettings):
     # Auth
     JWT_SECRET: str = "dev_only_insecure_jwt_secret_change_me"
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    # Browser/API access-token lifetime. Keep this at eight hours so a normal
+    # workday does not require a fresh login; active sessions still refresh
+    # through /auth/me while the token remains valid.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 8 * 60
 
     # Deployment environment label -- controls whether FastAPI's own
     # auto-generated docs (/docs, /redoc, /openapi.json) are served (see
