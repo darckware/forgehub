@@ -84,7 +84,7 @@ despacho, que continuam com os gates próprios de cada tarefa.
 **Decisão do Marcelo (29/10/2026), após a M0.0 (#41652, revisão Dartan #41657):** criar a **M0.0b, registro do planejamento** (Porthus faz, Dartan revisa), antes da M0.2b e da M0.R. A M0.0 entregou as etapas P1–P8 recusando corretamente, mas sem onde ler o ambiente das tarefas, os pareceres por camada, as disposições dos itens, as revisões cruzadas, a verificação por amostra e o dossiê; sem a M0.0b nenhuma missão sai da P1.
 
 **Ressalvas da revisão da M0.0 (#41657), sem bloqueio:**
-- **DT-M0-1:** skills exigidas por tarefa em dois lugares (`task_required_skills`, já usada pela tela de tarefa, e `project_tasks.required_skill_ids`, da M0.0). Unificar na M0.2b.
+- **DT-M0-1:** skills exigidas por tarefa em dois lugares (`task_required_skills`, já usada pela tela de tarefa, e `project_tasks.required_skill_ids`, da M0.0). Unificar na M0.2b. **Feito na M0.2b:** `task_required_skills` é o único lugar; a coluna foi incorporada (linhas obrigatórias) e removida, e `required_skill_ids` na API da tarefa passou a ser uma visão dessas linhas.
 - `GET /api/v1/missions/{id}` responde a qualquer usuário ou agente autenticado; restringir a membros da missão e admins na M0.2d.
 
 Responsáveis de produto (K6, aprovados em D-6): Ecossistema Foundation → Athos; ForgeHub → Daedalus;

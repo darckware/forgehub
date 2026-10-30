@@ -16,6 +16,7 @@ Tables owned by this domain:
 - mission_plan_versions, mission_plan_reviews, mission_review_waivers,
   mission_review_items, mission_plan_verifications, mission_dossiers
                                (§2.6, M0.0b planning records)
+- mission_plan_submissions     (§5.3/§7, M0.2b governed plan approval)
 
 Cross-domain FKs are string-form, per the foundation convention.
 """
@@ -495,3 +496,49 @@ class MissionDossier(Base, TimestampMixin):
     registered_by_type: Mapped[str] = mapped_column(String(10), nullable=False)
     registered_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     registered_by: Mapped[str] = mapped_column(String(150), nullable=False)
+
+
+# ---------------------------------------------------------------------------
+# Governed plan approval (§5.3, §7, M0.2b)
+# ---------------------------------------------------------------------------
+class MissionPlanSubmission(Base, TimestampMixin):
+    """What a submit_project_plan put up for Marcelo's approval: one row per
+    governed ``ApprovalRequest(target_type='project_plan')``. ``task_ids`` are
+    the tasks the baseline will authorize and ``plan_hash`` covers the plan
+    and each task's content as the baseline would freeze it, so the decision
+    recomputes it and refuses a plan that changed after submission."""
+
+    __tablename__ = "mission_plan_submissions"
+    __table_args__ = (
+        CheckConstraint(f"submitted_by_type IN {_in(PRINCIPAL_TYPES)}",
+                        name="ck_mission_plan_submissions_submitted_by_type"),
+        CheckConstraint("cardinality(task_ids) > 0", name="ck_mission_plan_submissions_task_ids"),
+        Index("ix_mission_plan_submissions_mission", "mission_project_id", "created_at"),
+    )
+
+    approval_request_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.approval_requests.id", ondelete="CASCADE"), primary_key=True
+    )
+    mission_project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.projects.id", ondelete="CASCADE"), nullable=False
+    )
+    project_plan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.project_plans.id", ondelete="CASCADE"), nullable=False
+    )
+    change_request_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.change_requests.id", ondelete="SET NULL"), nullable=True
+    )
+    task_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)), nullable=False)
+    plan_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    checks: Mapped[list] = mapped_column(JSONB, nullable=False)
+    submitted_by_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    submitted_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    submitted_by: Mapped[str] = mapped_column(String(150), nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    # The baseline the approval created (set once, by the decision).
+    baseline_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.plan_baselines.id", ondelete="SET NULL"), nullable=True
+    )
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    withdrawn_by: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    withdrawn_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

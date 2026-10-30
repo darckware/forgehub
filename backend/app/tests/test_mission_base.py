@@ -17,6 +17,7 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 
 from app.api.routes import mission as mission_routes
 from app.core.mission import ALLOWED_TRANSITIONS, apply_mission_state
@@ -744,19 +745,24 @@ async def test_auto_check_flags_missing_skill_for_executor_and_reviewer(world):
     }
     async with AsyncSessionLocal() as db:
         db.add_all([AgentSkill(agent_id=reviewer, skill_id=skill)])
-        (await db.get(ProjectTask, task.id)).required_skill_ids = [skill]
+        await db.execute(text("DELETE FROM company.task_required_skills WHERE task_id = :t AND skill_id = :s"),
+                         {"t": str(task.id), "s": str(inactive)})
         await db.commit()
     response = await _advance(world, project_id, "critical_review")
     assert gaps(response) == set()
     # What is left are the M0.0b records: plan version author and prerequisites.
     assert _codes(response) == {"PLAN_VERSION_NOT_REGISTERED", "TASK_ENVIRONMENT_PREREQUISITES_MISSING"}
 
-    # A skill deleted after being required is a gap, never a silent pass.
+    # The required skills are task_required_skills rows (M0.2b, DT-M0-1): the
+    # API view reads them, and a required skill cannot vanish under a task
+    # (the FK refuses to delete it), so a gone skill is never a silent pass.
+    async with world.client() as client:
+        view = (await client.get(f"/api/v1/tasks/{task.id}")).json()["required_skill_ids"]
+        rows = (await client.get(f"/api/v1/tasks/{task.id}/required-skills")).json()
+    assert view == [str(skill)] and [r["skill_id"] for r in rows] == [str(skill)]
     async with AsyncSessionLocal() as db:
-        gone = uuid.uuid4()
-        (await db.get(ProjectTask, task.id)).required_skill_ids = [skill, gone]
-        await db.commit()
-    assert ("SKILL_NOT_FOUND", str(gone)) in gaps(await _advance(world, project_id, "critical_review"))
+        with pytest.raises(IntegrityError):
+            await db.execute(text("DELETE FROM company.skills WHERE id = :s"), {"s": str(skill)})
 
 
 # ---------------------------------------------------------------------------

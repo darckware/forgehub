@@ -4,7 +4,7 @@ task_required_skills, task_assignments, task_executions).
 import uuid
 from datetime import date, datetime
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
@@ -202,6 +202,9 @@ class TaskDependencyCreate(BaseModel):
     task_id: uuid.UUID
     depends_on_task_id: uuid.UUID
     dependency_type: str = "finish_to_start"
+    # add_task_dependency (M0.2b, §5.4): required from an agt_ caller, whose
+    # retry replays the stored receipt; optional for a person.
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=150)
 
     @model_validator(mode="after")
     def _validate(self) -> "TaskDependencyCreate":
@@ -221,6 +224,14 @@ class TaskDependencyOut(BaseModel):
     dependency_type: str
     created_at: datetime
     updated_at: datetime
+
+
+class TaskDependencyAddedOut(TaskDependencyOut):
+    """POST /tasks/{id}/dependencies (§5.4). `requires_change_request`: the
+    dependent task belongs to a mission that already has a baseline it is not
+    in, so it runs only after an applied change request and a new approval."""
+
+    baseline_impact: Literal["none", "requires_change_request"] = "none"
 
 
 # --------------------------------------------------------------------------

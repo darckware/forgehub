@@ -68,6 +68,10 @@ A M0.0b foi implementada pelo Porthus no branch `feat/m0-0b-planning-records` (2
 - **Registro do planejamento** (spec §2.6): ambiente-alvo e pré-requisitos por tarefa (`project_tasks`), autor de cada versão do plano, pareceres por camada e cruzados, itens com disposição e decisão do Marcelo, dispensa de camada pelo Marcelo, verificação por amostra e dossiê com hash. Rotas em `/api/v1/missions/{id}/…`; o revisor e o verificador são sempre o agente autenticado, e a decisão do Marcelo exige JWT de admin.
 - **Sem `not_recorded`:** cada saída de P1–P7 e `verifying → awaiting_acceptance` lê o registro da versão atual do plano; `NOT_RECORDED_CONDITIONS` ficou vazio. Uma nova versão do plano volta a etapa para `draft_plan`, e os registros antigos deixam de contar. A instalação de skills no runtime continua `not_evaluated`.
 
+A M0.2b foi implementada pelo Porthus no branch `feat/m0-2b-plan-approval` (30/10, sobre a M0.0b) e aguarda a revisão do Dartan (D-1). Ainda não houve merge nem migração fora do banco de teste.
+- **Plano proposto, nunca autoaprovado:** `submit_project_plan` roda as checagens automáticas (as que dependem da M.1 ficam `not_evaluated`) e abre a aprovação governada `project_plan`; só o Marcelo (JWT de admin) decide, com o hash recalculado. A aprovação cria a baseline seguinte e não despacha nada; `planning → ready` continua sendo transição dele. A retirada usa o novo status `withdrawn`.
+- **Dependências:** `add_task_dependency` pelo MCP, só finish-to-start, uma por par, recusada em tarefa de baseline vigente (`TASK_IN_BASELINE`). Skills exigidas por tarefa ficaram num só lugar (DT-M0-1).
+
 A M0.6a foi implementada pelo Porthus no branch `feat/m0-6a-completion-guard` (29/10) e aguarda a revisão do Dartan (D-1). Ainda não houve merge, migração fora do banco de teste nem reinício do bridge.
 - **Guard global e prospectivo:** toda transição nova para `done`/`deployed`, em qualquer projeto, exige execução `verified`, evidência `git:`/`file:`/`db:` conferida e revisão aprovada por outro agente, com dependências e subtarefas concluídas. Tarefas já concluídas continuam como estão, sem backfill.
 

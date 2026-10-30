@@ -52,6 +52,7 @@ from app.api.routes import (
     hindsight,
     mcp_catalog,
     mission,
+    mission_plan,
     mission_records,
     notifications,
     operations,
@@ -219,7 +220,14 @@ def is_agent_command_path(method: str, path: str) -> bool:
         "/api/v1/blueprint-revisions/",
     ))
     factory_task_command = method == "PATCH" and path.startswith("/api/v1/tasks/")
-    return command_path or factory_read_path or factory_task_command
+    # M0.2b (§5.4): add_task_dependency, exactly POST /tasks/{id}/dependencies;
+    # the route authorizes planning.execution.manage itself. DELETE stays human.
+    parts = path.split("/")
+    task_dependency_command = (
+        method == "POST" and len(parts) == 6 and path.startswith("/api/v1/tasks/")
+        and parts[4] != "" and parts[5] == "dependencies"
+    )
+    return command_path or factory_read_path or factory_task_command or task_dependency_command
 
 
 class RequireAuthMiddleware(BaseHTTPMiddleware):
@@ -435,6 +443,7 @@ app.include_router(operations.router)
 app.include_router(orchestration.router)
 app.include_router(mission.router)
 app.include_router(mission_records.router)
+app.include_router(mission_plan.router)
 app.include_router(system_scope.router)
 # ---------------------------------------------------------------------------
 

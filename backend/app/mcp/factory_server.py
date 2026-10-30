@@ -615,6 +615,38 @@ async def attach_project_document(
 
 
 @mcp.tool()
+async def submit_project_plan(
+    project_id: str,
+    task_ids: list[str],
+    idempotency_key: str,
+    plan: dict[str, Any] | None = None,
+    change_request_id: str | None = None,
+) -> dict[str, Any]:
+    """Submit a mission plan for Marcelo's approval. It only proposes: it never
+    approves, and nothing runs until he decides and moves the mission on.
+    `task_ids` are the tasks the baseline will authorize. First baseline: the
+    mission is in planning at stage `baseline`; the plan is the reviewed
+    current version (`plan` may repeat its fields, never change them). After
+    the baseline: pass the approved `change_request_id` and the new `plan`
+    ({name, scope_summary?, estimated_start_date?, estimated_end_date?,
+    estimated_cost?}). Needs a mission.plan.submit delegation. Returns
+    {plan_id, approval_request_id, plan_hash, checks, status:
+    "pending_approval"}; a check M0 cannot compute is `not_evaluated`, never
+    passed. Refused: PLAN_CHECKS_FAILED (the failing checks listed),
+    PLAN_ALREADY_PENDING (its id), PLANNING_PIPELINE_UNFINISHED,
+    MISSION_NOT_DRAFT_OR_CR. There is no approver argument: an approver
+    token, name or `approved` flag in `plan` is refused (422). Retract a
+    pending submission with withdraw_project_plan."""
+    body: dict[str, Any] = {"task_ids": task_ids, "idempotency_key": idempotency_key}
+    if plan is not None:
+        body["plan"] = plan
+    if change_request_id is not None:
+        body["change_request_id"] = change_request_id
+    data, replayed = await _mission_write(f"/api/v1/missions/{project_id}/plans:submit", body)
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
 async def get_my_mission_role(project_id: str) -> dict[str, Any]:
     """Your own role in a mission (or internal project) you are an active
     member of: role, can_review, responsibilities, the orchestrator, your
@@ -629,6 +661,38 @@ async def list_my_tasks(state: str = "open") -> dict[str, Any]:
     are an active member of. `state`: open (default: not done/deployed/
     cancelled), all, or one task status. Never shows another agent's tasks."""
     return await _factory_call("GET", _query("/api/v1/missions/me/tasks", state=state))
+
+
+@mcp.tool()
+async def withdraw_project_plan(project_id: str, plan_id: str, reason: str) -> dict[str, Any]:
+    """Retract your pending plan submission (the approval request becomes
+    `withdrawn`; the plan stays a draft and nothing is deleted). Withdrawing
+    again returns the same result; a request already decided is refused."""
+    return await _factory_call(
+        "POST", f"/api/v1/missions/{project_id}/plans/{plan_id}:withdraw", json={"reason": reason},
+    )
+
+
+@mcp.tool()
+async def add_task_dependency(
+    task_id: str,
+    depends_on_task_id: str,
+    idempotency_key: str,
+    dependency_type: str = "finish_to_start",
+) -> dict[str, Any]:
+    """Make `task_id` wait for `depends_on_task_id` to finish (finish_to_start
+    is the only type accepted). Needs a planning.execution.manage delegation
+    on the task's project; for a mission task both tasks must be in the same
+    mission scope (else not found). Refused: a cycle (409), the same pair
+    again (DEPENDENCY_ALREADY_EXISTS with its id), TASK_IN_BASELINE when the
+    task is frozen in a current baseline -- that needs a change request.
+    Returns the dependency plus `baseline_impact` ("requires_change_request"
+    when the task's mission already has a baseline the task is not in)."""
+    data, replayed = await _mission_write(f"/api/v1/tasks/{task_id}/dependencies", {
+        "task_id": task_id, "depends_on_task_id": depends_on_task_id,
+        "dependency_type": dependency_type, "idempotency_key": idempotency_key,
+    })
+    return {**data, "replayed": replayed}
 
 
 def _as_data(execution: dict[str, Any]) -> dict[str, Any]:

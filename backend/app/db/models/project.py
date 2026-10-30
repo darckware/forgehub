@@ -231,6 +231,13 @@ class ProjectPlan(Base, TimestampMixin):
 
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # M0.2b (MCP_MISSION_TOOLS_SPEC.md §7 item 6): the approved change request
+    # this plan applies after a mission's baseline. Its approval creates the
+    # next baseline and marks the change request applied.
+    change_request_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.change_requests.id", ondelete="SET NULL"), nullable=True
+    )
+
 
 class PlanBaseline(Base, TimestampMixin):
     """An immutable snapshot of an approved ProjectPlan.

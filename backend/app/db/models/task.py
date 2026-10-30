@@ -137,17 +137,13 @@ class ProjectTask(Base, TimestampMixin):
         nullable=True,
     )
 
-    # Skills the executor and the reviewer must hold (M0.0, mission spec
-    # §6.1). No FK (an array); route writes check that each id exists, and a
-    # mission task may change it only while the mission is `planning`. The
-    # P2 auto check flags a skill that is gone, inactive or not held.
-    required_skill_ids: Mapped[list[uuid.UUID]] = mapped_column(
-        ARRAY(UUID(as_uuid=True)), nullable=False, default=list, server_default="{}"
-    )
+    # Required skills live in `task_required_skills` (TaskRequiredSkill), the
+    # one store since M0.2b (DT-M0-1): the API's `required_skill_ids` is its
+    # mandatory rows (core/task_skills.py).
 
     # Environment the task's work lands in, and what must exist there before
     # it runs (M0.0b, mission spec §2.6). NULL prerequisites = not recorded;
-    # [] = recorded as "none". Same write rule as required_skill_ids.
+    # [] = recorded as "none". Same write rule as the required skills.
     target_environment: Mapped[str | None] = mapped_column(String(20), nullable=True)
     environment_prerequisites: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
 
@@ -215,6 +211,10 @@ class TaskDependency(Base, TimestampMixin):
     """A directed dependency: `task_id` depends on `depends_on_task_id`."""
 
     __tablename__ = "task_dependencies"
+    # M0.2b (§5.4): one edge per pair; add_task_dependency's natural key.
+    __table_args__ = (
+        UniqueConstraint("task_id", "depends_on_task_id", name="uq_task_dependencies_pair"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
@@ -257,9 +257,16 @@ class TaskExecutionTarget(Base, TimestampMixin):
 
 
 class TaskRequiredSkill(Base, TimestampMixin):
-    """A skill (owned by the Agent domain) required to execute a task."""
+    """A skill (owned by the Agent domain) required to execute a task.
+
+    The one store of a task's required skills (M0.2b, DT-M0-1): the mission
+    P2 check reads the mandatory rows, and `required_skill_ids` on the task
+    API is a view of them (core/task_skills.py)."""
 
     __tablename__ = "task_required_skills"
+    __table_args__ = (
+        UniqueConstraint("task_id", "skill_id", name="uq_task_required_skills_pair"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 

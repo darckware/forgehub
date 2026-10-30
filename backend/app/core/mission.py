@@ -25,6 +25,7 @@ from app.core.mission_records import (
     environment_prerequisite_items,
     record_conditions,
 )
+from app.core.task_skills import required_skill_map
 from app.db.models.agent import AgentSkill, Skill
 from app.db.models.artifact import Artifact, ArtifactStatus, ArtifactVersion, ArtifactVersionStatus
 from app.db.models.backlog import PlanningItem
@@ -262,6 +263,9 @@ async def skill_check_items(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """P2 skills (§6.1). Returns (gaps, not_evaluated).
 
+    The required skills are the task's mandatory `task_required_skills` rows
+    (the one store since M0.2b, DT-M0-1).
+
     Per task and required skill: the skill exists and is active (approved);
     the executor holds it; an eligible reviewer -- an active `can_review`
     member other than the executor -- holds it. There is no per-task named
@@ -270,7 +274,8 @@ async def skill_check_items(
     the agent's runtime is not evaluated: the existing reader
     (`hermes_sync.parse_profile_skills`) only sees Hermes profiles, not the
     external runtimes that execute code."""
-    wanted = {sid for task in tasks for sid in (task.required_skill_ids or [])}
+    required_by_task = await required_skill_map(db, [t.id for t in tasks])
+    wanted = {sid for ids in required_by_task.values() for sid in ids}
     skills = {s.id: s for s in (await db.execute(select(Skill).where(Skill.id.in_(wanted)))).scalars()} if wanted else {}
     agent_ids = {m.agent_id for m in memberships}
     held: dict[uuid.UUID, set[uuid.UUID]] = {}
@@ -283,7 +288,7 @@ async def skill_check_items(
 
     gaps: list[dict[str, Any]] = []
     for task in tasks:
-        required = list(task.required_skill_ids or [])
+        required = required_by_task.get(task.id, [])
         if not required:
             continue
         executor = executors.get(task.id)
@@ -425,6 +430,20 @@ async def _current_baseline_valid(db: AsyncSession, mission: ProjectMission) -> 
     return plan is not None and plan.project_id == mission.project_id and plan.status != "superseded"
 
 
+async def brief_items(db: AsyncSession, mission: ProjectMission) -> list[dict[str, Any]]:
+    """The brief artifact is approved with a final version (draft -> planning,
+    and the plan submission's `brief_approved` check, M0.2b)."""
+    brief = await db.get(Artifact, mission.brief_artifact_id) if mission.brief_artifact_id else None
+    if brief is None:
+        return [_item("BRIEF_MISSING", "The mission has no brief artifact")]
+    final = await db.scalar(select(ArtifactVersion.id).where(
+        ArtifactVersion.artifact_id == brief.id, ArtifactVersion.status == ArtifactVersionStatus.FINAL,
+    ).limit(1))
+    if brief.status != ArtifactStatus.APPROVED or final is None:
+        return [_item("BRIEF_NOT_APPROVED", "The brief artifact is not approved with a final version")]
+    return []
+
+
 async def transition_preconditions(
     db: AsyncSession, mission: ProjectMission, to_state: str
 ) -> list[dict[str, Any]]:
@@ -434,15 +453,7 @@ async def transition_preconditions(
     project_id = mission.project_id
 
     if (from_state, to_state) == ("draft", "planning"):
-        brief = await db.get(Artifact, mission.brief_artifact_id) if mission.brief_artifact_id else None
-        if brief is None:
-            unmet.append(_item("BRIEF_MISSING", "The mission has no brief artifact"))
-        else:
-            final = await db.scalar(select(ArtifactVersion.id).where(
-                ArtifactVersion.artifact_id == brief.id, ArtifactVersion.status == ArtifactVersionStatus.FINAL,
-            ).limit(1))
-            if brief.status != ArtifactStatus.APPROVED or final is None:
-                unmet.append(_item("BRIEF_NOT_APPROVED", "The brief artifact is not approved with a final version"))
+        unmet.extend(await brief_items(db, mission))
         coordinator = await db.scalar(select(ProjectAgentMembership.id).where(
             ProjectAgentMembership.project_id == project_id,
             ProjectAgentMembership.agent_id == mission.orchestrator_agent_id,

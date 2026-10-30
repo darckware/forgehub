@@ -413,7 +413,8 @@ empty: no exit passes for lack of data. Still **not evaluated** (reported, never
 installation of skills (§6.1). Out of M0.0b: MCP tools (M0.2a–d), `submit_project_plan` and the
 governed baseline approval (M0.2b), `acceptance:request`/`:decide` (§8 items 2–5), the screen,
 the cycle (M0.8), `environment_releases` (M0.7). Change-request re-entry into the pipeline (§3.1)
-still has no `planning_stage` on the CR row: M0.2b.
+still has no `planning_stage` on the CR row: M0.2b applies an approved CR through a new plan and the
+governed approval (§7 item 6) but does not record the CR's own review stages (reported `not_evaluated`).
 
 **Rollback.** The downgrade drops the six tables and the two `project_tasks` columns; it does not
 touch missions, plans or baselines. Records already written are lost on downgrade (they are the
@@ -675,11 +676,26 @@ in-process counter, 429 `RATE_LIMITED`; the 64 KiB limit is a route dependency (
 - **Audit:** one `membership_<op>` per op.
 - **Rollback:** `release` (status `released`), never delete — reviews RESTRICT memberships [backend/app/db/models/orchestration.py:225-229].
 
-### 5.3 `submit_project_plan` (M0.2b) — submits only
+### 5.3 `submit_project_plan` (M0.2b) — submits only [EXISTS M0.2b: backend/app/api/routes/mission_plan.py, backend/app/core/mission_plan.py]
 
 See §7. **Input:** `project_id`, `plan: {name, scope_summary, estimated_start_date?, estimated_end_date?, estimated_cost?}`, `task_ids: [uuid]` (the tasks the baseline will authorize), `idempotency_key`. **Output:** `{plan_id, approval_request_id, plan_hash, checks: [{key, passed, detail}], status: "pending_approval"}`. **Actor:** `mission.plan.submit`. **HTTP:** `POST /api/v1/missions/{project_id}/plans:submit` [PROPOSED]; 201 / 200 replay; 409 `PLAN_CHECKS_FAILED` (with the failing checks) / `PLAN_ALREADY_PENDING` (returns its id) / `MISSION_NOT_DRAFT_OR_CR`; 422. **Audit:** `plan_submitted`. **Rollback:** `POST /api/v1/missions/{id}/plans/{plan_id}:withdraw` [PROPOSED] marks the request `withdrawn` (new value in the governed request status vocabulary, §11 D-M0-4); the plan stays `draft`. **Never** accepts an approver token, approver name or `approved` flag; any such field is a 422.
 
-### 5.4 `add_task_dependency` (M0.2b)
+**As built (M0.2b):** body `{plan?, task_ids, change_request_id?, idempotency_key}` (`extra="forbid"` on the
+body and on `plan`). Initial baseline: the mission must be `planning` at stage `baseline` (else 409
+`PLANNING_PIPELINE_UNFINISHED`) and the plan is the current registered version (§2.6); `plan` may repeat its
+fields but not change them (409 `PLAN_DIFFERS_FROM_REVIEWED_VERSION` — a new version restarts the pipeline).
+After the baseline (`ready`/`active`/`verifying`): `change_request_id` of an `approved` CR of the mission
+(422 `CHANGE_REQUEST_REQUIRED`, 409 `CHANGE_REQUEST_NOT_APPROVED`) and `plan` (422 `PLAN_REQUIRED`) create a new
+`ProjectPlan` draft with `change_request_id` and its `mission_plan_versions` author. Actor: admin, or an agent
+that is the orchestrator or an active member with `mission.plan.submit` (403 `DELEGATION_REQUIRED`). Each
+check is `{key, status: passed|failed|not_evaluated, passed, detail}`; the request is stored in
+`mission_plan_submissions` (task ids, `plan_hash`, checks). `plan_hash` = the plan's fields + each listed
+task's §4.2 content hash (mission part included), so editing a task, the brief or a criterion after
+submission is caught at decision time. The withdraw route is `POST .../plans/{plan_id}:withdraw {reason}`
+(submitter, orchestrator with `mission.orchestrate`, or admin; idempotent once withdrawn; 409
+`APPROVAL_NOT_PENDING` if already decided). MCP: `submit_project_plan`, `withdraw_project_plan`.
+
+### 5.4 `add_task_dependency` (M0.2b) [EXISTS M0.2b: backend/app/api/routes/task.py `create_task_dependency`]
 
 - **Input:** `task_id`, `depends_on_task_id`, `dependency_type` (default `finish_to_start`; M0 accepts only it — the gate only understands finish-to-start), `idempotency_key`.
 - **Output:** `TaskDependencyOut` + `baseline_impact: "none"|"requires_change_request"`.
@@ -688,6 +704,17 @@ See §7. **Input:** `project_id`, `plan: {name, scope_summary, estimated_start_d
 - **Errors:** 409 cycle (existing [backend/app/api/routes/task.py:723-736]); 409 `TASK_IN_BASELINE` when the dependent task is in a current baseline (adding a dependency changes its hash → CR required); 400 self-dependency.
 - **Idempotency:** receipt + natural `(task_id, depends_on_task_id)` [PROPOSED unique index; today duplicates are allowed].
 - **Audit:** `task_dependency_added`. **Rollback:** existing `DELETE` [backend/app/api/routes/task.py:756] (same baseline rule).
+- **As built (M0.2b):** the middleware admits `agt_` on exactly `POST /api/v1/tasks/{id}/dependencies` (DELETE
+  stays human). An agent needs `MISSION_TOOLS_ENABLED` (503), an `idempotency_key` (422
+  `IDEMPOTENCY_KEY_REQUIRED`; receipt §0.4) and `planning.execution.manage` (403 `DELEGATION_REQUIRED`). For a
+  mission task the other task must be in one of its missions' scope (404 `TASK_NOT_FOUND`); an agent on a
+  common project stays inside that project. Finish-to-start only for mission tasks and agents (422
+  `DEPENDENCY_TYPE_NOT_SUPPORTED`); a person on a common project keeps the old behavior. `UNIQUE (task_id,
+  depends_on_task_id)` exists (migration `e8c4b2d9a7f1` collapses duplicates into the oldest row, each removed
+  row kept in `audit_events` as `task_dependency_duplicate_removed`); a repeat is 409
+  `DEPENDENCY_ALREADY_EXISTS` with its id. `TASK_IN_BASELINE` = the dependent task has an item in a
+  non-superseded baseline. Self-dependency stays the existing schema 422 (not 400). The cycle refusal keeps
+  its string detail (existing route).
 
 ### 5.5 `assign_task` (M0.2c)
 
@@ -807,8 +834,11 @@ decision, integration or annotation (cycle spec §3.6). Every mission dispatch s
 optional `CONTEXT_MISSING:` line, recorded as a pack item. A delivery made on a superseded version that
 the newer one changes materially is `return`ed (cycle §3.4), not reviewed.
 
-**Skills.** Column `project_tasks.required_skill_ids UUID[] not null default '{}'` [PROPOSED, M0.0],
-editable only while the mission is `planning` (afterwards by change request). The P2 auto check
+**Skills.** Column `project_tasks.required_skill_ids UUID[] not null default '{}'` [PROPOSED, M0.0; since
+M0.2b (DT-M0-1) the store is `task_required_skills`' mandatory rows — the column was folded into it and
+dropped by migration `e8c4b2d9a7f1`, and the task API's `required_skill_ids` is a view of those rows,
+backend/app/core/task_skills.py], editable only while the mission is `planning` (afterwards by change request;
+`POST /tasks/{id}/required-skills` obeys the same lock). The P2 auto check
 (§3.1) adds, per task: each required skill exists and is `active`; the assigned executor **and** reviewer
 hold it in `agent_skills`; and, when the skill has a runtime file, it is present in that agent's runtime
 (through the existing profile/skills readers, read-only). A gap is a consolidation item, never a silent
@@ -819,7 +849,7 @@ owner and its approval. Tests: `test_auto_check_flags_missing_skill_for_executor
 `test_required_skills_locked_after_baseline`, `test_propose_skill_never_grants`,
 `test_dispatch_records_context_version`, `test_stale_context_delivery_returned`.
 
-## 7. Plan submission and baseline approval [PROPOSED, M0.2b + M0.6b]
+## 7. Plan submission and baseline approval [EXISTS M0.2b + M0.6b]
 
 1. `submit_project_plan` creates/updates a `ProjectPlan` in `draft` [backend/app/db/models/project.py:188] and runs
    the automatic checks of 04 "Validação do plano" that M0 can compute: every criterion has ≥1 task;
@@ -847,6 +877,21 @@ owner and its approval. Tests: `test_auto_check_flags_missing_skill_for_executor
 6. After baseline: any change goes through `ChangeRequest` [backend/app/api/routes/project.py:374]; a CR in `approved` is
    applied by submitting a new plan that references it (`plan.change_request_id` — reuse
    `ProjectTask.change_request_id` for new tasks); the new approval creates the next baseline.
+
+**As built (M0.2b):** the `project_plan` branch is `decide_plan_approval` (backend/app/core/mission_plan.py),
+called from `:decide` [EXISTS backend/app/api/routes/governed_approval.py]. Order: user + admin (403
+`PLAN_APPROVAL_HUMAN_ONLY`, even for an agent holding `governance.approval.decide`); request row locked;
+idempotency key replay; not pending → the existing decision or 409 `APPROVAL_NOT_PENDING`; expiry; the
+policy's `deny_self_approval` (403 `SEPARATION_OF_DUTIES`). On `approved` it re-checks the submission is
+still applicable (stage `baseline`, or the CR still `approved` and the mission in `ready|active|verifying`;
+the plan still `draft`) and recomputes the hash; any mismatch commits the request as `stale` and refuses
+(409 `PLAN_SUBMISSION_STALE` / `PLAN_CHANGED_SINCE_SUBMISSION`), so the submitter must submit again. Then:
+plan `approved` → `create_mission_baseline` (plan `baselined`, previous baseline superseded and its plan
+`superseded`, `current_baseline_id`), CR `applied`, `ApprovalDecisionRecord`, audits `approval_approved`
+and `mission_plan_approved`. `rejected`/`changes_requested`/`abstained` record the decision only; the plan
+stays `draft`. The policy is a data migration (`Mission plan approval v1`, binding `project_plan`).
+**Not built:** the CR's own `planning_stage` re-entry (§3.1) — a CR plan reports the check
+`change_request_review_pipeline` as `not_evaluated`.
 
 ---
 
@@ -942,7 +987,7 @@ rows (CLAUDE.md test conventions).
 | `test_create_internal_project_idempotent` | same key → same project; same name in version → 409 with existing id (M0.1 idempotent registration) |
 | `test_members_rules` | non-member, invalid role, two coordinators, code role for Hermes agent, `can_approve` for agent → refused |
 | `test_non_member_gets_404_not_403_on_reads` | no existence leak across projects |
-| `test_submit_plan_never_approves` | request pending; no baseline; approver fields → 422; agent cannot decide (`human_only`) |
+| `test_submit_plan_never_approves` | request pending; no baseline; approver fields → 422; agent cannot decide (`human_only`) — [EXISTS M0.2b, in `test_mission_plan_approval.py`, with the other M0.2b tests: refusals/failed checks, hash mismatch, self-approval, rejection, approval → baseline → CR → next baseline, withdraw, dependency rules + `TASK_IN_BASELINE`, tools switch, own-revision migration roundtrip] |
 | `test_plan_hash_mismatch_on_decide` | edit after submit → 409 at decision |
 | `test_add_dependency_cycle_refused` / `test_dependency_on_baselined_task_requires_cr` | |
 | `test_assign_refused_when_reviewer_or_in_flight` | |
@@ -994,7 +1039,7 @@ Listed in the two companion specs (§9 of each).
 | D-M0-1 | The executions screen and the decision cycle have no slice id in `onda1-tarefas.json`. Add **M0.7 (screen, Dartan executes UI, Porthus reviews)** and **M0.8 (cycle, Porthus executes, Dartan reviews)**, both after M0.2c/M0.6a/b, before M0.R | Add them; Athos updates the matrix and projections in one change |
 | D-M0-2 | Target serialization (same worktree/branch/production) for **all** Messages work, not only mission tasks | Yes for `publish:production:*` globally (the 28/10 incident was outside any mission); mission-only for worktree/branch in M0 |
 | D-M0-3 | Reassignment of a baselined task without CR | Allowed (assignee not in hash), recorded with reason, eligibility + reviewer ≠ executor enforced |
-| D-M0-4 | Add `withdrawn` to governed approval request statuses | Yes (needed to retract a plan submission without deleting) |
+| D-M0-4 | Add `withdrawn` to governed approval request statuses | Yes (needed to retract a plan submission without deleting) — **decided, [EXISTS M0.2b]** (`APPROVAL_REQUEST_STATUSES`, backend/app/db/models/governance.py; no CHECK, as the column never had one) |
 | D-M0-5 | `request_task_review` / `return_task_for_correction` in M0.2c (not listed in 07) | Include; without them the screen cannot "pedir revisão/recusar" through a guarded route |
 | D-M0-6 | `POST /projects/plans/{id}/approve` and baselines have no authorization for common projects | Out of M0 scope; open a separate hardening task |
 | D-M0-7 | Who records what is published in each environment (`environment_releases`): the publishing task's report (`publish:` evidence) or Hephaestus' gate | Both write through one route; the gate is the authority for production |
