@@ -455,10 +455,10 @@ async def test_state_projection_all_transitions(world):
             assert await db.scalar(select(AuditEvent.id).where(
                 AuditEvent.entity_id == project.id, AuditEvent.event_type == event).limit(1)) is not None
 
-    # verifying -> awaiting_acceptance needs the dossier, which M0.0 cannot read.
+    # verifying -> awaiting_acceptance needs the dossier (M0.0b), none recorded here.
     await _force(project_id, state="verifying", paused_from_state=None)
     refused = await _transition(world, project_id, "awaiting_acceptance")
-    assert refused.status_code == 409 and _codes(refused) == {"DOSSIER_NOT_RECORDED"}
+    assert refused.status_code == 409 and _codes(refused) == {"DOSSIER_MISSING"}
 
     # Every pair outside the table is refused, including completing by transition.
     for from_state in MISSION_STATES:
@@ -586,8 +586,7 @@ async def test_planning_stage_exit_conditions(world):
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "PLANNING_EXIT_CONDITIONS_UNMET"
     assert _codes(response) == {"PLAN_DRAFT_MISSING", "NO_TASKS", "NO_CRITERIA", "DEADLINE_MISSING",
-                                "BUDGET_MISSING", "RISK_LEVEL_MISSING", "REVIEW_LAYERS_MISSING",
-                                "ENVIRONMENT_NOT_RECORDED"}
+                                "BUDGET_MISSING", "RISK_LEVEL_MISSING", "REVIEW_LAYERS_MISSING"}
 
     # The refused attempt is recorded, and the same key replays it.
     async with AsyncSessionLocal() as db:
@@ -600,7 +599,8 @@ async def test_planning_stage_exit_conditions(world):
     reused = await _advance(world, project_id, "auto_check", key=key, reason="other words")
     assert reused.json()["detail"]["code"] == "IDEMPOTENCY_KEY_REUSED"
 
-    # Fill everything M0.0 can read: only the environment remains.
+    # Fill everything M0.0 read: the M0.0b records remain (a draft created
+    # outside the mission route has no author; the task has no environment).
     async with world.client() as client:
         patched = await client.patch(f"/api/v1/missions/{project_id}", json={
             "expected_row_version": await _row_version(project_id), "risk_level": "medium",
@@ -615,26 +615,26 @@ async def test_planning_stage_exit_conditions(world):
     await _assign(task.id, executor, await _member(project_id, executor))
     await _criterion(project_id, await world.agent("verifier"), task_ids=[task.id])
     response = await _advance(world, project_id, "auto_check")
-    assert _codes(response) == {"ENVIRONMENT_NOT_RECORDED"}
-    assert response.json()["detail"]["unmet"][0]["not_recorded"] is True
+    assert _codes(response) == {"PLAN_VERSION_NOT_REGISTERED", "TASK_ENVIRONMENT_MISSING"}
 
     # P2 auto check: reviewer independence and the environment prerequisites.
     await _force(project_id, planning_stage="auto_check")
     response = await _advance(world, project_id, "critical_review")
-    assert _codes(response) == {"NO_INDEPENDENT_REVIEWER", "ENVIRONMENT_PREREQUISITES_NOT_RECORDED"}
+    assert _codes(response) == {"PLAN_VERSION_NOT_REGISTERED", "NO_INDEPENDENT_REVIEWER",
+                                "TASK_ENVIRONMENT_PREREQUISITES_MISSING"}
     reviewer = await world.agent("rev")
     await _member(project_id, reviewer, role="reviewer", can_review=True)
     response = await _advance(world, project_id, "critical_review")
-    assert _codes(response) == {"ENVIRONMENT_PREREQUISITES_NOT_RECORDED"}
+    assert _codes(response) == {"PLAN_VERSION_NOT_REGISTERED", "TASK_ENVIRONMENT_PREREQUISITES_MISSING"}
 
-    # Stages whose evidence has no table yet always refuse, naming why.
+    # Record stages read the current plan version's records (M0.0b): with no
+    # registered version they refuse, fail closed (test_mission_planning_records.py).
     expected = {
-        "critical_review": ("consolidation", {"REVIEW_ARTIFACTS_NOT_RECORDED"}),
-        "consolidation": ("cross_review", {"REVIEW_DISPOSITIONS_NOT_RECORDED"}),
-        "cross_review": ("decisions", {"CROSS_REVIEWS_NOT_RECORDED"}),
-        "decisions": ("application", {"FLAGGED_ITEMS_NOT_RECORDED"}),
-        "application": ("baseline", {"ENVIRONMENT_PREREQUISITES_NOT_RECORDED",
-                                     "APPLICATION_VERIFICATION_NOT_RECORDED"}),
+        "critical_review": ("consolidation", {"PLAN_VERSION_NOT_REGISTERED"}),
+        "consolidation": ("cross_review", {"PLAN_VERSION_NOT_REGISTERED"}),
+        "cross_review": ("decisions", {"PLAN_VERSION_NOT_REGISTERED"}),
+        "decisions": ("application", {"PLAN_VERSION_NOT_REGISTERED"}),
+        "application": ("baseline", {"PLAN_VERSION_NOT_REGISTERED", "TASK_ENVIRONMENT_PREREQUISITES_MISSING"}),
     }
     for stage, (to, codes) in expected.items():
         await _force(project_id, planning_stage=stage)
@@ -748,8 +748,8 @@ async def test_auto_check_flags_missing_skill_for_executor_and_reviewer(world):
         await db.commit()
     response = await _advance(world, project_id, "critical_review")
     assert gaps(response) == set()
-    # The only thing left is the environment, which no table records yet.
-    assert _codes(response) == {"ENVIRONMENT_PREREQUISITES_NOT_RECORDED"}
+    # What is left are the M0.0b records: plan version author and prerequisites.
+    assert _codes(response) == {"PLAN_VERSION_NOT_REGISTERED", "TASK_ENVIRONMENT_PREREQUISITES_MISSING"}
 
     # A skill deleted after being required is a gap, never a silent pass.
     async with AsyncSessionLocal() as db:

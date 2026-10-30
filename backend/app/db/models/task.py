@@ -55,6 +55,10 @@ TASK_STATUSES = (
     "in_review",
 )
 
+# Environment a task's work lands in (M0.0b, mission spec §2.6); the same
+# vocabulary as the <environment> of a `publish:<environment>:<target>` target.
+TASK_TARGET_ENVIRONMENTS = ("test", "homolog", "production")
+
 # Canonical execution runtimes backed by AgentRuntimeProfile.  Keep this
 # tuple shared with the API schema so legacy aliases cannot drift back into
 # persisted TaskExecution rows.
@@ -141,8 +145,18 @@ class ProjectTask(Base, TimestampMixin):
         ARRAY(UUID(as_uuid=True)), nullable=False, default=list, server_default="{}"
     )
 
+    # Environment the task's work lands in, and what must exist there before
+    # it runs (M0.0b, mission spec §2.6). NULL prerequisites = not recorded;
+    # [] = recorded as "none". Same write rule as required_skill_ids.
+    target_environment: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    environment_prerequisites: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
+
     __table_args__ = (
         CheckConstraint(f"status IN {TASK_STATUSES!r}", name="ck_project_tasks_status"),
+        CheckConstraint(
+            f"target_environment IS NULL OR target_environment IN {TASK_TARGET_ENVIRONMENTS!r}",
+            name="ck_project_tasks_target_environment",
+        ),
     )
 
 

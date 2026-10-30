@@ -52,6 +52,7 @@ from app.api.routes import (
     hindsight,
     mcp_catalog,
     mission,
+    mission_records,
     notifications,
     operations,
     orchestration,
@@ -433,6 +434,7 @@ app.include_router(forgerouter.router)
 app.include_router(operations.router)
 app.include_router(orchestration.router)
 app.include_router(mission.router)
+app.include_router(mission_records.router)
 app.include_router(system_scope.router)
 # ---------------------------------------------------------------------------
 

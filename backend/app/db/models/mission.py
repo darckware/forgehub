@@ -13,6 +13,9 @@ Tables owned by this domain:
 - mission_acceptance_criteria  (§2.4)
 - mission_criterion_tasks      (§2.4)
 - mission_decisions            (MISSION_ORCHESTRATOR_CYCLE_SPEC.md §4)
+- mission_plan_versions, mission_plan_reviews, mission_review_waivers,
+  mission_review_items, mission_plan_verifications, mission_dossiers
+                               (§2.6, M0.0b planning records)
 
 Cross-domain FKs are string-form, per the foundation convention.
 """
@@ -79,6 +82,12 @@ MISSION_DECISION_ACTIONS = (
     "unlock", "advance_planning",
 )
 MISSION_DECISION_STATUSES = ("applied", "refused", "deferred", "undone")
+
+# Planning records (§2.6, M0.0b).
+PRINCIPAL_TYPES = ("user", "agent")
+PLAN_REVIEW_KINDS = ("layer", "cross")
+REVIEW_DISPOSITIONS = ("accept", "adjust", "reject")
+PLAN_VERIFICATION_RESULTS = ("confirmed", "discrepancies")
 
 
 def _in(values: tuple[str, ...]) -> str:
@@ -299,3 +308,190 @@ class MissionDecision(Base, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("company.mission_decisions.id", ondelete="SET NULL"), nullable=True
     )
     idempotency_key: Mapped[str] = mapped_column(String(150), nullable=False)
+
+
+# ---------------------------------------------------------------------------
+# Planning records (§2.6, M0.0b). Every record carries the plan version it was
+# written against; only the current version's records count for a stage exit.
+# ---------------------------------------------------------------------------
+class MissionPlanVersion(Base, TimestampMixin):
+    """The author of a mission's ProjectPlan version (ProjectPlan has none).
+    The author and the orchestrator are the plan's planners (§2.6)."""
+
+    __tablename__ = "mission_plan_versions"
+    __table_args__ = (
+        CheckConstraint(f"author_type IN {_in(PRINCIPAL_TYPES)}", name="ck_mission_plan_versions_author_type"),
+    )
+
+    project_plan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.project_plans.id", ondelete="CASCADE"), primary_key=True
+    )
+    mission_project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.projects.id", ondelete="CASCADE"), nullable=False
+    )
+    author_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    author_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    author_name: Mapped[str] = mapped_column(String(150), nullable=False)
+
+
+class MissionPlanReview(Base, TimestampMixin):
+    """A reviewer's opinion on one plan version: per layer (P3) or cross (P5).
+    The reviewer is always the authenticated agent."""
+
+    __tablename__ = "mission_plan_reviews"
+    __table_args__ = (
+        CheckConstraint(f"kind IN {_in(PLAN_REVIEW_KINDS)}", name="ck_mission_plan_reviews_kind"),
+        CheckConstraint(f"layer IN {_in(REVIEW_LAYERS)}", name="ck_mission_plan_reviews_layer"),
+        UniqueConstraint(
+            "project_plan_id", "kind", "layer", "reviewer_agent_id", name="uq_mission_plan_reviews_reviewer"
+        ),
+        Index("ix_mission_plan_reviews_plan", "project_plan_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    mission_project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.projects.id", ondelete="CASCADE"), nullable=False
+    )
+    project_plan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.project_plans.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)
+    layer: Mapped[str] = mapped_column(String(20), nullable=False)
+    reviewer_agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agents.id"), nullable=False
+    )
+    artifact_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.artifact_versions.id"), nullable=False
+    )
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class MissionReviewWaiver(Base, TimestampMixin):
+    """Marcelo's recorded decision that a required layer goes without an opinion."""
+
+    __tablename__ = "mission_review_waivers"
+    __table_args__ = (
+        CheckConstraint(f"layer IN {_in(REVIEW_LAYERS)}", name="ck_mission_review_waivers_layer"),
+        CheckConstraint("length(btrim(reason)) > 0", name="ck_mission_review_waivers_reason"),
+        UniqueConstraint("project_plan_id", "layer", name="uq_mission_review_waivers_layer"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    mission_project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.projects.id", ondelete="CASCADE"), nullable=False
+    )
+    project_plan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.project_plans.id", ondelete="CASCADE"), nullable=False
+    )
+    layer: Mapped[str] = mapped_column(String(20), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    decided_by: Mapped[str] = mapped_column(String(150), nullable=False)
+    decided_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.users.id"), nullable=False
+    )
+
+
+class MissionReviewItem(Base, TimestampMixin):
+    """One point a review raised, its disposition (P4) and, when flagged,
+    Marcelo's decision (P6). Effective disposition = Marcelo's when set."""
+
+    __tablename__ = "mission_review_items"
+    __table_args__ = (
+        CheckConstraint("length(btrim(text)) > 0", name="ck_mission_review_items_text"),
+        CheckConstraint(
+            f"disposition IS NULL OR disposition IN {_in(REVIEW_DISPOSITIONS)}",
+            name="ck_mission_review_items_disposition",
+        ),
+        CheckConstraint(
+            "(disposition IS NULL) = (disposition_reason IS NULL) "
+            "AND (disposition_reason IS NULL OR length(btrim(disposition_reason)) > 0)",
+            name="ck_mission_review_items_disposition_reason",
+        ),
+        CheckConstraint(
+            f"marcelo_decision IS NULL OR (needs_marcelo_decision AND marcelo_decision IN "
+            f"{_in(REVIEW_DISPOSITIONS)})",
+            name="ck_mission_review_items_marcelo_decision",
+        ),
+        CheckConstraint(
+            "(marcelo_decision IS NULL) = (marcelo_reason IS NULL) "
+            "AND (marcelo_decision IS NULL) = (marcelo_decided_by IS NULL) "
+            "AND (marcelo_decision IS NULL) = (marcelo_user_id IS NULL) "
+            "AND (marcelo_decision IS NULL) = (marcelo_decided_at IS NULL) "
+            "AND (marcelo_reason IS NULL OR length(btrim(marcelo_reason)) > 0)",
+            name="ck_mission_review_items_marcelo_fields",
+        ),
+        Index("ix_mission_review_items_review", "review_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    review_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.mission_plan_reviews.id", ondelete="CASCADE"), nullable=False
+    )
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    disposition: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    disposition_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    disposed_by: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    disposed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    needs_marcelo_decision: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    marcelo_decision: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    marcelo_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    marcelo_decided_by: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    marcelo_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.users.id"), nullable=True
+    )
+    marcelo_decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class MissionPlanVerification(Base, TimestampMixin):
+    """An independent verifier's check that sampled corrections are in the text (P7)."""
+
+    __tablename__ = "mission_plan_verifications"
+    __table_args__ = (
+        CheckConstraint(
+            f"result IN {_in(PLAN_VERIFICATION_RESULTS)}", name="ck_mission_plan_verifications_result"
+        ),
+        Index("ix_mission_plan_verifications_plan", "project_plan_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    mission_project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.projects.id", ondelete="CASCADE"), nullable=False
+    )
+    project_plan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.project_plans.id", ondelete="CASCADE"), nullable=False
+    )
+    verifier_agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agents.id"), nullable=False
+    )
+    sampled_item_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=False, default=list, server_default="{}"
+    )
+    result: Mapped[str] = mapped_column(String(20), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class MissionDossier(Base, TimestampMixin):
+    """The dossier artifact version and file hash registered while verifying (§8 item 1)."""
+
+    __tablename__ = "mission_dossiers"
+    __table_args__ = (
+        CheckConstraint("file_sha256 ~ '^[0-9a-f]{64}$'", name="ck_mission_dossiers_file_sha256"),
+        CheckConstraint(
+            f"registered_by_type IN {_in(PRINCIPAL_TYPES)}", name="ck_mission_dossiers_registered_by_type"
+        ),
+        Index("ix_mission_dossiers_mission", "mission_project_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    mission_project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.projects.id", ondelete="CASCADE"), nullable=False
+    )
+    artifact_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.artifact_versions.id"), nullable=False
+    )
+    file_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    registered_by_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    registered_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    registered_by: Mapped[str] = mapped_column(String(150), nullable=False)

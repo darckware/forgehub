@@ -71,7 +71,11 @@ from app.api.schemas.task import (
 )
 from app.core.config import settings
 from app.core.deps import ActorPrincipal, authorize_action
-from app.core.mission import assert_required_skills_writable, project_id_for_task_source
+from app.core.mission import (
+    assert_required_skills_writable,
+    assert_task_environment_writable,
+    project_id_for_task_source,
+)
 from app.core.responsibility import resolve_responsibility_owner
 from app.core.task_completion_guard import (
     COMPLETION_TARGET_STATUSES,
@@ -307,8 +311,34 @@ async def submit_task(
     return task
 
 
+TASK_ENVIRONMENT_FIELDS = ("target_environment", "environment_prerequisites")
+
+
+async def _mission_environment_change(
+    db: AsyncSession, project_id: uuid.UUID | None, authorization: str | None,
+    task_id: uuid.UUID, changes: dict,
+) -> AuditEvent | None:
+    """M0.0b (spec §2.6): a mission task's environment changes only while the
+    mission is planning, and every change is a mission audit event."""
+    await assert_task_environment_writable(db, project_id)
+    project = await db.get(Project, project_id) if project_id is not None else None
+    if project is None or project.project_type != "mission":
+        return None
+    principal = await principal_from_authorization(db, authorization)
+    return AuditEvent(
+        entity_type="mission", entity_id=project.id, event_type="mission_task_environment_set",
+        actor=principal.display_name,
+        payload={"principal_type": principal.principal_type, "principal_id": str(principal.principal_id),
+                 "task_id": str(task_id), "changes": changes},
+    )
+
+
 @router.post("", response_model=ProjectTaskOut, status_code=status.HTTP_201_CREATED)
-async def create_task(payload: ProjectTaskCreate, db: AsyncSession = Depends(get_db)) -> ProjectTask:
+async def create_task(
+    payload: ProjectTaskCreate,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> ProjectTask:
     # Traceability: a task must trace back to a planning item or a change request.
     if payload.planning_item_id is None and payload.change_request_id is None:
         raise HTTPException(
@@ -342,6 +372,16 @@ async def create_task(payload: ProjectTaskCreate, db: AsyncSession = Depends(get
         )
 
     task = ProjectTask(**payload.model_dump())
+    environment = {f: getattr(payload, f) for f in TASK_ENVIRONMENT_FIELDS if getattr(payload, f) is not None}
+    if environment:
+        task.id = uuid.uuid4()
+        event = await _mission_environment_change(
+            db,
+            await project_id_for_task_source(db, payload.planning_item_id, payload.change_request_id),
+            authorization, task.id, {f: [None, v] for f, v in environment.items()},
+        )
+        if event is not None:
+            db.add(event)
     db.add(task)
     await db.commit()
     await db.refresh(task)
@@ -442,6 +482,18 @@ async def update_task(
             data["required_skill_ids"],
             list(task.required_skill_ids or []),
         )
+
+    environment_changes = {
+        f: [getattr(task, f), data[f]] for f in TASK_ENVIRONMENT_FIELDS
+        if f in data and data[f] != getattr(task, f)
+    }
+    if environment_changes:
+        event = await _mission_environment_change(
+            db, await project_id_for_task_source(db, task.planning_item_id, task.change_request_id),
+            authorization, task.id, environment_changes,
+        )
+        if event is not None:
+            db.add(event)
 
     # M0.6a: a *new* transition to done/deployed goes through the global
     # completion guard (repeating the current status is not a transition, so

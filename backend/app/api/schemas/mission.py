@@ -7,8 +7,15 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.schemas.orchestration import ProjectAgentMembershipOut
-
-from app.db.models.mission import MISSION_RISK_LEVELS, MISSION_STATES, PLANNING_STAGES, REVIEW_LAYERS
+from app.db.models.mission import (
+    MISSION_RISK_LEVELS,
+    MISSION_STATES,
+    PLAN_REVIEW_KINDS,
+    PLAN_VERIFICATION_RESULTS,
+    PLANNING_STAGES,
+    REVIEW_DISPOSITIONS,
+    REVIEW_LAYERS,
+)
 
 
 class MissionCreate(BaseModel):
@@ -164,3 +171,163 @@ class PlanningAdvanceOut(BaseModel):
 
 
 REVIEW_LAYER_SET = frozenset(REVIEW_LAYERS)
+
+
+def _one_of(values: tuple[str, ...]) -> str:
+    return f"^({'|'.join(values)})$"
+
+
+# ---------------------------------------------------------------------------
+# Planning records (§2.6, M0.0b). No body field names the reviewer, verifier
+# or decider: it is always the authenticated principal (extra="forbid").
+# ---------------------------------------------------------------------------
+class MissionPlanCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=255)
+    scope_summary: str | None = None
+    estimated_start_date: date | None = None
+    estimated_end_date: date | None = None
+    estimated_cost: Decimal | None = Field(default=None, ge=0)
+
+
+class MissionPlanVersionOut(BaseModel):
+    project_plan_id: uuid.UUID
+    name: str
+    status: str
+    author_type: str
+    author_id: uuid.UUID
+    author_name: str
+    planning_stage: str | None
+    created_at: datetime
+
+
+class PlanReviewCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_plan_id: uuid.UUID
+    kind: str = Field(pattern=_one_of(PLAN_REVIEW_KINDS))
+    layer: str = Field(pattern=_one_of(REVIEW_LAYERS))
+    artifact_version_id: uuid.UUID
+    summary: str | None = Field(default=None, max_length=20000)
+
+
+class PlanReviewOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_plan_id: uuid.UUID
+    kind: str
+    layer: str
+    reviewer_agent_id: uuid.UUID
+    artifact_version_id: uuid.UUID
+    summary: str | None
+    created_at: datetime
+
+
+class ReviewItemCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=20000)
+    needs_marcelo_decision: bool = False
+
+
+class ReviewItemDisposeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    disposition: str = Field(pattern=_one_of(REVIEW_DISPOSITIONS))
+    reason: str = Field(min_length=1, max_length=4000)
+    needs_marcelo_decision: bool | None = None
+
+
+class ReviewItemDecideIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: str = Field(pattern=_one_of(REVIEW_DISPOSITIONS))
+    reason: str = Field(min_length=1, max_length=4000)
+
+
+class ReviewItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    review_id: uuid.UUID
+    text: str
+    disposition: str | None
+    disposition_reason: str | None
+    disposed_by: str | None
+    disposed_at: datetime | None
+    needs_marcelo_decision: bool
+    marcelo_decision: str | None
+    marcelo_reason: str | None
+    marcelo_decided_by: str | None
+    marcelo_decided_at: datetime | None
+    created_at: datetime
+
+
+class ReviewWaiverCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_plan_id: uuid.UUID
+    layer: str = Field(pattern=_one_of(REVIEW_LAYERS))
+    reason: str = Field(min_length=1, max_length=4000)
+
+
+class ReviewWaiverOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_plan_id: uuid.UUID
+    layer: str
+    reason: str
+    decided_by: str
+    created_at: datetime
+
+
+class PlanVerificationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_plan_id: uuid.UUID
+    sampled_item_ids: list[uuid.UUID] = Field(default_factory=list, max_length=200)
+    result: str = Field(pattern=_one_of(PLAN_VERIFICATION_RESULTS))
+    notes: str | None = Field(default=None, max_length=20000)
+
+
+class PlanVerificationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_plan_id: uuid.UUID
+    verifier_agent_id: uuid.UUID
+    sampled_item_ids: list[uuid.UUID]
+    result: str
+    notes: str | None
+    created_at: datetime
+
+
+class DossierCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_version_id: uuid.UUID
+    file_sha256: str = Field(pattern="^[0-9a-fA-F]{64}$")
+
+
+class DossierOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    artifact_version_id: uuid.UUID
+    file_sha256: str
+    registered_by_type: str
+    registered_by: str
+    created_at: datetime
+
+
+class PlanningRecordsOut(BaseModel):
+    project_plan_id: uuid.UUID | None
+    author: MissionPlanVersionOut | None
+    reviews: list[PlanReviewOut]
+    items: list[ReviewItemOut]
+    waivers: list[ReviewWaiverOut]
+    verifications: list[PlanVerificationOut]
+    dossiers: list[DossierOut]
