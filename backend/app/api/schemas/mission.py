@@ -465,3 +465,79 @@ class PlanWithdrawOut(BaseModel):
     withdrawn_at: datetime | None
     withdrawn_by: str | None
     withdrawn_reason: str | None
+
+
+# ---------------------------------------------------------------------------
+# M0.2c: assign, report, request review, return (§5.5, §5.7, §5.11, §5.12)
+# ---------------------------------------------------------------------------
+class TaskAssignIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: uuid.UUID
+    reason: str = Field(min_length=1, max_length=2000)
+    idempotency_key: str = Field(min_length=1, max_length=150)
+
+
+class TaskAssignOut(BaseModel):
+    task_id: uuid.UUID
+    assignment_id: uuid.UUID
+    membership_id: uuid.UUID
+    agent_id: uuid.UUID
+    previous_assignment_id: uuid.UUID | None = None
+    task_status: str
+    changed: bool
+
+
+class TaskReportIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Never verified/completed: only the evidence verification pass promotes
+    # reported -> verified (§5.7).
+    status: Literal["reported", "failed", "blocked"]
+    summary: str = Field(min_length=1, max_length=10000)
+    evidence: list[str] = Field(min_length=1, max_length=20)
+    idempotency_key: str = Field(min_length=1, max_length=150)
+
+
+class TaskReportOut(BaseModel):
+    task_id: uuid.UUID
+    execution_id: uuid.UUID
+    status: str
+    evidence_ref: str
+    evidence: list[str]
+    verification: Literal["queued", "not_applicable"]
+
+
+class ReviewRequestIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    execution_id: uuid.UUID
+    reviewer_agent_id: uuid.UUID
+    idempotency_key: str = Field(min_length=1, max_length=150)
+
+
+class ReviewRequestOut(BaseModel):
+    task_id: uuid.UUID
+    execution_id: uuid.UUID
+    review_id: uuid.UUID
+    reviewer_membership_id: uuid.UUID
+    reviewer_agent_id: uuid.UUID
+    status: str
+    demand_id: uuid.UUID
+    demand_number: int
+
+
+class TaskReturnIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    execution_id: uuid.UUID
+    reason: str = Field(min_length=1, max_length=4000)
+    idempotency_key: str = Field(min_length=1, max_length=150)
+
+
+class TaskReturnOut(BaseModel):
+    task_id: uuid.UUID
+    execution_id: uuid.UUID
+    task_status: str
+    review_id: uuid.UUID | None = None
+    review_status: str | None = None

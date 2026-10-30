@@ -53,6 +53,7 @@ from app.api.routes import (
     mcp_catalog,
     mission,
     mission_plan,
+    mission_task,
     mission_records,
     notifications,
     operations,
@@ -219,15 +220,27 @@ def is_agent_command_path(method: str, path: str) -> bool:
         "/api/v1/project-scopes/",
         "/api/v1/blueprint-revisions/",
     ))
-    factory_task_command = method == "PATCH" and path.startswith("/api/v1/tasks/")
+    parts = path.split("/")
+    task_path = path.startswith("/api/v1/tasks/") and len(parts) >= 5 and parts[4] != ""
+    # Exactly PATCH /tasks/{id} (update_task_status). M0.2c: not
+    # PATCH /tasks/{id}/executions/{eid}, which can set verified (§5.7).
+    factory_task_command = method == "PATCH" and task_path and len(parts) == 5
     # M0.2b (§5.4): add_task_dependency, exactly POST /tasks/{id}/dependencies;
     # the route authorizes planning.execution.manage itself. DELETE stays human.
-    parts = path.split("/")
-    task_dependency_command = (
-        method == "POST" and len(parts) == 6 and path.startswith("/api/v1/tasks/")
-        and parts[4] != "" and parts[5] == "dependencies"
+    task_dependency_command = method == "POST" and task_path and len(parts) == 6 and parts[5] == "dependencies"
+    # M0.2c (§5.6, §5.7, §5.11): dispatch_task, report_task_execution and the
+    # reviewer's own decision; each route authorizes the agent itself.
+    task_dispatch_command = method == "POST" and task_path and len(parts) == 6 and parts[5] == "dispatch"
+    task_report_command = (
+        method == "POST" and task_path and len(parts) == 7 and parts[5] == "executions"
+        and parts[6].endswith(":report") and len(parts[6]) > len(":report")
     )
-    return command_path or factory_read_path or factory_task_command or task_dependency_command
+    review_decision = (
+        method == "PATCH" and path.startswith("/api/v1/orchestration/reviews/") and len(parts) == 6
+        and parts[5] != ""
+    )
+    return (command_path or factory_read_path or factory_task_command or task_dependency_command
+            or task_dispatch_command or task_report_command or review_decision)
 
 
 class RequireAuthMiddleware(BaseHTTPMiddleware):
@@ -444,6 +457,7 @@ app.include_router(orchestration.router)
 app.include_router(mission.router)
 app.include_router(mission_records.router)
 app.include_router(mission_plan.router)
+app.include_router(mission_task.router)
 app.include_router(system_scope.router)
 # ---------------------------------------------------------------------------
 

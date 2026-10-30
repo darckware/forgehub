@@ -792,7 +792,8 @@ async def test_successful_dispatch_commits_and_writes_audit_event(
                 AuditEvent.event_type == "task.dispatched",
             ))).scalars())
             assert len(events) == 1
-            assert events[0].actor == "forgehub"
+            # §0.5 (M0.2c): the authenticated principal, never "forgehub".
+            assert events[0].actor != "forgehub" and events[0].payload["principal_type"] == "user"
             assert "dispatched to Dispatch Test Agent" in (events[0].payload or {}).get("description", "")
             await db.execute(text("DELETE FROM company.audit_events WHERE id = :id"), {"id": events[0].id})
             await db.commit()

@@ -125,6 +125,10 @@ async def _cleanup(world: World) -> None:
     async with AsyncSessionLocal() as db:
         for statement in (
             f"DELETE FROM company.chat_channels WHERE project_id IN ({projects})",
+            # A channel dispatch on a common project files an ad hoc demand
+            # (no origin_id); left in `dispatched` it held the shared test
+            # database's capacity for every later dispatch test.
+            f"DELETE FROM company.agent_demands WHERE project_id IN ({projects})",
             f"DELETE FROM company.execution_leases WHERE work_package_id IN "
             f"(SELECT id FROM company.execution_work_packages WHERE task_id IN ({tasks}))",
             f"DELETE FROM company.task_executions WHERE task_id IN ({tasks})",

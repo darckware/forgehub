@@ -695,6 +695,130 @@ async def add_task_dependency(
     return {**data, "replayed": replayed}
 
 
+@mcp.tool()
+async def assign_task(
+    project_id: str,
+    task_id: str,
+    agent_id: str,
+    reason: str,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    """Assign (or reassign) a task of your mission to an agent. The agent needs
+    an active membership with an executor role in the task's project; the
+    reviewer of an open review of the task can't be its executor. Needs a
+    planning.execution.manage delegation (and mission.orchestrate to replace an
+    active assignment, which is released, never deleted). `reason` (1-2000) is
+    recorded. Refused while the task has a run in flight (TASK_RUN_IN_FLIGHT).
+    Returns {assignment_id, membership_id, previous_assignment_id, task_status,
+    changed}."""
+    data, replayed = await _mission_write(
+        f"/api/v1/missions/{project_id}/tasks/{task_id}:assign",
+        {"agent_id": agent_id, "reason": reason, "idempotency_key": idempotency_key},
+    )
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def dispatch_task(
+    task_id: str,
+    idempotency_key: str,
+    command_text: str | None = None,
+    scheduled_at: str | None = None,
+) -> dict[str, Any]:
+    """Run a task through Messages on its assigned agent. Needs a
+    planning.execution.manage delegation on the task's project. A mission task
+    runs only as its current baseline froze it, while the mission is active,
+    with its dependencies done, on its active assignment and with its targets
+    free; it never gets a second run while one is active, reserved, queued or
+    of unknown outcome (TASK_RUN_IN_FLIGHT; an unknown outcome returns the
+    existing run). `command_text` (<=4000) is an extra instruction;
+    `scheduled_at` (ISO 8601, future) queues it instead of starting now.
+    Replaying the same idempotency_key returns the same demand, as it is now.
+    A timeout is UPSTREAM_UNCERTAIN: re-read the task or replay the key, never
+    dispatch with a new key."""
+    if command_text is not None and len(command_text) > 4000:
+        raise FactoryError("command_text is limited to 4000 characters.")
+    body: dict[str, Any] = {"idempotency_key": idempotency_key}
+    if command_text is not None:
+        body["command_text"] = command_text
+    if scheduled_at is not None:
+        body["scheduled_at"] = scheduled_at
+    data, replayed = await _mission_write(f"/api/v1/tasks/{task_id}/dispatch", body)
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def report_task_execution(
+    task_id: str,
+    status: str,
+    summary: str,
+    evidence: list[str],
+    idempotency_key: str,
+    execution_id: str | None = None,
+) -> dict[str, Any]:
+    """Report your own execution of a task. DONE is a report, not acceptance:
+    `status` is reported | failed | blocked -- never verified or completed;
+    ForgeHub checks the evidence itself and the task still needs an
+    independent review. `evidence` (1-20): git:<sha>, file:<path relative to
+    the project> or db:<type>:<uuid> of this task's own scope; anything else is
+    refused (EVIDENCE_OUT_OF_SCOPE / EVIDENCE_INVALID). `execution_id` defaults
+    to your latest open execution of the task. Only the executor reports
+    (needs a mission.execution.report delegation)."""
+    if status not in ("reported", "failed", "blocked"):
+        raise FactoryError("status must be reported, failed or blocked (never verified/completed).")
+    if execution_id is None:
+        executions = await _factory_call("GET", f"/api/v1/tasks/{task_id}/executions")
+        open_ones = [e for e in executions or [] if e.get("status") in ("pending", "running", "blocked", "reported")]
+        if not open_ones:
+            raise FactoryError(f"Task {task_id} has no open execution to report; pass execution_id.")
+        execution_id = max(open_ones, key=lambda e: e.get("attempt_number", 0))["id"]
+    data, replayed = await _mission_write(
+        f"/api/v1/tasks/{task_id}/executions/{execution_id}:report",
+        {"status": status, "summary": summary, "evidence": evidence, "idempotency_key": idempotency_key},
+    )
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def request_task_review(
+    project_id: str,
+    task_id: str,
+    execution_id: str,
+    reviewer_agent_id: str,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    """Ask an agent to review a verified execution of a mission task: opens a
+    pending review and sends the reviewer a Messages task. The reviewer needs
+    an active membership with can_review and can't be the executor (or its
+    sub-agent). Needs a mission.orchestrate delegation. The reviewer decides
+    with its own credential (PATCH /api/v1/orchestration/reviews/{id})."""
+    data, replayed = await _mission_write(
+        f"/api/v1/missions/{project_id}/tasks/{task_id}:request-review",
+        {"execution_id": execution_id, "reviewer_agent_id": reviewer_agent_id, "idempotency_key": idempotency_key},
+    )
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def return_task_for_correction(
+    project_id: str,
+    task_id: str,
+    execution_id: str,
+    reason: str,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    """Send a mission task back for correction: an open review becomes
+    changes_requested with `reason` as feedback, the task goes back to
+    in_progress, and the next dispatch carries the reason. Nothing is
+    redispatched by itself -- call dispatch_task. Needs a mission.orchestrate
+    delegation; the executor can't return its own delivery."""
+    data, replayed = await _mission_write(
+        f"/api/v1/missions/{project_id}/tasks/{task_id}:return",
+        {"execution_id": execution_id, "reason": reason, "idempotency_key": idempotency_key},
+    )
+    return {**data, "replayed": replayed}
+
+
 def _as_data(execution: dict[str, Any]) -> dict[str, Any]:
     """Machine output reaches the agent marked as untrusted data, so text a
     client machine prints can't steer the agent (prompt injection)."""

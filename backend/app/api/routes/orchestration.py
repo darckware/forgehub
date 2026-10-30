@@ -479,6 +479,31 @@ async def list_eligible_memberships(
 # Reviews ------------------------------------------------------------------
 
 
+async def assert_review_independent(
+    db: AsyncSession, execution: TaskExecution, reviewer: ProjectAgentMembership, project_id: uuid.UUID,
+) -> None:
+    """§4.1.3: the executor -- resolved even without an assignment, a
+    sub-agent as its parent -- never reviews its own execution, and the
+    reviewer's membership is active, in date, can_review, and in the task's
+    project or a mission it executes for. Also used by request_task_review
+    (M0.2c), where the requester is not the reviewer."""
+    if execution.assignment_id:
+        assignment = await db.get(TaskAssignment, execution.assignment_id)
+        if assignment and assignment.membership_id == reviewer.id:
+            raise HTTPException(status_code=409, detail="Executor cannot review the same execution")
+    executor_agent_id = await resolve_executor_agent_id(db, execution)
+    reviewer_agent_id = reviewer.agent_id
+    if reviewer_agent_id is None and reviewer.sub_agent_id is not None:
+        sub_agent = await db.get(SubAgent, reviewer.sub_agent_id)
+        reviewer_agent_id = sub_agent.agent_id if sub_agent else None
+    if executor_agent_id is not None and reviewer_agent_id == executor_agent_id:
+        raise HTTPException(status_code=409, detail="Executor cannot review the same execution")
+    project = await db.get(Project, project_id)
+    allowed_projects = {project_id, *(await mission_project_ids_for(db, project))} if project else {project_id}
+    if membership_review_problem(reviewer, allowed_projects):
+        raise HTTPException(status_code=422, detail="Reviewer is not authorized for this project")
+
+
 @router.post(
     "/executions/{execution_id}/reviews", response_model=TaskExecutionReviewOut, status_code=201
 )
@@ -500,21 +525,7 @@ async def create_execution_review(
         db, ProjectAgentMembership, payload.reviewer_membership_id, "Reviewer membership"
     )
     recorded_by = await assert_principal_may_review(db, principal, reviewer)
-    if execution.assignment_id:
-        assignment = await db.get(TaskAssignment, execution.assignment_id)
-        if assignment and assignment.membership_id == reviewer.id:
-            raise HTTPException(status_code=409, detail="Executor cannot review the same execution")
-    executor_agent_id = await resolve_executor_agent_id(db, execution)
-    reviewer_agent_id = reviewer.agent_id
-    if reviewer_agent_id is None and reviewer.sub_agent_id is not None:
-        sub_agent = await db.get(SubAgent, reviewer.sub_agent_id)
-        reviewer_agent_id = sub_agent.agent_id if sub_agent else None
-    if executor_agent_id is not None and reviewer_agent_id == executor_agent_id:
-        raise HTTPException(status_code=409, detail="Executor cannot review the same execution")
-    project = await db.get(Project, project_id)
-    allowed_projects = {project_id, *(await mission_project_ids_for(db, project))} if project else {project_id}
-    if membership_review_problem(reviewer, allowed_projects):
-        raise HTTPException(status_code=422, detail="Reviewer is not authorized for this project")
+    await assert_review_independent(db, execution, reviewer, project_id)
     review = TaskExecutionReview(execution_id=execution_id, **payload.model_dump())
     if review.status in {"approved", "changes_requested", "rejected"}:
         review.decided_at = datetime.now(timezone.utc)

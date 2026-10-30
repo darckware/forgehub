@@ -163,3 +163,60 @@ async def test_attach_refuses_locally_without_key(monkeypatch):
     monkeypatch.setenv("FORGEHUB_AGENT_TOKEN", "agt_x")
     with pytest.raises(factory_server.FactoryError, match="idempotency_key is required"):
         await factory_server.attach_project_document("p", "project", "p", "missions/s/a.md", " ")
+
+
+async def test_m0_2c_tools_forward_the_contract(monkeypatch):
+    sent = []
+
+    class Response:
+        status_code = 200
+        headers: dict = {}
+
+        def __init__(self, body):
+            self._body = body
+
+        def json(self):
+            return self._body
+
+    async def fake(method, path, *, json=None, write=False):
+        sent.append((method, path, json, write))
+        if method == "GET":
+            return Response([{"id": "e1", "attempt_number": 1, "status": "verified"},
+                             {"id": "e2", "attempt_number": 2, "status": "running"}])
+        return Response({"ok": True})
+
+    monkeypatch.setattr(factory_server, "_factory_request", fake)
+    monkeypatch.setenv("FORGEHUB_AGENT_TOKEN", "agt_x")
+    await factory_server.assign_task("p", "t", "a", "fit", "k1")
+    await factory_server.dispatch_task("t", "k2", command_text="go", scheduled_at="2030-01-01T00:00:00Z")
+    await factory_server.report_task_execution("t", "reported", "done", ["git:abc1234"], "k3")
+    await factory_server.request_task_review("p", "t", "e2", "r", "k4")
+    await factory_server.return_task_for_correction("p", "t", "e2", "redo", "k5")
+    assert sent == [
+        ("POST", "/api/v1/missions/p/tasks/t:assign", {"agent_id": "a", "reason": "fit", "idempotency_key": "k1"},
+         True),
+        ("POST", "/api/v1/tasks/t/dispatch", {"idempotency_key": "k2", "command_text": "go",
+                                              "scheduled_at": "2030-01-01T00:00:00Z"}, True),
+        ("GET", "/api/v1/tasks/t/executions", None, False),
+        ("POST", "/api/v1/tasks/t/executions/e2:report", {"status": "reported", "summary": "done",
+                                                          "evidence": ["git:abc1234"], "idempotency_key": "k3"}, True),
+        ("POST", "/api/v1/missions/p/tasks/t:request-review", {"execution_id": "e2", "reviewer_agent_id": "r",
+                                                               "idempotency_key": "k4"}, True),
+        ("POST", "/api/v1/missions/p/tasks/t:return", {"execution_id": "e2", "reason": "redo",
+                                                       "idempotency_key": "k5"}, True),
+    ]
+
+
+async def test_m0_2c_tools_refuse_locally(monkeypatch):
+    async def no_network(*args, **kwargs):
+        raise AssertionError("must not call the API")
+
+    monkeypatch.setattr(factory_server, "_factory_request", no_network)
+    monkeypatch.setenv("FORGEHUB_AGENT_TOKEN", "agt_x")
+    for status in ("verified", "completed", "DONE"):
+        with pytest.raises(factory_server.FactoryError, match="never verified/completed"):
+            await factory_server.report_task_execution("t", status, "s", ["git:abc1234"], "k", execution_id="e")
+    with pytest.raises(factory_server.FactoryError, match="4000"):
+        await factory_server.dispatch_task("t", "k", command_text="x" * 4001)
+    with pytest.raises(factory_server.FactoryError, match="idempotency_key is required"):
+        await factory_server.dispatch_task("t", " ")
