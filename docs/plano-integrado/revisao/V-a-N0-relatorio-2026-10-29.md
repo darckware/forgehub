@@ -1,9 +1,11 @@
 # Validação V-a (roteiro V.1–V.15) e N.0 (navegador do Workspace) — 29–30/10/2026
 
 Escopo: tarefas **V-a** e **N.0** de [07](../07-fases-de-implementacao.md) e [11](../11-navegador-dos-agentes.md),
-executadas só na área de teste, com dados fictícios. Executor: Porthus (Claude Code). Verificador: Dartan.
+executadas só na área de teste, com dados fictícios. Executor: Claude Code (subagente do Athos). Verificador: Dartan.
 Esta tarefa **só valida e relata**: nenhum código foi corrigido. Cada defeito traz a correção sugerida, para
 virar tarefa no projeto "Validação do Service Factory".
+
+**Revisão:** Dartan (#41787) reclassificou V.7 e V.13 como "Falhou" e marcou D-02, D-08, D-11, D-15, D-16 e D-17 como **bloqueantes de governança**.
 
 ## Ambiente e método
 
@@ -34,13 +36,13 @@ aprovar (ver V.2). Para exercer o gate, criei o admin fictício `aprovador.va` (
 | V.4 Autorizar planejamento | **Passou com ressalva** | D-02, D-04 |
 | V.5 Planning items, tarefas, dependências | **Passou** | — |
 | V.6 Despachar a um agente | **Passou com ressalvas** | D-05, D-06, D-07 |
-| V.7 Aprovação de `project_task` | **Passou com ressalvas** | D-08, D-09 |
+| V.7 Aprovação de `project_task` | **Falhou** (gate contornável por autoaprovação) | D-08, D-09 |
 | V.8 Documento ↔ tarefa/fase | **Passou com ressalva** | D-10, D-06 |
 | V.9 Fechar versão | **Falhou** | D-11, D-12 |
 | V.10 Cockpit e Telemetria | **Passou com ressalvas** | D-11 (efeito), D-05 (efeito), D-13 |
 | V.11 Ticket Darckware → projeto | **Não executável ainda** | L-01 |
 | V.12 Celular 390 px | **Passou com ressalvas** | D-14 |
-| V.13 Pipeline e Progresso governado | **Passou com ressalvas** | D-15, D-16 |
+| V.13 Pipeline e Progresso governado | **Falhou** (gate e artefato obrigatório contornáveis) | D-15, D-16 |
 | V.14 Plano, baseline, CR, WBS | **Falhou parcialmente** | D-17, D-18, D-19 |
 | V.15 "Gerar via IA" | **Parcial**: o modelo gera rascunhos; o caminho por IA não é executável no stub | L-02 |
 | N.0 Navegador do Workspace | **Não executável** no teste (stub recusa); UI com defeito | D-20, L-03, D-21 |
@@ -182,7 +184,7 @@ para confirmar com o Marcelo que esse aviso é desejado, tendo em vista a I.13 (
 - caso de sucesso: tarefa C (9129, Lyra Teste) aprovada → C `in_progress`, execução `running` → `dispatch-status` `completed` (mensagem `d4d14945…`)
 - `operador.teste` decidindo → 403
 
-**Resultado: passou com ressalvas.**
+**Resultado: falhou.** O despacho funciona depois da aprovação, mas o gate não separa funções: o próprio solicitante pode aprovar a tarefa (D-08).
 
 **D-08 (Approval antiga sem separação de funções):** `admin.teste` criou e **aprovou a própria** Approval
 (tarefa D) → 200, e a aprovação dispara despacho automático. O caminho governado recusaria isso
@@ -289,7 +291,7 @@ cabeçalho da tarefa.
 - gate aprovado **pelo operador** com `approved_by: "qualquer-nome"` → 200
 - artefato **de outro tipo** (`test_report`, sem ligação ao estágio) ligado ao requisito `spec_document` → `ready` → `:complete` → 200 `completed` com checkpoint; depois disso "Implementação" avança
 
-**Resultado: passou com ressalvas.** O estágio não conclui sem artefato. Pela pergunta do roteiro, o
+**Resultado: falhou.** O estágio não conclui sem artefato, mas os controles de integridade falham: o gate aceita aprovação sem verificar permissão nem identidade auditada (D-15), e o requisito se satisfaz com um artefato em rascunho de outro tipo (D-16). Pela pergunta do roteiro, o
 **Progresso não é redundante:** desde o PATCH recusado, ele é o único caminho de conclusão. A R.3 deve
 oficializar isso (fundir as telas), não aposentar o Progresso.
 
