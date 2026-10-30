@@ -331,3 +331,62 @@ class PlanningRecordsOut(BaseModel):
     waivers: list[ReviewWaiverOut]
     verifications: list[PlanVerificationOut]
     dossiers: list[DossierOut]
+
+
+# ---------------------------------------------------------------------------
+# Governed plan approval (M0.2b, §5.3, §7). The submitter is the authenticated
+# principal and the decider is Marcelo on :decide: no approver token, name or
+# `approved` flag exists here, and extra="forbid" turns any such field into a 422.
+# ---------------------------------------------------------------------------
+class PlanFields(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=255)
+    scope_summary: str | None = Field(default=None, max_length=20000)
+    estimated_start_date: date | None = None
+    estimated_end_date: date | None = None
+    estimated_cost: Decimal | None = Field(default=None, ge=0)
+
+
+class PlanSubmitIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Initial baseline: optional, and when given it must equal the reviewed
+    # version's fields. Change request: required (a new plan version).
+    plan: PlanFields | None = None
+    task_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    change_request_id: uuid.UUID | None = None
+    idempotency_key: str = Field(min_length=1, max_length=150)
+
+
+class PlanCheck(BaseModel):
+    key: str
+    status: Literal["passed", "failed", "not_evaluated"]
+    passed: bool | None
+    detail: str | list[dict] | None = None
+
+
+class PlanSubmitOut(BaseModel):
+    plan_id: uuid.UUID
+    approval_request_id: uuid.UUID
+    plan_hash: str
+    checks: list[PlanCheck]
+    status: Literal["pending_approval"] = "pending_approval"
+    change_request_id: uuid.UUID | None = None
+    task_ids: list[uuid.UUID]
+
+
+class PlanWithdrawIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=4000)
+
+
+class PlanWithdrawOut(BaseModel):
+    plan_id: uuid.UUID
+    approval_request_id: uuid.UUID
+    status: str
+    plan_status: str
+    withdrawn_at: datetime | None
+    withdrawn_by: str | None
+    withdrawn_reason: str | None

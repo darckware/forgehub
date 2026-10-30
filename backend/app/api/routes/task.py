@@ -55,6 +55,7 @@ from app.api.schemas.task import (
     ResponsibilityAreaUpdate,
     TaskAssignmentCreate,
     TaskAssignmentOut,
+    TaskDependencyAddedOut,
     TaskDependencyCreate,
     TaskDependencyOut,
     TaskExecutionCreate,
@@ -76,7 +77,15 @@ from app.core.mission import (
     assert_task_environment_writable,
     project_id_for_task_source,
 )
+from app.core.command_receipts import (
+    begin_command,
+    enforce_command_limits,
+    limit_command_body,
+    record_command,
+    request_hash,
+)
 from app.core.responsibility import resolve_responsibility_owner
+from app.core.task_skills import attach_required_skill_ids, replace_required_skills, required_skill_map
 from app.core.task_completion_guard import (
     COMPLETION_TARGET_STATUSES,
     assert_task_completion_allowed,
@@ -308,6 +317,7 @@ async def submit_task(
     task = await _get_task_or_404(db, task_id)
     await _attach_project_ids(db, [task])
     await _attach_task_health(db, [task])
+    await attach_required_skill_ids(db, [task])
     return task
 
 
@@ -371,7 +381,7 @@ async def create_task(
             [],
         )
 
-    task = ProjectTask(**payload.model_dump())
+    task = ProjectTask(**payload.model_dump(exclude={"required_skill_ids"}))
     environment = {f: getattr(payload, f) for f in TASK_ENVIRONMENT_FIELDS if getattr(payload, f) is not None}
     if environment:
         task.id = uuid.uuid4()
@@ -383,10 +393,14 @@ async def create_task(
         if event is not None:
             db.add(event)
     db.add(task)
+    if payload.required_skill_ids:
+        await db.flush()
+        await replace_required_skills(db, task.id, payload.required_skill_ids)
     await db.commit()
     await db.refresh(task)
     await _attach_project_ids(db, [task])
     await _attach_task_health(db, [task])
+    await attach_required_skill_ids(db, [task])
     return task
 
 
@@ -429,6 +443,7 @@ async def list_tasks(
     tasks = list(result.scalars().all())
     await _attach_project_ids(db, tasks)
     await _attach_task_health(db, tasks)
+    await attach_required_skill_ids(db, tasks)
     return tasks
 
 
@@ -437,6 +452,7 @@ async def get_task(task_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Pr
     task = await _get_task_or_404(db, task_id)
     await _attach_project_ids(db, [task])
     await _attach_task_health(db, [task])
+    await attach_required_skill_ids(db, [task])
     return task
 
 
@@ -476,12 +492,14 @@ async def update_task(
     if "required_skill_ids" in data:
         if data["required_skill_ids"] is None:
             raise HTTPException(status_code=422, detail="required_skill_ids cannot be null; send [] to clear it")
+        required_skill_ids = data.pop("required_skill_ids")
         await assert_required_skills_writable(
             db,
             await project_id_for_task_source(db, task.planning_item_id, task.change_request_id),
-            data["required_skill_ids"],
-            list(task.required_skill_ids or []),
+            required_skill_ids,
+            (await required_skill_map(db, [task.id]))[task.id],
         )
+        await replace_required_skills(db, task.id, required_skill_ids)
 
     environment_changes = {
         f: [getattr(task, f), data[f]] for f in TASK_ENVIRONMENT_FIELDS
@@ -524,6 +542,7 @@ async def update_task(
     await db.refresh(task)
     await _attach_project_ids(db, [task])
     await _attach_task_health(db, [task])
+    await attach_required_skill_ids(db, [task])
     if data.get("status") in ("done", "deployed"):
         from app.core.dispatch_signal import wake_scheduled_dispatch
         wake_scheduled_dispatch()
@@ -745,22 +764,134 @@ async def update_task_execution(
 # --------------------------------------------------------------------------
 
 
+async def _task_missions_scope(db: AsyncSession, task: ProjectTask) -> tuple[list, set[uuid.UUID]]:
+    """The missions a task belongs to and the union of their task scopes."""
+    from app.core.mission_plan import mission_scope_tasks
+    from app.core.task_baseline_guard import task_missions
+
+    missions = await task_missions(db, task)
+    scope: set[uuid.UUID] = set()
+    for mission in missions:
+        scope |= set(await mission_scope_tasks(db, mission.project_id))
+    return missions, scope
+
+
+async def _dependency_principal(
+    db: AsyncSession, authorization: str | None,
+) -> tuple[ActorPrincipal | None, str]:
+    """(principal, actor name). An `agt_` caller is resolved strictly: it is
+    authorized and audited as itself. A person's JWT was already checked by
+    RequireAuthMiddleware and this route never authorized people beyond that,
+    so it keeps doing so: the user is resolved when it exists (audit and
+    receipt), else only the token's subject names the audit actor."""
+    if authorization and authorization.lower().startswith("bearer agt_"):
+        principal = await principal_from_authorization(db, authorization)
+        return principal, principal.display_name
+    try:
+        principal = await principal_from_authorization(db, authorization)
+        return principal, principal.display_name
+    except HTTPException:
+        from app.core.security import decode_access_token
+
+        token = authorization[7:].strip() if authorization else ""
+        subject = (decode_access_token(token) or {}).get("sub") if token else None
+        return None, str(subject or "user")
+
+
+async def _assert_not_in_baseline(db: AsyncSession, task_id: uuid.UUID) -> None:
+    """§5.4: a dependency of a task frozen in a current baseline is part of its
+    content hash, so changing it needs a change request and a new approval."""
+    from app.core.mission_plan import current_baseline_of_task
+
+    baseline = await current_baseline_of_task(db, task_id)
+    if baseline is not None:
+        raise HTTPException(409, detail={
+            "code": "TASK_IN_BASELINE",
+            "message": "The task is in a current baseline; changing its dependencies needs a change request",
+            "task_id": str(task_id), "baseline_id": str(baseline.id),
+        })
+
+
 @router.post(
     "/{task_id}/dependencies",
-    response_model=TaskDependencyOut,
+    response_model=TaskDependencyAddedOut,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(limit_command_body)],
 )
 async def create_task_dependency(
-    task_id: uuid.UUID, payload: TaskDependencyCreate, db: AsyncSession = Depends(get_db)
-) -> TaskDependency:
+    task_id: uuid.UUID,
+    payload: TaskDependencyCreate,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Also add_task_dependency (M0.2b, §5.4). An `agt_` caller needs
+    MISSION_TOOLS_ENABLED, an idempotency key (receipt, §0.4) and
+    planning.execution.manage on the task's project. For a mission task, the
+    other task must be in the same mission scope (else 404, no existence
+    leak) and only finish_to_start is accepted -- the dispatch gate only
+    understands that one; an agent is held to it everywhere. A task frozen in
+    a current baseline refuses with 409 TASK_IN_BASELINE. One edge per pair
+    (409 DEPENDENCY_ALREADY_EXISTS with its id)."""
     if payload.task_id != task_id:
         raise HTTPException(status_code=400, detail="task_id in body must match the path task_id")
 
-    await _get_task_or_404(db, task_id)
-    await _get_task_or_404(db, payload.depends_on_task_id)
+    principal, actor = await _dependency_principal(db, authorization)
+    is_agent = principal is not None and principal.principal_type == "agent"
+    command = "task.add_dependency"
+    body_hash = request_hash(command, {"task_id": str(task_id), **payload.model_dump(mode="json")})
+    if is_agent:
+        enforce_command_limits(principal)
+        if payload.idempotency_key is None:
+            raise HTTPException(422, detail={"code": "IDEMPOTENCY_KEY_REQUIRED",
+                                             "message": "idempotency_key is required"})
+
+    task = await _get_task_or_404(db, task_id)
+    source, delegation = "user", None
+    if is_agent:
+        try:
+            source, delegation = await authorize_action(
+                db, principal, "planning.execution.manage", project_id=await _resolve_task_project_id(db, task),
+            )
+        except HTTPException as exc:
+            if exc.status_code != 403:
+                raise
+            raise HTTPException(403, detail={
+                "code": "DELEGATION_REQUIRED", "message": "No active delegation permits planning.execution.manage "
+                "on this task's project", "action": "planning.execution.manage"}) from exc
+    receipt = payload.idempotency_key is not None and principal is not None
+    if receipt:
+        replay = await begin_command(db, principal, payload.idempotency_key, command, body_hash)
+        if replay is not None:
+            return replay
+
+    depends_on = await db.get(ProjectTask, payload.depends_on_task_id)
+    missions, scope = await _task_missions_scope(db, task)
+    not_found = HTTPException(404, detail={"code": "TASK_NOT_FOUND",
+                                           "message": "depends_on_task_id is not a task of this scope"})
+    if depends_on is None:
+        raise not_found if (missions or is_agent) else HTTPException(404, "Task not found")
+    if missions and depends_on.id not in scope:
+        raise not_found
+    if is_agent and not missions and (
+        await _resolve_task_project_id(db, depends_on) != await _resolve_task_project_id(db, task)
+    ):
+        raise not_found
+    if (missions or is_agent) and payload.dependency_type != "finish_to_start":
+        raise HTTPException(422, detail={
+            "code": "DEPENDENCY_TYPE_NOT_SUPPORTED",
+            "message": "Only finish_to_start is accepted: the dispatch gate understands no other type",
+            "dependency_type": payload.dependency_type})
+    await _assert_not_in_baseline(db, task_id)
 
     # Serialize graph edits so concurrent A->B and B->A cannot both pass.
     await db.execute(select(func.pg_advisory_xact_lock(0x464854444550)))
+    existing = await db.scalar(select(TaskDependency.id).where(
+        TaskDependency.task_id == task_id, TaskDependency.depends_on_task_id == payload.depends_on_task_id,
+    ))
+    if existing is not None:
+        raise HTTPException(409, detail={"code": "DEPENDENCY_ALREADY_EXISTS",
+                                         "message": "This dependency already exists",
+                                         "dependency_id": str(existing)})
     reachable = select(TaskDependency.depends_on_task_id.label("task_id")).where(
         TaskDependency.task_id == payload.depends_on_task_id
     ).cte("dependency_ancestors", recursive=True)
@@ -775,11 +906,29 @@ async def create_task_dependency(
             detail="This dependency would create a cycle between tasks",
         )
 
-    dependency = TaskDependency(**payload.model_dump())
+    dependency = TaskDependency(**payload.model_dump(exclude={"idempotency_key"}))
     db.add(dependency)
-    await db.commit()
+    await db.flush()
+    # The task is not in a current baseline (refused above); if its mission
+    # already has one, the task runs only after a change request is applied.
+    impact = "requires_change_request" if any(m.current_baseline_id for m in missions) else "none"
+    db.add(AuditEvent(
+        entity_type="project_task", entity_id=task_id, event_type="task_dependency_added", actor=actor,
+        payload={"principal_type": principal.principal_type if principal else "user",
+                 "principal_id": str(principal.principal_id) if principal else None,
+                 "authority_source": source, "delegation_id": str(delegation.id) if delegation else None,
+                 "idempotency_key": payload.idempotency_key, "dependency_id": str(dependency.id),
+                 "depends_on_task_id": str(payload.depends_on_task_id),
+                 "dependency_type": payload.dependency_type, "baseline_impact": impact},
+    ))
+    await db.flush()
     await db.refresh(dependency)
-    return dependency
+    out = TaskDependencyAddedOut.model_validate(dependency).model_copy(update={"baseline_impact": impact})
+    if receipt:
+        record_command(db, principal, payload.idempotency_key, command, body_hash, 201, out.model_dump(mode="json"),
+                       target_type="task_dependency", target_id=dependency.id)
+    await db.commit()
+    return out
 
 
 @router.get("/{task_id}/dependencies", response_model=list[TaskDependencyOut])
@@ -800,6 +949,8 @@ async def delete_task_dependency(
     dependency = await db.get(TaskDependency, dependency_id)
     if dependency is None or dependency.task_id != task_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dependency not found")
+    # Same baseline rule as adding one (§5.4).
+    await _assert_not_in_baseline(db, task_id)
     await db.delete(dependency)
     await db.commit()
 
@@ -819,7 +970,19 @@ async def create_task_required_skill(
 ) -> TaskRequiredSkill:
     if payload.task_id != task_id:
         raise HTTPException(status_code=400, detail="task_id in body must match the path task_id")
-    await _get_task_or_404(db, task_id)
+    task = await _get_task_or_404(db, task_id)
+    # DT-M0-1 (M0.2b): this table is the one store of required skills, so the
+    # mission lock (planning only) applies here as on PATCH /tasks.
+    current = (await required_skill_map(db, [task_id]))[task_id]
+    if payload.is_mandatory:
+        await assert_required_skills_writable(
+            db, await project_id_for_task_source(db, task.planning_item_id, task.change_request_id),
+            list(dict.fromkeys([*current, payload.skill_id])), current,
+        )
+    if await db.scalar(select(TaskRequiredSkill.id).where(
+        TaskRequiredSkill.task_id == task_id, TaskRequiredSkill.skill_id == payload.skill_id,
+    )):
+        raise HTTPException(status_code=409, detail="This skill is already required by the task")
 
     required_skill = TaskRequiredSkill(**payload.model_dump())
     db.add(required_skill)

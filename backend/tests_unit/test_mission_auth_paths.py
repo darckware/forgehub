@@ -22,6 +22,10 @@ PID = "11111111-1111-4111-8111-111111111111"
     ("POST", f"/api/v1/missions/{PID}:transition"),
     ("POST", f"/api/v1/missions/{PID}/planning:advance"),
     ("POST", f"/api/v1/missions/{PID}/members:apply"),
+    # M0.2b: submit_project_plan / withdraw and add_task_dependency.
+    ("POST", f"/api/v1/missions/{PID}/plans:submit"),
+    ("POST", f"/api/v1/missions/{PID}/plans/{PID}:withdraw"),
+    ("POST", f"/api/v1/tasks/{PID}/dependencies"),
     # Pre-existing agt_ surface, unchanged.
     ("GET", "/api/v1/projects"),
     ("GET", f"/api/v1/tasks/{PID}"),
@@ -43,6 +47,12 @@ def test_agent_reaches_mission_paths(method, path):
     ("POST", "/api/v1/missions-admin/x"),
     ("POST", "/api/v1/tasks"),
     ("GET", "/api/v1/users"),
+    # M0.2b: only adding a dependency; removing one and other task sub-paths stay human.
+    ("DELETE", f"/api/v1/tasks/{PID}/dependencies/{PID}"),
+    ("POST", f"/api/v1/tasks/{PID}/dependencies/{PID}"),
+    ("POST", "/api/v1/tasks//dependencies"),
+    ("POST", f"/api/v1/tasks/{PID}/required-skills"),
+    ("POST", f"/api/v1/tasks/{PID}/assignments"),
 ])
 def test_agent_does_not_reach_other_paths(method, path):
     assert not is_agent_command_path(method, path)

@@ -184,6 +184,12 @@ class PolicyEvaluation(Base, TimestampMixin):
     evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+# pending -> decided | expired | stale | withdrawn. `withdrawn` (D-M0-4,
+# M0.2b): the submitter retracted it before a decision; nothing is deleted.
+# Plain String without a CHECK, as the table has always been.
+APPROVAL_REQUEST_STATUSES = ("pending", "decided", "expired", "stale", "withdrawn")
+
+
 class ApprovalRequest(Base, TimestampMixin):
     __tablename__ = "approval_requests"
     __table_args__ = (

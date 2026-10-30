@@ -138,6 +138,7 @@ from app.db.models.mission import (  # noqa: F401
     MissionDecision,
     MissionDossier,
     MissionPlanReview,
+    MissionPlanSubmission,
     MissionPlanVerification,
     MissionPlanVersion,
     MissionProjectLink,
