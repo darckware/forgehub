@@ -187,10 +187,10 @@ signing key (`kid`).
   lifetime (jti) and every active suspension/kid revocation. Upper bound on missed push: **≤ 60 s**.
 - **Hard bound:** even if both channels fail, an access token dies at `exp` (≤ 15 min). This meets F.8's
   "stop an agent cuts all systems within 15 min" with margin; normal case ≤ 60 s.
-- **Staleness rule (fail-closed):** if a consumer's last successful poll is older than **120 s**, it
-  refuses every token with a write scope, `env=production` or `mission_id`, and keeps accepting only
-  read scopes until the poll recovers; at **15 min** stale it refuses all tokens. Each change of state
-  is logged and raises a notification.
+- **Staleness rule (fail-closed):** if a consumer's revocation cache is expired or its last successful
+  synchronization is older than **120 s**, it refuses every ForgeVault token, including read-only tokens,
+  until synchronization recovers. No token is accepted solely because it is read-only (Aegis review
+  #41782). Each change of state is logged and raises a notification.
 - Revocation itself (who may trigger it) is in F.1.1 §10.
 
 ## 8. HA, caching and issuer outage [PROPOSED]
@@ -201,7 +201,7 @@ signing key (`kid`).
   once per 30 s (stops a flood of forged `kid`s from hammering ForgeVault). Cached public keys stay
   usable up to 24 h without refresh (they are not secret); revoked-kid list always wins.
 - **Issuer down:** no new tokens. Existing tokens keep working until `exp`, subject to the staleness rule
-  (§7). So agents stop within ≤ 15 min — **fail-closed for agents by design**. Humans are unaffected
+  (§7). Since the revocation feed is served by the issuer too, agents stop within ~120 s of losing sync — **fail-closed for agents by design**. Humans are unaffected
   (they log in to each system directly). Recovery = ForgeVault back up; nothing to re-sync.
 - **Consumer start-up without JWKS:** refuses all ForgeVault tokens (no "accept until first fetch").
 - During the transition (§9) an agent whose token path fails may still use its `agt_` in ForgeHub; that is
@@ -296,7 +296,7 @@ Risks:
 Questions:
 - **Q1** ES256 approved (RS256 only as fallback)?
 - **Q2** Default lifetime 10 min, max 15 min?
-- **Q3** Staleness rule (120 s → read-only, 15 min → refuse all) acceptable?
+- **Q3** Staleness rule: 120 s without a successful sync refuses every token (no read-only grace, per Aegis #41782). Is the resulting agent outage on a revocation-feed failure acceptable, or should a read-only grace be approved as an explicit exception?
 - **Q4** Accept agents stopping when ForgeVault is down, or plan a replica now?
 - **Q5** Pre-authorize Aegis to take the access-reducing steps of F.1.1 without asking first (reporting
   immediately), as written in §10?
