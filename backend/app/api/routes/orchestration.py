@@ -782,6 +782,7 @@ async def dispatch_execution_review(
     body = {
         "run_id": str(review.id),
         "runtime_type": profile.runtime_type,
+        "agent_slug": credential_agent.profile_slug,
         "project_path": project.working_directory_path,
         "prompt": _build_review_prompt(task, execution, policy),
         "model_ref": profile.model_ref,
