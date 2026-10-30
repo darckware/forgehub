@@ -331,3 +331,78 @@ class PlanningRecordsOut(BaseModel):
     waivers: list[ReviewWaiverOut]
     verifications: list[PlanVerificationOut]
     dossiers: list[DossierOut]
+
+
+# ---------------------------------------------------------------------------
+# M0.2d (§5.8-§5.10): documents, my role, my tasks
+# ---------------------------------------------------------------------------
+DOCUMENT_ENTITY_TYPES = ("project", "planning_item", "project_task", "mission_criterion")
+
+
+class MissionDocumentAttachIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    entity_type: Literal["project", "planning_item", "project_task", "mission_criterion"]
+    entity_id: uuid.UUID
+    # Relative to the Docs tree, under missions/<slug>/ or projects/<slug>/
+    # (core/mission_documents.py); the route refuses anything else.
+    doc_path: str = Field(min_length=1, max_length=500)
+    register_artifact: bool = False
+    artifact_type: str | None = Field(default=None, max_length=50)
+    idempotency_key: str = Field(min_length=1, max_length=150)
+
+
+class MissionDocumentOut(BaseModel):
+    project_id: uuid.UUID
+    doc_link_id: uuid.UUID
+    doc_path: str
+    entity_type: str
+    entity_id: uuid.UUID
+    content_hash: str
+    link_created: bool
+    artifact_id: uuid.UUID | None = None
+    artifact_version_id: uuid.UUID | None = None
+    artifact_version_number: int | None = None
+    artifact_version_created: bool = False
+
+
+class MyTaskItem(BaseModel):
+    project_id: uuid.UUID
+    task_id: uuid.UUID
+    number: int
+    title: str
+    status: str
+    # Status of the task's latest TaskExecution; None before the first one.
+    execution_state: str | None = None
+    # How the caller relates to the task: executor (active assignment) and/or reviewer.
+    relations: list[Literal["executor", "reviewer"]]
+
+
+class MyReviewItem(BaseModel):
+    review_id: uuid.UUID
+    execution_id: uuid.UUID
+    task_id: uuid.UUID
+    status: str
+
+
+class MissionOrchestratorRef(BaseModel):
+    agent_id: uuid.UUID
+    name: str
+
+
+class MyMissionRoleOut(BaseModel):
+    project_id: uuid.UUID
+    project_type: str
+    mission_state: str | None = None
+    membership_id: uuid.UUID
+    role: str
+    can_review: bool
+    responsibilities: str | None = None
+    orchestrator: MissionOrchestratorRef | None = None
+    my_tasks: list[MyTaskItem] = Field(default_factory=list)
+    my_reviews: list[MyReviewItem] = Field(default_factory=list)
+
+
+class MyTasksOut(BaseModel):
+    state: str
+    tasks: list[MyTaskItem] = Field(default_factory=list)

@@ -5,11 +5,14 @@ A mission is a Project (``project_type='mission'``) plus its
 ``project_missions`` row. Endpoints:
 
 - ``POST /api/v1/missions``                              create (the only way; POST /projects never does)
-- ``GET /api/v1/missions/{project_id}``                  read
+- ``GET /api/v1/missions/{project_id}``                  read (members and admins only, M0.2d)
 - ``PATCH /api/v1/missions/{project_id}``                planning fields (risk/layers locked after P1)
 - ``POST /api/v1/missions/{project_id}:transition``      the only writer of state (+ Project.status projection)
 - ``POST /api/v1/missions/{project_id}/planning:advance`` the planning pipeline, strictly in order
 - ``POST /api/v1/missions/{project_id}/members:apply``   manage_project_members (M0.2a, §5.2)
+- ``POST /api/v1/missions/{project_id}/documents``       attach_project_document (M0.2d, §5.8)
+- ``GET /api/v1/missions/{project_id}/me``               get_my_mission_role (M0.2d, §5.9)
+- ``GET /api/v1/missions/me/tasks``                      list_my_tasks (M0.2d, §5.10)
 
 ``POST /api/v1/missions`` is also create_internal_project (M0.2a, §5.1).
 
@@ -19,16 +22,21 @@ create/edit, ``mission.orchestrate`` to conduct) and, to conduct, must be the
 mission's orchestrator. Errors use the object form ``{code, message, ...}``
 (§0.3). ``autonomy_level`` other than N0 is refused in Onda 1.
 """
+import asyncio
 import hashlib
 import json
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import JSONResponse
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from app.api.routes.artifact import build_artifact, build_artifact_version
+from app.api.routes.docs import DocLinkCreateIn, build_doc_link
 from app.api.routes.orchestration import add_project_membership, apply_membership_update
 from app.api.routes.project import build_project
 from app.api.schemas.mission import (
@@ -38,12 +46,20 @@ from app.api.schemas.mission import (
     MembersApplyIn,
     MembersApplyOut,
     MissionCreate,
+    MissionDocumentAttachIn,
+    MissionDocumentOut,
+    MissionOrchestratorRef,
     MissionOut,
     MissionTransitionIn,
     MissionUpdate,
+    MyMissionRoleOut,
+    MyReviewItem,
+    MyTaskItem,
+    MyTasksOut,
     PlanningAdvanceIn,
     PlanningAdvanceOut,
 )
+from app.api.schemas.artifact import ArtifactCreate, ArtifactVersionCreate
 from app.api.schemas.orchestration import (
     ProjectAgentMembershipCreate,
     ProjectAgentMembershipOut,
@@ -58,6 +74,7 @@ from app.core.command_receipts import (
     request_hash,
     require_mission_tools,
 )
+from app.core import mission_documents
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
 from app.core.mission import (
     ALLOWED_TRANSITIONS,
@@ -75,19 +92,23 @@ from app.core.mission import (
 )
 from app.db.base import get_db
 from app.db.models.agent import Agent
-from app.db.models.artifact import Artifact
+from app.db.models.artifact import Artifact, ArtifactType
+from app.db.models.backlog import PlanningItem
 from app.db.models.demand import AgentDemand
+from app.db.models.doc_link import DocLink
 from app.db.models.governance import AuditEvent
 from app.db.models.mission import (
     MISSION_STATUS_PROJECTION,
+    MissionAcceptanceCriterion,
     MissionDecision,
     MissionProjectLink,
     ProjectMission,
 )
 from app.db.models.operations import AgentCharter
-from app.db.models.orchestration import PROJECT_AGENT_ROLES, ProjectAgentMembership
+from app.db.models.orchestration import PROJECT_AGENT_ROLES, ProjectAgentMembership, TaskExecutionReview
 from app.db.models.product import ProductVersion
-from app.db.models.project import Project
+from app.db.models.project import ChangeRequest, Project
+from app.db.models.task import TASK_STATUSES, ProjectTask, TaskAssignment, TaskExecution
 
 router = APIRouter(prefix="/api/v1/missions", tags=["missions"])
 
@@ -349,6 +370,51 @@ async def _internal_out(db: AsyncSession, project: Project) -> InternalProjectOu
     return InternalProjectOut(**out.model_dump(), mission_state=mission.state)
 
 
+async def _active_membership(
+    db: AsyncSession, project_id: uuid.UUID, agent_id: uuid.UUID,
+) -> ProjectAgentMembership | None:
+    return (await db.execute(select(ProjectAgentMembership).where(
+        ProjectAgentMembership.project_id == project_id,
+        ProjectAgentMembership.agent_id == agent_id,
+        ProjectAgentMembership.status == "active",
+    ))).scalar_one_or_none()
+
+
+async def _assert_can_read(db: AsyncSession, principal: ActorPrincipal, project_id: uuid.UUID) -> None:
+    """M0.2d (09 "lacunas"): a mission is read by an admin or by an agent with
+    an active membership in it. Anyone else gets the same 404 as a missing
+    mission, so its existence does not leak (§0.3)."""
+    if principal.principal_type == "user" and principal.is_admin:
+        return
+    if principal.principal_type == "agent" and await _active_membership(db, project_id, principal.principal_id):
+        return
+    raise mission_error(404, "MISSION_NOT_FOUND", "Mission not found")
+
+
+@router.get("/me/tasks", response_model=MyTasksOut, dependencies=[Depends(require_mission_tools)])
+async def list_my_tasks(
+    state: str = Query(default="open", max_length=30),
+    principal: ActorPrincipal = Depends(get_actor_principal),
+    db: AsyncSession = Depends(get_db),
+) -> MyTasksOut:
+    """list_my_tasks (§5.10): the tasks the calling agent executes (active
+    assignment) or reviews, across the missions where it is an active member.
+    ``state``: ``open`` (default: not done/deployed/cancelled), ``all``, or one
+    task status. Never another agent's tasks; no audit, no idempotency."""
+    if state not in ("open", "all") and state not in TASK_STATUSES:
+        raise mission_error(422, "INVALID_STATE_FILTER", "state must be open, all or a task status",
+                            allowed=["open", "all", *TASK_STATUSES])
+    agent_id = _require_agent(principal)
+    memberships = list((await db.execute(
+        select(ProjectAgentMembership).join(Project, Project.id == ProjectAgentMembership.project_id).where(
+            ProjectAgentMembership.agent_id == agent_id,
+            ProjectAgentMembership.status == "active",
+            Project.project_type == "mission",
+        ))).scalars())
+    tasks, _reviews = await _my_work(db, agent_id, memberships, state)
+    return MyTasksOut(state=state, tasks=tasks)
+
+
 @router.get("/{project_id}", response_model=MissionOut)
 async def get_mission(
     project_id: uuid.UUID,
@@ -356,7 +422,116 @@ async def get_mission(
     db: AsyncSession = Depends(get_db),
 ) -> MissionOut:
     project, mission = await _load(db, project_id)
+    await _assert_can_read(db, principal, project_id)
     return await _out(db, project, mission)
+
+
+def _require_agent(principal: ActorPrincipal) -> uuid.UUID:
+    if principal.principal_type != "agent":
+        raise mission_error(403, "AGENT_ONLY", "This read answers for the calling agent (agt_) only")
+    return principal.principal_id
+
+
+async def _my_work(
+    db: AsyncSession, agent_id: uuid.UUID, memberships: list[ProjectAgentMembership], state: str = "all",
+) -> tuple[list[MyTaskItem], list[MyReviewItem]]:
+    """The agent's own tasks and reviews in the given memberships' projects.
+
+    A task belongs to a project through its planning item or change request
+    (core/mission.py mission_tasks). Executor = an active TaskAssignment of
+    this agent; reviewer = a TaskExecutionReview held by one of these
+    memberships."""
+    if not memberships:
+        return [], []
+    project_ids = [m.project_id for m in memberships]
+    membership_ids = [m.id for m in memberships]
+    task_project = func.coalesce(PlanningItem.project_id, ChangeRequest.project_id)
+    reviews = list((await db.execute(
+        select(TaskExecutionReview, TaskExecution.task_id)
+        .join(TaskExecution, TaskExecution.id == TaskExecutionReview.execution_id)
+        .where(TaskExecutionReview.reviewer_membership_id.in_(membership_ids))
+        .order_by(TaskExecutionReview.created_at)
+    )).all())
+    reviewed_task_ids = {task_id for _review, task_id in reviews}
+    assigned = select(TaskAssignment.task_id).where(
+        TaskAssignment.agent_id == agent_id, TaskAssignment.status == "active")
+    stmt = (
+        select(ProjectTask, task_project.label("project_id"))
+        .outerjoin(PlanningItem, PlanningItem.id == ProjectTask.planning_item_id)
+        .outerjoin(ChangeRequest, ChangeRequest.id == ProjectTask.change_request_id)
+        .where(task_project.in_(project_ids))
+        .where(or_(ProjectTask.id.in_(assigned), ProjectTask.id.in_(list(reviewed_task_ids))))
+        .order_by(ProjectTask.number)
+    )
+    if state == "open":
+        stmt = stmt.where(ProjectTask.status.notin_(("done", "deployed", "cancelled")))
+    elif state != "all":
+        stmt = stmt.where(ProjectTask.status == state)
+    rows = list((await db.execute(stmt)).all())
+    task_ids = [task.id for task, _project in rows]
+    assigned_ids = set((await db.execute(assigned.where(TaskAssignment.task_id.in_(task_ids)))).scalars())
+    latest: dict[uuid.UUID, str] = {}
+    if task_ids:
+        for task_id, execution_status in (await db.execute(
+            select(TaskExecution.task_id, TaskExecution.status)
+            .where(TaskExecution.task_id.in_(task_ids))
+            .order_by(TaskExecution.created_at.desc())
+        )).all():
+            latest.setdefault(task_id, execution_status)
+    tasks = [
+        MyTaskItem(
+            project_id=project_id, task_id=task.id, number=task.number, title=task.title, status=task.status,
+            execution_state=latest.get(task.id),
+            relations=[r for r, on in (("executor", task.id in assigned_ids),
+                                       ("reviewer", task.id in reviewed_task_ids)) if on],
+        )
+        for task, project_id in rows
+    ]
+    # A review counts only when its execution's task is in one of these
+    # projects (a membership never vouches for another project's task).
+    in_projects = set((await db.execute(
+        select(ProjectTask.id)
+        .outerjoin(PlanningItem, PlanningItem.id == ProjectTask.planning_item_id)
+        .outerjoin(ChangeRequest, ChangeRequest.id == ProjectTask.change_request_id)
+        .where(ProjectTask.id.in_(list(reviewed_task_ids)), task_project.in_(project_ids))
+    )).scalars())
+    my_reviews = [
+        MyReviewItem(review_id=review.id, execution_id=review.execution_id, task_id=task_id, status=review.status)
+        for review, task_id in reviews if task_id in in_projects
+    ]
+    return tasks, my_reviews
+
+
+@router.get("/{project_id}/me", response_model=MyMissionRoleOut, dependencies=[Depends(require_mission_tools)])
+async def get_my_mission_role(
+    project_id: uuid.UUID,
+    principal: ActorPrincipal = Depends(get_actor_principal),
+    db: AsyncSession = Depends(get_db),
+) -> MyMissionRoleOut:
+    """get_my_mission_role (§5.9): the calling agent's own role in a mission
+    (or a creation/maintenance project it belongs to), its tasks and its
+    reviews. Not an active member -> 404, the same answer as a missing
+    project (no existence leak). Read-only: no audit, no idempotency."""
+    agent_id = _require_agent(principal)
+    project = await db.get(Project, project_id)
+    membership = await _active_membership(db, project_id, agent_id) if project is not None else None
+    if project is None or membership is None:
+        raise mission_error(404, "PROJECT_NOT_FOUND", "Project not found")
+    mission_state = None
+    orchestrator = None
+    if project.project_type == "mission":
+        _project, mission = await _load(db, project_id)
+        mission_state = mission.state
+        agent = await db.get(Agent, mission.orchestrator_agent_id)
+        if agent is not None:
+            orchestrator = MissionOrchestratorRef(agent_id=agent.id, name=agent.name)
+    tasks, reviews = await _my_work(db, agent_id, [membership])
+    return MyMissionRoleOut(
+        project_id=project.id, project_type=project.project_type, mission_state=mission_state,
+        membership_id=membership.id, role=membership.role, can_review=membership.can_review,
+        responsibilities=membership.responsibilities, orchestrator=orchestrator,
+        my_tasks=tasks, my_reviews=reviews,
+    )
 
 
 @router.patch("/{project_id}", response_model=MissionOut)
@@ -784,3 +959,202 @@ async def apply_project_members(
                    target_type="project", target_id=project_id)
     await db.commit()
     return out
+
+
+# ---------------------------------------------------------------------------
+# Documents (M0.2d, §5.8)
+# ---------------------------------------------------------------------------
+_ARTIFACT_TYPE_VALUES = frozenset(t.value for t in ArtifactType)
+
+
+async def _document_entity(
+    db: AsyncSession, project_id: uuid.UUID, entity_type: str, entity_id: uuid.UUID,
+) -> str:
+    """Check the entity belongs to the project; return the DocLink entity type.
+
+    404 ENTITY_NOT_IN_PROJECT for a missing entity and for one of another
+    project alike (no existence leak across projects)."""
+    found = False
+    if entity_type == "project":
+        found = entity_id == project_id
+    elif entity_type == "planning_item":
+        item = await db.get(PlanningItem, entity_id)
+        found = item is not None and item.project_id == project_id
+    elif entity_type == "project_task":
+        found = (await db.execute(
+            select(ProjectTask.id)
+            .outerjoin(PlanningItem, PlanningItem.id == ProjectTask.planning_item_id)
+            .outerjoin(ChangeRequest, ChangeRequest.id == ProjectTask.change_request_id)
+            .where(ProjectTask.id == entity_id,
+                   func.coalesce(PlanningItem.project_id, ChangeRequest.project_id) == project_id)
+        )).scalar_one_or_none() is not None
+    elif entity_type == "mission_criterion":
+        criterion = await db.get(MissionAcceptanceCriterion, entity_id)
+        found = criterion is not None and criterion.mission_project_id == project_id
+    if not found:
+        raise mission_error(404, "ENTITY_NOT_IN_PROJECT", f"{entity_type} not found in this project",
+                            entity_type=entity_type)
+    if entity_type == "mission_criterion":
+        # doc_links' CHECK has no criterion type yet; widening it is a
+        # migration, deferred until the criteria get their write route (M0.2).
+        raise mission_error(422, "ENTITY_TYPE_NOT_SUPPORTED",
+                            "Linking a document to an acceptance criterion is not available yet; "
+                            "link it to the project or the task that verifies the criterion")
+    return "task" if entity_type == "project_task" else entity_type
+
+
+@router.post("/{project_id}/documents", response_model=MissionDocumentOut, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(limit_command_body)])
+async def attach_project_document(
+    project_id: uuid.UUID,
+    payload: MissionDocumentAttachIn,
+    principal: ActorPrincipal = Depends(get_actor_principal),
+    db: AsyncSession = Depends(get_db),
+):
+    """attach_project_document: link a document of the project's own folder
+    (core/mission_documents.py) to the project, a planning item or a task, and
+    optionally register it as an Artifact version -- one transaction, composing
+    docs.py's build_doc_link and artifact.py's build_artifact /
+    build_artifact_version in-process.
+
+    Caller: an admin, or an agent with an active membership in the project
+    (any role); a non-member agent gets 404 like a missing project. The
+    mission brief and the validation dossier (BRIEF.md,
+    DOSSIE-DE-VALIDACAO.md, or artifact_type context_brief) need the
+    ``documentation`` role. content_hash is the sha256 of the file's bytes.
+    Idempotency: the receipt (§0.4) plus the natural key (doc_path,
+    entity_type, entity_id) -- an existing link is reused, and the artifact
+    gets a new version only when the hash changed (201 when something was
+    created, 200 otherwise). Rollback: DELETE /docs/links/{id}; artifact
+    versions are never deleted."""
+    enforce_command_limits(principal)
+    command = "mission.attach_project_document"
+    body_hash = request_hash(command, {"project_id": str(project_id), **payload.model_dump(mode="json")})
+
+    project = await db.get(Project, project_id)
+    membership = None
+    if principal.principal_type == "user":
+        if not principal.is_admin:
+            raise mission_error(403, "MISSION_ADMIN_ONLY", "Only an administrator attaches documents in M0")
+        if project is None:
+            raise mission_error(404, "PROJECT_NOT_FOUND", "Project not found")
+        source = "admin"
+    else:
+        membership = await _active_membership(db, project_id, principal.principal_id) if project else None
+        if project is None or membership is None:
+            raise mission_error(404, "PROJECT_NOT_FOUND", "Project not found")
+        source = "project_membership"
+    replay = await begin_command(db, principal, payload.idempotency_key, command, body_hash)
+    if replay is not None:
+        return replay
+
+    if project.project_type == "mission":
+        _project, mission = await _load(db, project_id)
+        if mission.state in ("completed", "cancelled"):
+            raise mission_error(409, "MISSION_TERMINAL", "A completed or cancelled mission is read-only")
+    root = mission_documents.MISSION_DOCS_ROOT
+    prefixes = mission_documents.allowed_prefixes(project.name, project.project_type)
+    try:
+        real_path = mission_documents.check_doc_path(root, payload.doc_path, prefixes)
+    except mission_documents.DocPathRefused as exc:
+        raise mission_error(422, "DOC_PATH_NOT_ALLOWED", exc.message, reason=exc.reason,
+                            allowed_prefixes=prefixes) from exc
+    if payload.artifact_type is not None:
+        if not payload.register_artifact:
+            raise mission_error(422, "ARTIFACT_TYPE_WITHOUT_REGISTER", "artifact_type needs register_artifact=true")
+        if payload.artifact_type not in _ARTIFACT_TYPE_VALUES:
+            raise mission_error(422, "INVALID_ARTIFACT_TYPE", "Unknown artifact_type",
+                                allowed=sorted(_ARTIFACT_TYPE_VALUES))
+    if (membership is not None and membership.role != "documentation"
+            and mission_documents.is_brief_or_dossier(payload.doc_path, payload.artifact_type)):
+        raise mission_error(403, "DOCUMENTATION_ROLE_REQUIRED",
+                            "The mission brief and the validation dossier are attached by the documentation role",
+                            role=membership.role)
+    link_type = await _document_entity(db, project_id, payload.entity_type, payload.entity_id)
+    if not real_path.is_file():
+        raise mission_error(404, "DOC_FILE_NOT_FOUND", "The document does not exist", doc_path=payload.doc_path)
+    digest = await asyncio.to_thread(mission_documents.content_hash, real_path)
+
+    # Natural key under a lock, so two keys for the same document serialize.
+    await db.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(f"doc-link:{payload.doc_path}", 0))))
+
+    async def link_for(entity_type: str, entity_id: uuid.UUID) -> tuple[DocLink, bool]:
+        existing = (await db.execute(select(DocLink).where(
+            DocLink.doc_path == payload.doc_path, DocLink.entity_type == entity_type,
+            DocLink.entity_id == entity_id))).scalar_one_or_none()
+        if existing is not None:
+            return existing, False
+        try:
+            link, _label = await build_doc_link(db, DocLinkCreateIn(
+                doc_path=payload.doc_path, entity_type=entity_type, entity_id=entity_id), root=root)
+        except HTTPException as exc:
+            raise mission_error(exc.status_code, "DOC_LINK_REFUSED", str(exc.detail)) from exc
+        await db.flush()
+        return link, True
+
+    link, link_created = await link_for(link_type, payload.entity_id)
+    artifact = version = None
+    version_created = False
+    if payload.register_artifact:
+        artifact_link = (await db.execute(select(DocLink).where(
+            DocLink.doc_path == payload.doc_path, DocLink.entity_type == "artifact",
+        ).order_by(DocLink.created_at).limit(1))).scalar_one_or_none()
+        if artifact_link is not None:
+            artifact = (await db.execute(select(Artifact).where(Artifact.id == artifact_link.entity_id).options(
+                selectinload(Artifact.versions)))).scalar_one_or_none()
+        if artifact is not None:
+            if payload.artifact_type is not None and artifact.artifact_type.value != payload.artifact_type:
+                raise mission_error(409, "ARTIFACT_TYPE_MISMATCH", "This document is already another artifact type",
+                                    artifact_id=str(artifact.id), artifact_type=artifact.artifact_type.value)
+            latest = max(artifact.versions, key=lambda v: v.version_number, default=None)
+            if latest is not None and latest.checksum == digest:
+                version = latest
+            else:
+                if artifact.is_locked:
+                    raise mission_error(409, "ARTIFACT_LOCKED", "The artifact is locked; it takes no new version",
+                                        artifact_id=str(artifact.id))
+                version = build_artifact_version(artifact, ArtifactVersionCreate(
+                    location_uri=payload.doc_path, checksum=digest,
+                    notes=f"attach_project_document by {principal.display_name}"))
+                version_created = True
+        else:
+            artifact = await build_artifact(db, ArtifactCreate(
+                name=f"{project.name} — {payload.doc_path}"[:255],
+                artifact_type=ArtifactType(payload.artifact_type or "reference_doc"),
+                description=f"Attached to {payload.entity_type} {payload.entity_id} of project {project.id}",
+                initial_version=ArtifactVersionCreate(
+                    location_uri=payload.doc_path, checksum=digest,
+                    notes=f"attach_project_document by {principal.display_name}"),
+            ))
+            await db.flush()
+            version = artifact.versions[0]
+            version_created = True
+            await link_for("artifact", artifact.id)
+        await db.flush()
+
+    db.add(AuditEvent(
+        entity_type="mission" if project.project_type == "mission" else "project", entity_id=project_id,
+        event_type="document_attached", actor=principal.display_name,
+        payload=_audit_payload(principal, source, None, idempotency_key=payload.idempotency_key,
+                               membership_id=str(membership.id) if membership else None,
+                               role=membership.role if membership else None,
+                               doc_path=payload.doc_path, content_hash=digest,
+                               entity_type=payload.entity_type, entity_id=str(payload.entity_id),
+                               doc_link_id=str(link.id), link_created=link_created,
+                               artifact_id=str(artifact.id) if artifact else None,
+                               artifact_version_id=str(version.id) if version else None,
+                               artifact_version_created=version_created),
+    ))
+    out = MissionDocumentOut(
+        project_id=project_id, doc_link_id=link.id, doc_path=payload.doc_path, entity_type=payload.entity_type,
+        entity_id=payload.entity_id, content_hash=digest, link_created=link_created,
+        artifact_id=artifact.id if artifact else None, artifact_version_id=version.id if version else None,
+        artifact_version_number=version.version_number if version else None,
+        artifact_version_created=version_created,
+    )
+    status_code = 201 if (link_created or version_created) else 200
+    body = out.model_dump(mode="json")
+    record_command(db, principal, payload.idempotency_key, command, body_hash, status_code, body,
+                   target_type="doc_link", target_id=link.id)
+    await db.commit()
+    return JSONResponse(status_code=status_code, content=body)

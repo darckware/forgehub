@@ -22,6 +22,10 @@ PID = "11111111-1111-4111-8111-111111111111"
     ("POST", f"/api/v1/missions/{PID}:transition"),
     ("POST", f"/api/v1/missions/{PID}/planning:advance"),
     ("POST", f"/api/v1/missions/{PID}/members:apply"),
+    # M0.2d
+    ("POST", f"/api/v1/missions/{PID}/documents"),
+    ("GET", f"/api/v1/missions/{PID}/me"),
+    ("GET", "/api/v1/missions/me/tasks"),
     # Pre-existing agt_ surface, unchanged.
     ("GET", "/api/v1/projects"),
     ("GET", f"/api/v1/tasks/{PID}"),
@@ -43,6 +47,11 @@ def test_agent_reaches_mission_paths(method, path):
     ("POST", "/api/v1/missions-admin/x"),
     ("POST", "/api/v1/tasks"),
     ("GET", "/api/v1/users"),
+    # attach_project_document composes these in-process; an agt_ never reaches them directly.
+    ("POST", "/api/v1/docs/links"),
+    ("DELETE", f"/api/v1/docs/links/{PID}"),
+    ("POST", "/api/v1/artifacts"),
+    ("POST", f"/api/v1/artifacts/{PID}/versions"),
 ])
 def test_agent_does_not_reach_other_paths(method, path):
     assert not is_agent_command_path(method, path)

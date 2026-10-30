@@ -719,24 +719,27 @@ See §7. **Input:** `project_id`, `plan: {name, scope_summary, estimated_start_d
 - **Rules:** the caller can never set `verified`/`completed`; only `run_evidence_verification_pass` [backend/app/core/task_evidence.py:164] promotes `reported → verified`. Evidence outside the project root or on another project's repo is refused at report time (422 `EVIDENCE_OUT_OF_SCOPE`).
 - **Audit:** `execution_reported`. **Rollback:** a new report supersedes (keeps history in audit); the execution row is never deleted.
 
-### 5.8 `attach_project_document` (M0.2d)
+### 5.8 `attach_project_document` (M0.2d) [EXISTS]
 
 - **Input:** `project_id`, `entity_type ∈ {project, planning_item, project_task, mission_criterion}`, `entity_id`, `doc_path` (relative, under `docs/missions/<slug>/` or the project's `docs/`), `register_artifact: bool`, `artifact_type?`, `idempotency_key`.
 - **Output:** `{doc_link_id, artifact_id?, artifact_version_id?, content_hash}`.
 - **Actor/scope:** member of the project (any active role); `documentation` role for the mission brief/dossier.
-- **HTTP:** existing `POST /api/v1/docs/links` [backend/app/api/routes/docs.py:401] and artifact routes [backend/app/api/routes/artifact.py:110,233] composed by `POST /api/v1/missions/{project_id}/documents` [PROPOSED] (one transaction).
+- **HTTP:** existing `POST /api/v1/docs/links` [backend/app/api/routes/docs.py:401] and artifact routes [backend/app/api/routes/artifact.py:110,233] composed by `POST /api/v1/missions/{project_id}/documents` [EXISTS backend/app/api/routes/mission.py `attach_project_document`] (one transaction; in-process through `build_doc_link` [backend/app/api/routes/docs.py] and `build_artifact`/`build_artifact_version` [backend/app/api/routes/artifact.py], the routes' bodies without their commit).
 - **Errors:** 422 `DOC_PATH_NOT_ALLOWED` (absolute, `..`, symlink escaping the root after realpath, outside allowed roots), 404 entity outside project.
 - **Idempotency:** receipt + natural `(doc_path, entity_type, entity_id)`.
 - **Audit:** `document_attached` with hash. **Rollback:** existing `DELETE /docs/links/{id}` [backend/app/api/routes/docs.py:434]; artifact versions are never deleted.
+- **As built (M0.2d):** `doc_path` is relative to the Docs tree (`/docs`, the base `DocLink.doc_path` always had), under `missions/<slug>/` (mission) or `projects/<slug>/` (any project), slug = project name lowercased, non-alphanumerics as `-` (the `system_scope.py` convention) — rules in `backend/app/core/mission_documents.py`; the 422 carries `reason` (`absolute`, `parent_reference`, `not_normalized`, `invalid_characters`, `outside_allowed_roots`, `symlink_escape` — a symlinked project folder counts) and `allowed_prefixes`; a missing file is 404 `DOC_FILE_NOT_FOUND`. `content_hash` = sha256 hex of the bytes, also the version's `checksum`. `project_task` is stored as DocLink `task`. **`mission_criterion` is refused (422 `ENTITY_TYPE_NOT_SUPPORTED`)**: `doc_links`' CHECK has no such type and widening it is a migration, deferred to the criteria write route (M0.2). Authority is the active membership (no delegation action); a non-member agent gets 404 `PROJECT_NOT_FOUND`; a person must be admin. The brief/dossier is `BRIEF.md`, `DOSSIE-DE-VALIDACAO.md` or `artifact_type=context_brief` (403 `DOCUMENTATION_ROLE_REQUIRED`). With `register_artifact`, the artifact is the one already linked to that `doc_path` (DocLink `artifact`) or a new one (`reference_doc` by default): a new version only when the hash changed (409 `ARTIFACT_LOCKED`, `ARTIFACT_TYPE_MISMATCH`). 201 when a link or version was created, 200 otherwise; same switch, limits and receipts as M0.2a. Attaching does not set `project_missions.brief_artifact_id`.
 
-### 5.9 `get_my_mission_role` (M0.2d, read)
+### 5.9 `get_my_mission_role` (M0.2d, read) [EXISTS]
 
 - **Input:** `project_id`. **Output:** `{project_id, mission_state, role, can_review, responsibilities, orchestrator, my_tasks: [{task_id, number, title, status, execution_state}], my_reviews: [{execution_id, task_id}]}`.
-- **Actor/scope:** the caller only; not a member → 404 (no existence leak). **HTTP:** `GET /api/v1/missions/{project_id}/me` [PROPOSED]. Read-only, no audit, no idempotency.
+- **Actor/scope:** the caller only; not a member → 404 (no existence leak). **HTTP:** `GET /api/v1/missions/{project_id}/me` [EXISTS backend/app/api/routes/mission.py `get_my_mission_role`]. Read-only, no audit, no idempotency.
+- **As built (M0.2d):** member = active `ProjectAgentMembership`; also answers for a creation/maintenance project (`mission_state` null). Executor = an active `TaskAssignment`; reviewer = a `TaskExecutionReview` held by the caller's membership; each task carries `relations` and `execution_state` (latest `TaskExecution.status`). A person gets 403 `AGENT_ONLY`. Behind `MISSION_TOOLS_ENABLED` (503 off).
+- **`GET /api/v1/missions/{id}` restricted (M0.2d, 09 "lacunas")**: admins and active members only; anyone else gets the same 404 `MISSION_NOT_FOUND` as a missing mission. Not switchable.
 
-### 5.10 `list_my_tasks` (M0.2d, read)
+### 5.10 `list_my_tasks` (M0.2d, read) [EXISTS]
 
-`GET /api/v1/missions/me/tasks?state=` [PROPOSED] — tasks where the caller is executor or reviewer across missions it belongs to; same item shape as 5.9.
+`GET /api/v1/missions/me/tasks?state=` [EXISTS backend/app/api/routes/mission.py `list_my_tasks`] — tasks where the caller is executor or reviewer across missions it belongs to; same item shape as 5.9 (plus `project_id`). As built: `state` = `open` (default: not `done`/`deployed`/`cancelled`), `all` or one task status (422 `INVALID_STATE_FILTER` otherwise); missions only; output `{state, tasks}`.
 
 ### 5.11 `request_task_review` (needed by the screen and cycle; proposed as part of M0.2c — §11 D-M0-5)
 
@@ -945,8 +948,8 @@ rows (CLAUDE.md test conventions).
 | `test_assign_refused_when_reviewer_or_in_flight` | |
 | `test_dispatch_guards_order_and_retry` | guard order; retry without duplicate |
 | `test_report_cannot_set_verified` | executor reports; `verified` only from the verification pass; non-executor → 403 |
-| `test_attach_document_path_rules` | absolute, `..`, symlink escape, other project → refused |
-| `test_my_role_only_own` | agent sees only its own role/tasks |
+| `test_attach_document_path_rules` | absolute, `..`, symlink escape, other project → refused [EXISTS M0.2d; also `test_attach_document_idempotent_versioned_and_role_gated`, unit `tests_unit/test_mission_documents.py`] |
+| `test_my_role_only_own` | agent sees only its own role/tasks [EXISTS M0.2d; also non-member 404 on `GET /missions/{id}`] |
 | `test_missing_or_foreign_agt_token` | missing → tool error, no fallback; another agent's token cannot act as the caller |
 | `test_tools_disabled_flag` | `MISSION_TOOLS_ENABLED=false` → 503, data untouched |
 | `test_error_mapping` (unit) | each HTTP status → MCP message format with `code` |
