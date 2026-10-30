@@ -14,8 +14,9 @@ Factory reads and task mutations require ``FORGEHUB_AGENT_TOKEN`` (an
 (2026-10-19): an agent runs library scripts on client machines as itself --
 recorded with its name and the reason -- and only with an active delegation
 for ``remote_access.execute`` whose risk ceiling fits the script. The mission
-tools (M0.2a: create_internal_project, manage_project_members) write as the
-caller too, with a required idempotency_key. Messages continues to use its narrowly
+tools (M0.2a: create_internal_project, manage_project_members; M0.2d:
+attach_project_document, get_my_mission_role, list_my_tasks) act as the
+caller too (every write with a required idempotency_key). Messages continues to use its narrowly
 scoped bridge token. API failures are always surfaced as tool errors.
 """
 
@@ -579,6 +580,55 @@ async def manage_project_members(
         {"operations": operations, "idempotency_key": idempotency_key},
     )
     return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def attach_project_document(
+    project_id: str,
+    entity_type: str,
+    entity_id: str,
+    doc_path: str,
+    idempotency_key: str,
+    register_artifact: bool = False,
+    artifact_type: str | None = None,
+) -> dict[str, Any]:
+    """Link a document you wrote to a project you are a member of, as
+    yourself. `entity_type`: project | planning_item | project_task (the
+    entity must be in that project). `doc_path` is relative to the Docs tree
+    and must sit under the project's own folder: `missions/<slug>/...` (a
+    mission) or `projects/<slug>/...`, slug = the project name lowercased with
+    non-alphanumerics as '-'; absolute paths, '..' and symlinks leaving the
+    folder are refused (DOC_PATH_NOT_ALLOWED, with the allowed prefixes).
+    `register_artifact=true` also records it as an Artifact version
+    (`artifact_type` default reference_doc); a new version is created only
+    when the file's sha256 changed. BRIEF.md and DOSSIE-DE-VALIDACAO.md need
+    the documentation role. Same idempotency rules as create_internal_project;
+    attaching an already linked document returns the existing link."""
+    body: dict[str, Any] = {
+        "entity_type": entity_type, "entity_id": entity_id, "doc_path": doc_path,
+        "register_artifact": register_artifact, "idempotency_key": idempotency_key,
+    }
+    if artifact_type is not None:
+        body["artifact_type"] = artifact_type
+    data, replayed = await _mission_write(f"/api/v1/missions/{project_id}/documents", body)
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def get_my_mission_role(project_id: str) -> dict[str, Any]:
+    """Your own role in a mission (or internal project) you are an active
+    member of: role, can_review, responsibilities, the orchestrator, your
+    tasks (as executor or reviewer, with the latest execution state) and your
+    reviews. A project you are not a member of answers not found."""
+    return await _factory_call("GET", f"/api/v1/missions/{project_id}/me")
+
+
+@mcp.tool()
+async def list_my_tasks(state: str = "open") -> dict[str, Any]:
+    """Your tasks (assigned to you, or that you review) across the missions you
+    are an active member of. `state`: open (default: not done/deployed/
+    cancelled), all, or one task status. Never shows another agent's tasks."""
+    return await _factory_call("GET", _query("/api/v1/missions/me/tasks", state=state))
 
 
 def _as_data(execution: dict[str, Any]) -> dict[str, Any]:

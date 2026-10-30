@@ -118,4 +118,48 @@ async def test_tools_forward_the_contract(monkeypatch):
 
 def test_tools_registered():
     tools = factory_server.mcp._tool_manager._tools
-    assert {"create_internal_project", "manage_project_members"} <= tools.keys()
+    assert {"create_internal_project", "manage_project_members", "attach_project_document",
+            "get_my_mission_role", "list_my_tasks"} <= tools.keys()
+
+
+async def test_m0_2d_tools_forward_the_contract(monkeypatch):
+    sent = []
+
+    class Response:
+        status_code = 200
+        headers: dict = {}
+
+        def __init__(self, body):
+            self._body = body
+
+        def json(self):
+            return self._body
+
+    async def fake(method, path, *, json=None, write=False):
+        sent.append((method, path, json, write))
+        return Response({"doc_link_id": "l"} if method == "POST" else {"tasks": []})
+
+    monkeypatch.setattr(factory_server, "_factory_request", fake)
+    monkeypatch.setenv("FORGEHUB_AGENT_TOKEN", "agt_x")
+    attached = await factory_server.attach_project_document("p", "project_task", "t", "missions/s/a.md", "k",
+                                                            register_artifact=True, artifact_type="spec")
+    await factory_server.get_my_mission_role("p")
+    await factory_server.list_my_tasks("all")
+    assert attached == {"doc_link_id": "l", "replayed": False}
+    assert sent == [
+        ("POST", "/api/v1/missions/p/documents", {
+            "entity_type": "project_task", "entity_id": "t", "doc_path": "missions/s/a.md",
+            "register_artifact": True, "idempotency_key": "k", "artifact_type": "spec"}, True),
+        ("GET", "/api/v1/missions/p/me", None, False),
+        ("GET", "/api/v1/missions/me/tasks?state=all", None, False),
+    ]
+
+
+async def test_attach_refuses_locally_without_key(monkeypatch):
+    async def no_network(*args, **kwargs):
+        raise AssertionError("must not call the API")
+
+    monkeypatch.setattr(factory_server, "_factory_request", no_network)
+    monkeypatch.setenv("FORGEHUB_AGENT_TOKEN", "agt_x")
+    with pytest.raises(factory_server.FactoryError, match="idempotency_key is required"):
+        await factory_server.attach_project_document("p", "project", "p", "missions/s/a.md", " ")

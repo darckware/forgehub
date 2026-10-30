@@ -107,10 +107,10 @@ async def _get_artifact_or_404(db: AsyncSession, artifact_id: uuid.UUID) -> Arti
     return artifact
 
 
-@router.post("", response_model=ArtifactWithVersionsOut, status_code=status.HTTP_201_CREATED)
-async def create_artifact(
-    payload: ArtifactCreate, db: AsyncSession = Depends(get_db)
-) -> Artifact:
+async def build_artifact(db: AsyncSession, payload: ArtifactCreate) -> Artifact:
+    """create_artifact's body without its commit (validations, the artifact
+    and its optional first version added to the session). Also used by
+    mission.py's attach_project_document (M0.2d)."""
     await _validate_artifact_links(db, payload.pipeline_stage_id, payload.task_execution_id)
     if (
         payload.initial_version is not None
@@ -145,6 +145,14 @@ async def create_artifact(
         )
 
     db.add(artifact)
+    return artifact
+
+
+@router.post("", response_model=ArtifactWithVersionsOut, status_code=status.HTTP_201_CREATED)
+async def create_artifact(
+    payload: ArtifactCreate, db: AsyncSession = Depends(get_db)
+) -> Artifact:
+    artifact = await build_artifact(db, payload)
     await db.commit()
     await db.refresh(artifact, attribute_names=["versions"])
     return artifact
@@ -289,17 +297,11 @@ async def decide_artifact_approval(
 # ---------------------------------------------------------------------------
 # ArtifactVersion sub-resource
 # ---------------------------------------------------------------------------
-@router.post(
-    "/{artifact_id}/versions",
-    response_model=ArtifactVersionOut,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_artifact_version(
-    artifact_id: uuid.UUID,
-    payload: ArtifactVersionCreate,
-    db: AsyncSession = Depends(get_db),
-) -> ArtifactVersion:
-    artifact = await _get_artifact_or_404(db, artifact_id)
+def build_artifact_version(artifact: Artifact, payload: ArtifactVersionCreate) -> ArtifactVersion:
+    """create_artifact_version's body without its commit: next sequential
+    number, the locked-artifact refusal and the "a new revision reopens
+    review" rule. ``artifact`` must have its versions loaded. Also used by
+    mission.py's attach_project_document (M0.2d)."""
     _assert_not_locked(artifact)
 
     next_version_number = (
@@ -314,13 +316,27 @@ async def create_artifact_version(
         status=payload.status,
         produced_by_task_execution_id=payload.produced_by_task_execution_id,
     )
-    db.add(version)
+    artifact.versions.append(version)
 
     # A new revision on an already-approved artifact reopens governance
     # review -- it must be re-approved against the new content.
     if artifact.status == ArtifactStatus.APPROVED:
         artifact.status = ArtifactStatus.SUBMITTED
+    return version
 
+
+@router.post(
+    "/{artifact_id}/versions",
+    response_model=ArtifactVersionOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_artifact_version(
+    artifact_id: uuid.UUID,
+    payload: ArtifactVersionCreate,
+    db: AsyncSession = Depends(get_db),
+) -> ArtifactVersion:
+    artifact = await _get_artifact_or_404(db, artifact_id)
+    version = build_artifact_version(artifact, payload)
     await db.commit()
     await db.refresh(version)
     return version

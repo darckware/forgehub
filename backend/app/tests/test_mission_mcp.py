@@ -1,5 +1,6 @@
-"""M0.2a mission MCP: create_internal_project and manage_project_members
-(docs/architecture/MCP_MISSION_TOOLS_SPEC.md §0.4, §5.1, §5.2, §9.4).
+"""M0.2a/M0.2d mission MCP: create_internal_project, manage_project_members,
+attach_project_document, get_my_mission_role and list_my_tasks
+(docs/architecture/MCP_MISSION_TOOLS_SPEC.md §0.4, §5.1, §5.2, §5.8-§5.10, §9.4).
 
 Runs only against the isolated test database. Each test owns its product,
 agents and projects (names start with ``mission-test-`` so test_mission_base's
@@ -20,17 +21,22 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, text
 
-from app.core import command_receipts
+from app.core import command_receipts, mission_documents
 from app.core.config import settings
+from app.core.security import create_access_token
 from app.db.base import AsyncSessionLocal
 from app.db.models.agent import Agent, AgentServiceCredential
+from app.db.models.artifact import Artifact, ArtifactVersion
+from app.db.models.backlog import PlanningItem
 from app.db.models.command_receipt import AgentCommandReceipt
+from app.db.models.doc_link import DocLink
 from app.db.models.governance import AuditEvent, AuthorityDelegation
 from app.db.models.mission import ProjectMission
 from app.db.models.operations import AgentCharter
-from app.db.models.orchestration import ProjectAgentMembership
+from app.db.models.orchestration import ProjectAgentMembership, TaskExecutionReview
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import Project
+from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
 from app.db.models.user import User
 from app.main import app
 from app.mcp import factory_server
@@ -522,3 +528,286 @@ async def test_migration_roundtrip_only_this_revision():
         assert up.returncode == 0, up.stderr
     assert await _receipts_table_exists()
     assert REVISION in _alembic("current").stdout
+
+
+# ---------------------------------------------------------------------------
+# M0.2d: attach_project_document, get_my_mission_role, list_my_tasks (§5.8-§5.10)
+# ---------------------------------------------------------------------------
+@pytest_asyncio.fixture
+async def docs_root(tmp_path, monkeypatch):
+    """The Docs tree for these tests: a temporary directory, never /docs.
+    Removes the doc_links and artifacts the attach calls wrote."""
+    root = tmp_path / "docs"
+    root.mkdir()
+    monkeypatch.setattr(mission_documents, "MISSION_DOCS_ROOT", root)
+    yield root
+    async with AsyncSessionLocal() as db:
+        await db.execute(text("DELETE FROM company.doc_links WHERE doc_path LIKE 'missions/mission-test-%' "
+                              "OR doc_path LIKE 'projects/mission-test-%'"))
+        await db.execute(text("DELETE FROM company.artifacts WHERE name LIKE 'mission-test-%'"))
+        await db.commit()
+
+
+async def _doc_mission(mw: McpWorld, mcp_as) -> tuple[uuid.UUID, str, uuid.UUID, str]:
+    """A mission created by its orchestrator through the MCP; returns
+    (project_id, slug, orchestrator_id, orchestrator_token)."""
+    product_id, version_id = await mw.version()
+    orchestrator = await mw.agent("orch", runtime="hermes", never_does=[HERMES_NEVER])
+    token = await mw.token(orchestrator, product_id=product_id)
+    mcp_as(token)
+    name = f"mission-test-doc-{uuid.uuid4().hex[:8]}"
+    created = await factory_server.create_internal_project(str(version_id), name, _key())
+    return uuid.UUID(created["project_id"]), mission_documents.project_slug(name), orchestrator, token
+
+
+async def _member(mw: McpWorld, project_id: uuid.UUID, label: str, role: str, runtime: str = "claude",
+                  can_review: bool = False) -> tuple[uuid.UUID, uuid.UUID, str]:
+    agent_id = await mw.agent(label, runtime=runtime)
+    async with AsyncSessionLocal() as db:
+        membership = ProjectAgentMembership(project_id=project_id, agent_id=agent_id, role=role,
+                                            status="active", can_review=can_review)
+        db.add(membership)
+        await db.commit()
+        membership_id = membership.id
+    return agent_id, membership_id, await mw.token(agent_id, actions=None)
+
+
+async def _planning_item(project_id: uuid.UUID) -> uuid.UUID:
+    async with AsyncSessionLocal() as db:
+        item = PlanningItem(project_id=project_id, title="mission-test item", item_type="feature")
+        db.add(item)
+        await db.commit()
+        return item.id
+
+
+async def _task(item_id: uuid.UUID, title: str, assignee: uuid.UUID | None, status: str = "assigned") -> uuid.UUID:
+    async with AsyncSessionLocal() as db:
+        task = ProjectTask(planning_item_id=item_id, title=title, status=status)
+        db.add(task)
+        await db.flush()
+        if assignee is not None:
+            db.add(TaskAssignment(task_id=task.id, agent_id=assignee, status="active"))
+        await db.commit()
+        return task.id
+
+
+def _write(root: Path, rel: str, content: str) -> Path:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def _attach_body(project_id: uuid.UUID, doc_path: str, **extra) -> dict:
+    return {"entity_type": "project", "entity_id": str(project_id), "doc_path": doc_path,
+            "idempotency_key": _key(), **extra}
+
+
+@pytest.mark.asyncio
+async def test_attach_document_path_rules(mw, mcp_as, docs_root):
+    project_id, slug, _orchestrator, token = await _doc_mission(mw, mcp_as)
+    _write(docs_root, f"missions/{slug}/ok.md", "fine")
+    outside = _write(docs_root.parent, "secret.md", "outside the Docs tree")
+    _write(docs_root, "projects/other-project/x.md", "another project's folder")
+    (docs_root / f"missions/{slug}/leak.md").symlink_to(outside)
+    (docs_root / "projects").mkdir(exist_ok=True)
+    (docs_root / f"projects/{slug}").symlink_to(docs_root / "projects/other-project")
+    other_project, *_ = await _doc_mission(mw, mcp_as)
+    foreign_item = await _planning_item(other_project)
+    mcp_as(token)
+
+    url = f"/api/v1/missions/{project_id}/documents"
+    refused_paths = {
+        "/etc/passwd": "absolute",
+        f"missions/{slug}/../{slug}/ok.md": "parent_reference",
+        "projects/other-project/x.md": "outside_allowed_roots",
+        f"missions/{slug}//ok.md": "not_normalized",
+        f"missions/{slug}/leak.md": "symlink_escape",
+        f"projects/{slug}/x.md": "symlink_escape",
+    }
+    async with mw.client(mw.bearer(token)) as client:
+        for doc_path, reason in refused_paths.items():
+            response = await client.post(url, json=_attach_body(project_id, doc_path))
+            assert response.status_code == 422, (doc_path, response.text)
+            detail = response.json()["detail"]
+            assert detail["code"] == "DOC_PATH_NOT_ALLOWED" and detail["reason"] == reason, doc_path
+            assert detail["allowed_prefixes"] == [f"missions/{slug}/", f"projects/{slug}/"]
+        missing = await client.post(url, json=_attach_body(project_id, f"missions/{slug}/absent.md"))
+        foreign = await client.post(url, json={**_attach_body(project_id, f"missions/{slug}/ok.md"),
+                                               "entity_type": "planning_item", "entity_id": str(foreign_item)})
+        wrong_project = await client.post(url, json={**_attach_body(project_id, f"missions/{slug}/ok.md"),
+                                                     "entity_id": str(other_project)})
+    assert missing.status_code == 404 and missing.json()["detail"]["code"] == "DOC_FILE_NOT_FOUND"
+    assert foreign.status_code == 404 and foreign.json()["detail"]["code"] == "ENTITY_NOT_IN_PROJECT"
+    assert wrong_project.status_code == 404 and wrong_project.json()["detail"]["code"] == "ENTITY_NOT_IN_PROJECT"
+    with pytest.raises(factory_server.FactoryError, match=r"\(422\): DOC_PATH_NOT_ALLOWED"):
+        await factory_server.attach_project_document(str(project_id), "project", str(project_id),
+                                                     "../secret.md", _key())
+    async with AsyncSessionLocal() as db:
+        assert (await db.execute(select(DocLink).where(DocLink.entity_id == project_id))).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_attach_document_idempotent_versioned_and_role_gated(mw, mcp_as, docs_root):
+    project_id, slug, orchestrator, token = await _doc_mission(mw, mcp_as)
+    doc_path = f"missions/{slug}/phase-1.md"
+    path = _write(docs_root, doc_path, "first version")
+    key = _key()
+
+    first = await factory_server.attach_project_document(str(project_id), "project", str(project_id), doc_path, key,
+                                                         register_artifact=True)
+    assert first["replayed"] is False and first["link_created"] is True and first["artifact_version_created"]
+    assert first["content_hash"] == hashlib.sha256(b"first version").hexdigest()
+    assert first["artifact_version_number"] == 1
+    again = await factory_server.attach_project_document(str(project_id), "project", str(project_id), doc_path, key,
+                                                         register_artifact=True)
+    assert again == {**first, "replayed": True}
+    with pytest.raises(factory_server.FactoryError, match="IDEMPOTENCY_KEY_REUSED"):
+        await factory_server.attach_project_document(str(project_id), "project", str(project_id), doc_path, key)
+
+    async with mw.client(mw.bearer(token)) as client:
+        body = _attach_body(project_id, doc_path, register_artifact=True)
+        same = await client.post(f"/api/v1/missions/{project_id}/documents", json=body)
+        path.write_text("second version", encoding="utf-8")
+        changed = await client.post(f"/api/v1/missions/{project_id}/documents",
+                                    json={**body, "idempotency_key": _key()})
+    # Natural key: the same document is not linked twice and the artifact gets
+    # a new version only when the bytes changed.
+    assert same.status_code == 200
+    assert same.json()["doc_link_id"] == first["doc_link_id"] and same.json()["link_created"] is False
+    assert same.json()["artifact_version_id"] == first["artifact_version_id"]
+    assert changed.status_code == 201 and changed.json()["artifact_version_number"] == 2
+    assert changed.json()["artifact_id"] == first["artifact_id"]
+    assert changed.json()["content_hash"] == hashlib.sha256(b"second version").hexdigest()
+
+    # A task of the mission is linked as DocLink entity_type "task".
+    item_id = await _planning_item(project_id)
+    task_id = await _task(item_id, "Write phase 1", assignee=None)
+    to_task = await factory_server.attach_project_document(str(project_id), "project_task", str(task_id),
+                                                           doc_path, _key())
+    assert to_task["artifact_id"] is None and to_task["link_created"] is True
+
+    # The brief needs the documentation role; a coordinator is refused, a non-member is not told it exists.
+    brief = f"missions/{slug}/BRIEF.md"
+    _write(docs_root, brief, "# Brief")
+    with pytest.raises(factory_server.FactoryError, match=r"\(403\): DOCUMENTATION_ROLE_REQUIRED"):
+        await factory_server.attach_project_document(str(project_id), "project", str(project_id), brief, _key(),
+                                                     register_artifact=True, artifact_type="context_brief")
+    _writer, _m, writer_token = await _member(mw, project_id, "scriba", "documentation", runtime="hermes")
+    outsider = await mw.agent("outsider")
+    outsider_token = await mw.token(outsider, actions=None)
+    mcp_as(writer_token)
+    attached = await factory_server.attach_project_document(str(project_id), "project", str(project_id), brief,
+                                                            _key(), register_artifact=True,
+                                                            artifact_type="context_brief")
+    assert attached["link_created"] is True and attached["artifact_version_number"] == 1
+    mcp_as(outsider_token)
+    with pytest.raises(factory_server.FactoryError, match=r"\(404\): PROJECT_NOT_FOUND"):
+        await factory_server.attach_project_document(str(project_id), "project", str(project_id), doc_path, _key())
+
+    async with AsyncSessionLocal() as db:
+        links = (await db.execute(select(DocLink).where(DocLink.doc_path == doc_path))).scalars().all()
+        assert sorted(link.entity_type for link in links) == ["artifact", "project", "task"]
+        versions = (await db.execute(select(ArtifactVersion).where(
+            ArtifactVersion.artifact_id == uuid.UUID(first["artifact_id"])))).scalars().all()
+        assert sorted((v.version_number, v.checksum) for v in versions) == [
+            (1, hashlib.sha256(b"first version").hexdigest()), (2, hashlib.sha256(b"second version").hexdigest())]
+        artifact = await db.get(Artifact, uuid.UUID(first["artifact_id"]))
+        assert artifact.artifact_type.value == "reference_doc" and artifact.name.startswith("mission-test-doc-")
+        events = (await db.execute(select(AuditEvent).where(
+            AuditEvent.entity_id == project_id, AuditEvent.event_type == "document_attached",
+        ).order_by(AuditEvent.created_at))).scalars().all()
+        assert len(events) == 5  # first, same, changed, to_task, brief; replays and refusals write none
+        assert events[0].actor.startswith("mission-test-orch-")
+        assert events[0].payload["content_hash"] == first["content_hash"]
+        assert events[0].payload["authority_source"] == "project_membership"
+        assert events[0].payload["principal_id"] == str(orchestrator)
+
+
+@pytest.mark.asyncio
+async def test_my_role_only_own(mw, mcp_as, docs_root):
+    project_id, _slug, orchestrator, orchestrator_token = await _doc_mission(mw, mcp_as)
+    dev, _dev_m, dev_token = await _member(mw, project_id, "dev", "developer", can_review=True)
+    qa, qa_membership, qa_token = await _member(mw, project_id, "qa", "qa", can_review=True)
+    outsider = await mw.agent("outsider")
+    outsider_token = await mw.token(outsider, actions=None)
+    item_id = await _planning_item(project_id)
+    dev_task = await _task(item_id, "Dev task", assignee=dev)
+    dev_done = await _task(item_id, "Dev task done", assignee=dev, status="done")
+    qa_task = await _task(item_id, "QA task", assignee=qa)
+    async with AsyncSessionLocal() as db:
+        execution = TaskExecution(task_id=dev_task, status="completed")
+        db.add(execution)
+        await db.flush()
+        db.add(TaskExecutionReview(execution_id=execution.id, reviewer_membership_id=qa_membership))
+        await db.commit()
+        execution_id = execution.id
+
+    mcp_as(dev_token)
+    mine = await factory_server.get_my_mission_role(str(project_id))
+    assert mine["role"] == "developer" and mine["mission_state"] == "draft" and mine["project_type"] == "mission"
+    assert mine["orchestrator"]["agent_id"] == str(orchestrator)
+    assert {(t["task_id"], tuple(t["relations"])) for t in mine["my_tasks"]} == {
+        (str(dev_task), ("executor",)), (str(dev_done), ("executor",))}
+    assert next(t for t in mine["my_tasks"] if t["task_id"] == str(dev_task))["execution_state"] == "completed"
+    assert mine["my_reviews"] == []
+    open_tasks = await factory_server.list_my_tasks()
+    assert [t["task_id"] for t in open_tasks["tasks"]] == [str(dev_task)]
+    assert {t["task_id"] for t in (await factory_server.list_my_tasks("all"))["tasks"]} == {str(dev_task), str(dev_done)}
+    assert [t["task_id"] for t in (await factory_server.list_my_tasks("done"))["tasks"]] == [str(dev_done)]
+    with pytest.raises(factory_server.FactoryError, match=r"\(422\): INVALID_STATE_FILTER"):
+        await factory_server.list_my_tasks("whatever")
+
+    mcp_as(qa_token)
+    qa_view = await factory_server.get_my_mission_role(str(project_id))
+    assert {(t["task_id"], tuple(t["relations"])) for t in qa_view["my_tasks"]} == {
+        (str(dev_task), ("reviewer",)), (str(qa_task), ("executor",))}
+    assert [(r["execution_id"], r["task_id"]) for r in qa_view["my_reviews"]] == [(str(execution_id), str(dev_task))]
+    assert str(dev_done) not in {t["task_id"] for t in (await factory_server.list_my_tasks("all"))["tasks"]}
+
+    # Not a member: 404 on /me and on the mission itself, nothing listed.
+    mcp_as(outsider_token)
+    with pytest.raises(factory_server.FactoryError, match=r"\(404\): PROJECT_NOT_FOUND"):
+        await factory_server.get_my_mission_role(str(project_id))
+    with pytest.raises(factory_server.FactoryError, match=r"\(404\): PROJECT_NOT_FOUND"):
+        await factory_server.get_my_mission_role(str(uuid.uuid4()))
+    assert (await factory_server.list_my_tasks("all"))["tasks"] == []
+    grantor = User(username=f"mission-plain-{uuid.uuid4().hex[:8]}", hashed_password="x", is_admin=False)
+    async with AsyncSessionLocal() as db:
+        db.add(grantor)
+        await db.commit()
+    mw.user_ids.append(grantor.id)
+    url = f"/api/v1/missions/{project_id}"
+    async with mw.client(mw.bearer(outsider_token)) as client:
+        hidden = await client.get(url)
+        missing = await client.get(f"/api/v1/missions/{uuid.uuid4()}")
+    async with mw.client({"Authorization": f"Bearer {create_access_token(grantor.username)}"}) as client:
+        plain_user = await client.get(url)
+        user_me = await client.get(f"{url}/me")
+    async with mw.client(mw.bearer(dev_token)) as client:
+        member = await client.get(url)
+    async with mw.client(mw.bearer(orchestrator_token)) as client:
+        orchestrator_read = await client.get(url)
+    async with mw.client() as client:
+        admin = await client.get(url)
+    assert hidden.status_code == 404 and hidden.json() == missing.json()  # no existence leak
+    assert plain_user.status_code == 404
+    assert user_me.status_code == 403 and user_me.json()["detail"]["code"] == "AGENT_ONLY"
+    assert member.status_code == orchestrator_read.status_code == admin.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_m0_2d_tools_disabled_flag(mw, mcp_as, docs_root, monkeypatch):
+    project_id, slug, _orchestrator, _token = await _doc_mission(mw, mcp_as)
+    _write(docs_root, f"missions/{slug}/x.md", "x")
+    monkeypatch.setattr(settings, "MISSION_TOOLS_ENABLED", False)
+    for call in (
+        factory_server.attach_project_document(str(project_id), "project", str(project_id), f"missions/{slug}/x.md",
+                                               _key()),
+        factory_server.get_my_mission_role(str(project_id)),
+        factory_server.list_my_tasks(),
+    ):
+        with pytest.raises(factory_server.FactoryError, match=r"\(503\): MISSION_TOOLS_DISABLED"):
+            await call
+    async with AsyncSessionLocal() as db:
+        assert (await db.execute(select(DocLink).where(DocLink.entity_id == project_id))).scalars().all() == []
