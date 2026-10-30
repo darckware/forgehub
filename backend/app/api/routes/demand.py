@@ -1228,7 +1228,7 @@ async def reconcile_message(demand_id: uuid.UUID, db: AsyncSession = Depends(get
     demand.dispatch_deadline_at = datetime.now(timezone.utc) + timedelta(minutes=DISPATCH_TIMEOUT_MINUTES)
     await db.flush()
     if run.get("status") not in ("starting", "running"):
-        await _finalize_dispatch(db, demand.id, run)
+        await _finalize_dispatch(db, demand.id, run, expected_run_id=run_id)
     db.add(AuditEvent(entity_type="agent_demand", entity_id=demand.id, event_type="demand_reconciled", actor=admin.username, payload={"run_id": demand.agent_run_id, "state": run.get("status")}))
     await db.commit()
     await db.refresh(demand)
@@ -2090,7 +2090,13 @@ def _extract_evidence_ref(text: str) -> str | None:
     return None
 
 
-async def _finalize_dispatch(db: AsyncSession, demand_id: uuid.UUID, run: dict[str, Any]) -> AgentDemand | None:
+async def _finalize_dispatch(
+    db: AsyncSession,
+    demand_id: uuid.UUID,
+    run: dict[str, Any],
+    *,
+    expected_run_id: str | None = None,
+) -> AgentDemand | None:
     """The terminal transition of a dispatch, shared by the frontend's
     GET .../dispatch-status and the background completion pass: flips
     dispatch_status, stamps the execution time, and records the agent's
@@ -2111,12 +2117,22 @@ async def _finalize_dispatch(db: AsyncSession, demand_id: uuid.UUID, run: dict[s
     app instance running its own copy of that pass. Without the lock each
     of them would create its own duplicate return message for the same run."""
     locked = (
-        await db.execute(select(AgentDemand).where(AgentDemand.id == demand_id).with_for_update())
+        await db.execute(
+            select(AgentDemand)
+            .where(AgentDemand.id == demand_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
     ).scalar_one_or_none()
-    if locked is None or locked.dispatch_status in ("completed", "failed"):
+    if locked is None or (expected_run_id is not None and locked.agent_run_id != expected_run_id):
+        return None
+    if locked.dispatch_status == "completed" or (
+        locked.dispatch_status == "failed" and not requires_reconciliation(locked)
+    ):
         return None
 
     run_status = run.get("status")
+    historical = locked.status == "archived" or locked.consolidated_into_id is not None
     # Terminal: completed / failed / timed_out / cancelled / stale.
     locked.dispatch_status = "completed" if run_status == "completed" else "failed"
     # Reached a terminal state, so the deadline no longer applies -- leaving
@@ -2321,7 +2337,7 @@ async def run_dispatch_completion_pass(db: AsyncSession) -> None:
                     demand.dispatch_status = "running"
                     await db.commit()
                 continue
-            await _finalize_dispatch(db, demand_id, run)
+            await _finalize_dispatch(db, demand_id, run, expected_run_id=run_id)
             # Terminal now: send the outcome back to the channel that asked
             # (2026-08-13). In the same transaction as the state change, so a
             # crash between the two can't leave it delivered-but-unrecorded
@@ -2369,7 +2385,7 @@ async def get_dispatch_status(
         await db.commit()
         return DispatchStatusOut(dispatch_status=demand.dispatch_status, agent_run_id=demand.agent_run_id)
 
-    reply = await _finalize_dispatch(db, demand_id, run)
+    reply = await _finalize_dispatch(db, demand_id, run, expected_run_id=demand.agent_run_id)
     await db.commit()
     await db.refresh(demand)
     if reply is not None:

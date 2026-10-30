@@ -461,6 +461,7 @@ async def test_transient_start_failure_becomes_terminal_after_three_attempts(age
                     Notification.event_key.like(f"demand-dispatch-failed:{demand_id}%")
                 )
             )
+            await session.execute(delete(AgentDemand).where(AgentDemand.failure_check_source_id == demand_id))
             await session.execute(delete(AgentDemand).where(AgentDemand.id == demand_id))
             await session.commit()
 
