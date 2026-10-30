@@ -55,6 +55,9 @@ from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution, TaskR
 
 router = APIRouter(prefix="/api/v1/orchestration", tags=["orchestration"])
 
+# A review in one of these states never changes again (PATCH and refresh).
+REVIEW_DECIDED_STATUSES = frozenset({"approved", "changes_requested", "rejected"})
+
 FORGEROUTER_VIRTUAL_MODELS = (
     ("auto", "Classifica cada requisição e escolhe a rota adequada.", True),
     ("simple", "Trabalho utilitário curto, rápido e barato.", False),
@@ -620,7 +623,10 @@ async def update_execution_review(
     db: AsyncSession = Depends(get_db),
 ) -> TaskExecutionReview:
     review = await _get_or_404(db, TaskExecutionReview, review_id, "Review")
-    if review.status in {"approved", "rejected"}:
+    # changes_requested is final too: after a return for correction the fix is
+    # a new execution with a new review, never the old review flipped to
+    # approved (which would complete the task with no new run).
+    if review.status in REVIEW_DECIDED_STATUSES:
         raise HTTPException(status_code=409, detail="Final review decision is immutable")
     reviewer = await _get_or_404(
         db, ProjectAgentMembership, review.reviewer_membership_id, "Reviewer membership"
@@ -850,6 +856,8 @@ async def refresh_execution_review(
     db: AsyncSession = Depends(get_db),
 ) -> TaskExecutionReview:
     review = await _get_or_404(db, TaskExecutionReview, review_id, "Review")
+    if review.status in REVIEW_DECIDED_STATUSES:
+        raise HTTPException(status_code=409, detail="Final review decision is immutable")
     if not review.runtime_session_ref:
         raise HTTPException(status_code=409, detail="Review has no CLI run reference")
     try:

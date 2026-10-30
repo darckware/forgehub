@@ -787,7 +787,7 @@ otherwise an `AuditEvent(mission_task_returned)`; task `→ in_progress`; no aut
 (orchestrator dispatches explicitly, 04 §1). Allowed to Marcelo and to an agent with
 `mission.orchestrate` that is **not** the executor.
 
-**As built (M0.2c):** 403 `EXECUTOR_CANNOT_RETURN`; a review Task that has not started is archived with the return, any other run in flight refuses (409 `TASK_RUN_IN_FLIGHT`). The reason reaches the next dispatch through §6's "open critique" line (latest `changes_requested` feedback or `mission_task_returned` reason). Not covered: a `changes_requested` review can still be PATCHed to `approved` by its reviewer afterwards (the route only freezes approved/rejected).
+**As built (M0.2c):** 403 `EXECUTOR_CANNOT_RETURN`; a review Task that has not started is archived with the return, any other run in flight refuses (409 `TASK_RUN_IN_FLIGHT`). The reason reaches the next dispatch through §6's "open critique" line (latest `changes_requested` feedback or `mission_task_returned` reason). A decided review (`approved`, `changes_requested`, `rejected`) is final: `PATCH /orchestration/reviews/{id}` and its refresh answer 409, so the fix after a return is a new execution with a new review (closed after Dartan #41797).
 
 ---
 

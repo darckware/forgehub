@@ -378,6 +378,16 @@ async def test_review_request_and_return(world, runner):
         assert (await db.get(AgentDemand, review_demand.id)).status == "archived"
         review = await db.get(TaskExecutionReview, uuid.UUID(review_id))
         assert review.feedback == "the migration has no downgrade"
+    # The returned review is final: the reviewer can't flip it to approved
+    # (that would complete the task with no new run).
+    async with world.client(reviewer_token) as client:
+        flipped = await client.patch(f"/api/v1/orchestration/reviews/{review_id}",
+                                     json={"status": "approved", "feedback": "fine after all"})
+        assert flipped.status_code == 409, flipped.text
+    async with world.client() as client:  # refresh is a person's route (admin)
+        assert (await client.post(f"/api/v1/orchestration/reviews/{review_id}/refresh")).status_code == 409
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(ProjectTask, task.id)).status == "in_progress"
     # Nothing was redispatched; the next dispatch carries the reason.
     assert len(runner.runs) == 1
     again = await _dispatch(world, task.id, orch, idempotency_key=_key(world))
