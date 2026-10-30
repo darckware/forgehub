@@ -139,3 +139,4 @@ from app.db.models.mission import (  # noqa: F401
     MissionProjectLink,
     ProjectMission,
 )
+from app.db.models.command_receipt import AgentCommandReceipt  # noqa: F401

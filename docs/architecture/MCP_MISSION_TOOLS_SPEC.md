@@ -61,8 +61,8 @@ Mapping of `12-primeira-onda.md` §4 checklist to this spec:
   only. **Finding:** `POST /api/v1/tasks` and `POST /api/v1/planning-items` are not on that list, so
   the existing MCP tools `create_project_task` / `create_planning_item`
   [EXISTS backend/app/mcp/factory_server.py:371,391] should be refused 401 for an `agt_`-only caller
-  (code reading, not run — §12). M0.2a adds the prefix `/api/v1/missions/` and the exact task
-  sub-paths listed in §5 to the `agt_` admission list [EXTEND backend/app/main.py:200]; each route
+  (code reading, not run — §12). M0.2a adds the prefix `/api/v1/missions/` [EXISTS since M0.0; M0.2a moved the list into `is_agent_command_path` in backend/app/main.py and tightened it to `/api/v1/missions` and `/api/v1/missions/...`] and the exact task
+  sub-paths listed in §5 (M0.2c) to the `agt_` admission list [EXTEND backend/app/main.py:200]; each route
   still calls `authorize_action` itself.
 
 New delegation action keys [PROPOSED, M0.2a], all project-scoped, `max_risk` respected:
@@ -100,7 +100,7 @@ issue a different write.
 ### 0.4 Idempotency
 
 Every write tool takes a required `idempotency_key` (1–150 chars, caller-generated, e.g.
-`<agent>-<task>-<purpose>-<uuid4>`). The server stores receipts in **[PROPOSED, M0.2a] table
+`<agent>-<task>-<purpose>-<uuid4>`). The server stores receipts in **[EXISTS M0.2a: backend/app/db/models/command_receipt.py, migration `d3f7a1c9e2b5`; helper `begin_command`/`record_command` in backend/app/core/command_receipts.py] table
 `company.agent_command_receipts`**:
 
 | Column | Type | Note |
@@ -118,7 +118,7 @@ Every write tool takes a required `idempotency_key` (1–150 chars, caller-gener
 `UNIQUE (principal_type, principal_id, idempotency_key)`. Same key + same hash → the stored response is
 returned (HTTP 200 with header `Idempotent-Replay: true`). Same key + different hash → 409
 `IDEMPOTENCY_KEY_REUSED`. Receipts are written in the same transaction as the effect. Retention 30 days
-(swept by the existing retention loop pattern; sweep is a M0.2a sub-item). Where a natural key exists
+(swept by the existing retention loop pattern [EXISTS M0.2a: `run_command_receipt_retention`, loop `command-receipt-retention` in backend/app/main.py]). Where a natural key exists
 (e.g. a membership `(project_id, agent_id)` already has `UNIQUE` [EXISTS orchestration.py model,
 backend/app/db/models/orchestration.py:166-167]) it is checked as well.
 
@@ -140,8 +140,8 @@ of an agent or person — 04 §2), and `payload` with at least
 ### 0.6 Rollback convention
 
 Each slice ships: an Alembic migration with a working `downgrade()` tested up/down on the isolated
-test database (T.1); a feature switch `MISSION_TOOLS_ENABLED` [PROPOSED, `core/config.py`, default
-`false`] that makes the new MCP tools and `/api/v1/missions/*` writes return 503
+test database (T.1); a feature switch `MISSION_TOOLS_ENABLED` [EXISTS M0.2a, `core/config.py`, default
+`false`; in M0.2a it gates the M0.2a contract only — `POST /missions` with an `idempotency_key` or a non-mission type, and `members:apply` — so the M0.0 routes keep working] that makes the new MCP tools and `/api/v1/missions/*` writes return 503
 `MISSION_TOOLS_DISABLED` without touching data; guards are **not** switchable (disabling a guard is a
 code rollback through the deploy gate, never a flag). Rolling back never deletes executions, reviews,
 receipts or audit rows.
@@ -200,7 +200,7 @@ receipts or audit rows.
 | `company.plan_baseline_items`; `plan_baselines.content_hash`, `plan_baselines.superseded_at` | table + columns | M0.6b |
 | `company.task_execution_targets` | table | M0.6b (target serialization) |
 | `company.environment_releases` | table | screen slice (M0.7, §11 D-M0-1) |
-| `company.agent_command_receipts` | table | M0.2a |
+| `company.agent_command_receipts` | table | M0.2a [EXISTS] |
 | `/api/v1/missions/*` routes | API | M0.2a–d, screen, cycle |
 | MCP tools §5 | MCP | M0.2a–d (+ cycle tools, §11) |
 | `assert_task_completion_allowed`, `assert_task_baseline_current`, `build_mission_dispatch_context` | core functions | M0.6a, M0.6b, M0.2c |
@@ -498,26 +498,28 @@ task sets the execution `verified` and leaves the task `in_review` until `integr
 
 All tools live in `backend/app/mcp/factory_server.py`, call the API with the caller's `agt_`
 (`_factory_call` [backend/app/mcp/factory_server.py:65]), and follow §0. Common limits: request body ≤ 64 KiB; text
-fields bounded as listed; 30 s client timeout; per-agent rate limit 60 writes/min [PROPOSED, simple
-in-process counter, 429 `RATE_LIMITED`]. "Rollback" = how an effect is undone without losing history.
+fields bounded as listed; 30 s client timeout; per-agent rate limit 60 writes/min [EXISTS M0.2a server-side, `agent_write_limiter` in backend/app/core/command_receipts.py; simple
+in-process counter, 429 `RATE_LIMITED`; the 64 KiB limit is a route dependency (413 `PAYLOAD_TOO_LARGE`) and is also checked by the MCP before sending]. "Rollback" = how an effect is undone without losing history.
 
-### 5.1 `create_internal_project` (M0.2a)
+### 5.1 `create_internal_project` (M0.2a) [EXISTS]
 
 - **Input:** `product_version_id: uuid`, `name: str(1..255)`, `description: str?`, `project_type: "mission"|"maintenance"|"creation"` (default `mission`), `working_directory_path: str?` (absolute), `executor_project_ids: [uuid]?` (mission only), `idempotency_key`.
 - **Output:** `{project_id, project_type, mission_state?: "draft", project_status: "planned", created: bool}`.
 - **Actor/scope:** agent with `mission.manage` scoped to the product (`authorize_action(product_id=...)`); admin user.
-- **HTTP:** `POST /api/v1/missions` [PROPOSED] for missions; for creation/maintenance it calls the existing `create_project` function [backend/app/api/routes/project.py:142] in-process (never an HTTP self-call), adding the `project_type` the public schema does not expose. 201 / 200 replay.
+- **HTTP:** `POST /api/v1/missions` [EXISTS backend/app/api/routes/mission.py `create_mission`] for missions; for creation/maintenance it calls `build_project` (the existing `create_project`'s body without its commit, backend/app/api/routes/project.py) in-process (never an HTTP self-call), adding the `project_type` the public schema does not expose. 201 / 200 replay.
 - **Errors:** 404 version not found/invisible; 409 `PROJECT_NAME_EXISTS_IN_VERSION` (natural key `(product_version_id, lower(name))`, checked under advisory lock — returns the existing id in the body so the caller can reuse it, M0.1 idempotent registration); 422 non-absolute path; 403.
 - **Idempotency:** receipt (§0.4) + natural key.
 - **Audit:** `project_created` (+ `mission_created`), actor = agent.
 - **Rollback:** a `draft` mission with no tasks can be cancelled (`:transition → cancelled`); never hard-deleted by tool.
+- **As built (M0.2a):** an agent caller is the mission's orchestrator when `orchestrator_agent_id` is omitted, and becomes the active `coordinator` of a creation/maintenance project it registers (so it can staff it with §5.2); mission-only fields on another type → 422 `MISSION_ONLY_FIELDS`; an agent registering a non-mission without a key → 422 `IDEMPOTENCY_KEY_REQUIRED`; the name check trims and ignores case; no unique index was added (the natural key is checked under `pg_advisory_xact_lock`, so a plain `POST /projects` can still create a same-named common project).
 
-### 5.2 `manage_project_members` (M0.2a)
+### 5.2 `manage_project_members` (M0.2a) [EXISTS]
 
 - **Input:** `project_id`, `operations: [{op: "add"|"update"|"suspend"|"release", agent_id, role ∈ PROJECT_AGENT_ROLES, can_review?: bool, can_approve?: bool, responsibilities?: str(≤2000), valid_to?: date}]` (≤20 ops), `idempotency_key`.
 - **Output:** `{memberships: [ProjectAgentMembershipOut], violations: []}`.
 - **Actor/scope:** `mission.manage` on that project; admin.
-- **HTTP:** `POST /api/v1/missions/{project_id}/members:apply` [PROPOSED] (one transaction) reusing the existing membership functions [backend/app/api/routes/orchestration.py:230,286].
+- **HTTP:** `POST /api/v1/missions/{project_id}/members:apply` [EXISTS backend/app/api/routes/mission.py `apply_project_members`] (one transaction) reusing the existing membership functions, extracted without their commit as `add_project_membership`/`apply_membership_update` [backend/app/api/routes/orchestration.py].
+- **As built (M0.2a):** the agent caller must also be the project's active `coordinator` (403 `NOT_PROJECT_COORDINATOR`; a missing delegation is 403 `DELEGATION_REQUIRED`); `add` on a suspended/released member reactivates the same row, on an active one is `MEMBER_ALREADY_EXISTS`; the charter check refuses a code role when a `never_does` line forbids editing code, and any role a line names; on a creation/maintenance project the coordinator rule is "at most one"; a completed/cancelled mission → 409 `MISSION_TERMINAL`. Response also lists `applied: [{op, agent_id, membership_id}]` and the whole roster.
 - **Validation (04 "Regras checadas ao nomear"):** exactly one active `coordinator` and it equals `orchestrator_agent_id`; code roles (`developer`, `architect`, `data_engineer`) only for external-runtime agents (`runtime_type ∈ claude|codex|agy`, "coding only by external agents"); agent active; `can_approve` refused for agents in M0 (approval is Marcelo's); charter `never_does` respected (`AgentCharter.never_does` [backend/app/db/models/operations.py:67]) — violations returned as 422 `MEMBER_RULE_VIOLATION` with the list.
 - **Errors:** 404, 403, 409 `LAST_COORDINATOR` (cannot remove the only coordinator of a non-terminal mission), 422.
 - **Idempotency:** receipt + natural `UNIQUE(project_id, agent_id)`.

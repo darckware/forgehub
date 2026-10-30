@@ -142,7 +142,23 @@ def _assert_node_not_locked(node: ProjectStructureNode) -> None:
 # ---------------------------------------------------------------------------
 @router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
 async def create_project(payload: ProjectCreate, db: AsyncSession = Depends(get_db)) -> Project:
+    project = await build_project(db, payload)
+    await db.commit()
+    await db.refresh(project)
+    return project
+
+
+async def build_project(db: AsyncSession, payload: ProjectCreate, project_type: str | None = None) -> Project:
+    """create_project's body without the commit, so a caller (the mission
+    MCP's create_internal_project, M0.2a) can add the project, its audit and
+    its idempotency receipt in one transaction. ``project_type`` is not in the
+    public schema on purpose; only an in-process caller sets it, and never to
+    'mission' (missions have their own route)."""
+    if project_type == "mission":
+        raise ValueError("missions are created by POST /api/v1/missions")
     project = Project(**payload.model_dump())
+    if project_type is not None:
+        project.project_type = project_type
     if project.darckware_client_id is None:
         # A project is for the same client as its product unless told otherwise
         # (client demands Onda 3, 2026-10-04).
@@ -154,8 +170,7 @@ async def create_project(payload: ProjectCreate, db: AsyncSession = Depends(get_
             )
         ).scalar_one_or_none()
     db.add(project)
-    await db.commit()
-    await db.refresh(project)
+    await db.flush()
     return project
 
 

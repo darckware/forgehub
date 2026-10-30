@@ -238,6 +238,33 @@ async def update_runtime_profile(
 # Project team -------------------------------------------------------------
 
 
+async def add_project_membership(
+    db: AsyncSession, project_id: uuid.UUID, payload: ProjectAgentMembershipCreate
+) -> ProjectAgentMembership:
+    """Validate and add one membership without committing (shared with the
+    mission MCP's members:apply, M0.2a, which applies several in one
+    transaction). The UNIQUE(project_id, agent_id) violation surfaces at the
+    caller's flush/commit."""
+    await _validate_membership_owner(db, payload)
+    membership = ProjectAgentMembership(project_id=project_id, **payload.model_dump())
+    db.add(membership)
+    return membership
+
+
+def apply_membership_update(
+    membership: ProjectAgentMembership, payload: ProjectAgentMembershipUpdate
+) -> dict:
+    """Apply a partial update without committing; return the changed fields."""
+    data = payload.model_dump(exclude_unset=True)
+    merged_from = data.get("valid_from", membership.valid_from)
+    merged_to = data.get("valid_to", membership.valid_to)
+    if merged_from and merged_to and merged_to < merged_from:
+        raise HTTPException(status_code=422, detail="valid_to cannot be before valid_from")
+    for field, value in data.items():
+        setattr(membership, field, value)
+    return data
+
+
 @router.post(
     "/projects/{project_id}/memberships",
     response_model=ProjectAgentMembershipOut,
@@ -249,9 +276,7 @@ async def create_project_membership(
     db: AsyncSession = Depends(get_db),
 ) -> ProjectAgentMembership:
     await _get_or_404(db, Project, project_id, "Project")
-    await _validate_membership_owner(db, payload)
-    membership = ProjectAgentMembership(project_id=project_id, **payload.model_dump())
-    db.add(membership)
+    membership = await add_project_membership(db, project_id, payload)
     try:
         await db.commit()
     except IntegrityError as exc:
@@ -301,13 +326,7 @@ async def update_project_membership(
     db: AsyncSession = Depends(get_db),
 ) -> ProjectAgentMembership:
     membership = await _get_or_404(db, ProjectAgentMembership, membership_id, "Membership")
-    data = payload.model_dump(exclude_unset=True)
-    merged_from = data.get("valid_from", membership.valid_from)
-    merged_to = data.get("valid_to", membership.valid_to)
-    if merged_from and merged_to and merged_to < merged_from:
-        raise HTTPException(status_code=422, detail="valid_to cannot be before valid_from")
-    for field, value in data.items():
-        setattr(membership, field, value)
+    apply_membership_update(membership, payload)
     await db.commit()
     await db.refresh(membership)
     return membership

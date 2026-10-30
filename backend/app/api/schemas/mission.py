@@ -1,9 +1,12 @@
 """Pydantic schemas for the Mission domain (M0.0, MCP_MISSION_TOOLS_SPEC.md §2-§3.1)."""
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.api.schemas.orchestration import ProjectAgentMembershipOut
 
 from app.db.models.mission import MISSION_RISK_LEVELS, MISSION_STATES, PLANNING_STAGES, REVIEW_LAYERS
 
@@ -14,7 +17,14 @@ class MissionCreate(BaseModel):
     product_version_id: uuid.UUID
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
-    orchestrator_agent_id: uuid.UUID
+    # M0.2a (§5.1, create_internal_project): the same route also registers a
+    # creation/maintenance project (through project.py's build_project) and
+    # takes the MCP's idempotency key. Mission-only fields are refused for
+    # the other two types.
+    project_type: Literal["mission", "maintenance", "creation"] = "mission"
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=150)
+    # Required for a mission created by a person; an agent caller defaults to itself.
+    orchestrator_agent_id: uuid.UUID | None = None
     priority: int = Field(default=100, ge=1, le=1000)
     # Validated by the route (422 AUTONOMY_LEVEL_NOT_ALLOWED) so the refusal
     # carries the mission error contract rather than a generic schema error.
@@ -79,6 +89,71 @@ class MissionOut(BaseModel):
     state_reason: str | None
     row_version: int
     executor_project_ids: list[uuid.UUID]
+
+
+MISSION_ONLY_CREATE_FIELDS = frozenset({
+    "orchestrator_agent_id", "priority", "autonomy_level", "brief_artifact_id", "deadline_at", "budget_limit",
+    "executor_project_ids",
+})
+
+
+class InternalProjectOut(BaseModel):
+    """POST /api/v1/missions response (§5.1). For a mission it carries every
+    MissionOut field too (unchanged M0.0 shape); for creation/maintenance the
+    mission fields are null."""
+
+    project_id: uuid.UUID
+    name: str
+    project_type: str
+    project_status: str
+    mission_state: str | None = None
+    created: bool = True
+    state: str | None = None
+    paused_from_state: str | None = None
+    planning_stage: str | None = None
+    risk_level: str | None = None
+    required_review_layers: list[str] | None = None
+    priority: int | None = None
+    orchestrator_agent_id: uuid.UUID | None = None
+    autonomy_level: str | None = None
+    brief_artifact_id: uuid.UUID | None = None
+    current_baseline_id: uuid.UUID | None = None
+    deadline_at: datetime | None = None
+    budget_limit: Decimal | None = None
+    paused_seconds: int | None = None
+    state_changed_at: datetime | None = None
+    state_reason: str | None = None
+    row_version: int | None = None
+    executor_project_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class MemberOperation(BaseModel):
+    """One op of manage_project_members (§5.2). Roles are validated by the
+    route, so an unknown one is reported as a MEMBER_RULE_VIOLATION item."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: Literal["add", "update", "suspend", "release"]
+    agent_id: uuid.UUID
+    role: str | None = Field(default=None, max_length=40)
+    can_review: bool | None = None
+    can_approve: bool | None = None
+    responsibilities: str | None = Field(default=None, max_length=2000)
+    valid_to: date | None = None
+
+
+class MembersApplyIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operations: list[MemberOperation] = Field(min_length=1, max_length=20)
+    idempotency_key: str = Field(min_length=1, max_length=150)
+
+
+class MembersApplyOut(BaseModel):
+    project_id: uuid.UUID
+    memberships: list[ProjectAgentMembershipOut]
+    applied: list[dict] = Field(default_factory=list)
+    violations: list[dict] = Field(default_factory=list)
 
 
 class PlanningAdvanceOut(BaseModel):
