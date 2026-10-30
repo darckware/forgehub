@@ -31,24 +31,6 @@ export const LIVE_AVATAR_RING: Record<ActivityLiveState["state"], string> = {
   idle: "",
 };
 
-/** External CLI runtimes: they only act when Messages dispatches to them. */
-export const ON_DEMAND_RUNTIMES = new Set(["claude", "codex", "agy"]);
-
-/**
- * Whether an agent belongs on the live board: resident (Hermes) agents always do; an
- * external executor only while Messages is running a message (or a task) for it (Marcelo, 2026-09-28:
- * "toda a interação dos agentes externos são pelo Messages").
- */
-export function isMonitoredAgent(
-  runtimeType: string,
-  live: ActivityLiveState | null | undefined,
-  hasCurrentWork = false,
-): boolean {
-  if (!ON_DEMAND_RUNTIMES.has(runtimeType.toLowerCase())) return true;
-  // A task execution in progress also reached the executor through Messages (task dispatch).
-  return live?.source === "messages" || hasCurrentWork;
-}
-
 export function isLiveStateActive(live: ActivityLiveState | null | undefined): boolean {
   return Boolean(live && (live.state === "executing" || live.state === "thinking"));
 }

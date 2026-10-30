@@ -306,9 +306,16 @@ async def _cron_jobs():
     return await asyncio.to_thread(_list_cron_jobs)
 
 
+async def cached_gateway_health() -> agent_telegram.GatewayHealth | None:
+    """The host gateway read, shared by the alerts and the board's channel badges
+    (one bridge call per ``SOURCE_CACHE_SECONDS``). None = could not be read."""
+    health = await _cached("gateway_health", agent_telegram.read_gateway_health)
+    return None if health is None or health.error else health
+
+
 async def _telegram_states():
-    states, error = await agent_telegram.read_telegram_platform_states()
-    return None if error else states
+    health = await cached_gateway_health()
+    return health.telegram_states if health is not None else None
 
 
 async def build_runtime_incidents(
@@ -318,7 +325,7 @@ async def build_runtime_incidents(
     agents = [agent for agent in agents if agent.is_active]
     health, states, jobs = await asyncio.gather(
         _cached("forgerouter_health", lambda: read_forgerouter_health(PROVIDER_ERROR_WINDOW_MINUTES)),
-        _cached("telegram_states", _telegram_states),
+        _telegram_states(),
         _cached("cron_jobs", _cron_jobs),
     )
     return [

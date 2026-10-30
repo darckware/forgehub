@@ -35,9 +35,9 @@ from app.api.schemas.agent_activity import (
     AgentLiveSnapshotItemOut,
     AgentLiveSnapshotOut,
 )
-from app.core.agent_activity import load_live_states
+from app.core.agent_activity import board_eligible_clause, load_live_states
 from app.core.agent_activity_timeline import dispatch_interval
-from app.core.agent_live_state import LiveState, is_on_demand_runtime
+from app.core.agent_live_state import LiveState
 from app.db.models.active_turn import ActiveTurn
 from app.core.forgerouter_sync import ForgeRouterUsage, read_forgerouter_usage
 from app.db.models.agent import Agent
@@ -232,7 +232,7 @@ async def build_live_snapshot(
     have no recorded past, are left out (shown as "—"/0) rather than borrowed from today."""
     now = now or datetime.now(timezone.utc)
     agents = list(
-        (await db.execute(select(Agent).where(Agent.is_active.is_(True)).order_by(Agent.name))).scalars()
+        (await db.execute(select(Agent).where(board_eligible_clause()).order_by(Agent.name))).scalars()
     )
     live_states = await load_live_states(db, agents, now=now, historical=historical)
 
@@ -271,9 +271,7 @@ async def build_live_snapshot(
 
     items: list[AgentLiveSnapshotItemOut] = []
     for agent in agents:
-        live = live_states.get(agent.id)
-        if is_on_demand_runtime(agent.runtime_type) and live is None:
-            continue  # an external executor is only on the board while Messages runs it
+        live = live_states.get(agent.id)  # externals are always present (idle when nothing runs)
         agent_usage = usage_by_name.get(agent.name.casefold())
         items.append(
             AgentLiveSnapshotItemOut(

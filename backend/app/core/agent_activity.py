@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.agent_activity import (
     ActivityAgentOut,
+    ActivityChannelHealthOut,
     ActivityLiveStateOut,
     ActivityCheckpointOut,
     ActivityContextOut,
@@ -35,8 +36,8 @@ from app.api.schemas.agent_activity import (
     ActivityTopologyRelationOut,
     AgentActivityOut,
 )
-from app.core import agent_profile_files
-from app.core.agent_activity_alerts import build_runtime_incidents
+from app.core import agent_profile_files, agent_telegram
+from app.core.agent_activity_alerts import build_runtime_incidents, cached_gateway_health
 from app.core.agent_activity_timeline import dispatch_interval
 from app.core.forgerouter_sync import (
     ForgeRouterActivityEvent,
@@ -70,6 +71,15 @@ from app.db.models.system_scope import (
 )
 
 ROW_LIMIT = 500
+
+
+def board_eligible_clause():
+    """Who is on the Agent Activity board (A.1): every agent the registry has in
+    service -- ``is_active`` and ``status == "active"``. Inactive and retired agents
+    are off; nothing else is required (a charter is not: a newly registered agent
+    must appear before anyone writes one) and no count is fixed anywhere."""
+    return and_(Agent.is_active.is_(True), Agent.status == "active")
+
 FORGEROUTER_LIMIT = 200
 ACTIVE_EXECUTION_STATUSES = {"pending", "running", "reported"}
 
@@ -240,6 +250,7 @@ def build_activity_agents(
     checkpoints_by_execution: dict[uuid.UUID, ProgressCheckpoint],
     forgerouter_state: Iterable[ForgeRouterActivityEvent],
     live_states: dict[uuid.UUID, LiveState] | None = None,
+    gateway: agent_telegram.GatewayHealth | None = None,
 ) -> list[ActivityAgentOut]:
     """Build agent nodes from explicit assignments and runtime attribution."""
 
@@ -353,6 +364,13 @@ def build_activity_agents(
                     issues=profile_issues,
                 ),
                 live=ActivityLiveStateOut(**vars(live)) if live is not None else None,
+                channel_health=ActivityChannelHealthOut(**vars(agent_telegram.build_channel_health(
+                    profile_slug=agent.profile_slug,
+                    required=agent.telegram_required,
+                    home_path=agent.effective_home_path,
+                    runtime_type=agent.runtime_type,
+                    gateway=gateway,
+                ))),
             )
         )
     return result
@@ -421,6 +439,51 @@ async def load_live_states(
                 message_number=demand.number,
                 last_event_at=demand.updated_at,
             )
+        # A.1: an external executor with nothing running is on the board as idle. Only
+        # Messages facts are used (no runtime telemetry exists for it): the end of its
+        # last finished dispatch, if any, and its queued Tasks -- never a made-up "seen".
+        idle_ids = [agent_id for agent_id in on_demand if agent_id not in result]
+        if idle_ids:
+            finished_filters = [
+                AgentDemand.target_agent_id.in_(idle_ids),
+                AgentDemand.dispatched_at.is_not(None),
+                AgentDemand.dispatch_status.in_(("completed", "failed")),
+            ]
+            if historical:
+                finished_filters.append(AgentDemand.updated_at <= now)
+            last_finished = dict(
+                (
+                    await db.execute(
+                        select(AgentDemand.target_agent_id, func.max(AgentDemand.updated_at))
+                        .where(*finished_filters)
+                        .group_by(AgentDemand.target_agent_id)
+                    )
+                ).all()
+            )
+            queued = {} if historical else dict(
+                (
+                    await db.execute(
+                        select(AgentDemand.target_agent_id, func.count())
+                        .where(
+                            AgentDemand.target_agent_id.in_(idle_ids),
+                            AgentDemand.origin_type == "task",
+                            AgentDemand.status != "archived",
+                            AgentDemand.dispatch_status.is_(None),
+                        )
+                        .group_by(AgentDemand.target_agent_id)
+                    )
+                ).all()
+            )
+            for agent_id in idle_ids:
+                finished_at = last_finished.get(agent_id)
+                result[agent_id] = LiveState(
+                    state="idle",
+                    since=finished_at,
+                    source="messages",
+                    platform="messages" if finished_at else None,
+                    last_event_at=finished_at,
+                    pending_count=queued.get(agent_id, 0),
+                )
     if not agent_ids:
         return result
     window_start = now - max(ACTIVITY_WINDOW, timedelta(minutes=TURN_STALE_MINUTES))
@@ -1654,14 +1717,11 @@ async def build_agent_activity(
     agent_ids.update(
         membership.agent_id for membership in memberships if membership.agent_id is not None
     )
-    agent_query = select(Agent).where(and_(Agent.is_active.is_(True), Agent.status == "active"))
+    # The whole eligible registry, never a row cap: the board must not lose agents.
+    agent_query = select(Agent).where(board_eligible_clause())
     if project_id is not None:
         agent_query = agent_query.where(Agent.id.in_(agent_ids))
-    agents = list(
-        (
-            await db.execute(agent_query.order_by(Agent.name).limit(ROW_LIMIT))
-        ).scalars()
-    )
+    agents = list((await db.execute(agent_query.order_by(Agent.name))).scalars())
 
     approval_filters = [ApprovalRequest.updated_at >= since]
     if project_id is not None:
@@ -1709,6 +1769,7 @@ async def build_agent_activity(
         checkpoints_by_execution=checkpoints_by_execution,
         forgerouter_state=forgerouter_state,
         live_states=live_states,
+        gateway=await cached_gateway_health(),
     )
     visible_agent_ids = {agent.id for agent in activity_agents}
     visible_project_ids = {project.id for project in projects}

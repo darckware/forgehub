@@ -2,6 +2,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import type { ActivityAgent, AgentLiveSnapshotItem } from "@/hooks/useAgentActivity";
+import type { ChannelBadge } from "@/hooks/useAgentBoardViewModel";
 import { cn } from "@/lib/utils";
 import { ActivitySparkline } from "./ActivitySparkline";
 import { LIVE_AVATAR_RING, LIVE_STATE_TONE, describeLiveState, isLiveStateActive } from "./liveState";
@@ -28,19 +29,45 @@ export function sortAgentsByActivity(agents: ActivityAgent[]): ActivityAgent[] {
   });
 }
 
+const BADGE_TONE: Record<ChannelBadge["tone"], string> = {
+  ok: "border-emerald-500/40 text-emerald-700 dark:text-emerald-400",
+  warning: "border-orange-500/50 bg-orange-500/10 text-orange-700 dark:text-orange-400",
+  unknown: "border-border text-muted-foreground",
+};
+
+/** Telegram channel + gateway health; nothing at all for an agent with neither (A.1). */
+function ChannelBadges({ badges }: { badges: ChannelBadge[] }) {
+  const { t } = useTranslation("agentActivity");
+  if (badges.length === 0) return null;
+  return (
+    <ul className="flex flex-wrap gap-1" aria-label={t("channel.label")} data-testid="agent-channel-badges">
+      {badges.map((badge) => (
+        <li
+          key={badge.key}
+          className={cn("rounded border px-1.5 py-px text-[10px] font-medium", BADGE_TONE[badge.tone])}
+        >
+          {t(`channel.${badge.key}.${badge.value}`)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /**
- * One live card per monitored agent: what it is doing, with whom, and its last hour.
+ * One live card per eligible agent: what it is doing, with whom, and its last hour.
  * Cards re-sort as agents become active (framer `layout`), so the busiest are on top.
  */
 export function LiveAgentCards({
   agents,
   snapshotByAgent,
+  channelBadgesByAgent,
   selectedAgentId,
   onSelectAgent,
   now,
 }: {
   agents: ActivityAgent[];
   snapshotByAgent: Map<string, AgentLiveSnapshotItem>;
+  channelBadgesByAgent?: Map<string, ChannelBadge[]>;
   selectedAgentId: string | null;
   onSelectAgent: (agentId: string) => void;
   now: number;
@@ -113,6 +140,7 @@ export function LiveAgentCards({
                   <p className="truncate text-[11px] text-muted-foreground">{text?.context ?? " "}</p>
                 </div>
               </div>
+              <ChannelBadges badges={channelBadgesByAgent?.get(agent.id) ?? []} />
               <ActivitySparkline
                 values={snapshot?.spark ?? []}
                 barClassName={active ? "fill-amber-500/80" : "fill-primary/60"}

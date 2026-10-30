@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, History, LayoutGrid, Loader2, Network, Radio, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ActivityEventTable } from "@/components/agent-activity/ActivityEventTable";
@@ -10,19 +10,14 @@ import { AgentInspector } from "@/components/agent-activity/AgentInspector";
 import { ContinuityTimeline } from "@/components/agent-activity/ContinuityTimeline";
 import { CurrentFlowBoard } from "@/components/agent-activity/CurrentFlowBoard";
 import { LiveAgentCards } from "@/components/agent-activity/LiveAgentCards";
-import { isMonitoredAgent } from "@/components/agent-activity/liveState";
 import { RequestAthosDialog } from "@/components/agent-activity/RequestAthosDialog";
 import { SeverityInbox } from "@/components/agent-activity/SeverityInbox";
 import { Button } from "@/components/ui/button";
 import { useSyncHermesAgents } from "@/hooks/useAgent";
-import {
-  useAgentActivity,
-  type ActivityAgent,
-  type ActivityIncident,
-  type AgentLiveSnapshotItem,
-} from "@/hooks/useAgentActivity";
+import { useAgentActivity, type ActivityIncident } from "@/hooks/useAgentActivity";
 import { useActivityTraceViewModel } from "@/hooks/useActivityTraceViewModel";
 import { useAgentActivityStreamViewModel } from "@/hooks/useAgentActivityStreamViewModel";
+import { useAgentBoardViewModel } from "@/hooks/useAgentBoardViewModel";
 import { cn } from "@/lib/utils";
 
 type MainView = "cards" | "constellation";
@@ -111,20 +106,15 @@ export default function AgentActivityPage() {
   };
 
   const data = activity.data;
-  const snapshotByAgent = useMemo(
-    () => new Map<string, AgentLiveSnapshotItem>((liveSnapshot?.agents ?? []).map((item) => [item.agent_id, item])),
-    [liveSnapshot],
-  );
-  // Live state from the newest stream frame wins over the (slower) read model's. External
-  // executors (claude/codex/agy) only appear while Messages is running them.
-  const agents = useMemo<ActivityAgent[]>(() => {
-    const merged = (data?.agents ?? []).map((agent) =>
-      liveSnapshot ? { ...agent, live: snapshotByAgent.get(agent.id)?.live ?? null } : agent,
-    );
-    return merged.filter((agent) =>
-      isMonitoredAgent(agent.runtime_type, agent.live, !replaying && Boolean(agent.current_work)),
-    );
-  }, [data?.agents, liveSnapshot, snapshotByAgent, replaying]);
+  // A.1: every eligible agent of the registry, external executors included (idle when
+  // Messages runs nothing for them) -- the backend decides who is eligible.
+  const board = useAgentBoardViewModel({
+    agents: data?.agents,
+    snapshot: liveSnapshot,
+    isLoading: activity.isLoading,
+    isError: activity.isError,
+  });
+  const { agents, snapshotByAgent } = board;
   const selectMainView = (next: MainView) => {
     try {
       window.localStorage.setItem(MAIN_VIEW_STORAGE_KEY, next);
@@ -337,14 +327,15 @@ export default function AgentActivityPage() {
               );
             })}
           </div>
-          {activity.isLoading ? (
+          {board.status === "loading" ? (
             <ReservedMainState state="loading" />
-          ) : activity.isError ? (
+          ) : board.status === "error" ? (
             <ReservedMainState state="error" />
           ) : mainView === "cards" ? (
             <LiveAgentCards
               agents={agents}
               snapshotByAgent={snapshotByAgent}
+              channelBadgesByAgent={board.channelBadgesByAgent}
               selectedAgentId={effectiveSelectedAgentId}
               onSelectAgent={setSelectedAgentId}
               now={now}

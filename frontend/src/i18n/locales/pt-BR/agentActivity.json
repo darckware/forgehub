@@ -383,5 +383,19 @@
       }
     },
     "onlyAgent": "Só {{name}} · mostrar todos"
+  },
+  "channel": {
+    "label": "Canal e gateway",
+    "telegram": {
+      "ok": "Telegram ativo",
+      "not_running": "Telegram fora do ar",
+      "not_configured": "Telegram não configurado",
+      "unknown": "Telegram não verificado"
+    },
+    "gateway": {
+      "ok": "Gateway ativo",
+      "down": "Gateway parado",
+      "unknown": "Gateway não verificado"
+    }
   }
 }

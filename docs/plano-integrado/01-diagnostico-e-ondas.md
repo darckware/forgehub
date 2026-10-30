@@ -79,9 +79,14 @@ A M0.6b foi implementada pelo Porthus no branch `feat/m0-6b-baseline-guard` (29/
 - **Missão:** a aprovação da revisão deixa a tarefa `in_review` até o commit estar em `develop`. `deployed` é sempre recusado com `DEPLOYED_WITHOUT_RELEASE` enquanto não houver `environment_releases`.
 - **Na publicação (M0.R):** `systemctl restart forgehub-chat-bridge` antes de liberar o backend. Sem isso, nenhuma tarefa com evidência `git:`/`file:` é concluída.
 
-A F.1 (desenho da identidade dos agentes) foi escrita pelo Porthus no branch `docs/f1-token-design` (29/10) e aguarda a revisão do Aegis (especificação e procedimento F.1.1). Só documento: nenhum token foi emitido, rotacionado ou revogado.
+A F.1 (desenho da identidade dos agentes) foi escrita no branch `docs/f1-token-design` (29/10), aprovada pelo Aegis (#41782, reconferência #41786, com cache de revogação vencido recusando todo token) e está no `develop`. Só documento: nenhum token foi emitido, rotacionado ou revogado.
 - **Spec:** `docs/architecture/AGENT_IDENTITY_TOKEN_SPEC.md` (ES256, emissor ForgeVault, JWKS com rotação sobreposta, claims, validação por sistema, revogação push+polling, transição do `agt_` por agente, F.1.1). Parte do ForgeVault: `docs/architecture/AGENT_IDENTITY_ISSUER.md` no branch `docs/f1-token-design` do repositório `forgevault`.
 - **Perguntas para o Marcelo:** Q1–Q7 na §12 da spec (algoritmo, vida do token, regra de cache vencido, réplica do ForgeVault, pré-autorização do Aegis na contenção, aposentadoria do `agt_`, host-bridge).
+
+A A.1 foi implementada no branch `feat/a1-agents-board` (29/10), aprovada pelo Dartan (#41789) e está no `develop`. Ainda não foi publicada (A.R). Sem migration.
+- **Quadro = registro elegível inteiro:** todo agente com `is_active` e `status=active` aparece em `GET /agent-activity` e no stream, sem exigir carta (um agente novo aparece antes de ter carta) e sem contagem fixa ou limite de linhas. Inativos e aposentados ficam fora.
+- **Externos sempre presentes:** claude/codex/agy sem despacho aparecem `idle`, só com fatos do Messages (fim do último despacho, tarefas na fila), sem telemetria inventada.
+- **Canal/gateway por agente:** `channel_health` com Telegram (`agent_telegram`) e gateway (ok/parado). Bridge inalcançável = `unknown`; sem canal = `not_applicable`, sem aparecer como offline. Uma leitura do bridge em cache, a mesma dos alertas.
 
 ## Onda 1 — Provar a base e fechar os riscos imediatos
 
