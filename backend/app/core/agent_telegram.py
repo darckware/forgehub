@@ -101,20 +101,23 @@ def gateway_state_command() -> str:
     )
 
 
-def parse_telegram_states(stdout: str) -> dict[str, str]:
-    """`{profile_slug: telegram adapter state}` from `gateway_state_command`
-    output. Empty when the gateway is not alive or not running -- every
-    channel is then down, whatever the (stale) file says. The `default`
+def parse_gateway_state(stdout: str) -> tuple[bool, dict[str, str]]:
+    """(gateway alive, `{profile_slug: telegram adapter state}`) from
+    `gateway_state_command` output.
+
+    Alive means the PID the state file records is running and the gateway
+    reports itself `running`/`starting`; otherwise every channel is down,
+    whatever the (stale) file says, and the states are empty. The `default`
     profile's own adapter is keyed `telegram`, without a prefix."""
     body, _, alive = stdout.partition(_ALIVE_MARKER)
     if alive.strip() != "yes":
-        return {}
+        return False, {}
     try:
         state = json.loads(body)
     except ValueError:
-        return {}
-    if state.get("gateway_state") not in ("running", "starting"):
-        return {}
+        return False, {}
+    if not isinstance(state, dict) or state.get("gateway_state") not in ("running", "starting"):
+        return False, {}
     states: dict[str, str] = {}
     for key, platform in (state.get("platforms") or {}).items():
         if not isinstance(platform, dict):
@@ -123,7 +126,13 @@ def parse_telegram_states(stdout: str) -> dict[str, str]:
             states["default"] = str(platform.get("state"))
         elif key.endswith(":telegram"):
             states[key.split(":", 1)[0]] = str(platform.get("state"))
-    return states
+    return True, states
+
+
+def parse_telegram_states(stdout: str) -> dict[str, str]:
+    """`{profile_slug: telegram adapter state}`; empty when the gateway is
+    not alive (see `parse_gateway_state`)."""
+    return parse_gateway_state(stdout)[1]
 
 
 def _read_env_values(env_path: Path) -> dict[str, str]:
@@ -246,13 +255,22 @@ def build_status(
     )
 
 
-async def read_telegram_platform_states() -> tuple[dict[str, str] | None, str | None]:
-    """Each Hermes profile's Telegram adapter state, read from the multiplex
-    host gateway's own state file through the host-bridge (`/v1/exec` -- the
-    backend container sees neither the host's systemd nor ~/.hermes).
+@dataclass
+class GatewayHealth:
+    """One read of the multiplex host gateway. `alive`/`telegram_states` are
+    None when the host-bridge could not be read (`error` says why): unknown,
+    never "down"."""
 
-    Returns (None, error) rather than raising: a Telegram badge that cannot
-    be computed must degrade to "unknown", never take down the page asking."""
+    alive: bool | None
+    telegram_states: dict[str, str] | None
+    error: str | None
+
+
+async def read_gateway_health() -> GatewayHealth:
+    """The host gateway's liveness and each Hermes profile's Telegram adapter
+    state, read from the gateway's own state file through the host-bridge
+    (`/v1/exec` -- the backend container sees neither the host's systemd nor
+    ~/.hermes). Never raises."""
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
@@ -261,7 +279,60 @@ async def read_telegram_platform_states() -> tuple[dict[str, str] | None, str | 
                 json={"command": gateway_state_command()},
             )
     except httpx.HTTPError as e:
-        return None, f"Host-bridge unreachable: {e}"
+        return GatewayHealth(None, None, f"Host-bridge unreachable: {e}")
     if resp.status_code != 200:
-        return None, f"Host-bridge error: {resp.text[:200]}"
-    return parse_telegram_states(resp.json().get("stdout") or ""), None
+        return GatewayHealth(None, None, f"Host-bridge error: {resp.text[:200]}")
+    try:
+        stdout = resp.json().get("stdout") or ""
+    except ValueError:
+        return GatewayHealth(None, None, "Host-bridge returned a non-JSON body")
+    alive, states = parse_gateway_state(stdout)
+    return GatewayHealth(alive, states, None)
+
+
+async def read_telegram_platform_states() -> tuple[dict[str, str] | None, str | None]:
+    """Each Hermes profile's Telegram adapter state (see `read_gateway_health`).
+
+    Returns (None, error) rather than raising: a Telegram badge that cannot
+    be computed must degrade to "unknown", never take down the page asking."""
+    health = await read_gateway_health()
+    return health.telegram_states, health.error
+
+
+GATEWAY_OK = "ok"
+GATEWAY_DOWN = "down"
+
+
+@dataclass
+class ChannelHealth:
+    """Board badge for one agent: its Telegram channel and the gateway that
+    carries it. `gateway` is `not_applicable` for agents the gateway doesn't
+    serve (external runtimes, agents without a profile)."""
+
+    telegram: str
+    gateway: str
+
+
+def build_channel_health(
+    *,
+    profile_slug: str | None,
+    required: bool,
+    home_path: str | None,
+    runtime_type: str | None,
+    gateway: GatewayHealth | None,
+) -> ChannelHealth:
+    """`gateway=None` (or a failed read) folds to `unknown`, never a failure."""
+    telegram = build_status(
+        profile_slug=profile_slug,
+        required=required,
+        home_path=home_path,
+        runtime_type=runtime_type,
+        telegram_states=gateway.telegram_states if gateway is not None else None,
+    ).status
+    if gateway_service_name(profile_slug, runtime_type) is None:
+        gateway_status = STATUS_NOT_APPLICABLE
+    elif gateway is None or gateway.alive is None:
+        gateway_status = STATUS_UNKNOWN
+    else:
+        gateway_status = GATEWAY_OK if gateway.alive else GATEWAY_DOWN
+    return ChannelHealth(telegram=telegram, gateway=gateway_status)

@@ -75,6 +75,11 @@ A M0.6b foi implementada pelo Porthus no branch `feat/m0-6b-baseline-guard` (29/
 - **Missão:** a aprovação da revisão deixa a tarefa `in_review` até o commit estar em `develop`. `deployed` é sempre recusado com `DEPLOYED_WITHOUT_RELEASE` enquanto não houver `environment_releases`.
 - **Na publicação (M0.R):** `systemctl restart forgehub-chat-bridge` antes de liberar o backend. Sem isso, nenhuma tarefa com evidência `git:`/`file:` é concluída.
 
+A A.1 foi implementada pelo Porthus no branch `feat/a1-agents-board` (29/10) e aguarda a revisão do Dartan (D-1). Ainda não houve merge nem publicação (A.R). Sem migration.
+- **Quadro = registro elegível inteiro:** todo agente com `is_active` e `status=active` aparece em `GET /agent-activity` e no stream, sem exigir carta (um agente novo aparece antes de ter carta) e sem contagem fixa ou limite de linhas. Inativos e aposentados ficam fora.
+- **Externos sempre presentes:** claude/codex/agy sem despacho aparecem `idle`, só com fatos do Messages (fim do último despacho, tarefas na fila), sem telemetria inventada.
+- **Canal/gateway por agente:** `channel_health` com Telegram (`agent_telegram`) e gateway (ok/parado). Bridge inalcançável = `unknown`; sem canal = `not_applicable`, sem aparecer como offline. Uma leitura do bridge em cache, a mesma dos alertas.
+
 ## Onda 1 — Provar a base e fechar os riscos imediatos
 
 O detalhamento executável está em [12 — Primeira onda](12-primeira-onda.md), com responsáveis,

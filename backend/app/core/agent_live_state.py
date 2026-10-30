@@ -44,7 +44,8 @@ SYSTEM_PLATFORMS = {"cron", "kanban", "subagent", "tool", "api_server", "recover
 # executors, not residents: they only act when Messages dispatches a message to them
 # (Marcelo, 2026-09-28: "são agentes externo só interagem quando são executados pelo
 # Messages"). No runtime telemetry is collected for them; their live state is the dispatch
-# itself, and while nothing is dispatched to them they are simply not on the live board.
+# itself. Since A.1 (2026-10-29) they stay on the board while nothing runs for them, as
+# ``idle`` built only from Messages facts (``load_live_states``), never from telemetry.
 ON_DEMAND_RUNTIMES = {"claude", "codex", "agy"}
 
 

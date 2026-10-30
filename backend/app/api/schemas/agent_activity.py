@@ -178,6 +178,16 @@ class AgentLiveSnapshotOut(BaseModel):
     links: list[ActivityLinkOut] = []
 
 
+class ActivityChannelHealthOut(BaseModel):
+    """Telegram channel and host gateway health (``core/agent_telegram.py``).
+
+    ``unknown`` = the host-bridge could not be read; ``not_applicable`` = this agent
+    has no Telegram channel / is not served by the gateway (external runtimes)."""
+
+    telegram: Literal["ok", "not_running", "not_configured", "unknown", "not_applicable"]
+    gateway: Literal["ok", "down", "unknown", "not_applicable"]
+
+
 class ActivityAgentOut(BaseModel):
     """One agent node and its currently authoritative operational context."""
 
@@ -195,6 +205,7 @@ class ActivityAgentOut(BaseModel):
     profile_summary: ActivityProfileSummaryOut
     # None when this agent's runtime has never reported (e.g. not wired yet).
     live: ActivityLiveStateOut | None = None
+    channel_health: ActivityChannelHealthOut | None = None
 
     @property
     def current_execution_id(self) -> uuid.UUID | None:
