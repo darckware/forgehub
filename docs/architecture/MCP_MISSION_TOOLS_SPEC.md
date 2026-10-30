@@ -716,7 +716,7 @@ submission is caught at decision time. The withdraw route is `POST .../plans/{pl
   non-superseded baseline. Self-dependency stays the existing schema 422 (not 400). The cycle refusal keeps
   its string detail (existing route).
 
-### 5.5 `assign_task` (M0.2c)
+### 5.5 `assign_task` (M0.2c) [EXISTS M0.2c: backend/app/api/routes/mission_task.py `assign_task`]
 
 - **Input:** `task_id`, `agent_id`, `reason: str(1..2000)`, `idempotency_key`.
 - **Output:** `{assignment_id, membership_id, previous_assignment_id?, task_status}`.
@@ -724,8 +724,9 @@ submission is caught at decision time. The withdraw route is `POST .../plans/{pl
 - **HTTP:** `POST /api/v1/missions/{project_id}/tasks/{task_id}:assign` [PROPOSED] which releases the previous active assignment (`status='released'`, `unassigned_at`) and calls the existing creation logic [backend/app/api/routes/task.py:807] with `membership_id` set (automated dispatch requires it, [backend/app/db/models/task.py:244-251]).
 - **Rules:** target has an `active` membership with an executor role; agent ≠ the task's designated reviewer (§5.11) and ≠ reviewer of any open review of the task; refuse while a run is active/reserved/uncertain (409 `TASK_RUN_IN_FLIGHT`).
 - **Audit:** `task_assigned` / `task_reassigned` with reason. **Rollback:** reassign again (history kept).
+- **As built (M0.2c):** the task must be in the mission's scope (its own or a linked executor project's; else 404 `TASK_NOT_FOUND`); an agent caller must be the orchestrator or an active member (else 404 `MISSION_NOT_FOUND`) and hold the delegation on the mission or the task's project (403 `DELEGATION_REQUIRED`). Executor role = any role outside `NON_EXECUTOR_ROLES` (coordinator, planner, reviewer, security_reviewer); the membership is the one in the task's own project. 422 `ASSIGNEE_NOT_ELIGIBLE` carries `reason` (`agent_inactive`, `not_a_member`, `non_executor_role`); 409 `ASSIGNEE_IS_REVIEWER` = reviewer of a pending/running review of the task; 409 `TASK_TERMINAL`. Assigning the current assignee again changes nothing (`changed: false`). There is no designated reviewer field yet, so "the task's designated reviewer" is the open review's.
 
-### 5.6 `dispatch_task` (M0.2c)
+### 5.6 `dispatch_task` (M0.2c) [EXISTS M0.2c: backend/app/api/routes/task.py `dispatch_task`/`_dispatch_task_by_id`]
 
 - **Input:** `task_id`, `command_text?: str(≤4000)` (extra instruction; part of the demand content hash), `scheduled_at?: datetime` (future → scheduled, see cycle spec), `idempotency_key`.
 - **Output:** `{task_id, demand_id, demand_number, dispatch_status, agent_run_id?, scheduled_at?, task_status}` (shape of `TaskInboxDispatchOut` [backend/app/api/routes/task.py:946] + `scheduled_at`).
@@ -736,8 +737,9 @@ submission is caught at decision time. The withdraw route is `POST .../plans/{pl
 - **Idempotency:** receipt; plus the no-second-run rule (§0.4).
 - **Audit:** `task.dispatched` with actor = principal [EXTEND backend/app/api/routes/task.py:1161-1167], `payload.context_manifest` (§6).
 - **Limit:** one in-flight run per task; global cap/one-per-agent unchanged. **Rollback:** a queued/scheduled demand is withdrawn with `decide_demand(action="archive")` [backend/app/core/demand_workflow.py:186]; a started run is never killed by rollback.
+- **As built (M0.2c):** before the guards, `task_run_in_flight` (backend/app/core/mission_dispatch.py): a run of unknown outcome answers with its demand (as before); an active or reserved one -- and, for a mission task, one queued -- is 409 `TASK_RUN_IN_FLIGHT` (also for common tasks: a second POST used to start a second run when it named another agent). Then baseline (`MISSION_NOT_ACTIVE`, `TASK_NOT_IN_BASELINE`, ...) → 409 `TASK_TERMINAL` (mission; a common task keeps its 422) → dependencies → `TASK_NOT_ASSIGNED` / `TARGET_NOT_ASSIGNEE` (missions: the active assignment with an active membership) → `TARGET_BUSY` → capacity. A future `scheduled_at` files the demand and a `pending` execution without reserving; dependencies, targets and capacity are checked by the scheduled pass when due (the execution turns `running` when the run starts). An `agt_` caller needs the switch, the key (422 `IDEMPOTENCY_KEY_REQUIRED`) and the delegation; its receipt is committed with the reservation and a replay returns the demand as it is now. A person on a mission task must be admin. `command_text` ≤ 4000 for missions and agents; for a mission it goes inside the allowlisted body.
 
-### 5.7 `report_task_execution` (M0.2c) — DONE is a report, not acceptance
+### 5.7 `report_task_execution` (M0.2c) — DONE is a report, not acceptance [EXISTS M0.2c: backend/app/api/routes/task.py `report_task_execution`]
 
 - **Input:** `task_id`, `execution_id?` (default: the caller's latest open execution of that task), `status: "reported"|"failed"|"blocked"`, `summary: str(1..10000)`, `evidence: [str]` (each `git:<sha>` / `file:<relpath>` / `db:<type>:<uuid>`, 1..20), `idempotency_key`.
 - **Output:** `{execution_id, status: "reported"|"failed", verification: "queued"}`.
@@ -745,6 +747,7 @@ submission is caught at decision time. The withdraw route is `POST .../plans/{pl
 - **HTTP:** `POST /api/v1/tasks/{task_id}/executions/{execution_id}:report` [PROPOSED] (the generic PATCH [backend/app/api/routes/task.py:632] is not given to agents: it can set `verified`).
 - **Rules:** the caller can never set `verified`/`completed`; only `run_evidence_verification_pass` [backend/app/core/task_evidence.py:164] promotes `reported → verified`. Evidence outside the project root or on another project's repo is refused at report time (422 `EVIDENCE_OUT_OF_SCOPE`).
 - **Audit:** `execution_reported`. **Rollback:** a new report supersedes (keeps history in audit); the execution row is never deleted.
+- **As built (M0.2c):** the path carries the execution; the MCP tool picks the latest open one when `execution_id` is omitted. Agents only (403 `AGENT_ONLY`), 403 `NOT_EXECUTOR`, 403 `DELEGATION_REQUIRED` (task's project or one of its missions). A report is accepted while the execution is pending/running/blocked/reported (else 409 `EXECUTION_CLOSED`). `evidence_ref` is a single column: the first ref is the one the verification pass checks, all are in the audit payload. Scope: `git:` a sha (a ref such as `git:main` is out of scope), `file:` a normalized relative path, `db:` an existing row of the task's project/mission scope; an unknown prefix is 422 `EVIDENCE_INVALID`. `_finalize_dispatch` no longer overwrites an execution that is no longer pending/running, so the run's end keeps the executor's report. The middleware no longer admits `agt_` on `PATCH /tasks/{id}/executions/{eid}` (only `PATCH /tasks/{id}`), and the route itself refuses an `agt_` (403 `USE_REPORT_TASK_EXECUTION`).
 
 ### 5.8 `attach_project_document` (M0.2d) [EXISTS]
 
@@ -768,24 +771,27 @@ submission is caught at decision time. The withdraw route is `POST .../plans/{pl
 
 `GET /api/v1/missions/me/tasks?state=` [EXISTS backend/app/api/routes/mission.py `list_my_tasks`] — tasks where the caller is executor or reviewer across missions it belongs to; same item shape as 5.9 (plus `project_id`). As built: `state` = `open` (default: not `done`/`deployed`/`cancelled`), `all` or one task status (422 `INVALID_STATE_FILTER` otherwise); missions only; output `{state, tasks}`.
 
-### 5.11 `request_task_review` (needed by the screen and cycle; proposed as part of M0.2c — §11 D-M0-5)
+### 5.11 `request_task_review` (needed by the screen and cycle; proposed as part of M0.2c — §11 D-M0-5) [EXISTS M0.2c: backend/app/api/routes/mission_task.py]
 
 - **Input:** `task_id`, `execution_id`, `reviewer_agent_id`, `idempotency_key`.
 - **Effect:** creates `TaskExecutionReview(status='pending')` via the existing route logic [backend/app/api/routes/orchestration.py:452] **and** a Messages Task to the reviewer (`origin_type='task'`, `origin_id=task_id`, body: execution summary + evidence list + review instructions; `requires_response=false`), dispatched through the normal queue. The reviewer decides with `PATCH /orchestration/reviews/{id}` [backend/app/api/routes/orchestration.py:496] using its own `agt_` (admitted for that path [EXTEND main.py]); approval then lets the completion guard pass.
 - **Rules:** reviewer ≠ executor/co-author (§4.1.3); `can_review`; execution `verified`.
-- **HTTP:** `POST /api/v1/missions/{project_id}/tasks/{task_id}:request-review` [PROPOSED]. **Audit:** `review_requested`.
+- **HTTP:** `POST /api/v1/missions/{project_id}/tasks/{task_id}:request-review` [EXISTS M0.2c]. **Audit:** `review_requested`.
+- **As built (M0.2c):** caller = Marcelo or the orchestrator/member with `mission.orchestrate`. The reviewer's membership is in the task's project or the mission, active, `can_review` (422 `REVIEWER_NOT_ELIGIBLE`); the independence check is `orchestration.py`'s `assert_review_independent`, shared with `create_execution_review` (409 `REVIEWER_IS_EXECUTOR`). 409 `EXECUTION_NOT_VERIFIED`, `REVIEW_ALREADY_OPEN`. The reviewer's Messages Task has the task as origin but **no** `task_execution_id` (its run must never close the executor's execution), is scheduled now and woken through the normal queue; while it waits or runs it counts as the task's run in flight. `PATCH /api/v1/orchestration/reviews/{id}` is admitted for `agt_` (the route already limits an agent to its own membership).
 
 ### 5.12 `return_task_for_correction` (proposed with 5.11)
 
-`POST /api/v1/missions/{project_id}/tasks/{task_id}:return` [PROPOSED]; input `reason` (required),
+`POST /api/v1/missions/{project_id}/tasks/{task_id}:return` [EXISTS M0.2c: backend/app/api/routes/mission_task.py]; input `reason` (required),
 `execution_id`. If an open review exists it becomes `changes_requested` with the reason as feedback;
 otherwise an `AuditEvent(mission_task_returned)`; task `→ in_progress`; no automatic redispatch
 (orchestrator dispatches explicitly, 04 §1). Allowed to Marcelo and to an agent with
 `mission.orchestrate` that is **not** the executor.
 
+**As built (M0.2c):** 403 `EXECUTOR_CANNOT_RETURN`; a review Task that has not started is archived with the return, any other run in flight refuses (409 `TASK_RUN_IN_FLIGHT`). The reason reaches the next dispatch through §6's "open critique" line (latest `changes_requested` feedback or `mission_task_returned` reason). Not covered: a `changes_requested` review can still be PATCHed to `approved` by its reviewer afterwards (the route only freezes approved/rejected).
+
 ---
 
-## 6. Minimal dispatch context by allowlist [PROPOSED, M0.2c]
+## 6. Minimal dispatch context by allowlist [EXISTS M0.2c: backend/app/core/mission_dispatch.py `build_mission_dispatch_context`]
 
 `build_mission_dispatch_context(db, task) -> MissionDispatchContext` replaces the free composition in
 `_dispatch_task_by_id` [backend/app/api/routes/task.py:1066-1085] **for mission tasks only** (common tasks unchanged). The
@@ -816,6 +822,8 @@ Rehearsal (M0.4) runs this builder against the **test** database with fixture ca
 (`CANARY-MAIA-<uuid>` in a fictitious personal note, `CANARY-LARA-<uuid>` in a fictitious client
 record, `CANARY-KB-<uuid>` in a fixture KB file) and asserts none appears in the body (§9.6). It uses
 the simulated runner and test `agt_` credentials, never production profiles, bridge or credentials.
+
+**As built (M0.2c):** the brief's objective is the section under an `Objetivo`/`Objective` heading of the latest `final` version's file, read from the Docs tree (`/docs`, never outside it); no such heading → no objective line (the manifest still lists the version). The reviewer line appears only when an open review exists. Manifest sources: `project_task`, `mission`, `plan_baseline_item`, `brief_objective`, `mission_acceptance_criterion`, `task_dependency`, `project_agent_membership`, `task_execution_review`, `working_path`, `task_execution_target`, `review_feedback`/`task_returned`, `command_text`, `instructions`. The body also tells the executor to report with `report_task_execution`. A common task's body is byte-for-byte the old one (tested). Tests: `test_mission_dispatch_context.py` (canaries in a personal note, the product's client snapshot, a KB file, a sibling task's text/result and a non-objective brief section).
 
 ---
 
@@ -990,9 +998,9 @@ rows (CLAUDE.md test conventions).
 | `test_submit_plan_never_approves` | request pending; no baseline; approver fields → 422; agent cannot decide (`human_only`) — [EXISTS M0.2b, in `test_mission_plan_approval.py`, with the other M0.2b tests: refusals/failed checks, hash mismatch, self-approval, rejection, approval → baseline → CR → next baseline, withdraw, dependency rules + `TASK_IN_BASELINE`, tools switch, own-revision migration roundtrip] |
 | `test_plan_hash_mismatch_on_decide` | edit after submit → 409 at decision |
 | `test_add_dependency_cycle_refused` / `test_dependency_on_baselined_task_requires_cr` | |
-| `test_assign_refused_when_reviewer_or_in_flight` | |
-| `test_dispatch_guards_order_and_retry` | guard order; retry without duplicate |
-| `test_report_cannot_set_verified` | executor reports; `verified` only from the verification pass; non-executor → 403 |
+| `test_assign_refused_when_reviewer_or_in_flight` | [EXISTS M0.2c, `test_mission_dispatch.py`, with `test_dispatch_unassigned_and_scheduled`, `test_review_request_and_return`, `test_tools_disabled_flag`] |
+| `test_dispatch_guards_order_and_retry` | guard order; retry without duplicate [EXISTS M0.2c] |
+| `test_report_cannot_set_verified` | executor reports; `verified` only from the verification pass; non-executor → 403 [EXISTS M0.2c] |
 | `test_attach_document_path_rules` | absolute, `..`, symlink escape, other project → refused [EXISTS M0.2d; also `test_attach_document_idempotent_versioned_and_role_gated`, unit `tests_unit/test_mission_documents.py`] |
 | `test_my_role_only_own` | agent sees only its own role/tasks [EXISTS M0.2d; also non-member 404 on `GET /missions/{id}`] |
 | `test_missing_or_foreign_agt_token` | missing → tool error, no fallback; another agent's token cannot act as the caller |
@@ -1008,7 +1016,7 @@ reach `POST /projects/plans/{id}/approve`, baselines, `/governed/approval-reques
 ### 9.6 Context allowlist — `backend/app/tests/test_mission_dispatch_context.py`
 
 `test_canaries_absent` (Maia/Lara/KB canaries never in the body), `test_manifest_lists_every_source`,
-`test_context_too_large_refused`, `test_common_task_body_unchanged`.
+`test_context_too_large_refused`, `test_common_task_body_unchanged` [EXISTS M0.2c].
 
 ### 9.7 Screen and cycle tests
 

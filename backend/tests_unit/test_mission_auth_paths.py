@@ -30,6 +30,13 @@ PID = "11111111-1111-4111-8111-111111111111"
     ("POST", f"/api/v1/missions/{PID}/plans:submit"),
     ("POST", f"/api/v1/missions/{PID}/plans/{PID}:withdraw"),
     ("POST", f"/api/v1/tasks/{PID}/dependencies"),
+    # M0.2c: assign/request-review/return (under /missions/), dispatch, report, the reviewer's decision.
+    ("POST", f"/api/v1/missions/{PID}/tasks/{PID}:assign"),
+    ("POST", f"/api/v1/missions/{PID}/tasks/{PID}:request-review"),
+    ("POST", f"/api/v1/missions/{PID}/tasks/{PID}:return"),
+    ("POST", f"/api/v1/tasks/{PID}/dispatch"),
+    ("POST", f"/api/v1/tasks/{PID}/executions/{PID}:report"),
+    ("PATCH", f"/api/v1/orchestration/reviews/{PID}"),
     # Pre-existing agt_ surface, unchanged.
     ("GET", "/api/v1/projects"),
     ("GET", f"/api/v1/tasks/{PID}"),
@@ -62,6 +69,18 @@ def test_agent_reaches_mission_paths(method, path):
     ("POST", "/api/v1/tasks//dependencies"),
     ("POST", f"/api/v1/tasks/{PID}/required-skills"),
     ("POST", f"/api/v1/tasks/{PID}/assignments"),
+    # M0.2c: the generic execution PATCH can set verified; agents report instead.
+    ("PATCH", f"/api/v1/tasks/{PID}/executions/{PID}"),
+    ("POST", f"/api/v1/tasks/{PID}/executions"),
+    ("POST", f"/api/v1/tasks/{PID}/executions/{PID}"),
+    ("POST", f"/api/v1/tasks/{PID}/executions/:report"),
+    ("POST", f"/api/v1/tasks/{PID}/executions/{PID}:report/x"),
+    ("POST", f"/api/v1/tasks/{PID}/dispatch/x"),
+    ("POST", "/api/v1/tasks//dispatch"),
+    ("POST", f"/api/v1/orchestration/executions/{PID}/reviews"),
+    ("PATCH", "/api/v1/orchestration/reviews/"),
+    ("PATCH", f"/api/v1/orchestration/reviews/{PID}/x"),
+    ("POST", f"/api/v1/orchestration/tasks/{PID}/dispatch"),
 ])
 def test_agent_does_not_reach_other_paths(method, path):
     assert not is_agent_command_path(method, path)

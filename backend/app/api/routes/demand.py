@@ -1543,6 +1543,13 @@ async def _execute_dispatch(
     )
     demand.dispatch_attempts = (demand.dispatch_attempts or 0) + 1
     demand.dispatch_error = None
+    if demand.task_execution_id is not None:
+        # A scheduled task dispatch (M0.2c) files its execution as pending;
+        # it starts with the run.
+        execution = await db.get(TaskExecution, demand.task_execution_id)
+        if execution is not None and execution.status == "pending":
+            execution.status = "running"
+            execution.started_at = execution.started_at or demand.dispatched_at
 
     if independent and not demand.notice_sent:
         await _send_notice(f"*Disparo para {agent.name}*\n\n{prompt}")
@@ -2207,7 +2214,10 @@ async def _finalize_dispatch(
     # it to "failed" when the check comes up empty.
     if locked.task_execution_id is not None:
         execution = await db.get(TaskExecution, locked.task_execution_id)
-        if execution is not None:
+        # An execution the executor already reported (report_task_execution,
+        # M0.2c) keeps that report -- and whatever the verification pass made
+        # of it; the run's end must not overwrite it with the reply text.
+        if execution is not None and execution.status in ("pending", "running"):
             execution.finished_at = datetime.now(timezone.utc)
             execution.outcome_summary = reply_body
             if locked.dispatch_status == "failed":

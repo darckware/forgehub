@@ -415,6 +415,11 @@ class TaskInboxDispatchIn(BaseModel):
     command_text: str | None = None
     # Whether the agent's reply should come back as a linked Inbox item.
     requires_response: bool = True
+    # M0.2c (§5.6): a future time files the linked demand into the queue
+    # without reserving; the scheduled pass starts it when due.
+    scheduled_at: datetime | None = None
+    # Required for an agt_ caller (§0.4 receipt); optional for a person.
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=150)
 
 
 class TaskInboxDispatchOut(BaseModel):
@@ -428,3 +433,4 @@ class TaskInboxDispatchOut(BaseModel):
     target_agent_id: uuid.UUID
     dispatch_status: str | None = None
     agent_run_id: str | None = None
+    scheduled_at: datetime | None = None
