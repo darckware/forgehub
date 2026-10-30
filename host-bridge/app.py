@@ -1260,6 +1260,7 @@ def _validate_project_path(project_path: str) -> Path:
 class AgentRunRequest(BaseModel):
     run_id: str
     runtime_type: str  # claude | codex | agy (antigravity accepted as legacy alias) | hermes
+    agent_slug: str | None = None
     project_path: str
     prompt: str
     model_ref: str = "forgerouter/auto"
@@ -1346,6 +1347,13 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
     # "agent already has its own credential" pattern as runtime_type ==
     # "hermes" above.
     use_forgerouter = bool(req.api_key)
+    default_agent_slug = {
+        "claude": "porthus",
+        "codex": "aramis",
+        "agy": "dartan",
+        "antigravity": "dartan",
+    }.get(req.runtime_type)
+    messages_mcp = _messages_mcp_config(req.agent_slug or default_agent_slug)
     effective_model = (
         f"forgerouter/{req.routing_group}"
         if req.model_ref == "forgerouter/auto"
@@ -1380,6 +1388,8 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
             "plan" if req.mode == "plan" else "acceptEdits",
             "--no-session-persistence",
             *model_args,
+            "--mcp-config",
+            json.dumps(messages_mcp, separators=(",", ":")),
         ]
         if req.max_budget_usd is not None:
             command.extend(["--max-budget-usd", str(req.max_budget_usd)])
@@ -1402,6 +1412,10 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
                 resolve_runtime_executable("codex", env=agent_env),
                 "exec",
                 "--json",
+                "--config",
+                _codex_messages_mcp_override(
+                    messages_mcp["mcpServers"]["forgehub"]["env"]["FORGEHUB_AGENT_SLUG"]
+                ),
                 "--sandbox",
                 "read-only" if req.mode == "plan" else "workspace-write",
                 "-C",
@@ -1426,6 +1440,38 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
 
         ],
         {**_antigravity_env(project_dir), **agent_env} if use_forgerouter else agent_env,
+    )
+
+
+def _messages_mcp_config(agent_slug: str | None) -> dict[str, dict]:
+    """Session-scoped Messages MCP config without copying credentials to argv."""
+    slug = (agent_slug or "").strip().lower()
+    if not slug or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,49}", slug):
+        raise ValueError("agent_slug is required to configure ForgeHub Messages MCP")
+    return {
+        "mcpServers": {
+            "forgehub": {
+                "command": "uv",
+                "args": ["run", "/root/project/forgehub/host-bridge/forgehub_messages_mcp.py"],
+                "env": {
+                    "FORGEHUB_API_URL": "http://localhost:8000",
+                    "FORGEHUB_AGENT_SLUG": slug,
+                    "FORGEHUB_ENV_FILE": "/root/project/forgehub/.env",
+                },
+            }
+        }
+    }
+
+
+def _codex_messages_mcp_override(agent_slug: str | None) -> str:
+    """Codex accepts TOML values with `--config key=value` at session scope."""
+    server = _messages_mcp_config(agent_slug)["mcpServers"]["forgehub"]
+    env = server["env"]
+    args = ",".join(json.dumps(value) for value in server["args"])
+    env_entries = ",".join(f"{key}={json.dumps(value)}" for key, value in env.items())
+    return (
+        "mcp_servers.forgehub={command=\"uv\","
+        f"args=[{args}],env={{{env_entries}}}}}"
     )
 
 

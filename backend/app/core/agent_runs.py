@@ -58,6 +58,7 @@ async def dispatch_agent_run(
     body = {
         "run_id": run_id,
         "runtime_type": agent.runtime_type,
+        "agent_slug": agent.profile_slug,
         "project_path": project_path,
         "prompt": prompt,
         "model_ref": model_ref,
