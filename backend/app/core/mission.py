@@ -427,7 +427,7 @@ async def _current_baseline_valid(db: AsyncSession, mission: ProjectMission) -> 
     if mission.current_baseline_id is None:
         return False
     baseline = await db.get(PlanBaseline, mission.current_baseline_id)
-    if baseline is None:
+    if baseline is None or baseline.superseded_at is not None:
         return False
     plan = await db.get(ProjectPlan, baseline.project_plan_id)
     return plan is not None and plan.project_id == mission.project_id and plan.status != "superseded"

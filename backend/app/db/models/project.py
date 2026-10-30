@@ -4,6 +4,7 @@ Tables owned by this domain (per docs/SPEC.md section 4.2):
 - projects
 - project_plans
 - plan_baselines
+- plan_baseline_items   (M0.6b, one frozen content hash per task)
 - change_requests
 
 Business-rule context (SPEC.md section 6.3 Planning Rules):
@@ -29,9 +30,11 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Numeric,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -261,6 +264,40 @@ class PlanBaseline(Base, TimestampMixin):
     frozen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
+
+    # M0.6b (MCP_MISSION_TOOLS_SPEC.md §4.2): hash of the sorted item hashes
+    # plus the mission-level part; NULL on legacy baselines (no items).
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Set once, when the next baseline of the mission replaces this one.
+    # Never cleared: a superseded authorization is not reusable.
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PlanBaselineItem(Base, TimestampMixin):
+    """One task frozen into a baseline (M0.6b, §4.2): the content hash the
+    dispatch guard recomputes. Immutable like its baseline; a task that has
+    one can't be deleted (RESTRICT)."""
+
+    __tablename__ = "plan_baseline_items"
+    __table_args__ = (
+        UniqueConstraint("baseline_id", "task_id", name="uq_plan_baseline_items_task"),
+        Index("ix_plan_baseline_items_task_id", "task_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    baseline_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("company.plan_baselines.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("company.project_tasks.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
 class ChangeRequest(Base, TimestampMixin):

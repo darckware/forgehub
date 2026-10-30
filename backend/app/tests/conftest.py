@@ -187,3 +187,39 @@ async def test_suite_agent():
     async with AsyncSessionLocal() as session:
         await session.execute(delete(Agent).where(Agent.id == agent_id))
         await session.commit()
+
+
+@pytest.fixture
+def bind_evidence_bridge(monkeypatch):
+    """Binds core/evidence_bridge.py to the real host-bridge evidence router
+    (host-bridge/evidence_probe.py, M0.6a) in process, accepting only the
+    given roots -- file/git evidence is then checked for real against
+    temporary folders and repositories. Only the transport is replaced; the
+    running integration stub doesn't know a test's tmp_path."""
+    import sys
+    from pathlib import Path
+
+    import httpx
+    from fastapi import FastAPI, HTTPException
+
+    from app.core import evidence_bridge
+    from app.core.config import settings
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "host-bridge"))
+    import evidence_probe
+
+    real_client = httpx.AsyncClient
+
+    def bind(*roots) -> None:
+        def check(token):
+            if token != settings.CHAT_BRIDGE_TOKEN:
+                raise HTTPException(status_code=401)
+
+        bridge_app = FastAPI()
+        bridge_app.include_router(evidence_probe.make_evidence_router(check, roots=tuple(str(r) for r in roots)))
+        monkeypatch.setattr(
+            evidence_bridge, "_client",
+            lambda: real_client(transport=httpx.ASGITransport(app=bridge_app), timeout=20),
+        )
+
+    return bind

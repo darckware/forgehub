@@ -64,6 +64,17 @@ A M0.0 foi implementada pelo Porthus no branch `feat/m0-0-mission-base` (29/10) 
 - **Pipeline de planejamento** (P1–P8) em `planning:advance`, só em ordem; cada tentativa, aplicada ou recusada, fica em `mission_decisions`. A P2 confere as skills exigidas (`project_tasks.required_skill_ids`) do executor e dos revisores elegíveis.
 - **Recusa por falta de dado:** ambiente e pré-requisitos de ambiente, pareceres por camada, disposições, rodada cruzada, itens para decisão, verificação da aplicação e dossiê ainda não têm onde ser lidos. Essas saídas recusam com `not_recorded` até as fatias M0.2b/M0.2d/M0.6b/M0.7 criarem os dados.
 
+A M0.6a foi implementada pelo Porthus no branch `feat/m0-6a-completion-guard` (29/10) e aguarda a revisão do Dartan (D-1). Ainda não houve merge, migração fora do banco de teste nem reinício do bridge.
+- **Guard global e prospectivo:** toda transição nova para `done`/`deployed`, em qualquer projeto, exige execução `verified`, evidência `git:`/`file:`/`db:` conferida e revisão aprovada por outro agente, com dependências e subtarefas concluídas. Tarefas já concluídas continuam como estão, sem backfill.
+
+A M0.6b foi implementada pelo Porthus no branch `feat/m0-6b-baseline-guard` (29/10, sobre a M0.6a) e aguarda a revisão do Dartan (D-1). Ainda não houve merge nem migração fora do banco de teste.
+- **Baseline imutável:** `plan_baselines.content_hash`/`superseded_at` e `plan_baseline_items` (um hash por tarefa, com brief e critérios da missão; o responsável fica fora, D-M0-3). `create_mission_baseline` cria a próxima e supera a anterior; a aprovação governada que a chama é da M0.2b. Para missão, `POST /projects/plans/{id}/approve` e `POST /projects/{id}/baselines` devolvem 409 `USE_GOVERNED_PLAN_APPROVAL`.
+- **Guard de despacho:** `assert_task_baseline_current` dentro do `reserve_dispatch` (todo caminho até o runner) e no topo de `_dispatch_task_by_id`; recusa com os 6 códigos da §4.2 e, na fila agendada, mantém o item sem consumir tentativa. Missão pausada fica na fila.
+- **Serialização de alvos:** `task_execution_targets`; `publish:production:*` em todo o Messages, `worktree`/`branch` só em missões (D-M0-2), com o `working_path` da missão como alvo implícito.
+- **Evidência no host:** `file:` e `git:` são conferidos pelo host-bridge (`/v1/evidence/verify`, `/v1/git/is-ancestor`), porque o contêiner do backend não tem `git` nem as pastas dos projetos. Bridge inalcançável = "não verificado" (409).
+- **Missão:** a aprovação da revisão deixa a tarefa `in_review` até o commit estar em `develop`. `deployed` é sempre recusado com `DEPLOYED_WITHOUT_RELEASE` enquanto não houver `environment_releases`.
+- **Na publicação (M0.R):** `systemctl restart forgehub-chat-bridge` antes de liberar o backend. Sem isso, nenhuma tarefa com evidência `git:`/`file:` é concluída.
+
 ## Onda 1 — Provar a base e fechar os riscos imediatos
 
 O detalhamento executável está em [12 — Primeira onda](12-primeira-onda.md), com responsáveis,

@@ -28,7 +28,18 @@ from app.api.schemas.orchestration import (
     TaskExecutionReviewUpdate,
 )
 from app.core.config import settings
+from app.core.deps import ActorPrincipal, get_actor_principal
 from app.core.secrets import decrypt_secret
+from app.core.task_completion_guard import (
+    COMPLETION_NOT_INTEGRATED,
+    CompletionRefused,
+    assert_principal_may_review,
+    completion_audit_event,
+    evaluate_task_completion,
+    membership_review_problem,
+    mission_project_ids_for,
+    resolve_executor_agent_id,
+)
 from app.db.base import get_db
 from app.db.models.agent import Agent, AgentSkill, Skill, SubAgent, SubAgentSkill
 from app.db.models.backlog import PlanningItem
@@ -455,27 +466,105 @@ async def list_eligible_memberships(
 async def create_execution_review(
     execution_id: uuid.UUID,
     payload: TaskExecutionReviewCreate,
+    principal: ActorPrincipal = Depends(get_actor_principal),
     db: AsyncSession = Depends(get_db),
 ) -> TaskExecutionReview:
+    """Creating a review never completes the task -- the guard reads it when
+    someone moves the task to done (M0.6a). A decision needs feedback (422 in
+    the schema), the caller must be the reviewer (an agent for its own
+    membership, or an admin recording an agent's review), and the executor --
+    resolved even without an assignment -- can't review itself."""
     execution = await _get_or_404(db, TaskExecution, execution_id, "Execution")
     task = await _get_or_404(db, ProjectTask, execution.task_id, "Task")
     project_id = await _task_project_id(db, task)
     reviewer = await _get_or_404(
         db, ProjectAgentMembership, payload.reviewer_membership_id, "Reviewer membership"
     )
+    recorded_by = await assert_principal_may_review(db, principal, reviewer)
     if execution.assignment_id:
         assignment = await db.get(TaskAssignment, execution.assignment_id)
         if assignment and assignment.membership_id == reviewer.id:
             raise HTTPException(status_code=409, detail="Executor cannot review the same execution")
-    if reviewer.project_id != project_id or reviewer.status != "active" or not reviewer.can_review:
+    executor_agent_id = await resolve_executor_agent_id(db, execution)
+    reviewer_agent_id = reviewer.agent_id
+    if reviewer_agent_id is None and reviewer.sub_agent_id is not None:
+        sub_agent = await db.get(SubAgent, reviewer.sub_agent_id)
+        reviewer_agent_id = sub_agent.agent_id if sub_agent else None
+    if executor_agent_id is not None and reviewer_agent_id == executor_agent_id:
+        raise HTTPException(status_code=409, detail="Executor cannot review the same execution")
+    project = await db.get(Project, project_id)
+    allowed_projects = {project_id, *(await mission_project_ids_for(db, project))} if project else {project_id}
+    if membership_review_problem(reviewer, allowed_projects):
         raise HTTPException(status_code=422, detail="Reviewer is not authorized for this project")
     review = TaskExecutionReview(execution_id=execution_id, **payload.model_dump())
     if review.status in {"approved", "changes_requested", "rejected"}:
         review.decided_at = datetime.now(timezone.utc)
     db.add(review)
+    await db.flush()
+    db.add(_review_audit(review, "review_created", principal, recorded_by))
     await db.commit()
     await db.refresh(review)
     return review
+
+
+def _review_audit(
+    review: TaskExecutionReview, event_type: str, principal: ActorPrincipal, recorded_by: dict | None
+) -> AuditEvent:
+    payload = {
+        "execution_id": str(review.execution_id),
+        "reviewer_membership_id": str(review.reviewer_membership_id),
+        "status": review.status,
+        "score": review.score,
+        "principal_type": principal.principal_type,
+        "principal_id": str(principal.principal_id),
+    }
+    if recorded_by:
+        payload.update(recorded_by)
+    return AuditEvent(
+        entity_type="task_execution_review",
+        entity_id=review.id,
+        event_type=event_type,
+        actor=principal.display_name,
+        payload=payload,
+    )
+
+
+async def _complete_after_review_approval(
+    db: AsyncSession,
+    review: TaskExecutionReview,
+    principal: ActorPrincipal,
+    *,
+    via: str,
+    refuse: bool,
+) -> None:
+    """An approved review verifies the execution; the task becomes done only
+    through the completion guard (M0.6a). A mission task whose commit isn't
+    in the mainline yet stays `in_review` until it is integrated. Any other
+    refusal is a 409 when `refuse` (the caller rolls everything back), or --
+    for the reviewer CLI's refresh, whose result must not be lost -- leaves
+    the task as it was and records why."""
+    execution = await _get_or_404(db, TaskExecution, review.execution_id, "Execution")
+    execution.status = "verified"
+    task = await _get_or_404(db, ProjectTask, execution.task_id, "Task")
+    await db.flush()
+    if task.status in ("done", "deployed"):
+        return
+    try:
+        proof = await evaluate_task_completion(db, task, "done")
+    except CompletionRefused as exc:
+        if exc.code == COMPLETION_NOT_INTEGRATED:
+            task.status = "in_review"
+        elif refuse:
+            raise exc.to_http() from exc
+        db.add(AuditEvent(
+            entity_type="project_task", entity_id=task.id, event_type="task_completion_refused",
+            actor=principal.display_name,
+            payload={"via": via, "review_id": str(review.id), "code": exc.code, "message": exc.message},
+        ))
+        return
+    task.status = "done"
+    task.completed_at = task.completed_at or datetime.now(timezone.utc)
+    db.add(completion_audit_event(task, "done", principal, proof, via=via))
 
 
 @router.get(
@@ -497,11 +586,16 @@ async def list_execution_reviews(
 async def update_execution_review(
     review_id: uuid.UUID,
     payload: TaskExecutionReviewUpdate,
+    principal: ActorPrincipal = Depends(get_actor_principal),
     db: AsyncSession = Depends(get_db),
 ) -> TaskExecutionReview:
     review = await _get_or_404(db, TaskExecutionReview, review_id, "Review")
     if review.status in {"approved", "rejected"}:
         raise HTTPException(status_code=409, detail="Final review decision is immutable")
+    reviewer = await _get_or_404(
+        db, ProjectAgentMembership, review.reviewer_membership_id, "Reviewer membership"
+    )
+    recorded_by = await assert_principal_may_review(db, principal, reviewer)
     data = payload.model_dump(exclude_unset=True)
     merged_status = data.get("status", review.status)
     merged_feedback = data.get("feedback", review.feedback)
@@ -511,24 +605,11 @@ async def update_execution_review(
         setattr(review, field, value)
     if merged_status in {"approved", "changes_requested", "rejected"}:
         review.decided_at = datetime.now(timezone.utc)
-        db.add(
-            AuditEvent(
-                entity_type="task_execution_review",
-                entity_id=review.id,
-                event_type=f"review_{merged_status}",
-                actor=str(review.reviewer_membership_id),
-                payload={"execution_id": str(review.execution_id), "score": review.score},
-            )
-        )
+        db.add(_review_audit(review, f"review_{merged_status}", principal, recorded_by))
+    if merged_status == "approved":
+        await _complete_after_review_approval(db, review, principal, via="review_approved", refuse=True)
     await db.commit()
     await db.refresh(review)
-    if merged_status == "approved":
-        execution = await _get_or_404(db, TaskExecution, review.execution_id, "Execution")
-        execution.status = "verified"
-        task = await _get_or_404(db, ProjectTask, execution.task_id, "Task")
-        task.status = "done"
-        task.completed_at = datetime.now(timezone.utc)
-        await db.commit()
     return review
 
 
@@ -733,7 +814,9 @@ async def dispatch_execution_review(
 
 @router.post("/reviews/{review_id}/refresh", response_model=TaskExecutionReviewOut)
 async def refresh_execution_review(
-    review_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    review_id: uuid.UUID,
+    principal: ActorPrincipal = Depends(get_actor_principal),
+    db: AsyncSession = Depends(get_db),
 ) -> TaskExecutionReview:
     review = await _get_or_404(db, TaskExecutionReview, review_id, "Review")
     if not review.runtime_session_ref:
@@ -778,13 +861,8 @@ async def refresh_execution_review(
         if policy.requires_human_approval
         else ("approved" if passes else "changes_requested")
     )
+    if review.status == "approved":
+        await _complete_after_review_approval(db, review, principal, via="review_refresh", refuse=False)
     await db.commit()
     await db.refresh(review)
-
-    if review.status == "approved":
-        execution.status = "verified"
-        task = await _get_or_404(db, ProjectTask, execution.task_id, "Task")
-        task.status = "done"
-        task.completed_at = datetime.now(timezone.utc)
-        await db.commit()
     return review

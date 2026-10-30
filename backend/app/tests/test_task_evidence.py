@@ -33,10 +33,20 @@ async def client(auth_headers):
 
 
 @pytest_asyncio.fixture
-async def project_and_task(tmp_path):
+async def admin_client(admin_headers):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test", headers=admin_headers) as ac:
+        yield ac
+
+
+@pytest_asyncio.fixture
+async def project_and_task(tmp_path, bind_evidence_bridge):
     """A real Product -> ProductVersion -> Project (with a real filesystem
     working_directory_path, for file: evidence checks) -> PlanningItem ->
-    ProjectTask chain, plus a registered Agent to act as dispatch target."""
+    ProjectTask chain, plus a registered Agent to act as dispatch target.
+    file:/git: evidence is checked on the host through the bridge (M0.6a);
+    here the real bridge router answers for tmp_path in process."""
+    bind_evidence_bridge(tmp_path)
     suffix = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as session:
         product = Product(name=f"Evidence Test Product {suffix}")
@@ -300,31 +310,65 @@ async def test_missing_evidence_ref_stays_reported_for_manual_review(project_and
         assert execution.status == "reported"
 
 
+async def test_unreachable_bridge_leaves_file_evidence_reported(project_and_task, tmp_path, monkeypatch):
+    """M0.6a: the bridge not answering is "not verified" -- the execution
+    stays reported, never verified and never failed."""
+    import httpx
+
+    from app.core import evidence_bridge
+
+    def down():
+        def refuse(request):
+            raise httpx.ConnectError("bridge down", request=request)
+        return httpx.AsyncClient(transport=httpx.MockTransport(refuse))
+
+    monkeypatch.setattr(evidence_bridge, "_client", down)
+    (tmp_path / "output.txt").write_text("real work")
+    execution_id = await _create_execution(
+        project_and_task["task_id"], started_at=datetime.now(timezone.utc) - timedelta(minutes=5)
+    )
+    async with AsyncSessionLocal() as session:
+        execution = await session.get(TaskExecution, execution_id)
+        execution.status = "reported"
+        execution.evidence_ref = "file:output.txt"
+        await session.commit()
+
+        await run_evidence_verification_pass(session)
+
+    async with AsyncSessionLocal() as session:
+        assert (await session.get(TaskExecution, execution_id)).status == "reported"
+
+
 # ---------------------------------------------------------------------------
-# _ensure_evidence_verified -- the gate on marking a task "done"
+# The gate on marking a task "done" (core/task_completion_guard.py, M0.6a;
+# the full matrix is in test_task_completion_guard.py)
 # ---------------------------------------------------------------------------
 
 
-async def test_task_with_unverified_execution_cannot_be_marked_done(client, project_and_task):
+async def test_task_with_unverified_execution_cannot_be_marked_done(admin_client, project_and_task):
     await _create_execution(project_and_task["task_id"])
 
-    resp = await client.patch(
+    resp = await admin_client.patch(
         f"/api/v1/tasks/{project_and_task['task_id']}", json={"status": "done"}
     )
     assert resp.status_code == 409, resp.text
-    assert "not verified/completed" in resp.json()["detail"]
+    assert resp.json()["detail"]["code"] == "COMPLETION_EXECUTION_NOT_VERIFIED"
 
 
-async def test_task_with_verified_execution_can_be_marked_done(client, project_and_task):
-    execution_id = await _create_execution(project_and_task["task_id"])
+async def test_verified_execution_alone_cannot_mark_task_done(admin_client, project_and_task, tmp_path):
+    """Before M0.6a a verified execution was enough; now the latest one also
+    needs an independent approved review."""
+    started_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    execution_id = await _create_execution(project_and_task["task_id"], started_at=started_at)
+    (tmp_path / "whatever.txt").write_text("real work")
     async with AsyncSessionLocal() as session:
         execution = await session.get(TaskExecution, execution_id)
         execution.status = "verified"
         execution.evidence_ref = "file:whatever.txt"
         await session.commit()
 
-    resp = await client.patch(
+    resp = await admin_client.patch(
         f"/api/v1/tasks/{project_and_task['task_id']}", json={"status": "done"}
     )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["status"] == "done"
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "COMPLETION_NO_INDEPENDENT_REVIEW"

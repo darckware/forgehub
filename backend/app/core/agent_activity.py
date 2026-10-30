@@ -104,6 +104,7 @@ FLOW_STAGE_BY_SOURCE: dict[str, dict[str, str]] = {
         "assigned": "queued",
         "in_progress": "executing",
         "blocked": "attention",
+        "in_review": "verifying",  # M0.6a: approved, waiting for integration
         "done": "completed",
         "deployed": "completed",
         "cancelled": "archived",

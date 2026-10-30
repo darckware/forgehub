@@ -379,13 +379,21 @@ async def decide_task_approval(
     if decision == "approved":
         if execution.status not in ("verified", "completed"):
             raise HTTPException(409, "Cannot approve: execution evidence is not verified")
-        task.status = "done"
-        if task.completed_at is None:
-            task.completed_at = datetime.now(timezone.utc)
-        db.add(AuditEvent(
-            entity_type="project_task", entity_id=task.id, event_type="task_completed",
-            actor=principal.display_name, payload={"via": "governed_approval", "execution_id": str(execution.id)},
-        ))
+        # M0.6a: approving the governed request is not proof by itself -- the
+        # task becomes done only through the completion guard (verified
+        # evidence + independent review + dependencies). A refusal is a 409
+        # and the whole decision is rolled back. Local import: the guard
+        # imports task_evidence, which imports this module.
+        from app.core.task_completion_guard import assert_task_completion_allowed, completion_audit_event
+        if task.status not in ("done", "deployed"):
+            proof = await assert_task_completion_allowed(db, task, "done", principal)
+            task.status = "done"
+            if task.completed_at is None:
+                task.completed_at = datetime.now(timezone.utc)
+            db.add(completion_audit_event(
+                task, "done", principal, proof, via="governed_approval",
+                extra={"approval_request_id": str(request.id)},
+            ))
     elif decision == "changes_requested":
         task.status = "in_progress"
         # Local import, same reasoning as _resolve_task_project_id above --

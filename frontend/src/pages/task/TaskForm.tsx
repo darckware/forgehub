@@ -111,7 +111,7 @@ export function TaskForm({
               <option key={status} value={status}>
                 {t(`enums.taskStatuses.${status}`, {
                   defaultValue: t(`enums.taskStatus.${status}`, {
-                    defaultValue: status === "in_progress" ? "Em andamento" : status === "planned" ? "Planejada" : status === "blocked" ? "Bloqueada" : status === "done" ? "Concluída" : status === "deployed" ? "Implantada" : status === "cancelled" ? "Cancelada" : status === "assigned" ? "Atribuída" : status,
+                    defaultValue: status === "in_progress" ? "Em andamento" : status === "planned" ? "Planejada" : status === "blocked" ? "Bloqueada" : status === "done" ? "Concluída" : status === "deployed" ? "Implantada" : status === "cancelled" ? "Cancelada" : status === "assigned" ? "Atribuída" : status === "in_review" ? "Em revisão" : status,
                   }),
                 })}
               </option>

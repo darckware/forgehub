@@ -539,3 +539,25 @@ async def test_stub_calls_are_listed(stubbed):
     assert listed["total"] == 1 and listed["calls"][0]["destination"] == "telegram:42"
     assert set(listed["calls"][0]) == {"at", "integration", "method", "path", "operation", "destination",
                                        "outcome", "status", "auth"}
+
+
+async def test_evidence_probes_answer_only_for_fictitious_roots(stubbed):
+    """M0.6a: the completion guard's file/git probes reach the stub, which
+    answers only for fictitious roots and records every call."""
+    from app.core import evidence_bridge
+
+    root = stubbed.stub.STUB_EVIDENCE_ROOT + "app"
+    integrated, pending = list(stubbed.stub.STUB_COMMITS)
+    assert await evidence_bridge.verify_on_host("git", root, integrated[:12], None) == (True, "commit exists (stub)")
+    assert (await evidence_bridge.verify_on_host("git", root, "deadbeefdeadbeef", None))[0] is False
+    assert (await evidence_bridge.verify_on_host("file", root, "README.md", None))[0] is True
+    assert (await evidence_bridge.verify_on_host("file", root, "nope.md", None))[0] is False
+    assert (await evidence_bridge.commit_is_integrated(root, integrated, "develop"))[0] is True
+    assert (await evidence_bridge.commit_is_integrated(root, pending, "develop"))[0] is False
+    for real_root in ("/root/project/forgehub", "/srv/forgehub-test/../../root"):
+        with pytest.raises(evidence_bridge.EvidenceUnverifiable):
+            await evidence_bridge.verify_on_host("file", real_root, "README.md", None)
+    calls = [c for c in _calls(stubbed) if c["operation"] in ("evidence.verify", "git.is_ancestor")]
+    assert len(calls) == 8
+    assert [c["outcome"] for c in calls[-2:]] == ["refused", "refused"]
+    assert all(c["auth"] == "test" for c in calls)

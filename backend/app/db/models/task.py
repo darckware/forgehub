@@ -50,6 +50,9 @@ TASK_STATUSES = (
     "done",
     "deployed",
     "cancelled",
+    # M0.6a: reviewed and approved, waiting for its commit to reach the
+    # mission mainline (core/task_completion_guard.py).
+    "in_review",
 )
 
 # Canonical execution runtimes backed by AgentRuntimeProfile.  Keep this
@@ -210,6 +213,33 @@ class TaskDependency(Base, TimestampMixin):
 
     # finish_to_start | start_to_start | finish_to_finish | start_to_finish
     dependency_type: Mapped[str] = mapped_column(String(30), nullable=False, default="finish_to_start")
+
+
+# Target serialization (M0.6b, MCP_MISSION_TOOLS_SPEC.md §4.3). Keys are
+# normalized by core/dispatch_targets.normalize_target_key.
+TASK_EXECUTION_TARGET_KINDS = ("worktree", "branch", "publish")
+
+
+class TaskExecutionTarget(Base, TimestampMixin):
+    """Something a task's run holds exclusively while it runs: a worktree
+    (absolute realpath), a branch (``<repo-realpath>#<branch>``) or a publish
+    target (``<environment>:<deploy-target>``, e.g. ``production:forgehub``).
+    `reserve_dispatch` keeps a second run on an equal target queued."""
+
+    __tablename__ = "task_execution_targets"
+    __table_args__ = (
+        UniqueConstraint("task_id", "kind", "target_key", name="uq_task_execution_targets_target"),
+        CheckConstraint(
+            "kind IN ('worktree', 'branch', 'publish')", name="ck_task_execution_targets_kind"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.project_tasks.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    target_key: Mapped[str] = mapped_column(String(500), nullable=False)
 
 
 class TaskRequiredSkill(Base, TimestampMixin):
