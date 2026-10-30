@@ -48,6 +48,7 @@ from app.core.security import create_access_token, hash_password  # noqa: E402
 from app.db.base import AsyncSessionLocal  # noqa: E402
 from app.db.models.agent import Agent  # noqa: E402
 from app.db.models.user import User  # noqa: E402
+from app.tests.fixtures.demand_cleanup import cleanup_agent_demands  # noqa: E402
 
 # The free-text `from_agent` most demand tests post with. create_demand
 # auto-resolves it to a real Agent row by profile_slug (_find_agent_by_slug),
@@ -92,6 +93,9 @@ async def _cleanup_stale_agent_fixtures() -> None:
         await session.execute(
             text(f"DELETE FROM company.task_assignments WHERE agent_id IN ({fixture_ids.text})")
         )
+        # Incubation ownership is CHECK-enforced: ON DELETE SET NULL on the
+        # agent FK cannot clean up a thought left by an interrupted test.
+        await cleanup_agent_demands(session, list((await session.scalars(fixture_ids)).all()))
         await session.execute(
             text(f"DELETE FROM company.agents WHERE id IN ({fixture_ids.text})")
         )

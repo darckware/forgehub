@@ -10,6 +10,7 @@ from app.db.base import AsyncSessionLocal
 from app.db.models.demand import AgentDemand
 from app.db.models.governance import AuditEvent
 from app.db.models.notification import Notification
+from app.tests.fixtures.demand_cleanup import cleanup_agent_demands
 
 
 @pytest.fixture
@@ -28,17 +29,12 @@ async def consolidation_db(test_suite_agent):
         )
         db.add_all([failed, incubated])
         await db.flush()
-        ids = [failed.id, incubated.id]
         try:
             yield db, failed, incubated
         finally:
             await db.rollback()
             async with AsyncSessionLocal() as cleanup:
-                await cleanup.execute(delete(Notification).where(
-                    Notification.event_key.in_([f"incubation-due:{i}" for i in ids])
-                ))
-                await cleanup.execute(delete(AgentDemand).where(AgentDemand.id.in_(ids)))
-                await cleanup.execute(delete(AuditEvent).where(AuditEvent.entity_id.in_(ids)))
+                await cleanup_agent_demands(cleanup, [test_suite_agent])
                 await cleanup.commit()
 
 
