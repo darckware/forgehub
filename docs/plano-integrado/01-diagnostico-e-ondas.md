@@ -75,6 +75,10 @@ A M0.6b foi implementada pelo Porthus no branch `feat/m0-6b-baseline-guard` (29/
 - **Missão:** a aprovação da revisão deixa a tarefa `in_review` até o commit estar em `develop`. `deployed` é sempre recusado com `DEPLOYED_WITHOUT_RELEASE` enquanto não houver `environment_releases`.
 - **Na publicação (M0.R):** `systemctl restart forgehub-chat-bridge` antes de liberar o backend. Sem isso, nenhuma tarefa com evidência `git:`/`file:` é concluída.
 
+A F.1 (desenho da identidade dos agentes) foi escrita pelo Porthus no branch `docs/f1-token-design` (29/10) e aguarda a revisão do Aegis (especificação e procedimento F.1.1). Só documento: nenhum token foi emitido, rotacionado ou revogado.
+- **Spec:** `docs/architecture/AGENT_IDENTITY_TOKEN_SPEC.md` (ES256, emissor ForgeVault, JWKS com rotação sobreposta, claims, validação por sistema, revogação push+polling, transição do `agt_` por agente, F.1.1). Parte do ForgeVault: `docs/architecture/AGENT_IDENTITY_ISSUER.md` no branch `docs/f1-token-design` do repositório `forgevault`.
+- **Perguntas para o Marcelo:** Q1–Q7 na §12 da spec (algoritmo, vida do token, regra de cache vencido, réplica do ForgeVault, pré-autorização do Aegis na contenção, aposentadoria do `agt_`, host-bridge).
+
 ## Onda 1 — Provar a base e fechar os riscos imediatos
 
 O detalhamento executável está em [12 — Primeira onda](12-primeira-onda.md), com responsáveis,
