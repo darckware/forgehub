@@ -9,11 +9,12 @@ import { TerminalNotes } from "./TerminalNotes";
 
 describe("TerminalNotes", () => {
   it("saves notes against the active session and keeps an unsaved draft when hidden", async () => {
-    const { rerender } = render(<TerminalNotes sessionId="session-1" notes="antes" open onClose={() => {}} />);
+    const { rerender } = render(<TerminalNotes sessionId="session-1" label="Codex - ForgeHub" notes="antes" open onClose={() => {}} />);
+    expect(screen.getByText("Codex - ForgeHub")).toBeInTheDocument();
     const input = screen.getByLabelText("terminalNotes.description");
     fireEvent.change(input, { target: { value: "Retomar após o limite" } });
-    rerender(<TerminalNotes sessionId="session-1" notes="antes" open={false} onClose={() => {}} />);
-    rerender(<TerminalNotes sessionId="session-1" notes="antes" open onClose={() => {}} />);
+    rerender(<TerminalNotes sessionId="session-1" label="Codex - ForgeHub" notes="antes" open={false} onClose={() => {}} />);
+    rerender(<TerminalNotes sessionId="session-1" label="Codex - ForgeHub" notes="antes" open onClose={() => {}} />);
     expect(input).toHaveValue("Retomar após o limite");
     fireEvent.click(screen.getByText("terminalNotes.save"));
     await waitFor(() => expect(save).toHaveBeenCalledWith({ id: "session-1", notes: "Retomar após o limite", expected_notes: "antes" }));

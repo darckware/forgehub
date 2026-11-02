@@ -4,12 +4,10 @@ import { useTranslation } from "react-i18next";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { Check, ChevronDown, Copy, ExternalLink, HelpCircle, Keyboard, KeyboardOff, Minus, Plus, SendHorizontal, SlidersHorizontal } from "lucide-react";
+import { SendHorizontal } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
+import { TerminalToolbar } from "@/components/TerminalToolbar";
 import { JumpToBottomButton } from "@/components/JumpToBottomButton";
-import { Button } from "@/components/ui/button";
-import { useClickOutside } from "@/hooks/useClickOutside";
-import { usePhoneMenuStyle } from "@/hooks/usePhoneMenuStyle";
 import { ApiError, apiClient, getToken } from "@/lib/api";
 import { attachTerminalImeInput } from "@/lib/terminalImeInput";
 import {
@@ -740,7 +738,7 @@ export function TerminalPane({ sessionId, command, cwd, active, serverId, contro
       {active &&
         controlsSlot &&
         createPortal(
-          <TerminalControlsMenu
+          <TerminalToolbar
             copied={copied}
             onCopy={() => void handleCopy()}
             latestLink={latestLink}
@@ -766,175 +764,6 @@ export function TerminalPane({ sessionId, command, cwd, active, serverId, contro
         {scrolledAway && <JumpToBottomButton onClick={jumpToBottom} />}
       </div>
       {touchInput && <TerminalTouchInput send={sendToPty} />}
-    </div>
-  );
-}
-
-const MENU_ROW =
-  "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent";
-
-/** The terminal's copy/link/zoom/keyboard/help actions as a toolbar
- * dropdown, rendered by the active pane through `controlsSlot`. */
-function TerminalControlsMenu({
-  copied,
-  onCopy,
-  latestLink,
-  onOpenLatestLink,
-  fontSize,
-  onZoomOut,
-  onZoomReset,
-  onZoomIn,
-  touchDevice,
-  touchInput,
-  onToggleTouchInput,
-}: {
-  copied: boolean;
-  onCopy: () => void;
-  latestLink: string | null;
-  onOpenLatestLink: () => void;
-  fontSize: number;
-  onZoomOut: () => void;
-  onZoomReset: () => void;
-  onZoomIn: () => void;
-  touchDevice: boolean;
-  touchInput: boolean;
-  onToggleTouchInput: () => void;
-}) {
-  const { t } = useTranslation("workspace");
-  const [open, setOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  useClickOutside(containerRef, () => setOpen(false), open);
-  const menuStyle = usePhoneMenuStyle(containerRef, open);
-
-  return (
-    <div className="relative" ref={containerRef}>
-      <Button
-        variant={open ? "secondary" : "outline"}
-        size="sm"
-        className="h-8 shrink-0 gap-1.5 px-2"
-        title={t("terminal.controls")}
-        aria-label={t("terminal.controls")}
-        aria-expanded={open}
-        // Keep xterm's selection: a focus change before the click would
-        // still leave it, but not on every platform.
-        onPointerDown={(e) => e.preventDefault()}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <SlidersHorizontal className="h-3.5 w-3.5" />
-        {t("terminal.controlsLabel")}
-        <ChevronDown className="h-3 w-3 opacity-60" />
-      </Button>
-      {open && (
-        <div
-          className="absolute left-0 top-full z-30 mt-1 max-h-[70vh] w-72 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-md max-md:fixed max-md:inset-x-2 max-md:w-auto"
-          style={menuStyle}
-        >
-          <button
-            type="button"
-            className={MENU_ROW}
-            title={t("terminal.copyHelp")}
-            onPointerDown={(e) => e.preventDefault()}
-            onClick={onCopy}
-          >
-            {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
-            {t("terminal.copy")}
-          </button>
-          <button
-            type="button"
-            className={MENU_ROW}
-            disabled={!latestLink}
-            title={latestLink ?? t("terminal.noLinkDetected")}
-            onClick={() => {
-              onOpenLatestLink();
-              setOpen(false);
-            }}
-          >
-            <ExternalLink className="h-4 w-4" />
-            {latestLink ? t("terminal.openLatestLink") : t("terminal.noLinkDetected")}
-          </button>
-
-          <div className="flex items-center gap-2 px-3 py-1.5 text-sm">
-            <span className="flex-1">{t("terminal.zoom")}</span>
-            <button
-              type="button"
-              onClick={onZoomOut}
-              disabled={fontSize <= MIN_FONT_SIZE}
-              className="flex h-7 w-7 items-center justify-center rounded border border-border hover:bg-accent disabled:opacity-30 disabled:hover:bg-transparent"
-              title={t("terminal.zoomOutTitle")}
-              aria-label={t("terminal.zoomOut")}
-            >
-              <Minus className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={onZoomReset}
-              className="min-w-[3rem] rounded px-1.5 py-0.5 font-mono text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
-              title={t("terminal.zoomReset", { size: fontSize, defaultSize: DEFAULT_FONT_SIZE })}
-            >
-              {fontSize}px
-            </button>
-            <button
-              type="button"
-              onClick={onZoomIn}
-              disabled={fontSize >= MAX_FONT_SIZE}
-              className="flex h-7 w-7 items-center justify-center rounded border border-border hover:bg-accent disabled:opacity-30 disabled:hover:bg-transparent"
-              title={t("terminal.zoomInTitle")}
-              aria-label={t("terminal.zoomIn")}
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
-          </div>
-
-          {touchDevice && (
-            <button
-              type="button"
-              // Same trick as the typing bar's keys: without it the tap
-              // blurs the bar's textarea first and the bar can't be closed.
-              onPointerDown={(e) => e.preventDefault()}
-              onClick={() => {
-                onToggleTouchInput();
-                setOpen(false);
-              }}
-              className={`${MENU_ROW} ${touchInput ? "text-primary" : ""}`}
-              aria-pressed={touchInput}
-            >
-              {touchInput ? <KeyboardOff className="h-4 w-4" /> : <Keyboard className="h-4 w-4" />}
-              {touchInput ? t("terminal.touchInputClose") : t("terminal.touchInputOpen")}
-            </button>
-          )}
-
-          <div className="my-1 border-t border-border" />
-          <button type="button" className={MENU_ROW} aria-expanded={helpOpen} onClick={() => setHelpOpen((v) => !v)}>
-            <HelpCircle className="h-4 w-4" />
-            <span className="flex-1">{t("terminal.help.title")}</span>
-            <ChevronDown className={`h-3.5 w-3.5 opacity-60 transition-transform ${helpOpen ? "rotate-180" : ""}`} />
-          </button>
-          {helpOpen && (
-            <div className="space-y-1.5 px-3 pb-2 pt-1 text-[11px] leading-4">
-              {[
-                [t("terminal.help.selectShortcut"), t("terminal.help.select")],
-                ["Ctrl + C", t("terminal.help.copy")],
-                ["Ctrl + V", t("terminal.help.paste")],
-                [t("terminal.help.linkButton"), t("terminal.help.openLink")],
-                ["Ctrl + B, %", t("terminal.help.splitVertical")],
-                ['Ctrl + B, "', t("terminal.help.splitHorizontal")],
-                ["Ctrl + B, ← ↑ ↓ →", t("terminal.help.changePane")],
-                ["Ctrl + B, z", t("terminal.help.zoomPane")],
-                ["Ctrl + B, x", t("terminal.help.closePane")],
-                [t("terminal.help.closeTabButton"), t("terminal.help.detach")],
-              ].map(([shortcut, description]) => (
-                <div key={`${shortcut}-${description}`} className="grid grid-cols-[7.25rem_1fr] items-start gap-2">
-                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground">
-                    {shortcut}
-                  </kbd>
-                  <span className="pt-0.5 text-muted-foreground">{description}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
