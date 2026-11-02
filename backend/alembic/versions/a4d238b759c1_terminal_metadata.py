@@ -1,14 +1,14 @@
 """Persist terminal names and notes.
 
 Revision ID: a4d238b759c1
-Revises: e8c4b2d9a7f1
+Revises: e83c1a7d29b4
 """
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 
 revision = "a4d238b759c1"
-down_revision = "e8c4b2d9a7f1"
+down_revision = "e83c1a7d29b4"
 branch_labels = None
 depends_on = None
 
