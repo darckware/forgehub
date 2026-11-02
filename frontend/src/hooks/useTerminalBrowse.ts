@@ -65,6 +65,27 @@ export interface TerminalSession {
   attached: boolean;
 }
 
+export interface TerminalMetadata { label: string | null; notes: string }
+
+export function useTerminalMetadata() {
+  return useQuery({
+    queryKey: ["terminal-metadata"],
+    queryFn: () => apiClient.get<Record<string, TerminalMetadata>>("/api/v1/terminal/metadata"),
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function useUpdateTerminalMetadata() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...changes }: { id: string; label?: string; notes?: string; expected_notes?: string }) =>
+      apiClient.patch<TerminalMetadata>(`/api/v1/terminal/sessions/${id}/metadata`, changes),
+    onSuccess: (result, variables) => {
+      client.setQueryData<Record<string, TerminalMetadata>>(["terminal-metadata"], (old) => ({ ...old, [variables.id]: result }));
+    },
+  });
+}
+
 export function useTerminalSessions(enabled = true) {
   return useQuery({
     queryKey: ["terminal-sessions"],

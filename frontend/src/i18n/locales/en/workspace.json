@@ -248,5 +248,15 @@
   "activeTurn": {
     "running": "Running on the server — this view reconnected",
     "awaitingApproval": "Waiting for an approval to continue"
+  },
+  "terminalNotes": {
+    "title": "Terminal notes",
+    "close": "Close",
+    "description": "Record the task, stopping point, and when to resume.",
+    "save": "Save",
+    "saving": "Saving…",
+    "error": "Could not save. Try again.",
+    "renameError": "Could not save the terminal name.",
+    "conflict": "These notes changed on another device. Copy your text and reload before saving."
   }
 }

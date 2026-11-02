@@ -26,6 +26,9 @@ from urllib.parse import quote
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import func
 from websockets import connect as ws_connect
 from websockets.exceptions import ConnectionClosed
 
@@ -33,11 +36,52 @@ import uuid
 
 from app.core.config import settings
 from app.core.deps import get_current_admin
-from app.db.base import AsyncSessionLocal
+from app.db.base import AsyncSessionLocal, get_db
+from app.api.schemas.terminal_metadata import TerminalMetadataUpdate
+from app.db.models.terminal_metadata import TerminalMetadata
 from app.db.models.governance import AuditEvent
 from app.db.models.user import User
 
 router = APIRouter(prefix="/api/v1/terminal", tags=["terminal"])
+
+
+@router.get("/metadata")
+async def list_terminal_metadata(user: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)) -> dict:
+    rows = (await db.execute(select(TerminalMetadata))).scalars().all()
+    return {str(row.session_id): {"label": row.label, "notes": row.notes} for row in rows}
+
+
+@router.patch("/sessions/{session_id}/metadata")
+async def update_terminal_metadata(session_id: uuid.UUID, payload: TerminalMetadataUpdate,
+                                   user: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)) -> dict:
+    changes = payload.model_dump(exclude_unset=True, exclude_none=True)
+    expected_notes = changes.pop("expected_notes", None)
+    if not changes:
+        raise HTTPException(status_code=422, detail="No metadata supplied")
+    if "notes" in changes and expected_notes is None:
+        raise HTTPException(status_code=422, detail="Expected notes required")
+    statement = insert(TerminalMetadata).values(session_id=session_id, **changes)
+    statement = statement.on_conflict_do_update(index_elements=[TerminalMetadata.session_id],
+                                               set_={**changes, "updated_at": func.now()},
+                                               where=TerminalMetadata.notes == expected_notes if "notes" in changes else None)
+    result = await db.execute(statement.returning(TerminalMetadata.session_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=409, detail="Terminal notes changed elsewhere")
+    await db.commit()
+    row = await db.get(TerminalMetadata, session_id)
+    return {"label": row.label, "notes": row.notes}
+
+
+@router.post("/sessions/{session_id}/metadata/initialize")
+async def initialize_terminal_metadata(session_id: uuid.UUID, payload: TerminalMetadataUpdate,
+                                       user: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)) -> dict:
+    if not payload.label:
+        raise HTTPException(status_code=422, detail="Label required")
+    statement = insert(TerminalMetadata).values(session_id=session_id, label=payload.label)
+    await db.execute(statement.on_conflict_do_nothing(index_elements=[TerminalMetadata.session_id]))
+    await db.commit()
+    row = await db.get(TerminalMetadata, session_id)
+    return {"label": row.label, "notes": row.notes}
 
 
 async def _audit_terminal_event(session_id: str, event_type: str, actor: str, payload: dict) -> None:

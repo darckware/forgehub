@@ -248,5 +248,15 @@
   "activeTurn": {
     "running": "En ejecución en el servidor — esta vista se reconectó",
     "awaitingApproval": "Esperando una aprobación para continuar"
+  },
+  "terminalNotes": {
+    "title": "Notas del terminal",
+    "close": "Cerrar",
+    "description": "Registra la tarea, dónde paraste y cuándo retomarla.",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "error": "No se pudo guardar. Inténtalo de nuevo.",
+    "renameError": "No se pudo guardar el nombre del terminal.",
+    "conflict": "Estas notas cambiaron en otro dispositivo. Copia tu texto y vuelve a cargar antes de guardar."
   }
 }
