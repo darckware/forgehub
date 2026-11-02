@@ -21,7 +21,8 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, event, select
+from sqlalchemy.orm import Session, with_loader_criteria
 
 from app.api.routes.demand import (
     RECONCILIATION_REQUIRED_ERROR,
@@ -43,6 +44,33 @@ class FrozenDateTime(datetime):
     def now(cls, tz=None):
         value = cls(2001, 1, 1, tzinfo=timezone.utc)
         return value if tz is not None else value.replace(tzinfo=None)
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def isolated_dispatch_queue():
+    """Keep sweeps and real capacity checks inside this test's queue.
+
+    Seeded or interrupted runs in the shared database can occupy every slot;
+    they must neither block these regressions nor be changed by their sweeps.
+    """
+    demand_ids = set()
+
+    def remember_messages(session, _context):
+        demand_ids.update(item.id for item in session.new if isinstance(item, AgentDemand))
+
+    def scope_messages(state):
+        if state.is_select:
+            state.statement = state.statement.options(with_loader_criteria(
+                AgentDemand, AgentDemand.id.in_(list(demand_ids)), include_aliases=True,
+            ))
+
+    event.listen(Session, "after_flush", remember_messages)
+    event.listen(Session, "do_orm_execute", scope_messages)
+    try:
+        yield
+    finally:
+        event.remove(Session, "do_orm_execute", scope_messages)
+        event.remove(Session, "after_flush", remember_messages)
 
 
 @pytest_asyncio.fixture
