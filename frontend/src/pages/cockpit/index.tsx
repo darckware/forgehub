@@ -17,13 +17,23 @@ import {
   ExternalLink,
   Clock,
   ArrowRight,
+  Plus,
+  Pencil,
+  Trash2,
+  Building2,
+  Sparkles,
+  Boxes,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AgentTelemetryPanel } from "@/components/AgentTelemetryPanel";
+import { SystemProjectDialog } from "@/components/SystemProjectDialog";
 import { useProducts } from "@/hooks/useProduct";
-import { useProjects, type Project } from "@/hooks/useProject";
+import { useProjects, useDeleteProject, type Project } from "@/hooks/useProject";
+import { useDarckwareClients } from "@/hooks/useClientOps";
 import { usePlanningItems } from "@/hooks/useBacklog";
 import { useTasks, type ProjectTask } from "@/hooks/useTask";
 import { useAgentTelemetry, useCockpit, type Cockpit, type PhaseKey } from "@/hooks/useFactory";
@@ -338,12 +348,28 @@ export default function CockpitPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [selectedPhaseId, setSelectedPhaseId] = useState<number | null>(null); // null = All phases
 
+  const [isSystemDialogOpen, setIsSystemDialogOpen] = useState(false);
+  const [dialogEditingProject, setDialogEditingProject] = useState<Project | null>(null);
+  const [pendingDeleteProject, setPendingDeleteProject] = useState<Project | null>(null);
+
   const { data: products } = useProducts();
   const { data: projects } = useProjects();
   const { data: planningItems } = usePlanningItems();
   const { data: tasks } = useTasks();
   const { data: agentTelemetry } = useAgentTelemetry();
   const { data: cockpit } = useCockpit();
+  const { data: clientsData } = useDarckwareClients();
+  const clientList = clientsData?.items ?? [];
+  const deleteProject = useDeleteProject();
+
+  const getProjectClientName = (proj: Project): string | null => {
+    if (proj.darckware_client_id) {
+      const client = clientList.find((c) => c.id === proj.darckware_client_id);
+      if (client) return client.company_name;
+    }
+    const prod = products?.find((p) => p.versions?.some((v) => v.id === proj.product_version_id));
+    return prod?.darckware_client_name ?? null;
+  };
 
   const activeProduct = products?.find((p) => p.id === selectedProductId);
 
@@ -452,8 +478,27 @@ export default function CockpitPage() {
           </p>
         </div>
 
-        {/* Seletores de Contexto: Produto e Projeto */}
-        <div className="flex flex-wrap items-center gap-3">
+        {/* Ações de Gestão e Seletores de Contexto */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Button
+            size="sm"
+            onClick={() => {
+              setDialogEditingProject(null);
+              setIsSystemDialogOpen(true);
+            }}
+            className="gap-1.5 h-8 text-xs font-semibold shadow-sm"
+          >
+            <Plus className="h-4 w-4" />
+            + Novo Sistema
+          </Button>
+
+          <Link to="/product">
+            <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" title="Central de Aplicações & Produtos">
+              <Boxes className="h-3.5 w-3.5 text-muted-foreground" />
+              Aplicações
+            </Button>
+          </Link>
+
           <div className="flex w-full items-center gap-2 bg-muted/30 p-1.5 rounded-lg border sm:w-auto">
             <Filter className="h-4 w-4 text-muted-foreground" />
 
@@ -653,6 +698,7 @@ export default function CockpitPage() {
                       const projProgress = projTasks.length > 0 ? Math.round((projDoneTasks.length / projTasks.length) * 100) : 0;
                       const isFocused = activeProject?.id === proj.id;
                       const phaseConfig = FACTORY_PHASES.find((f) => f.id === evo.currentPhaseId) || FACTORY_PHASES[0];
+                      const clientName = getProjectClientName(proj);
 
                       return (
                         <div
@@ -663,18 +709,67 @@ export default function CockpitPage() {
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="font-bold truncate text-foreground text-sm" title={proj.name}>
-                                {proj.name}
-                              </p>
-                              <p className="text-[11px] text-muted-foreground">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <p className="font-bold truncate text-foreground text-sm" title={proj.name}>
+                                  {proj.name}
+                                </p>
+                                {clientName ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="border-sky-500/40 text-sky-600 bg-sky-500/10 text-[9px] px-1 py-0 font-medium shrink-0 flex items-center gap-0.5"
+                                    title={`Cliente Darckware: ${clientName}`}
+                                  >
+                                    <Building2 className="h-2.5 w-2.5" />
+                                    {clientName}
+                                  </Badge>
+                                ) : (
+                                  <Badge
+                                    variant="outline"
+                                    className="border-purple-500/40 text-purple-600 bg-purple-500/10 text-[9px] px-1 py-0 font-medium shrink-0 flex items-center gap-0.5"
+                                    title="Produto próprio Darckware"
+                                  >
+                                    <Sparkles className="h-2.5 w-2.5" />
+                                    Darckware
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">
                                 {proj.solution_type ? t(`conception:projectPlanning.solutionTypes.${proj.solution_type}`, proj.solution_type) : t("project.application")}
                               </p>
                             </div>
-                            {/* Status do Ciclo de Vida: Conception | Planejamento | Em Execução | Finalizado */}
-                            <Badge variant={evo.lifecycleStatus.variant} className={`text-[10px] px-1.5 py-0.5 shrink-0 ${evo.lifecycleStatus.className}`}>
-                              {t(`lifecycle.${evo.lifecycleStatus.key}`)}
-                            </Badge>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              {/* Status do Ciclo de Vida: Conception | Planejamento | Em Execução | Finalizado */}
+                              <Badge variant={evo.lifecycleStatus.variant} className={`text-[10px] px-1.5 py-0.5 shrink-0 ${evo.lifecycleStatus.className}`}>
+                                {t(`lifecycle.${evo.lifecycleStatus.key}`)}
+                              </Badge>
+
+                              {/* Ações Rápidas: Editar e Excluir */}
+                              <button
+                                type="button"
+                                title="Editar Sistema / Configurações"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDialogEditingProject(proj);
+                                  setIsSystemDialogOpen(true);
+                                }}
+                                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                              <button
+                                type="button"
+                                title="Excluir Sistema"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPendingDeleteProject(proj);
+                                }}
+                                className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </div>
                           </div>
 
                           {/* Fase Atual Automática da Esteira */}
@@ -853,6 +948,29 @@ export default function CockpitPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Modal de CRUD de Sistema / Projeto */}
+      <SystemProjectDialog
+        open={isSystemDialogOpen}
+        onOpenChange={setIsSystemDialogOpen}
+        editingProject={dialogEditingProject}
+      />
+
+      {/* Confirmação de Exclusão */}
+      <ConfirmDialog
+        open={Boolean(pendingDeleteProject)}
+        onCancel={() => setPendingDeleteProject(null)}
+        title={`Excluir Sistema "${pendingDeleteProject?.name ?? ""}"`}
+        description="Tem certeza que deseja remover este sistema/projeto? Esta ação removerá o projeto da esteira da Software Factory."
+        confirmLabel="Excluir Projeto"
+        variant="destructive"
+        onConfirm={async () => {
+          if (pendingDeleteProject) {
+            await deleteProject.mutateAsync(pendingDeleteProject.id);
+            setPendingDeleteProject(null);
+          }
+        }}
+      />
     </div>
   );
 }

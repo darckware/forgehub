@@ -60,7 +60,7 @@ export function useClearQueryCacheOnLogout() {
   return () => qc.clear();
 }
 
-// The JWT has a fixed 60-minute expiry (backend ACCESS_TOKEN_EXPIRE_MINUTES)
+// The JWT has a fixed 8-hour expiry (backend ACCESS_TOKEN_EXPIRE_MINUTES)
 // with no server-side session state to extend -- left alone, an actively
 // working user gets hard-redirected to /login the moment it lapses,
 // regardless of how recently they moved the mouse (see lib/api.ts's 401
@@ -70,7 +70,7 @@ export function useClearQueryCacheOnLogout() {
 // keeps interacting. A truly idle tab still expires and gets logged out
 // normally -- this only prevents the *false* logout of an active session.
 const ACTIVITY_EVENTS = ["mousemove", "mousedown", "keydown", "wheel", "touchstart"] as const;
-const REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000; // 12x margin inside the 60min token lifetime
+const REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000; // 96x margin inside the 8-hour token lifetime
 
 export function useSessionKeepAlive() {
   const token = useAuthStore((s) => s.token);

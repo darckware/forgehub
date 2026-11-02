@@ -226,6 +226,9 @@ export const projectSchema = z.object({
   github_repo_url: z.string().nullable().optional(),
   backup_enabled: z.boolean().default(false),
   backup_location: z.string().nullable().optional(),
+  darckware_client_id: z.string().nullable().optional(),
+  darckware_origin_type: z.string().nullable().optional(),
+  darckware_origin_id: z.string().nullable().optional(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
 });
@@ -243,6 +246,7 @@ export const projectCreateSchema = z.object({
   github_repo_url: z.string().max(500, "URL is too long").optional().or(z.literal("")),
   backup_enabled: z.boolean().default(false),
   backup_location: z.string().max(1024, "Path is too long").optional().or(z.literal("")),
+  darckware_client_id: z.string().uuid().nullable().optional().or(z.literal("")),
 });
 
 export type ProjectCreateInput = z.infer<typeof projectCreateSchema>;
@@ -340,6 +344,7 @@ export function useCreateProject() {
     mutationFn: (payload: ProjectCreateInput) => apiClient.post<Project>("/api/v1/projects", payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: projectKeys.all });
+      queryClient.invalidateQueries({ queryKey: ["cockpit"] });
     },
   });
 }
@@ -352,6 +357,20 @@ export function useUpdateProject(id: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: projectKeys.all });
       queryClient.invalidateQueries({ queryKey: projectKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: ["cockpit"] });
+    },
+  });
+}
+
+export function useUpdateAnyProject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: ProjectUpdateInput }) =>
+      apiClient.patch<Project>(`/api/v1/projects/${id}`, payload),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: projectKeys.all });
+      queryClient.invalidateQueries({ queryKey: projectKeys.detail(variables.id) });
+      queryClient.invalidateQueries({ queryKey: ["cockpit"] });
     },
   });
 }
@@ -362,6 +381,7 @@ export function useDeleteProject() {
     mutationFn: (id: string) => apiClient.delete<void>(`/api/v1/projects/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: projectKeys.all });
+      queryClient.invalidateQueries({ queryKey: ["cockpit"] });
     },
   });
 }

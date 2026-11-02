@@ -278,8 +278,10 @@
   },
   "contract": {
     "type": {
-      "suporte_horas": "Soporte por horas",
-      "desenvolvimento": "Desarrollo"
+      "suporte_horas": "Franquicia de mantenimiento y servicios",
+      "locacao_software": "Alquiler de producto / SaaS",
+      "implementacao": "Implementación de sistema",
+      "desenvolvimento": "Desarrollo de software"
     },
     "status": {
       "ativo": "Activo",

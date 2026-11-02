@@ -278,8 +278,10 @@
   },
   "contract": {
     "type": {
-      "suporte_horas": "Hourly support",
-      "desenvolvimento": "Development"
+      "suporte_horas": "Maintenance & Services Quota",
+      "locacao_software": "Product Rental / SaaS",
+      "implementacao": "System Implementation",
+      "desenvolvimento": "Software Development"
     },
     "status": {
       "ativo": "Active",

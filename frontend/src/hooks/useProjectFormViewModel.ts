@@ -22,8 +22,10 @@ export function useProjectFormViewModel(defaultValues?: Partial<ProjectCreateInp
       name: "",
       description: "",
       product_version_id: "",
+      solution_type: "web_app",
       status: "planned",
       working_directory_path: "",
+      darckware_client_id: "",
       ...defaultValues,
     },
   });

@@ -451,7 +451,7 @@ export function TerminalPane({ sessionId, command, cwd, active, serverId, contro
     });
 
     // A WebSocket handshake can't carry an Authorization header, and the
-    // real session JWT is long-lived (60min) -- putting it straight in the
+    // real session JWT is long-lived (8h) -- putting it straight in the
     // URL would mean it sits in plaintext in nginx/Cloudflare tunnel access
     // logs for that whole window. Exchange it for a single-use, 30s-lived
     // ticket over a normal authenticated POST first (see terminal.py's
