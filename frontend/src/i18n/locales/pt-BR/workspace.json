@@ -248,5 +248,15 @@
   "activeTurn": {
     "running": "Em execução no servidor — esta tela reconectou",
     "awaitingApproval": "Aguardando uma aprovação para continuar"
+  },
+  "terminalNotes": {
+    "title": "Anotações do terminal",
+    "close": "Fechar",
+    "description": "Registre a tarefa, o ponto de parada e quando retomar.",
+    "save": "Salvar",
+    "saving": "Salvando…",
+    "error": "Não foi possível salvar. Tente novamente.",
+    "renameError": "Não foi possível salvar o nome do terminal.",
+    "conflict": "Esta anotação foi alterada em outro dispositivo. Copie seu texto e recarregue antes de salvar."
   }
 }

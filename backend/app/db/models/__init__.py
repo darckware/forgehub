@@ -128,3 +128,4 @@ from app.db.models.personal import (  # noqa: F401
     PersonalNote,
     PersonalTask,
 )
+from app.db.models.terminal_metadata import TerminalMetadata  # noqa: F401
