@@ -287,25 +287,6 @@ export default function ProductPage() {
     setView("list");
   };
 
-  const openCreateForm = () => {
-    reset({
-      name: "",
-      description: "",
-      status: "active",
-      application_url: "",
-      application_url_dev: "",
-      darckware_client_id: "",
-      darckware_client_name: "",
-    });
-    setEditingId(null);
-    setView("form");
-  };
-
-  const openEditForm = (id: string) => {
-    setEditingId(id);
-    setView("form");
-  };
-
   const backToList = () => {
     setEditingId(null);
     setView("list");
@@ -390,10 +371,12 @@ export default function ProductPage() {
                   <Upload className="mr-2 h-4 w-4" />
                   {t("list.restoreButton")}
                 </Button>
-                <Button onClick={openCreateForm}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  {t("list.newButton")}
-                </Button>
+                <Link to="/systems/novo">
+                  <Button>
+                    <Plus className="mr-2 h-4 w-4" />
+                    {t("list.newButton")}
+                  </Button>
+                </Link>
               </>
             ) : (
               <Button variant="outline" onClick={backToList}>
@@ -619,15 +602,16 @@ export default function ProductPage() {
                       <TableCell>{product.versions?.length ?? 0}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title={t("list.actions.edit")}
-                            disabled={product.status === "concept"}
-                            onClick={() => openEditForm(product.id)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
+                          <Link to={`/systems/${product.id}/editar`}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title={t("list.actions.edit")}
+                              disabled={product.status === "concept"}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          </Link>
                           <Button
                             variant="ghost"
                             size="icon"

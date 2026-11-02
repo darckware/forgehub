@@ -30,7 +30,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AgentTelemetryPanel } from "@/components/AgentTelemetryPanel";
-import { SystemProjectDialog } from "@/components/SystemProjectDialog";
 import { useProducts } from "@/hooks/useProduct";
 import { useProjects, useDeleteProject, type Project } from "@/hooks/useProject";
 import { useDarckwareClients } from "@/hooks/useClientOps";
@@ -348,8 +347,6 @@ export default function CockpitPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [selectedPhaseId, setSelectedPhaseId] = useState<number | null>(null); // null = All phases
 
-  const [isSystemDialogOpen, setIsSystemDialogOpen] = useState(false);
-  const [dialogEditingProject, setDialogEditingProject] = useState<Project | null>(null);
   const [pendingDeleteProject, setPendingDeleteProject] = useState<Project | null>(null);
 
   const { data: products } = useProducts();
@@ -480,17 +477,15 @@ export default function CockpitPage() {
 
         {/* Ações de Gestão e Seletores de Contexto */}
         <div className="flex flex-wrap items-center gap-2.5">
-          <Button
-            size="sm"
-            onClick={() => {
-              setDialogEditingProject(null);
-              setIsSystemDialogOpen(true);
-            }}
-            className="gap-1.5 h-8 text-xs font-semibold shadow-sm"
-          >
-            <Plus className="h-4 w-4" />
-            + Novo Sistema
-          </Button>
+          <Link to="/systems/novo">
+            <Button
+              size="sm"
+              className="gap-1.5 h-8 text-xs font-semibold shadow-sm"
+            >
+              <Plus className="h-4 w-4" />
+              + Novo Sistema
+            </Button>
+          </Link>
 
           <Link to="/product">
             <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" title="Central de Aplicações & Produtos">
@@ -746,18 +741,14 @@ export default function CockpitPage() {
                               </Badge>
 
                               {/* Ações Rápidas: Editar e Excluir */}
-                              <button
-                                type="button"
+                              <Link
+                                to={`/systems/${proj.id}/editar`}
                                 title="Editar Sistema / Configurações"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setDialogEditingProject(proj);
-                                  setIsSystemDialogOpen(true);
-                                }}
-                                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                                onClick={(e) => e.stopPropagation()}
+                                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center"
                               >
                                 <Pencil className="h-3 w-3" />
-                              </button>
+                              </Link>
                               <button
                                 type="button"
                                 title="Excluir Sistema"
@@ -948,13 +939,6 @@ export default function CockpitPage() {
           </div>
         </TabsContent>
       </Tabs>
-
-      {/* Modal de CRUD de Sistema / Projeto */}
-      <SystemProjectDialog
-        open={isSystemDialogOpen}
-        onOpenChange={setIsSystemDialogOpen}
-        editingProject={dialogEditingProject}
-      />
 
       {/* Confirmação de Exclusão */}
       <ConfirmDialog

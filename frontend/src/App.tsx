@@ -64,6 +64,7 @@ import ExecutionPage from "@/pages/remote-access/ExecutionPage";
 import ScreenInspectorPage from "@/pages/screen-inspector";
 import ConceptErdViewerPage from "@/pages/concept-erd";
 import VersionClosurePage from "@/pages/version-closure";
+import SystemFormPage from "@/pages/systems/SystemFormPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -93,6 +94,10 @@ export default function App() {
         <Route path="project-scope" element={<ProjectScopePage />} />
         <Route path="product" element={<ProductPage />} />
         <Route path="product/:id" element={<ProductDetail />} />
+        <Route path="systems/novo" element={<SystemFormPage />} />
+        <Route path="systems/:id/editar" element={<SystemFormPage />} />
+        <Route path="product/novo" element={<SystemFormPage />} />
+        <Route path="product/:id/editar" element={<SystemFormPage />} />
         <Route path="projects" element={<ProjectPage />} />
         <Route path="projects/:id" element={<ProjectDetailPage />} />
         <Route path="pipeline" element={<PipelinePage />} />
