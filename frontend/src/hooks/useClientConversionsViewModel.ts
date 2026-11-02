@@ -28,7 +28,7 @@ export type ConversionDialog =
   | { mode: "convert"; lead: DarckwareLead };
 
 export const EMPTY_CONTRACT: ContractInput = {
-  contract_type: "suporte_horas",
+  contract_type: "servico",
   plan_name: "",
   billing_cycle_day: 1,
 };
