@@ -9,6 +9,7 @@ import {
   Globe2,
   Loader2,
   MessageSquare,
+  NotebookPen,
   History,
   KeyRound,
   Package,
@@ -25,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { TerminalPane } from "@/components/TerminalPane";
+import { TerminalNotes } from "@/components/TerminalNotes";
 import { ApiError, apiClient } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -35,7 +37,7 @@ import {
   type Server,
   type ServerCheckStatus,
 } from "@/hooks/useServers";
-import { useTerminalSessions } from "@/hooks/useTerminalBrowse";
+import { useTerminalSessions, useTerminalMetadata, useUpdateTerminalMetadata } from "@/hooks/useTerminalBrowse";
 import { chatKeys, chatSessionsHostStatusKey, useChatSessionsHostStatus } from "@/hooks/useChat";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { usePhoneMenuStyle } from "@/hooks/usePhoneMenuStyle";
@@ -412,10 +414,11 @@ function TerminalTabsMenu({
   // Only queried while the menu is open -- a live host read isn't worth
   // paying for on every Workspace visit just to keep a closed dropdown warm.
   const { data: sessions, isLoading } = useTerminalSessions(open);
+  const { data: metadata } = useTerminalMetadata();
 
   const rows = (sessions?.sessions ?? []).map((session) => {
     const local = localTabs.find((tab) => tab.id === session.session_id);
-    return { id: session.session_id, label: local?.label ?? session.session_id.slice(0, 8), isOrphaned: !local };
+    return { id: session.session_id, label: metadata?.[session.session_id]?.label ?? local?.label ?? session.session_id.slice(0, 8), isOrphaned: !local };
   });
 
   return (
@@ -634,6 +637,9 @@ export default function WorkspacePage() {
   const { t } = useTranslation("workspace");
   const { t: tExplorer } = useTranslation("explorer");
   const [terminalControlsSlot, setTerminalControlsSlot] = useState<HTMLDivElement | null>(null);
+  const { data: terminalMetadata, isSuccess: metadataLoaded } = useTerminalMetadata();
+  const updateTerminalMetadata = useUpdateTerminalMetadata();
+  const [notesOpen, setNotesOpen] = useState(false);
   const { data: allAgents } = useAgents();
   const { data: products = [] } = useProducts();
   const { data: projects = [] } = useProjects();
@@ -662,6 +668,18 @@ export default function WorkspacePage() {
   } | null>(null);
   const [terminatingTab, setTerminatingTab] = useState(false);
   const queryClient = useQueryClient();
+  const initializedTerminals = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!metadataLoaded || !terminalMetadata) return;
+    for (const tab of tabs) {
+      if (tab.kind !== "terminal" || terminalMetadata[tab.id] || initializedTerminals.current.has(tab.id)) continue;
+      initializedTerminals.current.add(tab.id);
+      void apiClient.post(`/api/v1/terminal/sessions/${tab.id}/metadata/initialize`, { label: tab.label })
+        .then(() => queryClient.invalidateQueries({ queryKey: ["terminal-metadata"] }))
+        .catch(() => setWorkspaceActionError(t("terminalNotes.renameError")));
+    }
+  }, [tabs, terminalMetadata, metadataLoaded, queryClient, t]);
 
   // Native HTML5 drag-and-drop for tab reordering -- a ref (not state) so
   // dragging doesn't trigger re-renders; only the drop commits a change.
@@ -769,8 +787,11 @@ export default function WorkspacePage() {
   // attach to the existing session rather than spawn a new one.
   // Purely a local name (persisted with the tabs in localStorage): the host
   // session is keyed by the tab id, so renaming never touches it.
-  function renameTerminalTab(tabId: string, label: string) {
-    setTabs((current) => current.map((tab) => (tab.id === tabId && tab.kind === "terminal" ? { ...tab, label } : tab)));
+  async function renameTerminalTab(tabId: string, label: string) {
+    try {
+      await updateTerminalMetadata.mutateAsync({ id: tabId, label });
+      setTabs((current) => current.map((tab) => (tab.id === tabId && tab.kind === "terminal" ? { ...tab, label } : tab)));
+    } catch { setWorkspaceActionError(t("terminalNotes.renameError")); }
   }
 
   function openTerminalSessionTab(sessionId: string, label: string) {
@@ -1312,6 +1333,7 @@ export default function WorkspacePage() {
             <FolderOpen className="h-4 w-4 text-amber-400" />
           </Button>
           <SshLauncherMenu onLaunch={(label, command, server) => openTerminalTab(label, command, undefined, server)} />
+          <Button variant={notesOpen ? "secondary" : "outline"} size="icon" className="h-8 w-8 shrink-0" title={t("terminalNotes.title")} aria-label={t("terminalNotes.title")} aria-pressed={notesOpen} disabled={tabs.find((tab) => tab.id === activeTabId)?.kind !== "terminal"} onClick={() => setNotesOpen((open) => !open)}><NotebookPen className="h-4 w-4" /></Button>
           {/* The active terminal portals its controls menu in here
               (TerminalPane's `controlsSlot`), right of SSH. */}
           <div ref={setTerminalControlsSlot} className="contents" />
@@ -1326,7 +1348,7 @@ export default function WorkspacePage() {
               ? tab.server
                 ? `${tExplorer("tabLabel")} · ${tab.server.name}`
                 : tExplorer("tabLabel")
-              : tab.label;
+              : tab.kind === "terminal" ? terminalMetadata?.[tab.id]?.label ?? tab.label : tab.label;
             return (
               <WorkspaceTabItem
                 key={tab.id}
@@ -1407,8 +1429,9 @@ export default function WorkspacePage() {
               />
             </div>
           ) : tab.kind === "terminal" ? (
-            <div key={tab.id} id={`workspace-panel-${tab.id}`} role="tabpanel" className={cn("absolute inset-0 p-2", tab.id !== activeTabId && "hidden")}>
-              <TerminalPane sessionId={tab.id} command={tab.command} cwd={tab.cwd} serverId={tab.server?.id} active={tab.id === activeTabId} controlsSlot={terminalControlsSlot} />
+            <div key={tab.id} id={`workspace-panel-${tab.id}`} role="tabpanel" className={cn("absolute inset-0 flex p-2", tab.id !== activeTabId && "hidden")}>
+              <div className="min-w-0 flex-1"><TerminalPane sessionId={tab.id} command={tab.command} cwd={tab.cwd} serverId={tab.server?.id} active={tab.id === activeTabId} controlsSlot={terminalControlsSlot} /></div>
+              {metadataLoaded && <TerminalNotes sessionId={tab.id} notes={terminalMetadata?.[tab.id]?.notes ?? ""} open={notesOpen} onClose={() => setNotesOpen(false)} />}
             </div>
           ) : tab.kind === "telegram" ? (
             <div key={tab.id} id={`workspace-panel-${tab.id}`} role="tabpanel" className={cn("absolute inset-0", tab.id !== activeTabId && "hidden")}>
