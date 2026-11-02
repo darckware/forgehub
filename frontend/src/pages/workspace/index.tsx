@@ -1328,7 +1328,7 @@ export default function WorkspacePage() {
             <FolderOpen className="h-4 w-4 text-amber-400" />
           </Button>
           <SshLauncherMenu onLaunch={(label, command, server) => openTerminalTab(label, command, undefined, server)} />
-          <Button variant={notesOpen ? "secondary" : "outline"} size="icon" className="h-8 w-8 shrink-0" title={t("terminalNotes.title")} aria-label={t("terminalNotes.title")} aria-pressed={notesOpen} disabled={tabs.find((tab) => tab.id === activeTabId)?.kind !== "terminal"} onClick={() => setNotesOpen((open) => !open)}><NotebookPen className="h-4 w-4" /></Button>
+          {tabs.find((tab) => tab.id === activeTabId)?.kind === "terminal" && <Button variant={notesOpen ? "secondary" : "outline"} size="icon" className="h-8 w-8 shrink-0" title={t("terminalNotes.title")} aria-label={t("terminalNotes.title")} aria-pressed={notesOpen} onClick={() => setNotesOpen((open) => !open)}><NotebookPen className="h-4 w-4" /></Button>}
           {/* The active terminal portals its controls menu in here
               (TerminalPane's `controlsSlot`), right of SSH. */}
           <div ref={setTerminalControlsSlot} className="contents" />
@@ -1426,7 +1426,7 @@ export default function WorkspacePage() {
           ) : tab.kind === "terminal" ? (
             <div key={tab.id} id={`workspace-panel-${tab.id}`} role="tabpanel" className={cn("absolute inset-0 flex p-2", tab.id !== activeTabId && "hidden")}>
               <div className="min-w-0 flex-1"><TerminalPane sessionId={tab.id} command={tab.command} cwd={tab.cwd} serverId={tab.server?.id} active={tab.id === activeTabId} controlsSlot={terminalControlsSlot} /></div>
-              {metadataLoaded && <TerminalNotes sessionId={tab.id} notes={terminalMetadata?.[tab.id]?.notes ?? ""} open={notesOpen} onClose={() => setNotesOpen(false)} />}
+              {metadataLoaded && <TerminalNotes sessionId={tab.id} label={terminalMetadata?.[tab.id]?.label ?? tab.label} notes={terminalMetadata?.[tab.id]?.notes ?? ""} open={notesOpen} onClose={() => setNotesOpen(false)} />}
             </div>
           ) : tab.kind === "telegram" ? (
             <div key={tab.id} id={`workspace-panel-${tab.id}`} role="tabpanel" className={cn("absolute inset-0", tab.id !== activeTabId && "hidden")}>
