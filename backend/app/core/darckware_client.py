@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Literal
+import uuid
 
 import httpx
 from fastapi import HTTPException, status
@@ -118,3 +119,23 @@ async def request(
         # translated "Darckware refused" prefix.
         raise client_ops_error(resp.status_code, "darckware_rejected", str(detail), reason=str(detail))
     return resp.json()
+
+
+async def list_software_products() -> list[dict[str, Any]]:
+    """List commercial software products (offers) from Darckware."""
+    return await request("GET", "/software-products", credential="agent")
+
+
+async def link_software_product(
+    product_id: str | uuid.UUID,
+    forgehub_product_id: str | uuid.UUID | None,
+) -> dict[str, Any]:
+    """Link or unlink a Darckware commercial offer to a ForgeHub system."""
+    payload = {"forgehub_product_id": str(forgehub_product_id) if forgehub_product_id is not None else None}
+    return await request(
+        "PUT",
+        f"/software-products/{product_id}/forgehub-link",
+        credential="agent",
+        json=payload,
+    )
+

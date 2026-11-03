@@ -42,6 +42,7 @@ from app.api.schemas.client_ops import (
     ContractIn,
     CreateProjectFromItem,
     LinkProduct,
+    LinkSoftwareProduct,
     ContractPatch,
     ConversionApprove,
     ConversionReject,
@@ -1062,6 +1063,81 @@ async def link_product_to_client(
     )
     await db.commit()
     return _product_row(product)
+
+
+@router.get("/software-products")
+async def list_software_products(
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """List Darckware commercial offers with locally resolved ForgeHub system names."""
+    items = await dw.list_software_products()
+    product_ids: set[uuid.UUID] = set()
+    for item in items:
+        fid = item.get("forgehub_product_id")
+        if fid:
+            try:
+                product_ids.add(uuid.UUID(str(fid)))
+            except (ValueError, TypeError):
+                pass
+
+    name_by_id: dict[uuid.UUID, str] = {}
+    if product_ids:
+        rows = (
+            await db.execute(
+                select(Product.id, Product.name).where(Product.id.in_(product_ids))
+            )
+        ).all()
+        name_by_id = {row[0]: row[1] for row in rows}
+
+    for item in items:
+        fid = item.get("forgehub_product_id")
+        if fid:
+            try:
+                item["forgehub_product_name"] = name_by_id.get(uuid.UUID(str(fid)))
+            except (ValueError, TypeError):
+                item["forgehub_product_name"] = None
+        else:
+            item["forgehub_product_name"] = None
+
+    return items
+
+
+@router.put("/software-products/{id}/forgehub-link")
+async def link_software_product(
+    id: uuid.UUID,
+    payload: LinkSoftwareProduct,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Link or unlink a Darckware commercial offer to a ForgeHub system."""
+    if payload.forgehub_product_id is not None:
+        product = await db.get(Product, payload.forgehub_product_id)
+        if product is None:
+            raise dw.client_ops_error(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "product_not_found",
+                f"ForgeHub product '{payload.forgehub_product_id}' not found",
+                forgehub_product_id=str(payload.forgehub_product_id),
+            )
+
+    updated = await dw.link_software_product(id, payload.forgehub_product_id)
+    db.add(
+        AuditEvent(
+            entity_type="darckware_software_product",
+            entity_id=id,
+            event_type="forgehub_link_updated",
+            actor=admin.username,
+            payload={
+                "forgehub_product_id": str(payload.forgehub_product_id)
+                if payload.forgehub_product_id
+                else None
+            },
+        )
+    )
+    await db.commit()
+    return updated
+
 
 
 @router.post("/work-items/{kind}/{item_id}:create-project", status_code=status.HTTP_201_CREATED)
