@@ -30,7 +30,10 @@
       "urlDevPlaceholder": "http://localhost:4173",
       "clientLabel": "Cliente asociado (Darckware)",
       "noClient": "⚡ Producto propio de Darckware (Sin cliente vinculado)",
-      "clientHint": "Opcional. Dejar en blanco si es un producto o sistema interno de Darckware."
+      "clientHint": "Opcional. Dejar en blanco si es un producto o sistema interno de Darckware.",
+      "initialVersionLabel": "Versión inicial",
+      "initialVersionPlaceholder": "ej. 0.1.0 o 2026.11",
+      "initialVersionStatusLabel": "Estado de la versión"
     },
     "loading": "Cargando productos...",
     "loadError": "Fallo al cargar los productos.",
@@ -126,6 +129,32 @@
       "status": "Situación",
       "releaseNotes": "Notas de publicación"
     },
-    "noReleaseNotes": "—"
+    "noReleaseNotes": "—",
+    "offers": {
+      "title": "Ofertas comerciales (Darckware)",
+      "description": "Ofertas y planes comerciales gestionados por Darckware vinculados a este sistema.",
+      "linkButton": "Vincular oferta",
+      "unlinkButton": "Desvincular",
+      "selectPlaceholder": "Seleccione una oferta comercial...",
+      "confirmLink": "Vincular",
+      "cancel": "Cancelar",
+      "empty": "Ninguna oferta comercial vinculada a este sistema.",
+      "noAvailableOffers": "No hay ofertas disponibles para vincular.",
+      "loading": "Cargando ofertas comerciales...",
+      "active": "Activa",
+      "inactive": "Inactiva",
+      "columns": {
+        "name": "Oferta / Plan",
+        "category": "Categoría",
+        "description": "Descripción",
+        "status": "Estado",
+        "actions": "Acciones"
+      },
+      "unlinkDialog": {
+        "title": "Desvincular oferta \"{{name}}\"",
+        "description": "¿Está seguro de que desea desvincular esta oferta comercial de este sistema? La oferta volverá a estar disponible para su vinculación en Darckware.",
+        "confirm": "Desvincular oferta"
+      }
+    }
   }
 }

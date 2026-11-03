@@ -51,6 +51,8 @@ export interface SystemFormData {
   application_url: string;
   application_url_dev: string;
   status: string;
+  initial_version?: string;
+  initial_version_status?: string;
 }
 
 export default function SystemFormPage() {
@@ -106,6 +108,8 @@ export default function SystemFormPage() {
       application_url: "",
       application_url_dev: "",
       status: "active",
+      initial_version: "0.1.0",
+      initial_version_status: "planned",
     },
   });
 
@@ -181,6 +185,12 @@ export default function SystemFormPage() {
           application_url_dev: values.application_url_dev || undefined,
           darckware_client_id: clientId || undefined,
           darckware_client_name: clientName || undefined,
+          initial_version: values.initial_version
+            ? {
+                version: values.initial_version,
+                status: (values.initial_version_status as any) || "planned",
+              }
+            : undefined,
         });
 
         const initialVersionId = newProduct.versions?.[0]?.id;
@@ -336,6 +346,36 @@ export default function SystemFormPage() {
                   </Select>
                 </div>
               </div>
+
+              {!isEdit && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="initial_version" className="text-xs font-semibold">
+                      Versão Inicial
+                    </Label>
+                    <Input
+                      id="initial_version"
+                      placeholder="Ex: 0.1.0 ou 2026.11"
+                      {...register("initial_version")}
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Versão inicial criada no cadastro (ex: 2026.11 ou 0.1.0).
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="initial_version_status" className="text-xs font-semibold">
+                      Estado da Versão
+                    </Label>
+                    <Select id="initial_version_status" {...register("initial_version_status")}>
+                      <option value="planned">Planejada (planned)</option>
+                      <option value="in_development">Em Desenvolvimento (in_development)</option>
+                      <option value="in_test">Em Teste (in_test)</option>
+                      <option value="published">Publicada (published)</option>
+                      <option value="deprecated">Descontinuada (deprecated)</option>
+                    </Select>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 

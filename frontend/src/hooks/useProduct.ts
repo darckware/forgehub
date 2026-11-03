@@ -54,6 +54,13 @@ export const productSchema = z.object({
 
 export type Product = z.infer<typeof productSchema>;
 
+export const initialProductVersionSchema = z.object({
+  version: z.string().min(1, "Version is required"),
+  status: z.enum(["planned", "in_development", "in_test", "published", "deprecated"]).default("planned"),
+});
+
+export type InitialProductVersion = z.infer<typeof initialProductVersionSchema>;
+
 /** Payload shape for create/update -- server assigns id and timestamps. */
 export const productInputSchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
@@ -66,6 +73,7 @@ export const productInputSchema = z.object({
   application_url_dev: z.string().url("Enter a valid http(s) URL").optional().or(z.literal("")),
   darckware_client_id: z.string().uuid().nullable().optional().or(z.literal("")),
   darckware_client_name: z.string().max(200).nullable().optional().or(z.literal("")),
+  initial_version: initialProductVersionSchema.optional(),
 });
 
 export type ProductInput = z.infer<typeof productInputSchema>;
