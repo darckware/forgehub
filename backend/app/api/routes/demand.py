@@ -1702,6 +1702,8 @@ async def _fail_dispatch(
     demand.dispatch_status = "failed"
     demand.dispatch_error = reason
     demand.dispatch_deadline_at = None
+    from app.core.agent_availability import record_usage_limit
+    await record_usage_limit(db, demand, reason)
     from app.core.demand_workflow import record_transition
     record_transition(db, demand, "attempt_failed")
     await _add_dispatch_failed_notification(
@@ -1909,8 +1911,18 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
         .order_by(AgentDemand.scheduled_at)
     )
     due = list(result.scalars().all())
+    # M0.8 (cycle spec §6.1): a mission task goes by its mission's priority
+    # (1 = most urgent), everything else by the default 100; scheduled_at
+    # breaks ties, so the contested agent goes to the higher priority.
+    from app.core.agent_availability import unavailable_agents
+    from app.core.mission_cycle import effective_priorities
+
+    priorities = await effective_priorities(db, due)
+    due.sort(key=lambda d: (priorities.get(d.id, 100), d.scheduled_at))
     slots = await _dispatch_slots(db)
     busy = await _agents_already_running(db)
+    # An executor out of quota (§3.3) is skipped like a busy one.
+    busy |= set(await unavailable_agents(db))
 
     # Two independent limits, both applied while picking: the global cap
     # (what the machine can take) and one run per agent (so an agent's
@@ -2167,6 +2179,11 @@ async def _finalize_dispatch(
         failure_reason = f"The agent run ended as {run_status!r}."
     locked.dispatch_status = "failed" if failure_reason else "completed"
     locked.dispatch_error = failure_reason
+    if failure_reason:
+        # M0.8 (cycle spec §3.3): a usage-limit message marks the executor
+        # unavailable until its reset; no match writes nothing.
+        from app.core.agent_availability import record_usage_limit
+        await record_usage_limit(db, locked, reply_body)
     # Reached a terminal state, so the deadline no longer applies -- leaving
     # it set would let the timeout sweep re-fail an already-finished run.
     locked.dispatch_deadline_at = None

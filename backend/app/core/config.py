@@ -183,6 +183,12 @@ class Settings(BaseSettings):
     # idempotency_key, /missions/{id}/members:apply) answers 503
     # MISSION_TOOLS_DISABLED without touching data. Guards are never behind it.
     MISSION_TOOLS_ENABLED: bool = False
+    # Orchestrator decision cycle switch (Plano Integrado M0.8,
+    # MISSION_ORCHESTRATOR_CYCLE_SPEC.md §7 rollback). Off = no mission gets a
+    # coordination routine and the mission loop does nothing; existing
+    # routines are disabled at the next transition. Decisions/locks stay as
+    # history. The loop also needs background_workers_enabled (never under test).
+    MISSION_CYCLE_ENABLED: bool = False
 
     # Google reCAPTCHA v2 (login screen, see api/routes/auth.py +
     # core/recaptcha.py). Empty = feature off (fail-open, same convention as

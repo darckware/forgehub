@@ -44,6 +44,11 @@ async def reserve_dispatch(db, demand, target_agent_id, command_text):
         raise WorkflowBlocked("Attempt limit reached; investigate the failure before another execution")
     if await _dispatch_slots(db) <= 0 or target_agent_id in await _agents_already_running(db):
         raise WorkflowBlocked("Execution capacity is occupied; keep this task queued")
+    # M0.8 (cycle spec §3.3): an executor out of quota is busy until its reset.
+    from app.core.agent_availability import unavailable_until
+    until = await unavailable_until(db, target_agent_id)
+    if until is not None:
+        raise WorkflowBlocked(f"AGENT_UNAVAILABLE: until {until.isoformat()}")
     current.target_agent_id = target_agent_id
     current.command_text = command_text
     await ensure_workflow_allowed(db, current)

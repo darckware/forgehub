@@ -819,6 +819,97 @@ async def return_task_for_correction(
     return {**data, "replayed": replayed}
 
 
+# ---------------------------------------------------------------------------
+# Orchestrator decision cycle (M0.8, MISSION_ORCHESTRATOR_CYCLE_SPEC.md §2.3, §7)
+# ---------------------------------------------------------------------------
+@mcp.tool()
+async def get_mission_cycle(project_id: str) -> dict[str, Any]:
+    """Read one cycle of a mission you orchestrate: `cycle_id`, the executions
+    board and the deterministic `proposals` (action, task, reason_code,
+    reason_facts, params, `allowed`). Proposals are facts the backend computed;
+    every guard re-checks them when you act. `locked` set = Marcelo locked the
+    cycle: read only. `watchdog` lists a gap or an idle mission without reason."""
+    return await _factory_call("GET", f"/api/v1/missions/{project_id}/cycle")
+
+
+@mcp.tool()
+async def mission_decide(
+    project_id: str,
+    action: str,
+    reason: str,
+    idempotency_key: str,
+    cycle_id: str | None = None,
+    proposal_id: str | None = None,
+    task_id: str | None = None,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Take one decision of the mission cycle, recorded in the mission timeline
+    with your reason (refusals are recorded too, with the guard's code).
+    action: dispatch | schedule (params.scheduled_at) | reassign (params.agent_id)
+    | request_review (params.execution_id, reviewer_agent_id[, replace_review_id])
+    | return (params.execution_id) | reprocess (params.demand_id) | integrate
+    (params.execution_id) | reverify (params.execution_id) | ask_marcelo
+    (params.question, options, recommendation, default_action,
+    default_reversible, answer_by, dependent_task_ids) | pause (reason
+    'blocked:<kind>') | defer. Pass the proposal_id you act on. Everything goes
+    through the existing guarded routes; nothing here approves a plan or
+    baseline, accepts, cancels or publishes."""
+    body: dict[str, Any] = {"action": action, "reason": reason, "idempotency_key": idempotency_key,
+                            "params": params or {}}
+    for key, value in (("cycle_id", cycle_id), ("proposal_id", proposal_id), ("task_id", task_id)):
+        if value:
+            body[key] = value
+    data, replayed = await _mission_write(f"/api/v1/missions/{project_id}/decisions", body)
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def defer_mission_proposal(
+    project_id: str, cycle_id: str, proposal_id: str, reason: str, idempotency_key: str,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    """Record that you deliberately did not act on a proposal this cycle, and why."""
+    return await mission_decide(project_id, "defer", reason, idempotency_key, cycle_id=cycle_id,
+                                proposal_id=proposal_id, task_id=task_id)
+
+
+@mcp.tool()
+async def pause_mission(project_id: str, reason: str, idempotency_key: str, cycle_id: str | None = None) -> dict[str, Any]:
+    """Pause a mission only when it is blocked: `reason` must start with
+    'blocked:' (e.g. 'blocked:deadline'). Resuming is Marcelo's."""
+    return await mission_decide(project_id, "pause", reason, idempotency_key, cycle_id=cycle_id)
+
+
+@mcp.tool()
+async def set_agent_unavailable(agent_id: str, until: str | None, reason: str, idempotency_key: str) -> dict[str, Any]:
+    """Mark an executor unavailable until an ISO time with timezone (e.g. its
+    usage-limit reset); its queued work stays queued until then. until=None
+    clears it. Needs a mission.orchestrate delegation."""
+    import json as _json
+
+    body = {"until": until, "reason": reason, "idempotency_key": idempotency_key}
+    if len(_json.dumps(body).encode()) > MAX_COMMAND_BODY_BYTES:
+        raise FactoryError("PAYLOAD_TOO_LARGE: request body exceeds 64 KiB")
+    response = await _factory_request("PUT", f"/api/v1/agents/{agent_id}/availability", json=body, write=True)
+    return response.json()
+
+
+@mcp.tool()
+async def propose_skill_change(
+    project_id: str, kind: str, reason: str, idempotency_key: str, task_id: str | None = None,
+    skill_id: str | None = None, agent_id: str | None = None, cycle_id: str | None = None,
+) -> dict[str, Any]:
+    """Propose a skill change for a mission task (kind: assign_other_agent |
+    grant_to_agent | create_skill). Only records the proposal and hands it to
+    the skill's owner; it never grants, installs or edits a skill."""
+    body = {"kind": kind, "reason": reason, "idempotency_key": idempotency_key}
+    for key, value in (("task_id", task_id), ("skill_id", skill_id), ("agent_id", agent_id), ("cycle_id", cycle_id)):
+        if value:
+            body[key] = value
+    data, replayed = await _mission_write(f"/api/v1/missions/{project_id}/skill-proposals", body)
+    return {**data, "replayed": replayed}
+
+
 def _as_data(execution: dict[str, Any]) -> dict[str, Any]:
     """Machine output reaches the agent marked as untrusted data, so text a
     client machine prints can't steer the agent (prompt injection)."""

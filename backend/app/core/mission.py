@@ -498,8 +498,19 @@ async def transition_preconditions(
             unmet.append(_item("ORCHESTRATOR_AT_CAPACITY", "The orchestrator is at its active-mission limit",
                                active_missions=[str(p) for p in busy],
                                limit=MISSION_MAX_ACTIVE_PER_ORCHESTRATOR))
-        # Inter-mission dependencies (cycle spec §6.3) need mission_dependencies
-        # (M0.8); none can be declared before it exists.
+        # Inter-mission dependencies (cycle spec §6.3, M0.8): every mission
+        # this one depends on must be completed (a cancelled one blocks too).
+        from app.db.models.mission_cycle import MissionDependency
+
+        open_dependencies = list((await db.execute(
+            select(MissionDependency.depends_on_mission_project_id, ProjectMission.state)
+            .join(ProjectMission, ProjectMission.project_id == MissionDependency.depends_on_mission_project_id)
+            .where(MissionDependency.mission_project_id == project_id, ProjectMission.state != "completed")
+            .order_by(MissionDependency.created_at)
+        )).all())
+        if open_dependencies:
+            unmet.append(_item("MISSION_DEPENDENCY_OPEN", "A mission this one depends on is not completed",
+                               dependencies=[{"mission_project_id": str(p), "state": s} for p, s in open_dependencies]))
 
     elif (from_state, to_state) == ("active", "verifying"):
         criteria = await _criteria(db, project_id)

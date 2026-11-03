@@ -170,6 +170,13 @@ class ProjectMission(Base, TimestampMixin):
     )
     # Optimistic lock: every transition/advance sends expected_row_version.
     row_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    # M0.8 cycle (cycle spec §2.2): an event while a cycle is open only sets
+    # the flag, and the sync materializes exactly one more cycle; the cursor
+    # is how far the event detection has read.
+    cycle_rerun_requested: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    cycle_event_cursor: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class MissionProjectLink(Base, TimestampMixin):
