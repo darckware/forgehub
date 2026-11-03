@@ -6,6 +6,13 @@ import pytest
 from app.core.config import assert_test_database_target, settings
 from app.core.mission_documents import project_slug
 from app.mcp import factory_server
+from app.db.base import AsyncSessionLocal
+from app.db.models.mission import MissionPlanSubmission, ProjectMission
+from app.db.models.project import PlanBaseline
+from app.db.models.task import TaskExecutionTarget
+from app.tests.test_mission_base import _transition
+from app.tests.test_mission_plan_approval import _remove_plan_approvals
+from app.tests.test_mission_planning_records import Cast, world  # noqa: F401,F811
 from app.tests.test_mission_mcp import _key, docs_root, mcp_as, mw  # noqa: F401
 
 
@@ -54,3 +61,82 @@ async def test_mission_rehearsal_membership(mw, mcp_as, docs_root, monkeypatch):
     with pytest.raises(factory_server.FactoryError, match="DOC_PATH_NOT_ALLOWED"):
         await factory_server.attach_project_document(project_id, "project", project_id,
                                                      f"missions/{slug}/../{slug}/notes.md", _key())
+
+
+@pytest.mark.asyncio
+async def test_rehearsal_step3_planning_to_active(world, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(settings, "MISSION_TOOLS_ENABLED", True)
+    cast = await Cast().build(world)
+    (_, r1_h), (_, r2_h), (_, r3_h) = cast.reviewers
+    try:
+        async def advanced(to):
+            response = await cast.advance(to)
+            assert response.status_code == 200, (to, response.text)
+
+        plan_id = await cast.register_plan()
+        async with world.client() as client:
+            env = await client.patch(f"/api/v1/tasks/{cast.task.id}", json={
+                "target_environment": "test", "environment_prerequisites": []})
+        assert env.status_code == 200, env.text
+        await advanced("auto_check")
+        async with AsyncSessionLocal() as db:
+            db.add(TaskExecutionTarget(task_id=cast.task.id, kind="publish", target_key="test:site"))
+            await db.commit()
+        await advanced("critical_review")
+        review = await cast.review(plan_id, "layer", "backend", r1_h)
+        assert review.status_code == 201, review.text
+        waiver = {"project_plan_id": plan_id, "layer": "security", "reason": "no security surface in this plan"}
+        assert (await cast.post("/review-waivers", waiver)).status_code == 201
+        items = {}
+        for label, flagged in (("a", False), ("b", True), ("c", False), ("d", False)):
+            created = await cast.post(f"/plan-reviews/{review.json()['id']}/items",
+                                      {"text": f"point {label}", "needs_marcelo_decision": flagged}, r1_h)
+            assert created.status_code == 201, created.text
+            items[label] = created.json()["id"]
+        await advanced("consolidation")
+        for label, disposition in (("a", "accept"), ("b", "adjust"), ("c", "accept"), ("d", "reject")):
+            done = await cast.post(f"/review-items/{items[label]}:dispose",
+                                   {"disposition": disposition, "reason": "fine"}, cast.orch)
+            assert done.status_code == 200, done.text
+        await advanced("cross_review")
+        assert (await cast.review(plan_id, "cross", "backend", r1_h)).status_code == 201
+        assert (await cast.review(plan_id, "cross", "security", r2_h)).status_code == 201
+        await advanced("decisions")
+        decided = await cast.post(f"/review-items/{items['b']}:decide",
+                                  {"decision": "adjust", "reason": "adjust the schedule"})
+        assert decided.status_code == 200, decided.text
+        await advanced("application")
+        verify = {"project_plan_id": plan_id, "sampled_item_ids": [items[x] for x in ("a", "b", "c")],
+                  "result": "confirmed"}
+        assert (await cast.post("/plan-verifications", verify, r3_h)).status_code == 201
+        await advanced("baseline")
+        async with AsyncSessionLocal() as db:
+            mission = await db.get(ProjectMission, uuid.UUID(cast.project_id))
+            assert mission.planning_stage == "baseline"
+
+        submitted = await cast.post("/plans:submit", {"task_ids": [str(cast.task.id)],
+                                                        "idempotency_key": _key()}, cast.planner_h)
+        assert submitted.status_code == 201, submitted.text
+        request_id = submitted.json()["approval_request_id"]
+        url = f"/api/v1/governed/approval-requests/{request_id}:decide"
+        body = {"decision": "approved", "comments": "ok", "idempotency_key": _key()}
+        orchestrator_headers = await world.agent_token(
+            cast.orchestrator, ["governance.approval.decide"], uuid.UUID(cast.project_id))
+        async with world.client(orchestrator_headers) as client:
+            refused = await client.post(url, json=body)
+        assert refused.status_code in (403, 409), refused.text
+        async with world.client() as client:
+            approved = await client.post(url, json=body)
+        assert approved.status_code == 200, approved.text
+        async with AsyncSessionLocal() as db:
+            mission = await db.get(ProjectMission, uuid.UUID(cast.project_id))
+            baseline = await db.get(PlanBaseline, mission.current_baseline_id)
+            submission = await db.get(MissionPlanSubmission, uuid.UUID(request_id))
+            assert baseline and baseline.superseded_at is None and baseline.content_hash
+            assert submission.baseline_id == baseline.id and submission.plan_hash
+        for state in ("ready", "active"):
+            response = await _transition(world, cast.project_id, state)
+            assert response.status_code == 200, response.text
+        assert response.json()["state"] == "active"
+    finally:
+        await _remove_plan_approvals([cast.project_id], [cast.task.id])
