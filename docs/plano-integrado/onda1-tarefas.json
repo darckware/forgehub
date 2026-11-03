@@ -355,7 +355,7 @@
         "M0.3"
       ],
       "acceptance": "Instruções versionadas; ensaio inclui contexto mínimo por allowlist e teste de vazamento com fixtures; sem recuperação automática ampla antes de C.2; nenhuma aprovação humana simulada em produção",
-      "status": "planned",
+      "status": "developed",
       "project_task_id": null
     },
     {
