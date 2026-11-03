@@ -30,7 +30,10 @@
       "urlDevPlaceholder": "http://localhost:4173",
       "clientLabel": "Cliente Associado (Darckware)",
       "noClient": "⚡ Produto Próprio Darckware (Sem cliente vinculado)",
-      "clientHint": "Opcional. Deixe em branco se for um produto ou sistema próprio da Darckware."
+      "clientHint": "Opcional. Deixe em branco se for um produto ou sistema próprio da Darckware.",
+      "initialVersionLabel": "Versão inicial",
+      "initialVersionPlaceholder": "ex. 0.1.0 ou 2026.11",
+      "initialVersionStatusLabel": "Estado da versão"
     },
     "loading": "Carregando produtos...",
     "loadError": "Falha ao carregar os produtos.",
@@ -126,6 +129,35 @@
       "status": "Status",
       "releaseNotes": "Notas de Versão"
     },
-    "noReleaseNotes": "—"
+    "noReleaseNotes": "—",
+    "offers": {
+      "title": "Ofertas comerciais (Darckware)",
+      "description": "Ofertas e planos comerciais gerenciados pelo Darckware vinculados a este sistema.",
+      "linkButton": "Ligar oferta",
+      "unlinkButton": "Desligar",
+      "selectPlaceholder": "Selecione uma oferta comercial...",
+      "confirmLink": "Vincular",
+      "cancel": "Cancelar",
+      "empty": "Nenhuma oferta comercial vinculada a este sistema.",
+      "noAvailableOffers": "Não há ofertas disponíveis para vincular.",
+      "loading": "Carregando ofertas...",
+      "loadError": "Falha ao carregar ofertas comerciais.",
+      "linkError": "Falha ao ligar oferta",
+      "unlinkError": "Falha ao desligar oferta",
+      "active": "Ativa",
+      "inactive": "Inativa",
+      "columns": {
+        "name": "Oferta / Plano",
+        "category": "Categoria",
+        "description": "Descrição",
+        "status": "Status",
+        "actions": "Ações"
+      },
+      "unlinkDialog": {
+        "title": "Desligar oferta \"{{name}}\"",
+        "description": "Tem certeza que deseja desvincular esta oferta comercial deste sistema? A oferta voltará a ficar disponível para ligação no Darckware.",
+        "confirm": "Desligar oferta"
+      }
+    }
   }
 }

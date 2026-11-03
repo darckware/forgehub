@@ -69,6 +69,52 @@ STUB_RUN_OUTPUT = "[forgehub test stub] simulated run: no agent was started.\nST
 _lock = threading.Lock()
 _runs: dict[str, dict[str, Any]] = {}
 _emails: dict[str, dict[str, Any]] = {}
+_software_products: dict[str, dict[str, Any]] = {
+    "11111111-0000-0000-0000-000000000001": {
+        "id": "11111111-0000-0000-0000-000000000001",
+        "name": "Oferta Starter",
+        "slug": "starter",
+        "category": "saas",
+        "description": "Oferta inicial para testes",
+        "is_active": True,
+        "base_monthly_price": 100.0,
+        "available_modules": ["base"],
+        "forgehub_product_id": None,
+    },
+    "11111111-0000-0000-0000-000000000002": {
+        "id": "11111111-0000-0000-0000-000000000002",
+        "name": "Oferta Professional",
+        "slug": "pro",
+        "category": "saas",
+        "description": "Oferta pro com recursos extras",
+        "is_active": True,
+        "base_monthly_price": 250.0,
+        "available_modules": ["base", "analytics"],
+        "forgehub_product_id": None,
+    },
+    "11111111-0000-0000-0000-000000000003": {
+        "id": "11111111-0000-0000-0000-000000000003",
+        "name": "Oferta Enterprise",
+        "slug": "enterprise",
+        "category": "enterprise",
+        "description": "Oferta enterprise corporativa",
+        "is_active": True,
+        "base_monthly_price": 600.0,
+        "available_modules": ["base", "analytics", "audit"],
+        "forgehub_product_id": None,
+    },
+    "11111111-0000-0000-0000-000000000004": {
+        "id": "11111111-0000-0000-0000-000000000004",
+        "name": "Oferta Suporte Especial",
+        "slug": "suporte-especial",
+        "category": "addon",
+        "description": "Módulo de suporte avançado",
+        "is_active": True,
+        "base_monthly_price": 50.0,
+        "available_modules": ["support"],
+        "forgehub_product_id": None,
+    },
+}
 
 app = FastAPI(title="ForgeHub test integration stub", docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -441,6 +487,39 @@ async def darckware(credential: str, path: str, request: Request):
             snapshot = dict(email)
         return _reply(integration, request, 200, snapshot, operation=f"email.{action or request.method.lower()}",
                       outcome="stubbed", destination=snapshot["to_email"], auth=auth)
+
+    if segments and segments[0] == "software-products":
+        if len(segments) == 1 and request.method == "GET":
+            with _lock:
+                items = [dict(p) for p in _software_products.values()]
+            return _reply(
+                integration, request, 200, items, operation="software_product.list", outcome="stubbed", auth=auth
+            )
+        if len(segments) == 3 and segments[2] == "forgehub-link" and request.method == "PUT":
+            offer_id = segments[1]
+            with _lock:
+                offer = _software_products.get(offer_id)
+            if offer is None:
+                return _reply(
+                    integration, request, 404, {"detail": "software product not found"},
+                    operation="software_product.link", outcome="not_found", auth=auth
+                )
+            link_id = body.get("forgehub_product_id")
+            if link_id is not None:
+                try:
+                    uuid.UUID(str(link_id))
+                except (ValueError, TypeError):
+                    return _reply(
+                        integration, request, 422, {"detail": "invalid uuid"},
+                        operation="software_product.link", outcome="unprocessable_entity", auth=auth
+                    )
+            with _lock:
+                offer["forgehub_product_id"] = str(link_id) if link_id is not None else None
+                snapshot = dict(offer)
+            return _reply(
+                integration, request, 200, snapshot, operation="software_product.link",
+                outcome="stubbed", destination=snapshot["name"], auth=auth
+            )
 
     if request.method == "GET":
         if len(segments) >= 2:

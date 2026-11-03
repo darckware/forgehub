@@ -271,18 +271,35 @@ export default function ProductPage() {
       application_url_dev: "",
       darckware_client_id: "",
       darckware_client_name: "",
+      initial_version: {
+        version: "0.1.0",
+        status: "planned",
+      },
     },
   });
 
   const onSubmit = async (values: ProductInput) => {
     const selectedClient = clientList.find((c) => c.id === values.darckware_client_id);
-    await createProduct.mutateAsync({
+    const initialVersionStr = values.initial_version?.version?.trim();
+
+    const payload: ProductInput = {
       ...values,
       application_url: values.application_url || undefined,
       application_url_dev: values.application_url_dev || undefined,
       darckware_client_id: values.darckware_client_id || undefined,
       darckware_client_name: selectedClient ? selectedClient.company_name : undefined,
-    });
+    };
+
+    if (initialVersionStr) {
+      payload.initial_version = {
+        version: initialVersionStr,
+        status: values.initial_version?.status || "planned",
+      };
+    } else {
+      delete payload.initial_version;
+    }
+
+    await createProduct.mutateAsync(payload);
     reset();
     setView("list");
   };
@@ -464,6 +481,30 @@ export default function ProductPage() {
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">{t("list.createForm.urlHint")}</p>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="initial_version">{t("list.createForm.initialVersionLabel")}</Label>
+                    <Input
+                      id="initial_version"
+                      placeholder={t("list.createForm.initialVersionPlaceholder")}
+                      {...register("initial_version.version")}
+                    />
+                    {errors.initial_version?.version && (
+                      <p className="text-sm text-destructive">{errors.initial_version.version.message}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="initial_version_status">{t("list.createForm.initialVersionStatusLabel")}</Label>
+                    <Select id="initial_version_status" {...register("initial_version.status")}>
+                      <option value="planned">{t("detail.statusOptions.planned")}</option>
+                      <option value="in_development">{t("detail.statusOptions.in_development")}</option>
+                      <option value="in_test">{t("detail.statusOptions.in_test")}</option>
+                      <option value="published">{t("detail.statusOptions.published")}</option>
+                      <option value="deprecated">{t("detail.statusOptions.deprecated")}</option>
+                    </Select>
+                  </div>
+                </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="status">{t("list.createForm.statusLabel")}</Label>

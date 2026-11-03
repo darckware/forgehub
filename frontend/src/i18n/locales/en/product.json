@@ -30,7 +30,10 @@
       "urlDevPlaceholder": "http://localhost:4173",
       "clientLabel": "Associated Client (Darckware)",
       "noClient": "⚡ Darckware Proprietary Product (No client linked)",
-      "clientHint": "Optional. Leave blank if this is an internal Darckware product or system."
+      "clientHint": "Optional. Leave blank if this is an internal Darckware product or system.",
+      "initialVersionLabel": "Initial version",
+      "initialVersionPlaceholder": "e.g. 0.1.0 or 2026.11",
+      "initialVersionStatusLabel": "Version status"
     },
     "loading": "Loading products...",
     "loadError": "Failed to load products.",
@@ -126,6 +129,35 @@
       "status": "Status",
       "releaseNotes": "Release Notes"
     },
-    "noReleaseNotes": "—"
+    "noReleaseNotes": "—",
+    "offers": {
+      "title": "Commercial Offers (Darckware)",
+      "description": "Commercial offers and plans managed in Darckware linked to this system.",
+      "linkButton": "Link offer",
+      "unlinkButton": "Unlink",
+      "selectPlaceholder": "Select a commercial offer...",
+      "confirmLink": "Link",
+      "cancel": "Cancel",
+      "empty": "No commercial offers linked to this system.",
+      "noAvailableOffers": "No available offers to link.",
+      "loading": "Loading commercial offers...",
+      "loadError": "Failed to load commercial offers.",
+      "linkError": "Failed to link offer",
+      "unlinkError": "Failed to unlink offer",
+      "active": "Active",
+      "inactive": "Inactive",
+      "columns": {
+        "name": "Offer / Plan",
+        "category": "Category",
+        "description": "Description",
+        "status": "Status",
+        "actions": "Actions"
+      },
+      "unlinkDialog": {
+        "title": "Unlink offer \"{{name}}\"",
+        "description": "Are you sure you want to unlink this commercial offer from this system? The offer will become available for linking again in Darckware.",
+        "confirm": "Unlink offer"
+      }
+    }
   }
 }

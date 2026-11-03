@@ -890,3 +890,41 @@ export function useLeadList(search: string) {
     retry: false,
   });
 }
+
+export interface DarckwareSoftwareProduct {
+  id: string;
+  name: string;
+  slug: string;
+  category: string;
+  description: string | null;
+  is_active: boolean;
+  base_monthly_price: number;
+  available_modules: string[];
+  forgehub_product_id: string | null;
+  forgehub_product_name: string | null;
+}
+
+export function useDarckwareSoftwareProducts() {
+  return useQuery<DarckwareSoftwareProduct[]>({
+    queryKey: ["client-ops", "software-products"],
+    queryFn: () => apiClient.get(`${BASE}/software-products`),
+  });
+}
+
+export function useLinkSoftwareProduct() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    DarckwareSoftwareProduct,
+    Error,
+    { id: string; forgehubProductId: string | null }
+  >({
+    mutationFn: ({ id, forgehubProductId }) =>
+      apiClient.put(`${BASE}/software-products/${id}/forgehub-link`, {
+        forgehub_product_id: forgehubProductId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["client-ops", "software-products"] });
+    },
+  });
+}
+
