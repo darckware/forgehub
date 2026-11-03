@@ -71,7 +71,7 @@ async def convert_to_task(
         planning_item_id=planning_item_id, title=title[:255], description=content
     )
     try:
-        task = await create_task(payload, db)
+        task = await create_task(payload, authorization=None, db=db)
     except HTTPException as exc:
         raise ConversionError(exc.detail) from exc
     return task.id, str(task.id)

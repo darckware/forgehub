@@ -648,22 +648,27 @@ async def _guarded_missions() -> int:
 
 @pytest.mark.asyncio
 async def test_migration_roundtrip_refuses_with_active_mission(world):
-    """Only this revision moves: downgrade to its parent and back."""
-    assert REVISION in _alembic("current").stdout
+    """Downgrade to this revision's parent and back to where the database
+    was. Later revisions sit above it now and move too; the run is one
+    transaction, so the refusal leaves the head untouched."""
+    current = _alembic("current")
+    assert current.returncode == 0, current.stderr
+    head = current.stdout.split()[0]
+    parent = _alembic("show", REVISION).stdout.split("Parent:")[1].split()[0]
     await _mission(world)
-    refused = _alembic("downgrade", f"{REVISION}@-1")
+    refused = _alembic("downgrade", parent)
     assert refused.returncode != 0 and "active or verifying" in refused.stderr, refused.stderr[-2000:]
-    assert REVISION in _alembic("current").stdout
+    assert head in _alembic("current").stdout
 
     await _cleanup(world)
     world.product_id = None
     if await _guarded_missions():
         pytest.skip("another active mission in the shared test database; refusal proven, roundtrip skipped")
-    down = _alembic("downgrade", f"{REVISION}@-1")
-    up = _alembic("upgrade", REVISION)
+    down = _alembic("downgrade", parent)
+    up = _alembic("upgrade", head)
     assert down.returncode == 0, down.stderr[-2000:]
     assert up.returncode == 0, up.stderr[-2000:]
-    assert REVISION in _alembic("current").stdout
+    assert head in _alembic("current").stdout
 
 
 # ---------------------------------------------------------------------------

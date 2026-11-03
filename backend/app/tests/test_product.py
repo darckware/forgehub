@@ -281,8 +281,12 @@ async def test_publish_version_blocks_on_unfinished_tasks(client: AsyncClient):
         assert [row["task_id"] for row in detail["blocking"]] == [str(task_id)]
         assert detail["blocking"][0]["project_id"] == str(sibling_id)
 
-        finish = await client.patch(f"/api/v1/tasks/{task_id}", json={"status": "done"})
-        assert finish.status_code == 200, finish.text
+        # The task's own completion (evidence + independent review, M0.6a) is
+        # test_task_completion_guard.py's subject; this test is about the
+        # publish gate, so the task is finished directly.
+        async with AsyncSessionLocal() as db:
+            (await db.get(ProjectTask, task_id)).status = "done"
+            await db.commit()
 
         published = await client.post(f"/api/v1/products/versions/{version_id}:publish")
         assert published.status_code == 200, published.text

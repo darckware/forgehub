@@ -16,7 +16,8 @@ from app.core.config import assert_test_database_target, settings
 async def test_migration_refuses_destructive_rollback_and_preserves_contacts():
     assert settings.ENVIRONMENT == 'test', 'Isolated test environment required'
     assert_test_database_target(settings.POSTGRES_HOST, settings.POSTGRES_PORT, settings.POSTGRES_DB, settings.POSTGRES_USER)
-    assert os.environ.get('PERSONAL_CAPTURE_TEST_RESET') == '1', 'Explicit consent to clear synthetic personal capture fixtures required'
+    if os.environ.get('PERSONAL_CAPTURE_TEST_RESET') != '1':
+        pytest.skip('clears synthetic personal capture fixtures: set PERSONAL_CAPTURE_TEST_RESET=1 to run')
     spec = importlib.util.spec_from_file_location('capture_migration', Path('alembic/versions/6b20f44a9e12_personal_whatsapp_group_capture.py'))
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)

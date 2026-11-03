@@ -186,7 +186,8 @@ async def test_demand_completion_records_authenticated_agent_date_status_and_aud
 async def context(tmp_path,monkeypatch):
     assert settings.ENVIRONMENT == 'test', 'Isolated test environment required'
     assert_test_database_target(settings.POSTGRES_HOST, settings.POSTGRES_PORT, settings.POSTGRES_DB, settings.POSTGRES_USER)
-    assert os.environ.get('PERSONAL_CAPTURE_TEST_RESET') == '1', 'Explicit consent to clear synthetic personal capture fixtures required'
+    if os.environ.get('PERSONAL_CAPTURE_TEST_RESET') != '1':
+        pytest.skip('clears synthetic personal capture fixtures: set PERSONAL_CAPTURE_TEST_RESET=1 to run')
     engine=create_async_engine(settings.DATABASE_URL);sessions=async_sessionmaker(engine,expire_on_commit=False)
     record={'ts':1000.0,'quando':'2026-10-27T10:00:00Z','chat':CHAT,'grupo':'Grupo sintético','autor':'Solicitante fictício','autor_id':'fixture-author','texto':'Pedido fictício'}
     (tmp_path/'_monitoramento.json').write_text(json.dumps({'enabled':[CHAT]}))

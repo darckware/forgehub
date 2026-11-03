@@ -399,8 +399,13 @@ async def test_dossier_gates_awaiting_acceptance(world):
 
 @pytest.mark.asyncio
 async def test_migration_roundtrip_own_revision_only():
+    """Downgrades to this revision's parent and upgrades back to where the
+    database was. Later revisions sit above it now, so they move too; the
+    run is one transaction, so a refusal anywhere leaves the head as it was."""
     before = _alembic("current")
-    assert REVISION in before.stdout, before.stdout + before.stderr
+    assert before.returncode == 0, before.stderr
+    head = before.stdout.split()[0]
+    assert _alembic("history", "-r", f"{REVISION}:{head}").stdout, f"{REVISION} is not below {head}"
 
     async def tables() -> set[str]:
         async with AsyncSessionLocal() as db:
@@ -415,7 +420,7 @@ async def test_migration_roundtrip_own_revision_only():
         assert DOWN_REVISION in _alembic("current").stdout
         assert await tables() == set()
     finally:
-        up = _alembic("upgrade", REVISION)
+        up = _alembic("upgrade", head)
     assert up.returncode == 0, up.stderr
-    assert REVISION in _alembic("current").stdout
+    assert head in _alembic("current").stdout
     assert len(await tables()) == 6

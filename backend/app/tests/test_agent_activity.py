@@ -1501,6 +1501,9 @@ async def test_athos_request_rejects_orphan_monitoring_notification(
 ):
     key = f"activity-orphan-{uuid.uuid4()}"
     event_key = f"agent-activity:athos-monitor:{key}"
+    # Without Athos the route answers 404 before ever reaching the orphan
+    # check; the fresh test database has only the fictitious seed.
+    athos, athos_created = await _get_or_create_athos()
     try:
         async with AsyncSessionLocal() as db:
             db.add(
@@ -1520,9 +1523,11 @@ async def test_athos_request_rejects_orphan_monitoring_notification(
             json={"execution_id": str(activity_world.execution_id), "idempotency_key": key},
         )
 
-        assert response.status_code == 409
+        assert response.status_code == 409, response.text
     finally:
-        await _remove_monitoring_records(event_key=event_key)
+        await _remove_monitoring_records(
+            event_key=event_key, created_athos_id=athos.id if athos_created else None,
+        )
 
 
 @pytest.mark.asyncio

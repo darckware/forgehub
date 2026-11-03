@@ -163,6 +163,12 @@ async def _remove_products(product_ids_sql: str | None) -> None:
             f"DELETE FROM company.mission_project_links WHERE mission_project_id IN ({projects}) "
             f"OR executor_project_id IN ({projects})",
             f"DELETE FROM company.project_missions WHERE project_id IN ({projects})",
+            # Rows from later slices (M0.6b baseline, M0.7 releases, M0.8 cycle) that
+            # block deleting a task; a stale mission from another module has them.
+            f"DELETE FROM company.plan_baseline_items WHERE task_id IN ({tasks})",
+            f"DELETE FROM company.environment_releases WHERE task_id IN ({tasks})",
+            f"DELETE FROM company.mission_skill_proposals WHERE task_id IN ({tasks})",
+            f"UPDATE company.agent_demands SET task_execution_id = NULL WHERE task_execution_id IN ({executions})",
             f"DELETE FROM company.task_execution_reviews WHERE execution_id IN ({executions})",
             f"DELETE FROM company.task_executions WHERE task_id IN ({tasks})",
             f"DELETE FROM company.task_dependencies WHERE task_id IN ({tasks})",
