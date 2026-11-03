@@ -2,17 +2,27 @@
 import uuid
 
 import pytest
+import pytest_asyncio
+from sqlalchemy import text
 
 from app.core.config import assert_test_database_target, settings
 from app.core.mission_documents import project_slug
 from app.mcp import factory_server
 from app.db.base import AsyncSessionLocal
 from app.db.models.mission import MissionPlanSubmission, ProjectMission
+from app.db.models.personal import PersonalNote
+from app.db.models.product import Product
 from app.db.models.project import PlanBaseline
 from app.db.models.task import TaskExecutionTarget
 from app.tests.test_mission_base import _transition
 from app.tests.test_mission_plan_approval import _remove_plan_approvals
-from app.tests.test_mission_planning_records import Cast, world  # noqa: F401,F811
+from app.tests.test_mission_planning_records import Cast, world as planning_source  # noqa: F401,F811
+from app.tests.test_mission_dispatch import (
+    _assign, _audits, _dispatch, _latest_execution, _report, runner, world,  # noqa: F401,F811
+)
+from app.tests.test_mission_dispatch_context import _canary
+from app.tests.test_mission_base import _member
+from app.tests.test_task_baseline_guard import _code, _mission
 from app.tests.test_mission_mcp import _key, docs_root, mcp_as, mw  # noqa: F401
 
 
@@ -63,9 +73,15 @@ async def test_mission_rehearsal_membership(mw, mcp_as, docs_root, monkeypatch):
                                                      f"missions/{slug}/../{slug}/notes.md", _key())
 
 
+@pytest_asyncio.fixture
+async def planning_world(planning_source):  # noqa: F811
+    return planning_source
+
+
 @pytest.mark.asyncio
-async def test_rehearsal_step3_planning_to_active(world, monkeypatch):  # noqa: F811
+async def test_rehearsal_step3_planning_to_active(planning_world, monkeypatch):  # noqa: F811
     monkeypatch.setattr(settings, "MISSION_TOOLS_ENABLED", True)
+    world = planning_world  # noqa: F811
     cast = await Cast().build(world)
     (_, r1_h), (_, r2_h), (_, r3_h) = cast.reviewers
     try:
@@ -140,3 +156,55 @@ async def test_rehearsal_step3_planning_to_active(world, monkeypatch):  # noqa: 
         assert response.json()["state"] == "active"
     finally:
         await _remove_plan_approvals([cast.project_id], [cast.task.id])
+
+
+@pytest.mark.asyncio
+async def test_rehearsal_step4_5_dispatch_and_report(world, runner, tmp_path, monkeypatch):  # noqa: F811
+    mission = await _mission(world)
+    task = await mission.task("rehearsal dispatch")
+    reviewer = await world.agent("reviewer")
+    await _member(mission.project_id, reviewer, role="reviewer", can_review=True)
+    await mission.baseline([task.id])
+    maia, lara, kb = (_canary(kind) for kind in ("MAIA", "LARA", "KB"))
+    note_id = None
+    try:
+        async with AsyncSessionLocal() as db:
+            note = PersonalNote(title="rehearsal fictitious note", content=f"recado {maia}")
+            db.add(note)
+            product = await db.get(Product, world.product_id)
+            product.darckware_client_name = lara
+            await db.commit()
+            note_id = note.id
+        kb_file = tmp_path / "knowledge_base" / "fixture.md"
+        kb_file.parent.mkdir(parents=True)
+        kb_file.write_text(f"KB fixture {kb}", encoding="utf-8")
+
+        assigned = await _assign(world, mission, task.id, mission.executor)
+        assert assigned.status_code in (200, 201), assigned.text
+        dispatched = await _dispatch(world, task.id)
+        assert dispatched.status_code in (200, 201), dispatched.text
+        assert all(canary not in runner.prompts[-1] for canary in (maia, lara, kb))
+        audits = await _audits(task.id, "task.dispatched")
+        assert audits and audits[-1].payload["context_manifest"]
+        again = await _dispatch(world, task.id)
+        assert again.status_code == 409 and _code(again) == "TASK_RUN_IN_FLIGHT", again.text
+
+        execution = await _latest_execution(task.id)
+        executor = await world.agent_token(mission.executor, ["mission.execution.report"])
+        evidence = [f"db:project:{mission.project_id}"]
+        reported = await _report(world, task.id, execution.id, executor, evidence=evidence)
+        assert reported.status_code == 200 and reported.json()["status"] == "reported", reported.text
+        verified = await _report(world, task.id, execution.id, executor, evidence=evidence, status="verified")
+        assert verified.status_code == 422, verified.text
+        reviewer_token = await world.agent_token(reviewer, ["mission.execution.report"])
+        refused = await _report(world, task.id, execution.id, reviewer_token, evidence=evidence)
+        assert _code(refused) == "NOT_EXECUTOR", refused.text
+        async with world.client() as client:
+            done = await client.patch(f"/api/v1/tasks/{task.id}", json={"status": "done"})
+        # COMPLETION_EXECUTION_NOT_VERIFIED is the first guard for a reported execution.
+        assert done.status_code == 409 and _code(done) == "COMPLETION_EXECUTION_NOT_VERIFIED", done.text
+    finally:
+        if note_id is not None:
+            async with AsyncSessionLocal() as db:
+                await db.execute(text("DELETE FROM company.personal_notes WHERE id = :id"), {"id": note_id})
+                await db.commit()
