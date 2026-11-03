@@ -28,7 +28,7 @@ def clear_token_cache(profile):
 
 
 def get_agent_token(profile, *, force=False, timeout=10):
-    if profile not in {'maia', 'athos'}:
+    if not isinstance(profile, str) or not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,63}', profile):
         raise CredentialUnavailable('Perfil sem configuração de credencial')
     with _lock:
         cached = _cache.get(profile)
