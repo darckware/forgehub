@@ -54,16 +54,25 @@ describe("useMissionExecutionsViewModel (M0.7)", () => {
     const { result } = renderHook(() => useMissionExecutionsViewModel("m07-mission"), { wrapper });
     await waitFor(() => expect(result.current.status).toBe("ready"));
     act(() => result.current.openAction("return", { taskId: "t-running" }));
-    expect(result.current.status).toBe("confirming");
+    // Modal policy: input is typed on the page first; the modal only confirms.
+    expect(result.current.status).toBe("editing");
+    expect(result.current.hasFields).toBe(true);
     expect(result.current.needsReason).toBe(true);
     expect(result.current.canConfirm).toBe(false);
+    act(() => result.current.requestConfirm());
+    expect(result.current.status).toBe("editing");
     act(() => result.current.setReason("falta teste"));
     expect(result.current.canConfirm).toBe(true);
+    act(() => result.current.requestConfirm());
+    expect(result.current.status).toBe("confirming");
     await act(async () => { await result.current.confirmAction(); });
     expect(post).toHaveBeenCalledWith("/api/v1/missions/m07-mission/tasks/t-running:return",
       expect.objectContaining({ execution_id: "e-2", reason: "falta teste" }));
     expect(result.current.actionError).toBe("TASK_RUN_IN_FLIGHT: run active");
     expect(result.current.status).toBe("confirming");
+    expect(result.current.reason).toBe("falta teste");
+    act(() => result.current.dismissConfirm());
+    expect(result.current.status).toBe("editing");
     expect(result.current.reason).toBe("falta teste");
   });
 
@@ -74,6 +83,8 @@ describe("useMissionExecutionsViewModel (M0.7)", () => {
     await waitFor(() => expect(result.current.status).toBe("ready"));
     act(() => result.current.openAction("dispatch", { taskId: "t-ready" }));
     expect(result.current.needsReason).toBe(false);
+    expect(result.current.hasFields).toBe(false);
+    expect(result.current.status).toBe("confirming");
     await act(async () => { await result.current.confirmAction(); });
     expect(post).toHaveBeenCalledWith("/api/v1/tasks/t-ready/dispatch", {});
     expect(result.current.pending).toBeNull();

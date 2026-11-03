@@ -114,18 +114,25 @@ describe("mission executions page (M0.7)", () => {
     open();
     fireEvent.click(await screen.findByTestId("task-row-t-ready"));
     fireEvent.click(within(await screen.findByTestId("task-detail")).getByRole("button", { name: "Recusar / devolver" }));
+    // Modal policy: the reason is typed on the page; the modal only confirms.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const form = screen.getByTestId("mission-action-form");
+    const review = within(form).getByRole("button", { name: "Revisar: Recusar / devolver" });
+    expect(review).toBeDisabled();
+    fireEvent.change(within(form).getByLabelText("Motivo"), { target: { value: "sem teste" } });
+    expect(review).toBeEnabled();
+    fireEvent.click(review);
     const dialog = screen.getByRole("dialog");
+    expect(within(dialog).queryByRole("textbox")).toBeNull();
+    expect(dialog).toHaveTextContent("sem teste");
     const confirm = within(dialog).getByRole("button", { name: "Recusar / devolver" });
-    expect(confirm).toBeDisabled();
-    fireEvent.change(within(dialog).getByLabelText("Motivo"), { target: { value: "sem teste" } });
-    expect(confirm).toBeEnabled();
     fireEvent.click(confirm);
     await waitFor(() => expect(post).toHaveBeenCalledWith("/api/v1/missions/m07-mission/tasks/t-ready:return",
       expect.objectContaining({ reason: "sem teste", execution_id: "e-2" })));
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Recusar / devolver" })).toBeDisabled());
     reject(new ApiError("x", 409, { detail: { code: "TASK_RUN_IN_FLIGHT", message: "run active" } }));
     expect(await within(dialog).findByText("TASK_RUN_IN_FLIGHT: run active")).toBeInTheDocument();
-    expect(within(dialog).getByLabelText("Motivo")).toHaveValue("sem teste");
+    expect(within(form).getByLabelText("Motivo")).toHaveValue("sem teste");
   });
 
   it("is read-only for a viewer who cannot act", async () => {

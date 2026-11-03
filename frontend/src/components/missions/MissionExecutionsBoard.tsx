@@ -9,7 +9,7 @@ import { usePhoneListDetail } from "@/hooks/useIsPhone";
 import type { MissionActionKind } from "@/hooks/useMissions";
 import type { MissionExecutionsViewModel } from "@/hooks/useMissionExecutionsViewModel";
 import { cn } from "@/lib/utils";
-import { MissionActionDialog } from "./MissionActionDialog";
+import { MissionActionConfirm, MissionActionForm } from "./MissionAction";
 import { MissionConflictsBanner } from "./MissionConflictsBanner";
 import { MissionEnvironmentsStrip } from "./MissionEnvironmentsStrip";
 import { MissionPlanningView } from "./MissionPlanningView";
@@ -78,6 +78,7 @@ export function MissionExecutionsBoard({ vm }: { vm: MissionExecutionsViewModel 
         ) : <span className="text-xs text-muted-foreground">{t("board.readOnly")}</span>}
       />
 
+      <MissionActionForm vm={vm} />
       {vm.lastResult && (
         <p role="status" className="rounded border border-emerald-500/40 bg-emerald-500/5 px-3 py-1.5 text-xs">
           {t("actions.done", { action: t(`actions.${vm.lastResult}`) })}
@@ -159,7 +160,7 @@ export function MissionExecutionsBoard({ vm }: { vm: MissionExecutionsViewModel 
       )}
 
       {!vm.selectedTask && <MissionTimeline projectId={mission.project_id} />}
-      <MissionActionDialog vm={vm} />
+      <MissionActionConfirm vm={vm} />
     </div>
   );
 }

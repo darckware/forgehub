@@ -17,8 +17,14 @@ import {
  * blocked come from the board (`allowed_actions`/`blocked_actions`), which
  * the backend computes by dry-running the route's guards -- nothing here
  * decides eligibility. A refused request keeps the dialog open with the
- * backend's own message and the typed reason. */
-export type MissionExecutionsStatus = "loading" | "ready" | "empty" | "error" | "confirming" | "submitting";
+ * backend's own message and the typed reason.
+ *
+ * Modal policy (UX-CONTRACT.md "Overlays and feedback", 2026-11-02): a modal
+ * only confirms. An action that needs input (reason, agent, time, decision)
+ * first opens an inline form on the page (`editing`); only then does the
+ * confirmation dialog open (`confirming`). An action with no input goes
+ * straight to `confirming`. */
+export type MissionExecutionsStatus = "loading" | "ready" | "empty" | "error" | "editing" | "confirming" | "submitting";
 export type MissionErrorKind = "not_found" | "forbidden" | "server";
 
 /** Actions that need a written reason (spec §7; transitions per §3). */
@@ -26,6 +32,10 @@ export const REASON_REQUIRED: ReadonlySet<MissionActionKind> = new Set([
   "assign", "return", "pause", "resume", "cancel", "decide_item",
 ]);
 const AGENT_REQUIRED: ReadonlySet<MissionActionKind> = new Set(["assign", "request_review"]);
+/** Actions whose input is typed on the page before the confirmation dialog. */
+export function actionHasFields(kind: MissionActionKind): boolean {
+  return REASON_REQUIRED.has(kind) || AGENT_REQUIRED.has(kind) || kind === "schedule" || kind === "decide_item";
+}
 const DESTRUCTIVE: ReadonlySet<MissionActionKind> = new Set(["return", "cancel"]);
 
 export interface PendingMissionAction {
@@ -58,6 +68,8 @@ export interface MissionExecutionsViewModel {
   setDecision: (value: string) => void;
   needsReason: boolean;
   needsAgent: boolean;
+  /** True when the pending action has input fields (inline form first). */
+  hasFields: boolean;
   canConfirm: boolean;
   actionError: string | null;
   lastResult: MissionActionKind | null;
@@ -66,6 +78,10 @@ export interface MissionExecutionsViewModel {
   missionBlockedReason: (action: MissionActionKind) => string | null;
   openAction: (kind: MissionActionKind, options?: { taskId?: string; itemId?: string }) => void;
   cancelAction: () => void;
+  /** From the inline form to the confirmation dialog (only when valid). */
+  requestConfirm: () => void;
+  /** Leaves the confirmation dialog: back to the form, or closes a field-less action. */
+  dismissConfirm: () => void;
   confirmAction: () => Promise<void>;
   retry: () => void;
 }
@@ -95,6 +111,7 @@ export function useMissionExecutionsViewModel(projectId: string | undefined): Mi
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [taskView, setTaskView] = useState<"list" | "graph">("list");
   const [pending, setPending] = useState<PendingMissionAction | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [agentId, setAgentId] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
@@ -110,8 +127,9 @@ export function useMissionExecutionsViewModel(projectId: string | undefined): Mi
   let status: MissionExecutionsStatus;
   if (query.isLoading) status = "loading";
   else if (query.isError && !board) status = "error";
-  else if (pending && mutation.isPending) status = "submitting";
-  else if (pending) status = "confirming";
+  else if (pending && confirmOpen && mutation.isPending) status = "submitting";
+  else if (pending && confirmOpen) status = "confirming";
+  else if (pending) status = "editing";
   else if (board && board.tasks.length === 0 && !board.planning) status = "empty";
   else status = "ready";
 
@@ -130,6 +148,7 @@ export function useMissionExecutionsViewModel(projectId: string | undefined): Mi
   const openAction = useCallback((kind: MissionActionKind, options: { taskId?: string; itemId?: string } = {}) => {
     const task = options.taskId ? tasks.find((t) => t.task_id === options.taskId) : undefined;
     setPending({ kind, ...options });
+    setConfirmOpen(!actionHasFields(kind));
     setReason("");
     setActionError(null);
     setLastResult(null);
@@ -144,15 +163,29 @@ export function useMissionExecutionsViewModel(projectId: string | undefined): Mi
   const cancelAction = useCallback(() => {
     if (mutation.isPending) return;
     setPending(null);
+    setConfirmOpen(false);
     setActionError(null);
   }, [mutation.isPending]);
 
   const needsReason = pending ? REASON_REQUIRED.has(pending.kind) : false;
   const needsAgent = pending ? AGENT_REQUIRED.has(pending.kind) : false;
-  const canConfirm = Boolean(pending) && !mutation.isPending
+  const hasFields = pending ? actionHasFields(pending.kind) : false;
+  const fieldsValid = Boolean(pending)
     && (!needsReason || reason.trim().length > 0)
     && (!needsAgent || agentId !== "")
     && (pending?.kind !== "schedule" || scheduledAt !== "");
+  const canConfirm = fieldsValid && !mutation.isPending;
+
+  const requestConfirm = useCallback(() => {
+    if (fieldsValid) setConfirmOpen(true);
+  }, [fieldsValid]);
+
+  const dismissConfirm = useCallback(() => {
+    if (mutation.isPending) return;
+    if (hasFields) setConfirmOpen(false);
+    else { setPending(null); setConfirmOpen(false); }
+    setActionError(null);
+  }, [hasFields, mutation.isPending]);
 
   const confirmAction = useCallback(async () => {
     if (!pending || !board || !canConfirm) return;
@@ -174,6 +207,7 @@ export function useMissionExecutionsViewModel(projectId: string | undefined): Mi
       });
       setLastResult(pending.kind);
       setPending(null);
+      setConfirmOpen(false);
     } catch (error) {
       setActionError(errorMessage(error));
     }
@@ -204,6 +238,7 @@ export function useMissionExecutionsViewModel(projectId: string | undefined): Mi
     setDecision,
     needsReason,
     needsAgent,
+    hasFields,
     canConfirm,
     actionError,
     lastResult,
@@ -211,6 +246,8 @@ export function useMissionExecutionsViewModel(projectId: string | undefined): Mi
     missionBlockedReason,
     openAction,
     cancelAction,
+    requestConfirm,
+    dismissConfirm,
     confirmAction,
     retry: () => void query.refetch(),
   };

@@ -168,7 +168,9 @@
       "accept": "aceitar",
       "adjust": "ajustar",
       "reject": "rejeitar"
-    }
+    },
+    "close": "Fechar",
+    "review": "Revisar: {{action}}"
   },
   "planning": {
     "title": "Pipeline de planejamento",

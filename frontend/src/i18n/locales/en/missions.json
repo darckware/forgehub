@@ -168,7 +168,9 @@
       "accept": "accept",
       "adjust": "adjust",
       "reject": "reject"
-    }
+    },
+    "close": "Close",
+    "review": "Review: {{action}}"
   },
   "planning": {
     "title": "Planning pipeline",

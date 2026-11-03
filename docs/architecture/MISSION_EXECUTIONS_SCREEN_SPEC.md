@@ -177,6 +177,10 @@ was released (12 §10 "sem inferir release do build").
 
 Every action: confirmation dialog (`ConfirmDialog` [EXISTS frontend/src/components/ui/confirm-dialog.tsx]),
 required reason where marked, button `disabled` + `Loader2` while pending, result toast, board refetch.
+Modal policy (`UX-CONTRACT.md` "Overlays and feedback", 2026-11-02): the dialog only confirms. An action
+with input (reason, agent, time, decision) first opens an inline form on the page
+(`components/missions/MissionAction.tsx`, ViewModel status `editing`); its "Revisar" button opens the
+confirmation, which shows the typed reason read-only. An action with no input goes straight to it.
 Backend-computed availability (§3.2). Each action writes an AuditEvent with the human or agent
 principal (main spec §0.5) and appears in the timeline.
 
