@@ -237,6 +237,11 @@ class AgentDemand(Base, TimestampMixin):
     # session's tools), scoped to one dispatched message instead of a
     # session -- a message is the unit that knows which project it is about.
     working_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # M0.8 (MCP spec §6.1): the mission context pack version a mission task's
+    # dispatch carried; NULL for everything else.
+    mission_context_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.mission_context_versions.id", ondelete="SET NULL"), nullable=True
+    )
     # Mandatory (2026-07-28, Marcelo: "o campo e obrigatorio. Enao tem tem
     # None") -- always one of DEMAND_ORIGIN_TYPES, never NULL. Every writer
     # (create_demand_and_notify/update_demand's _reconcile_task_origin,

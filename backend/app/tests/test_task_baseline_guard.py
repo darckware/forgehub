@@ -184,7 +184,7 @@ async def _queued_demand(task: ProjectTask, agent_id, working_path, **fields) ->
     async with AsyncSessionLocal() as db:
         demand = AgentDemand(
             from_agent="marcelo", subject=f"m06b {task.title}", body="run it", origin_type="task",
-            origin_id=task.id, target_agent_id=agent_id, working_path=working_path, scheduled_at=DUE, **fields,
+            origin_id=task.id, target_agent_id=agent_id, working_path=working_path, **{"scheduled_at": DUE, **fields},
         )
         db.add(demand)
         await db.commit()

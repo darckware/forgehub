@@ -54,7 +54,11 @@ from app.api.routes import (
     mission,
     mission_plan,
     mission_task,
+    mission_cycle,
+    agent_availability,
     mission_records,
+    mission_board,
+    environment,
     notifications,
     operations,
     orchestration,
@@ -211,6 +215,10 @@ def is_agent_command_path(method: str, path: str) -> bool:
         # agt_; every /missions route calls authorize_action itself.
         "/api/v1/missions/",
     )) or path == "/api/v1/missions" or (
+        # M0.7: the single writer of environment_releases; the route checks
+        # environment.release.record itself.
+        path == "/api/v1/environments/releases"
+    ) or (
         path.startswith("/api/v1/projects/") and ("/progress" in path or "/execution-waves" in path)
     )
     factory_read_path = method == "GET" and path.startswith((
@@ -231,6 +239,12 @@ def is_agent_command_path(method: str, path: str) -> bool:
     # M0.2c (§5.6, §5.7, §5.11): dispatch_task, report_task_execution and the
     # reviewer's own decision; each route authorizes the agent itself.
     task_dispatch_command = method == "POST" and task_path and len(parts) == 6 and parts[5] == "dispatch"
+    # M0.8 (cycle spec §7): set_agent_unavailable; the route authorizes
+    # mission.orchestrate itself.
+    agent_availability_command = (
+        method in ("GET", "PUT") and path.startswith("/api/v1/agents/") and len(parts) == 6
+        and parts[4] != "" and parts[5] == "availability"
+    )
     task_report_command = (
         method == "POST" and task_path and len(parts) == 7 and parts[5] == "executions"
         and parts[6].endswith(":report") and len(parts[6]) > len(":report")
@@ -240,7 +254,7 @@ def is_agent_command_path(method: str, path: str) -> bool:
         and parts[5] != ""
     )
     return (command_path or factory_read_path or factory_task_command or task_dependency_command
-            or task_dispatch_command or task_report_command or review_decision)
+            or task_dispatch_command or task_report_command or review_decision or agent_availability_command)
 
 
 class RequireAuthMiddleware(BaseHTTPMiddleware):
@@ -458,6 +472,10 @@ app.include_router(mission.router)
 app.include_router(mission_records.router)
 app.include_router(mission_plan.router)
 app.include_router(mission_task.router)
+app.include_router(mission_board.router)
+app.include_router(environment.router)
+app.include_router(mission_cycle.router)
+app.include_router(agent_availability.router)
 app.include_router(system_scope.router)
 # ---------------------------------------------------------------------------
 
@@ -483,6 +501,7 @@ INCUBATION_MATURATION_POLL_INTERVAL_SECONDS = 300
 # (routine_schedule.MIN_INTERVAL_SECONDS), so a 60s pass starts each one
 # within a minute of its occurrence.
 ROUTINE_POLL_INTERVAL_SECONDS = 60
+MISSION_CYCLE_POLL_INTERVAL_SECONDS = 60
 
 # How often stalled dispatches are checked against their deadline. Minutes,
 # not seconds: the deadline itself is DISPATCH_TIMEOUT_MINUTES (45), so a
@@ -629,6 +648,25 @@ async def _routine_poll_loop() -> None:
         except Exception:
             logger.exception("Agent question delivery failed")
         await asyncio.sleep(ROUTINE_POLL_INTERVAL_SECONDS)
+
+
+async def _mission_cycle_poll_loop() -> None:
+    """M0.8 (cycle spec §2.2, §3.4 item 4): each mission's event-triggered
+    cycle, its pending rerun and the watchdog. Its own task, beside the
+    routine loop that materializes the scheduled cycles. Does nothing while
+    MISSION_CYCLE_ENABLED is off (read every pass, so turning it off stops
+    the loop's work without a restart)."""
+    from app.core.mission_cycle import run_mission_cycle_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        if settings.MISSION_CYCLE_ENABLED:
+            try:
+                async with AsyncSessionLocal() as db:
+                    await run_mission_cycle_pass(db)
+            except Exception:
+                logger.exception("Mission cycle pass failed")
+        await asyncio.sleep(MISSION_CYCLE_POLL_INTERVAL_SECONDS)
 
 
 async def _dispatch_completion_poll_loop() -> None:
@@ -942,6 +980,7 @@ async def _start_background_tasks() -> None:
         ("feedback-poll", _feedback_poll_loop),
         ("incubation-maturation-poll", _incubation_maturation_poll_loop),
         ("routine-poll", _routine_poll_loop),
+        ("mission-cycle-poll", _mission_cycle_poll_loop),
         ("dispatch-completion-poll", _dispatch_completion_poll_loop),
         ("background-test-completion-poll", _background_test_completion_poll_loop),
         ("task-failure-poll", _task_failure_poll_loop),

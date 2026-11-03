@@ -98,6 +98,11 @@ class AgentRoutine(Base, TimestampMixin):
     # skipped). NULL = never generated; the first pass starts from "now"
     # instead of back-filling every occurrence since the routine was created.
     last_occurrence_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # M0.8: the mission whose decision cycle this coordination routine runs
+    # (cycle spec §2.1); toggled with the mission, never deleted.
+    mission_project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.projects.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     runs: Mapped[list["AgentRoutineRun"]] = relationship(back_populates="routine", cascade="all, delete-orphan")
 

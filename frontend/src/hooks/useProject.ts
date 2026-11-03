@@ -219,6 +219,8 @@ export const projectSchema = z.object({
   solution_type: z.enum(PROJECT_SOLUTION_TYPES).nullable().optional(),
   status: z.enum(PROJECT_STATUSES).default("planned"),
   working_directory_path: z.string().nullable().optional(),
+  // "mission" (M0.0) links the Cockpit to /missions/:id (M0.7).
+  project_type: z.string().nullable().optional(),
   // Both consumed by System Control's Git Control/Backup cards (see
   // backend/app/api/routes/system_control.py) -- registering a project
   // here is the one place these get set, there's no separate "add repo"

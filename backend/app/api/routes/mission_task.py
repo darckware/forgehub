@@ -65,7 +65,7 @@ COMMAND_DEPENDENCIES = [Depends(require_mission_tools), Depends(limit_command_bo
 
 async def _authorize(
     db: AsyncSession, principal: ActorPrincipal, mission: ProjectMission, action: str,
-    task_project_id: uuid.UUID,
+    task_project_id: uuid.UUID, task_id: uuid.UUID | None = None,
 ) -> tuple[str, Any]:
     """Admin; or an agent that is the orchestrator or an active member of the
     mission (else 404) with `action` delegated on the mission or on the task's
@@ -78,6 +78,10 @@ async def _authorize(
         db, mission.project_id, principal.principal_id,
     ):
         raise mission_error(404, "MISSION_NOT_FOUND", "Mission not found")
+    # M0.8 (cycle spec §5): Marcelo's lock holds the orchestrator's tools.
+    from app.core.mission_cycle import assert_cycle_unlocked
+
+    await assert_cycle_unlocked(db, mission, principal, task_id)
     for project_id in dict.fromkeys((mission.project_id, task_project_id)):
         try:
             return await authorize_action(db, principal, action, project_id=project_id)
@@ -140,7 +144,7 @@ async def assign_task(
                                        **payload.model_dump(mode="json")})
     _project, mission = await _load(db, project_id, lock=True)
     task, task_project_id = await _scope_task(db, mission, task_id)
-    source, delegation = await _authorize(db, principal, mission, ASSIGN_ACTION, task_project_id)
+    source, delegation = await _authorize(db, principal, mission, ASSIGN_ACTION, task_project_id, task.id)
     replay = await begin_command(db, principal, payload.idempotency_key, command, body_hash)
     if replay is not None:
         return replay
@@ -178,7 +182,7 @@ async def assign_task(
         await db.commit()
         return out
     if active and principal.principal_type == "agent":
-        source, delegation = await _authorize(db, principal, mission, ORCHESTRATE_ACTION, task_project_id)
+        source, delegation = await _authorize(db, principal, mission, ORCHESTRATE_ACTION, task_project_id, task.id)
 
     now = datetime.now(timezone.utc)
     for previous in active:
@@ -244,7 +248,7 @@ async def request_task_review(
                                        **payload.model_dump(mode="json")})
     _project, mission = await _load(db, project_id, lock=True)
     task, task_project_id = await _scope_task(db, mission, task_id)
-    source, delegation = await _authorize(db, principal, mission, ORCHESTRATE_ACTION, task_project_id)
+    source, delegation = await _authorize(db, principal, mission, ORCHESTRATE_ACTION, task_project_id, task.id)
     replay = await begin_command(db, principal, payload.idempotency_key, command, body_hash)
     if replay is not None:
         return replay
@@ -337,7 +341,7 @@ async def return_task_for_correction(
                                        **payload.model_dump(mode="json")})
     _project, mission = await _load(db, project_id, lock=True)
     task, task_project_id = await _scope_task(db, mission, task_id)
-    source, delegation = await _authorize(db, principal, mission, ORCHESTRATE_ACTION, task_project_id)
+    source, delegation = await _authorize(db, principal, mission, ORCHESTRATE_ACTION, task_project_id, task.id)
     execution = await _execution(db, task, payload.execution_id)
     if principal.principal_type == "agent" and principal.principal_id == await resolve_executor_agent_id(db, execution):
         raise mission_error(403, "EXECUTOR_CANNOT_RETURN", "The executor does not return its own delivery")

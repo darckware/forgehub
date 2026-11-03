@@ -116,6 +116,16 @@ Effects: `reserve_dispatch` treats the agent as busy until `unavailable_until` (
 tasks (the 2026-10-28 case: Porthus stopped at 00:15 with "resets 3:30am" → M0.SPEC rescheduled to
 03:35 automatically, not on someone's memory). When the time passes, an event triggers a cycle (§2.2).
 
+**Messages' automatic failure check does not apply to mission tasks (Marcelo, 2026-11-03: "Orquestrador
+decide").** `core/demand_failure_check.py`'s `ensure_failure_check` archives every failed Task attempt
+and opens a follow-up "checagem" (diagnosis, or a continuation scheduled after a provider reset). For a
+task under a mission (`task_missions` non-empty) it now does nothing: the cycle above decides what follows
+(schedule after quota, reprocess infrastructure, reassign, ask Marcelo) and records it in
+`mission_decisions`. With both active, the check read as "already queued" (`wait/scheduled`) and the
+orchestrator never acted. Outside missions the failure check is unchanged, including its own stricter
+quota reader (explicit provider timezone only); the per-runtime patterns here (host timezone, §3.3) are
+used for missions only.
+
 ### 3.4 Continuation until the end of the mission [PROPOSED, Marcelo 2026-10-29]
 
 Marcelo, 2026-10-29: "esse processo de monitoramento das execuções das tarefas é que precisa ter a

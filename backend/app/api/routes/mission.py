@@ -75,6 +75,7 @@ from app.core.command_receipts import (
     require_mission_tools,
 )
 from app.core import mission_documents
+from app.core.mission_cycle import sync_mission_routine
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
 from app.core.mission import (
     ALLOWED_TRANSITIONS,
@@ -629,6 +630,9 @@ async def transition_mission(
         payload=_audit_payload(principal, source, delegation, reason=reason, from_state=from_state,
                                to=to_state, project_status=project.status, role=role),
     ))
+    # M0.8 (cycle spec §2.1): the coordination routine follows the state --
+    # created on entering a cycle state, disabled on pause/completion/cancel.
+    await sync_mission_routine(db, project, mission, now)
     await db.commit()
 
     if to_state == "cancelled":

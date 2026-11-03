@@ -1466,6 +1466,12 @@ async def _dispatch_task_by_id(
     if missions and principal is not None and principal.principal_type == "user" and not principal.is_admin:
         raise HTTPException(403, detail={"code": "MISSION_ADMIN_ONLY",
                                          "message": "Only an administrator acts on a mission in M0"})
+    if missions:
+        # M0.8 (cycle spec §5): Marcelo's lock holds the orchestrator's tools.
+        from app.core.mission_cycle import assert_cycle_unlocked
+
+        for mission in missions:
+            await assert_cycle_unlocked(db, mission, principal, task.id)
     if (missions or is_agent) and payload.command_text and len(payload.command_text) > 4000:
         raise HTTPException(422, detail={"code": "COMMAND_TEXT_TOO_LONG",
                                          "message": "command_text is limited to 4000 characters"})
@@ -1558,17 +1564,28 @@ async def _dispatch_task_by_id(
         raise HTTPException(status_code=404, detail="Agent not found")
 
     context_manifest: list[dict[str, Any]] | None = None
+    context_version_id: uuid.UUID | None = None
     command_text = payload.command_text
     if missions:
         # §6: the body of a mission task comes only from the allowlist; the
         # extra instruction goes inside it, so it counts toward the 32 KiB.
+        governing = await _governing_mission(db, task, missions)
         context = await build_mission_dispatch_context(
-            db, task, mission=await _governing_mission(db, task, missions), working_path=working_path,
+            db, task, mission=governing, working_path=working_path,
             membership=membership, command_text=command_text,
         )
         body = context.body
         context_manifest = context.manifest
         command_text = None
+        # M0.8 (MCP spec §6.1): every mission dispatch records the context
+        # pack version it carried (a new version only when the pack changed).
+        from app.core.mission_cycle import write_context_version
+
+        pack = await write_context_version(db, governing, f"dispatch of task #{task.number}",
+                                           actor_type="system")
+        context_version_id = pack.id
+        context_manifest.append({"source": "mission_context_version", "id": str(pack.id),
+                                 "version": pack.version, "hash": pack.content_hash})
     else:
         body_parts = [f"Task #{task.number}: {task.title}"]
         if task.description:
@@ -1611,6 +1628,7 @@ async def _dispatch_task_by_id(
         origin_type="task",
         origin_id=task.id,
         task_execution_id=execution.id,
+        mission_context_version_id=context_version_id,
         # Meio de comunicação = Software Factory, com a própria task como
         # endereço de retorno: aqui o resultado é o status/evidência da task,
         # não uma mensagem (2026-08-13).

@@ -1019,31 +1019,9 @@ async def ask_question(
         ).scalar_one_or_none()
         if origin_demand_id is None:
             raise HTTPException(status_code=404, detail=f"No message #{payload.origin_message_number}")
-    relay, chat = await agent_questions.resolve_relay(db, asker)
-    now = datetime.now(timezone.utc)
-    question = AgentQuestion(
-        agent_id=asker.id,
-        relay_agent_id=relay.id if relay else None,
-        telegram_chat=chat,
-        question=payload.question.strip(),
-        context=(payload.context or "").strip() or None,
-        recommendation=(payload.recommendation or "").strip() or None,
-        blocking=payload.blocking,
-        urgent=payload.urgent,
-        origin_demand_id=origin_demand_id,
-        notify_after=agent_questions.notify_after_for(now, payload.urgent),
-    )
-    db.add(question)
-    await db.flush()
-    db.add(
-        Notification(
-            source="system",
-            severity="warning" if payload.urgent or payload.blocking else "info",
-            title=f"Pergunta #{question.number} de {asker.name}",
-            message=question.question[:500],
-            event_key=f"agent-question:{question.id}",
-            occurred_at=now,
-        )
+    question = await agent_questions.create_question(
+        db, asker, question=payload.question, context=payload.context, recommendation=payload.recommendation,
+        blocking=payload.blocking, urgent=payload.urgent, origin_demand_id=origin_demand_id,
     )
     await db.commit()
     await db.refresh(question)
