@@ -59,7 +59,6 @@ export function isExecutionOpen(demand: Demand): boolean {
 export function executionStage(demand: Demand): string | null {
   if (demand.dispatch_status === null && isExecutionOpen(demand)) return "queuedRetry";
   if (demand.dispatch_status !== "failed") return demand.dispatch_status;
-  if (demand.failure_check_source_id) return "blocked";
   const reason = demand.dispatch_error ?? "";
   if (reason.includes("without the completion report") || reason.startsWith("Briefing lacks")) return "awaitingVerification";
   if (reason.includes("STATUS: BLOCKED") || requiresReconciliation(demand)) return "blocked";
