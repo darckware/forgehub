@@ -33,9 +33,11 @@ function server(overrides: Partial<Server> = {}): Server {
 }
 
 describe("buildSshCommand", () => {
-  it("uses the key on file when the row has one", () => {
+  it("never points ssh at a key file, even when an old row still records one", () => {
+    // ForgeVault-only keys (2026-10-24 plan): a local identity file is no
+    // longer a ForgeHub key source; vault keys go through /terminal-command.
     const command = buildSshCommand(server({ ssh_key_path: "/root/.ssh/id_ed25519_aegis" }));
-    expect(command).toBe("ssh -i /root/.ssh/id_ed25519_aegis aegis@172.15.2.3");
+    expect(command).toBe("ssh -o PasswordAuthentication=yes -o BatchMode=no aegis@172.15.2.3");
   });
 
   it("never disables pubkey auth when the row has no key", () => {
@@ -85,6 +87,6 @@ describe("resolveSshCommand", () => {
     expect(vault).toBe("ssh -o IdentityAgent=/dev/shm/a.sock darckware@100.64.0.1");
     expect(apiClient.post).toHaveBeenCalledWith("/api/v1/servers/v/terminal-command", {});
     const local = await resolveSshCommand(server({ ssh_key_path: "/k" }));
-    expect(local).toBe("ssh -i /k aegis@172.15.2.3");
+    expect(local).toBe("ssh -o PasswordAuthentication=yes -o BatchMode=no aegis@172.15.2.3");
   });
 });

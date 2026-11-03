@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NO_TYPE, groupAgendaByDay, groupDemands, groupTasks } from "./usePersonalViewModel";
+import { NO_TYPE, groupAgendaByDay, groupDemands, groupTasks, readCurrentPosition } from "./usePersonalViewModel";
 import { addDays, joinLocal, splitLocal } from "./usePersonal";
 import type { AgendaItem, PersonalTask } from "./usePersonal";
 
@@ -45,5 +45,28 @@ describe("groupDemands", () => {
       ["t2", ["a"]],
       [NO_TYPE, ["b", "d"]],
     ]);
+  });
+});
+
+describe("readCurrentPosition", () => {
+  function geo(result: { coords?: Partial<GeolocationCoordinates>; code?: number }): Geolocation {
+    return {
+      getCurrentPosition: (ok: PositionCallback, fail?: PositionErrorCallback | null) => {
+        if (result.coords) ok({ coords: result.coords } as GeolocationPosition);
+        else fail?.({ code: result.code } as GeolocationPositionError);
+      },
+    } as Geolocation;
+  }
+
+  it("returns the fix with a rounded accuracy", async () => {
+    await expect(readCurrentPosition(geo({ coords: { latitude: -22.9, longitude: -43.1, accuracy: 12.6 } })))
+      .resolves.toEqual({ latitude: -22.9, longitude: -43.1, accuracy_m: 13 });
+  });
+
+  it("names why there is no fix", async () => {
+    await expect(readCurrentPosition(undefined)).rejects.toMatchObject({ kind: "unsupported" });
+    await expect(readCurrentPosition(geo({ code: 1 }))).rejects.toMatchObject({ kind: "denied" });
+    await expect(readCurrentPosition(geo({ code: 2 }))).rejects.toMatchObject({ kind: "unavailable" });
+    await expect(readCurrentPosition(geo({ code: 3 }))).rejects.toMatchObject({ kind: "timeout" });
   });
 });

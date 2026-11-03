@@ -311,7 +311,8 @@ export function useDockerUsage(options: { enabled?: boolean; refetchInterval?: n
     queryFn: () => apiClient.get("/api/v1/system-control/docker-usage"),
     retry: false,
     enabled: options.enabled ?? true,
-    refetchInterval: options.refetchInterval,
+    refetchInterval: () => document.visibilityState === "visible" ? (options.refetchInterval ?? false) : false,
+    refetchIntervalInBackground: false,
   });
 }
 

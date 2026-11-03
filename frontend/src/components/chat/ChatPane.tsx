@@ -21,6 +21,7 @@ import {
   Folder,
   FolderKanban,
   Loader2,
+  Lock,
   Mic,
   MoreVertical,
   Paperclip,
@@ -855,30 +856,19 @@ export function AgentSelectorPill({
 /** Shows the MCP servers configured for the tab's currently selected agent
  * -- lets the user check what tools the agent has available without
  * leaving the chat to open the Agent or MCP Servers page. Read-only here;
- * editing stays on those pages. */
-function AgentMcpInfoButton({ agentId }: { agentId: string }) {
+ * editing stays on those pages. Opened from the composer's "+" menu
+ * (2026-10-21), so it has no button of its own. */
+function AgentMcpInfoPanel({ agentId, open, onClose }: { agentId: string; open: boolean; onClose: () => void }) {
   const { t } = useTranslation("chat");
-  const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const { data, isLoading, isError } = useAgentMcpServers(open ? agentId : undefined);
 
-  useClickOutside(containerRef, () => setOpen(false), open);
+  useClickOutside(containerRef, onClose, open);
 
   return (
     <div className="relative shrink-0" ref={containerRef}>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8 rounded-full"
-        aria-label={t("mcpInfo.viewMcps")}
-        title={t("mcpInfo.viewMcps")}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <Plug className="h-4 w-4" />
-      </Button>
       {open && (
-        <div className="absolute bottom-full right-0 z-10 mb-2 max-h-72 w-64 overflow-y-auto rounded-md border border-border bg-card p-2 shadow-md">
+        <div className="absolute bottom-full left-0 z-10 mb-2 max-h-72 w-64 overflow-y-auto rounded-md border border-border bg-card p-2 shadow-md">
           <p className="px-1 pb-1 text-xs font-medium text-muted-foreground">{t("mcpInfo.title")}</p>
           {isLoading && <p className="px-1 py-2 text-sm text-muted-foreground">{t("mcpInfo.loading")}</p>}
           {isError && <p className="px-1 py-2 text-sm text-destructive">{t("mcpInfo.error")}</p>}
@@ -924,6 +914,8 @@ export function AttachMenuButton({
   onPickFile,
   onInsertTrigger,
   enabledTriggers,
+  onInsertSecret,
+  onShowMcps,
 }: {
   onPickFile: () => void;
   onInsertTrigger: (char: "/" | "@" | "#" | "$" | "!") => void;
@@ -933,6 +925,9 @@ export function AttachMenuButton({
    * a multi-agent room, so it's left out rather than shown and silently
    * doing nothing special (2026-08-06, see ChannelPane.tsx's own usage). */
   enabledTriggers?: ("/" | "@" | "#" | "$" | "!")[];
+  /** Rows shown only where the composer has them (the agent chat). */
+  onInsertSecret?: () => void;
+  onShowMcps?: () => void;
 }) {
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
@@ -975,6 +970,32 @@ export function AttachMenuButton({
             <Paperclip className="h-4 w-4" />
             {t("attachMenu.sendFile")}
           </button>
+          {onInsertSecret && (
+            <button
+              type="button"
+              onClick={() => {
+                onInsertSecret();
+                setOpen(false);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            >
+              <Lock className="h-4 w-4" />
+              {t("attachMenu.insertSecret")}
+            </button>
+          )}
+          {onShowMcps && (
+            <button
+              type="button"
+              onClick={() => {
+                onShowMcps();
+                setOpen(false);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            >
+              <Plug className="h-4 w-4" />
+              {t("attachMenu.availableMcps")}
+            </button>
+          )}
           {triggers.length > 0 && <div className="my-1 border-t border-border" />}
           {triggers.map((trigger) => (
             <button
@@ -1897,6 +1918,8 @@ export function ChatPane({
   // answer in (Settings -> AI chat).
   const { texts: languageTexts } = useChatLanguage();
   const composer = useChatComposerViewModel(tabId, initialComposerText, active);
+  // The "+" menu opens these two panels (2026-10-21).
+  const [composerPanel, setComposerPanel] = useState<"secret" | "mcp" | null>(null);
   const { data: promptCommands = [] } = usePromptCommands();
   const [isRecording, setIsRecording] = useState(false);
   // Agent-assisted prompt rewrite (2026-08-06 for Channels, ported here
@@ -4275,10 +4298,24 @@ export function ChatPane({
                   />
                 )}
                 <input ref={composer.fileInputRef} type="file" multiple className="hidden" onChange={composer.pickFiles} />
-                <AttachMenuButton onPickFile={composer.openFilePicker} onInsertTrigger={composer.insertTrigger} />
+                <AttachMenuButton
+                  onPickFile={composer.openFilePicker}
+                  onInsertTrigger={composer.insertTrigger}
+                  onInsertSecret={() => setComposerPanel("secret")}
+                  onShowMcps={agentId ? () => setComposerPanel("mcp") : undefined}
+                />
                 <SecretInputPopover
                   onInsertSecret={composer.insertSecret}
+                  open={composerPanel === "secret"}
+                  onOpenChange={(open) => setComposerPanel(open ? "secret" : null)}
                 />
+                {agentId && (
+                  <AgentMcpInfoPanel
+                    agentId={agentId}
+                    open={composerPanel === "mcp"}
+                    onClose={() => setComposerPanel(null)}
+                  />
+                )}
               </>
             }
             trailing={
@@ -4286,7 +4323,6 @@ export function ChatPane({
                 {!lockAgent && (
                   <AgentSelectorPill agents={chatableAgents} selectedAgentId={agentId} onSelect={onAgentChange} />
                 )}
-                {agentId && <AgentMcpInfoButton agentId={agentId} />}
                 <Button
                   variant="ghost"
                   size="icon"

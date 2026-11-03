@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useImportServers, useInstallServerKey, type Server } from "@/hooks/useServers";
+import { isValidSshPort, SshPortField } from "./SshPortField";
 
 function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
@@ -36,6 +37,7 @@ export function InstallKeyModal({ server, onClose, onInstalled }: { server: Serv
   // record's own remote_user -- not re-typed here.
   const remoteUser = server.remote_user;
   const [adminUser, setAdminUser] = useState("root");
+  const [sshPort, setSshPort] = useState(String(server.ssh_port ?? 22));
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   // Admin mode (default): log in with the server admin account, create the
@@ -45,7 +47,7 @@ export function InstallKeyModal({ server, onClose, onInstalled }: { server: Serv
   const installKey = useInstallServerKey();
   const result = installKey.data ?? null;
   const done = result?.ok === true;
-  const canSubmit = Boolean(password && (!useAdmin || adminUser.trim()));
+  const canSubmit = Boolean(password && (!useAdmin || adminUser.trim())) && isValidSshPort(sshPort);
 
   function handleInstall() {
     if (installKey.isPending || !canSubmit) return;
@@ -54,6 +56,7 @@ export function InstallKeyModal({ server, onClose, onInstalled }: { server: Serv
         id: server.id,
         password,
         admin_user: useAdmin ? adminUser.trim() : null,
+        ssh_port: Number(sshPort),
       },
       { onSuccess: (res) => { if (res.ok) onInstalled(); } }
     );
@@ -84,6 +87,9 @@ export function InstallKeyModal({ server, onClose, onInstalled }: { server: Serv
             </div>
 
             <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <SshPortField id="install-ssh-port" value={sshPort} onChange={setSshPort} disabled={installKey.isPending} />
+              </div>
               <div className="space-y-1">
                 <Label>{useAdmin ? t("install.registeredUserCreate") : t("install.registeredUser")}</Label>
                 <Input value={remoteUser} disabled readOnly className="font-mono" />

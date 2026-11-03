@@ -17,8 +17,8 @@ CONTACT = {
     "blocked": False, "last_contact_at": "2026-10-12T13:00:00+00:00", "pending_suggestions": 1,
 }
 MESSAGES = [  # mais nova primeiro, como a API devolve
-    {"at": "2026-10-12T13:05:00+00:00", "author": "Marcelo", "direction": "out", "text": "sim", "context": None},
-    {"at": "2026-10-12T13:00:00+00:00", "author": "Patrícia", "direction": "in", "text": "almoço domingo?",
+    {"id": "message-out-fixture", "at": "2026-10-12T13:05:00+00:00", "author": "Marcelo", "direction": "out", "text": "sim", "context": None},
+    {"id": "message-in-fixture", "at": "2026-10-12T13:00:00+00:00", "author": "Patrícia", "direction": "in", "text": "almoço domingo?",
      "context": "Confirma o almoço de domingo."},
 ]
 
@@ -50,7 +50,12 @@ def test_tools_are_registered_only_for_allowed_agents(monkeypatch):
         names = set(server._tool_manager._tools)
         assert ("personal_contact_upsert" in names) is expected
         assert ("personal_capture_accept" in names) is expected
+        assert ("personal_capture_from_group" in names) is expected
+        assert ("personal_whatsapp_group_register" in names) is expected
         assert ("personal_weather" in names) is expected
+        assert ("personal_daily_summary_save" in names) is expected
+        assert ("personal_location_get" in names) is expected
+        assert ("personal_daily_summaries_list" in names) is expected
 
 
 def test_get_contact_keeps_the_maias_format(api):
@@ -60,6 +65,7 @@ def test_get_contact_keeps_the_maias_format(api):
     assert c["nome"] == "Patrícia" and c["telefone"] == "+55 21 99897-5416" and c["categoria"] == "familia"
     assert c["quem_e"] == "Esposa do Marcelo." and c["outros_dados"] == {"cargo": "x"}
     assert c["ultimo_contato"] == "12/10/2026 10:00" and c["sugestoes_pendentes"] == 1
+    assert [m['id'] for m in c['mensagens']] == ['message-in-fixture', 'message-out-fixture']
     assert c["historico_recente"] == [
         "- **12/10/2026 10:00** · Patrícia: almoço domingo? [contexto: Confirma o almoço de domingo.]",
         "- **12/10/2026 10:05** · Marcelo: sim",
@@ -119,7 +125,9 @@ def test_suggestions(api):
     api.responses[("GET", "/suggestions")] = [{"id": "s1", "kind": "task", "title": "Enviar boleto", "details": "até sexta",
                                                "contact_name": "Ana", "contact_phone": "5521999991234"}]
     assert pc.list_suggestions() == [{"id": "s1", "tipo": "tarefa", "titulo": "Enviar boleto", "detalhes": "até sexta",
-                                      "contato": "Ana", "telefone": "+55 21 99999-1234"}]
+                                      "contato": "Ana", "telefone": "+55 21 99999-1234",
+                                      "origem": "contato", "grupo": "", "grupo_id": None,
+                                      "autor": "Ana", "mensagem_ref": None, "mensagem_id": None}]
     api.responses[("POST", "/suggestions/s1:accept")] = {"kind": "note", "title": "Endereço", "created_item_id": "n1"}
     assert pc.accept_suggestion("s1", tipo="anotação", titulo="Endereço") == {"criado": "anotacao", "titulo": "Endereço", "item_id": "n1"}
     assert api.calls[-1][2] == {"kind": "note", "title": "Endereço"}

@@ -398,13 +398,15 @@ async def list_entity_docs(
     return [await _link_out(db, link) for link in result.scalars().all()]
 
 
-@router.post("/links", response_model=DocLinkOut, status_code=201)
-async def create_doc_link(
-    payload: DocLinkCreateIn, db: AsyncSession = Depends(get_db)
-) -> DocLinkOut:
-    """Link a doc to a Planning entity. Both sides are validated: the doc
-    must exist on disk and the entity row must exist."""
-    target = _resolve_or_400(DOCS_ROOT, payload.doc_path)
+async def build_doc_link(
+    db: AsyncSession, payload: DocLinkCreateIn, *, root: Path | None = None
+) -> tuple[DocLink, str]:
+    """create_doc_link's body without its commit: validates both sides and
+    adds the link to the session. Returns (link, entity_label). Also used by
+    mission.py's attach_project_document (M0.2d), which commits the link in
+    the same transaction as its artifact version, audit row and receipt.
+    ``root`` defaults to DOCS_ROOT, read at call time."""
+    target = _resolve_or_400(root if root is not None else DOCS_ROOT, payload.doc_path)
     if not target.is_file():
         raise HTTPException(status_code=404, detail="Doc file not found")
     label = await _entity_label(db, payload.entity_type, payload.entity_id)
@@ -416,6 +418,16 @@ async def create_doc_link(
         entity_id=payload.entity_id,
     )
     db.add(link)
+    return link, label
+
+
+@router.post("/links", response_model=DocLinkOut, status_code=201)
+async def create_doc_link(
+    payload: DocLinkCreateIn, db: AsyncSession = Depends(get_db)
+) -> DocLinkOut:
+    """Link a doc to a Planning entity. Both sides are validated: the doc
+    must exist on disk and the entity row must exist."""
+    link, label = await build_doc_link(db, payload)
     try:
         await db.commit()
     except IntegrityError:

@@ -12,9 +12,9 @@ Reminders are minutes before the moment (``[1440, 60]`` = a day and an hour befo
 and moving the moment re-arms them. Recurring items roll forward to their next occurrence.
 """
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -121,11 +121,15 @@ class PersonalDemand(Base, TimestampMixin):
     __tablename__ = "personal_demands"
     __table_args__ = (
         CheckConstraint(f"status IN ({_in(PERSONAL_DEMAND_STATUSES)})", name="ck_personal_demands_status"),
+        UniqueConstraint('origin_key', name='uq_personal_demand_origin_key'),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    origin: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    origin_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    completed_by: Mapped[str | None] = mapped_column(String(50), nullable=True)
     type_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.personal_demand_types.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -203,6 +207,16 @@ class PersonalContactMessage(Base, TimestampMixin):
     context_status: Mapped[str] = mapped_column(String(10), nullable=False, default="pending", server_default="pending")
 
 
+class PersonalWhatsAppGroup(Base, TimestampMixin):
+    """A real group selected for monitoring by Marcelo, registered by him or Maia."""
+    __tablename__ = 'personal_whatsapp_groups'
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    whatsapp_id: Mapped[str] = mapped_column(String(160), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(50), nullable=False)
+
+
 class PersonalCaptureSuggestion(Base, TimestampMixin):
     """A demand, task or note the context pass found in a message -- only a proposal: Marcelo accepts
     it (which creates the real PersonalDemand/PersonalTask/PersonalNote) or dismisses it (2026-10-14:
@@ -212,12 +226,24 @@ class PersonalCaptureSuggestion(Base, TimestampMixin):
     __table_args__ = (
         CheckConstraint(f"kind IN ({_in(PERSONAL_SUGGESTION_KINDS)})", name="ck_personal_capture_suggestions_kind"),
         CheckConstraint(f"status IN ({_in(PERSONAL_SUGGESTION_STATUSES)})", name="ck_personal_capture_suggestions_status"),
+        CheckConstraint('(contact_id IS NOT NULL AND group_id IS NULL) OR (contact_id IS NULL AND group_id IS NOT NULL)', name='ck_personal_capture_origin'),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    contact_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("company.personal_contacts.id", ondelete="CASCADE"), nullable=False, index=True
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.personal_contacts.id", ondelete="CASCADE"), nullable=True, index=True
     )
+    group_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey('company.personal_whatsapp_groups.id', ondelete='RESTRICT'), nullable=True, index=True)
+    source_message_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_author: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_author_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    source_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    capture_key: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+
+    @property
+    def source_kind(self) -> str:
+        return 'group' if self.group_id else 'contact'
+
     message_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.personal_contact_messages.id", ondelete="SET NULL"), nullable=True
     )
@@ -244,3 +270,63 @@ class PersonalAssistantSettings(Base, TimestampMixin):
     wait_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=5, server_default="5")
     #: Whether the context pass runs (context + suggestions after each message).
     capture_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+
+
+PERSONAL_LOCATION_SOURCES = ("telegram", "whatsapp", "browser")
+
+
+class PersonalLocation(Base, TimestampMixin):
+    """Marcelo's current GPS location, for the daily summary's weather (2026-10-24).
+
+    One row, replaced on every share -- there is no history of where he was (Marcelo: "o
+    conceito era registrar a localização GPS atual, não precisa o histórico"). It arrives as a
+    pin he sends the Maia on Telegram or WhatsApp, or from the browser's GPS on Pessoal →
+    Localização. Never the VPS's location. ``slot`` is a constant with a unique index, so a
+    second row can't exist. ``city``/``state`` are a best-effort reverse geocode; coordinates
+    alone are enough for the weather.
+    """
+
+    __tablename__ = "personal_location"
+    __table_args__ = (
+        UniqueConstraint("slot", name="uq_personal_location_slot"),
+        CheckConstraint("slot = 'current'", name="ck_personal_location_slot"),
+        CheckConstraint(f"source IN {PERSONAL_LOCATION_SOURCES}", name="ck_personal_location_source"),
+        CheckConstraint("latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180",
+                        name="ck_personal_location_coordinates"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    slot: Mapped[str] = mapped_column(String(16), nullable=False, default="current", server_default="current")
+    latitude: Mapped[float] = mapped_column(Float, nullable=False)
+    longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    #: Reported by the browser's geolocation; pins carry none.
+    accuracy_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    #: "telegram"/"whatsapp" (a pin sent to the Maia) or "browser" (Marcelo on the screen).
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    shared_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PersonalDailySummary(Base, TimestampMixin):
+    """The morning summary the Maia sent Marcelo, one per day (2026-10-24).
+
+    The text is the one she actually delivered, saved by her through the MCP
+    (``personal_daily_summary_save``); a second save the same day replaces it. The location
+    is a snapshot of the current location at save time -- the one the weather used --
+    because the current location itself keeps no history.
+    """
+
+    __tablename__ = "personal_daily_summaries"
+    __table_args__ = (UniqueConstraint("day", name="uq_personal_daily_summaries_day"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    #: São Paulo date of the summary.
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    location_city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    location_state: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: The actor that saved it ("maia" or "marcelo").
+    created_by: Mapped[str] = mapped_column(String(50), nullable=False)

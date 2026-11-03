@@ -16,6 +16,7 @@ the screen as-is.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Literal
 
 import httpx
@@ -43,10 +44,15 @@ transport: httpx.AsyncBaseTransport | None = None
 
 
 def is_configured() -> bool:
-    return bool(settings.DARCKWARE_API_URL and settings.DARCKWARE_AGENT_TOKEN)
+    return bool(settings.DARCKWARE_API_URL and _token("agent"))
 
 
 def _token(credential: Credential) -> str:
+    if credential == "agent" and settings.DARCKWARE_AGENT_TOKEN_FILE:
+        try:
+            return Path(settings.DARCKWARE_AGENT_TOKEN_FILE).read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
     return settings.DARCKWARE_AGENT_TOKEN if credential == "agent" else settings.DARCKWARE_APPROVER_TOKEN
 
 

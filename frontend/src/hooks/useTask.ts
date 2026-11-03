@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
-import { apiClient } from "@/lib/api";
+import { ApiError, apiClient } from "@/lib/api";
 
 /**
  * Task domain (see docs/SPEC.md 4.5 Task Domain):
@@ -27,6 +27,8 @@ export const TASK_STATUSES = [
   "done",
   "deployed",
   "cancelled",
+  // Set by the backend (M0.6a): reviewed, waiting for the mission mainline.
+  "in_review",
 ] as const;
 
 export type TaskStatus = (typeof TASK_STATUSES)[number];
@@ -269,6 +271,23 @@ export function useCreateTask() {
       queryClient.invalidateQueries({ queryKey: taskKeys.all });
     },
   });
+}
+
+/**
+ * Readable reason for a failed task update. The completion guard (M0.6a)
+ * refuses a new done/deployed with 409 `detail: {code, message}`; show
+ * "CODE: message" instead of the generic "Request ... failed" text.
+ */
+export function taskUpdateErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    const detail = (error.body as { detail?: unknown } | undefined)?.detail;
+    if (detail && typeof detail === "object") {
+      const { code, message } = detail as { code?: unknown; message?: unknown };
+      if (typeof message === "string") return typeof code === "string" ? `${code}: ${message}` : message;
+    }
+    if (typeof detail === "string") return detail;
+  }
+  return (error as Error | undefined)?.message ?? "";
 }
 
 export function useUpdateTask(id: string) {

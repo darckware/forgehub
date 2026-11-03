@@ -101,7 +101,15 @@ class SuggestionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    contact_id: uuid.UUID
+    contact_id: uuid.UUID | None
+    group_id: uuid.UUID | None = None
+    source_kind: str = "contact"
+    group_name: str = ""
+    group_whatsapp_id: str = ""
+    source_message_ref: str | None = None
+    source_author: str | None = None
+    source_author_id: str | None = None
+    source_at: datetime | None = None
     message_id: uuid.UUID | None
     kind: str
     title: str
@@ -176,3 +184,36 @@ class WhatsappContextOut(BaseModel):
     context_text: str
     instructions: str
     wait_minutes: int
+
+
+class WhatsAppGroupRegister(BaseModel):
+    whatsapp_id: str = Field(pattern=r'^\d+(?:-\d+)?@g\.us$', max_length=160)
+
+
+class WhatsAppGroupOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    whatsapp_id: str
+    name: str
+    last_seen_at: datetime | None
+    created_by: str
+    created_at: datetime
+    monitored: bool = True
+    pending_suggestions: int = 0
+    accepted_suggestions: int = 0
+
+
+class GroupCaptureCreate(WhatsAppGroupRegister):
+    message_ref: str = Field(pattern=r'^[a-f0-9]{64}$')
+    kind: Literal['demand', 'task', 'note'] = 'demand'
+    title: str = Field(min_length=1, max_length=300)
+    details: str = Field(default='', max_length=12000)
+    item_key: str = Field(default='principal', min_length=1, max_length=80, pattern=r'^[a-zA-Z0-9_-]+$')
+
+    @field_validator('title')
+    @classmethod
+    def nonblank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError('Title must not be blank')
+        return value

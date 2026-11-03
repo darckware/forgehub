@@ -112,6 +112,13 @@ export const activityLiveStateSchema = z.object({
 });
 export type ActivityLiveState = z.infer<typeof activityLiveStateSchema>;
 
+/** Telegram channel + host gateway health (A.1). "unknown" = the host-bridge could not be read. */
+export const activityChannelHealthSchema = z.object({
+  telegram: z.enum(["ok", "not_running", "not_configured", "unknown", "not_applicable"]),
+  gateway: z.enum(["ok", "down", "unknown", "not_applicable"]),
+});
+export type ActivityChannelHealth = z.infer<typeof activityChannelHealthSchema>;
+
 export const activityAgentSchema = z.object({
   id: uuidSchema,
   name: z.string(),
@@ -127,6 +134,8 @@ export const activityAgentSchema = z.object({
   profile_summary: activityProfileSummarySchema,
   // Absent on older payloads and null when the agent's runtime never reported.
   live: activityLiveStateSchema.nullable().optional(),
+  // Absent on payloads older than A.1.
+  channel_health: activityChannelHealthSchema.nullable().optional(),
 });
 export type ActivityAgent = z.infer<typeof activityAgentSchema>;
 

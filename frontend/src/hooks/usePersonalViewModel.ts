@@ -20,13 +20,17 @@ import {
   useCreatePersonalTask,
   useDeletePersonalItem,
   usePersonalAgenda,
+  usePersonalDailySummaries,
+  usePersonalLocation,
   usePersonalNotes,
+  useSetPersonalLocation,
   usePersonalTasks,
   useUpdatePersonalEvent,
   useUpdatePersonalNote,
   useUpdatePersonalTask,
   type AgendaItem,
   type PersonalDemand,
+  type LocationFix,
   type PersonalDemandType,
   type PersonalNote,
   type PersonalTask,
@@ -262,6 +266,81 @@ export function usePersonalNotesViewModel() {
     error,
     togglePin: (n: PersonalNote) => update.mutate({ id: n.id, body: { pinned: !n.pinned } }),
     toggleArchive: (n: PersonalNote) => update.mutate({ id: n.id, body: { archived: !n.archived } }),
+  };
+}
+
+/* ---------------------------------------------------------------- location + daily summaries */
+
+/** Why the browser gave no GPS fix -- each is an i18n key under location.gpsError. */
+export type GpsErrorKind = "unsupported" | "denied" | "unavailable" | "timeout";
+
+export class GpsError extends Error {
+  constructor(readonly kind: GpsErrorKind) {
+    super(kind);
+  }
+}
+
+/** One high-accuracy fix from the browser (needs HTTPS and Marcelo's permission). */
+export function readCurrentPosition(geolocation: Geolocation | undefined = globalThis.navigator?.geolocation): Promise<LocationFix> {
+  return new Promise((resolve, reject) => {
+    if (!geolocation) {
+      reject(new GpsError("unsupported"));
+      return;
+    }
+    geolocation.getCurrentPosition(
+      (position) => resolve({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy_m: Number.isFinite(position.coords.accuracy) ? Math.round(position.coords.accuracy) : null,
+      }),
+      (err) => reject(new GpsError(err.code === 1 ? "denied" : err.code === 3 ? "timeout" : "unavailable")),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+    );
+  });
+}
+
+export type LocationStatus = "idle" | "locating" | "submitting" | "error";
+
+/** Marcelo's current GPS location (one, replaced on each share) and the Maia's daily summaries. */
+export function usePersonalLocationViewModel(geolocation?: Geolocation) {
+  const location = usePersonalLocation();
+  const setLocation = useSetPersonalLocation();
+  const [status, setStatus] = useState<LocationStatus>("idle");
+  const [error, setError] = useState<{ gps: GpsErrorKind } | { message: string } | null>(null);
+
+  const [start, setStart] = useState(() => addDays(todayLocal(), -30));
+  const [end, setEnd] = useState(todayLocal);
+  const summaries = usePersonalDailySummaries(start, end);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  async function shareMyLocation() {
+    setError(null);
+    setStatus("locating");
+    try {
+      const fix = await readCurrentPosition(geolocation ?? globalThis.navigator?.geolocation);
+      setStatus("submitting");
+      await setLocation.mutateAsync(fix);
+      setStatus("idle");
+    } catch (e) {
+      setError(e instanceof GpsError ? { gps: e.kind } : { message: errorText(e) });
+      setStatus("error");
+    }
+  }
+
+  return {
+    location,
+    current: location.data ?? null,
+    shareMyLocation,
+    status,
+    error,
+    summaries,
+    summaryList: summaries.data ?? [],
+    start,
+    setStart,
+    end,
+    setEnd,
+    expanded,
+    toggle: (id: string) => setExpanded((current) => (current === id ? null : id)),
   };
 }
 

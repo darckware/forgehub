@@ -3,6 +3,30 @@ import pytest
 from app.mcp import factory_server
 
 
+@pytest.mark.parametrize("scheduled_at", [None, "2026-10-22T08:00:00-03:00"])
+async def test_message_without_recipient_queues_self_work(monkeypatch, scheduled_at):
+    messages = factory_server.messages
+    sent = []
+
+    async def submit(method, path, **kwargs):
+        assert method == "POST"
+        assert path == "/api/v1/demands/submit"
+        sent.append(kwargs["json"])
+        return {"number": 1, "id": "self-message", "origin_type": "task"}
+
+    monkeypatch.setattr(messages, "SELF_SLUG", "athos")
+    monkeypatch.setattr(messages, "_call", submit)
+    result = await messages.send_agent_message("Self task", "Perform the routine", scheduled_at=scheduled_at)
+    assert len(sent) == 1
+    assert sent[0]["target_agent_slug"] == "athos"
+    assert sent[0]["working_path"] == "/root/project/forgehub"
+    assert sent[0]["scheduled_at"]
+    if scheduled_at:
+        assert sent[0]["scheduled_at"] == scheduled_at
+    assert "nothing dispatched" not in result
+    assert "'athos'" in result
+
+
 def test_unified_mcp_registers_messages_and_factory_catalog():
     tools = factory_server.mcp._tool_manager._tools
     assert {"ask_marcelo", "list_my_questions", "record_marcelo_answer", "propose_improvement"} <= tools.keys()

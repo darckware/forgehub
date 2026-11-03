@@ -88,6 +88,7 @@ from app.db.base import get_db
 from app.db.models.project import (
     ChangeRequest,
     PlanBaseline,
+    PlanBaselineItem,
     Project,
     ProjectForgeRouterConfig,
     ProjectPlan,
@@ -141,7 +142,23 @@ def _assert_node_not_locked(node: ProjectStructureNode) -> None:
 # ---------------------------------------------------------------------------
 @router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
 async def create_project(payload: ProjectCreate, db: AsyncSession = Depends(get_db)) -> Project:
+    project = await build_project(db, payload)
+    await db.commit()
+    await db.refresh(project)
+    return project
+
+
+async def build_project(db: AsyncSession, payload: ProjectCreate, project_type: str | None = None) -> Project:
+    """create_project's body without the commit, so a caller (the mission
+    MCP's create_internal_project, M0.2a) can add the project, its audit and
+    its idempotency receipt in one transaction. ``project_type`` is not in the
+    public schema on purpose; only an in-process caller sets it, and never to
+    'mission' (missions have their own route)."""
+    if project_type == "mission":
+        raise ValueError("missions are created by POST /api/v1/missions")
     project = Project(**payload.model_dump())
+    if project_type is not None:
+        project.project_type = project_type
     if project.darckware_client_id is None:
         # A project is for the same client as its product unless told otherwise
         # (client demands Onda 3, 2026-10-04).
@@ -153,8 +170,7 @@ async def create_project(payload: ProjectCreate, db: AsyncSession = Depends(get_
             )
         ).scalar_one_or_none()
     db.add(project)
-    await db.commit()
-    await db.refresh(project)
+    await db.flush()
     return project
 
 
@@ -174,7 +190,20 @@ async def update_project(
     project_id: uuid.UUID, payload: ProjectUpdate, db: AsyncSession = Depends(get_db)
 ) -> Project:
     project = await _get_project_or_404(db, project_id)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    # project_type is never patchable: ignored for a common project (as
+    # before it was in the schema), refused for a mission, whose status is a
+    # projection of its state machine (M0.0, mission spec §3 rule 2).
+    project_type = data.pop("project_type", None)
+    if project.project_type == "mission" and ("status" in data or project_type is not None):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "MISSION_STATUS_IS_PROJECTED",
+                "message": "A mission's status and type change only through POST /api/v1/missions/{id}:transition",
+            },
+        )
+    for field, value in data.items():
         setattr(project, field, value)
     await db.commit()
     await db.refresh(project)
@@ -208,6 +237,14 @@ async def _clear_project_dependencies(db: AsyncSession, project_id: uuid.UUID) -
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
     project = await _get_project_or_404(db, project_id)
+    if project.project_type == "mission":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "MISSION_DELETE_REFUSED",
+                "message": "A mission is never deleted; cancel it through POST /api/v1/missions/{id}:transition",
+            },
+        )
     await _clear_project_dependencies(db, project_id)
     await db.delete(project)
     await db.commit()
@@ -279,6 +316,22 @@ async def update_project_plan(
     return plan
 
 
+async def _refuse_mission_shortcut(db: AsyncSession, project_id: uuid.UUID) -> None:
+    """MCP_MISSION_TOOLS_SPEC.md §7 item 4 (M0.6b): a mission's plan is
+    approved and baselined only by the governed plan approval, which freezes
+    the per-task items the dispatch guard checks. Common projects keep the
+    generic routes unchanged."""
+    project = await db.get(Project, project_id)
+    if project is not None and project.project_type == "mission":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "USE_GOVERNED_PLAN_APPROVAL",
+                "message": "A mission plan is approved and baselined through the governed plan approval",
+            },
+        )
+
+
 @router.post("/plans/{plan_id}/approve", response_model=ProjectPlanOut)
 async def approve_project_plan(
     plan_id: uuid.UUID, db: AsyncSession = Depends(get_db)
@@ -286,6 +339,7 @@ async def approve_project_plan(
     """Mark a plan as approved -- the precondition for baselining it
     (SPEC.md 6.3.1: "Approved planning becomes baseline")."""
     plan = await _get_plan_or_404(db, plan_id)
+    await _refuse_mission_shortcut(db, plan.project_id)
     plan.status = "approved"
     plan.approved_at = datetime.now(timezone.utc)
     await db.commit()
@@ -296,6 +350,18 @@ async def approve_project_plan(
 @router.delete("/plans/{plan_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project_plan(plan_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
     plan = await _get_plan_or_404(db, plan_id)
+    # Deleting the plan would cascade into its baselines: a mission's
+    # baseline is immutable (M0.6b), so its plan stays.
+    if await db.scalar(
+        select(PlanBaseline.id)
+        .join(PlanBaselineItem, PlanBaselineItem.baseline_id == PlanBaseline.id)
+        .where(PlanBaseline.project_plan_id == plan_id)
+        .limit(1)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "BASELINE_IMMUTABLE", "message": "This plan froze a mission baseline and cannot be deleted"},
+        )
     await db.delete(plan)
     await db.commit()
 
@@ -312,6 +378,7 @@ async def create_plan_baseline(
     project_id: uuid.UUID, payload: PlanBaselineCreate, db: AsyncSession = Depends(get_db)
 ) -> PlanBaseline:
     await _get_project_or_404(db, project_id)
+    await _refuse_mission_shortcut(db, project_id)
     plan = await _get_plan_or_404(db, payload.project_plan_id)
 
     if plan.project_id != project_id:

@@ -69,7 +69,7 @@ async def test_requires_response_true_creates_return_message(agents):
     demand_id = await _create_dispatched(sender_id, executor_id, requires_response=True)
 
     async with AsyncSessionLocal() as session:
-        reply = await _finalize_dispatch(session, demand_id, {"status": "completed", "output": "done"})
+        reply = await _finalize_dispatch(session, demand_id, {"status": "completed", "output": "done\nSTATUS: DONE"})
         await session.commit()
 
     assert reply is not None
@@ -82,12 +82,12 @@ async def test_requires_response_true_creates_return_message(agents):
     # body carries the canonical Data/Agente/Ticket/Assunto/Status header
     # (2026-07-28) ahead of the agent's raw output -- see
     # _format_execution_header's docstring.
-    assert reply.body.endswith("\n---\ndone")
+    assert reply.body.endswith("\n---\ndone\nSTATUS: DONE")
     assert "Status: completed" in reply.body
 
     async with AsyncSessionLocal() as session:
         original = await session.get(AgentDemand, demand_id)
-        assert original.dispatch_result.endswith("\n---\ndone")
+        assert original.dispatch_result.endswith("\n---\ndone\nSTATUS: DONE")
         assert "Status: completed" in original.dispatch_result
 
 
@@ -98,14 +98,14 @@ async def test_requires_response_false_only_records_result_no_new_message(agents
     demand_id = await _create_dispatched(sender_id, executor_id, requires_response=False)
 
     async with AsyncSessionLocal() as session:
-        reply = await _finalize_dispatch(session, demand_id, {"status": "completed", "output": "done"})
+        reply = await _finalize_dispatch(session, demand_id, {"status": "completed", "output": "done\nSTATUS: DONE"})
         await session.commit()
 
     assert reply is None
 
     async with AsyncSessionLocal() as session:
         original = await session.get(AgentDemand, demand_id)
-        assert original.dispatch_result.endswith("\n---\ndone")
+        assert original.dispatch_result.endswith("\n---\ndone\nSTATUS: DONE")
         assert original.dispatch_status == "completed"
 
 
@@ -132,11 +132,11 @@ async def test_requires_response_true_with_no_known_sender_still_only_records_re
         demand_id = demand.id
 
     async with AsyncSessionLocal() as session:
-        reply = await _finalize_dispatch(session, demand_id, {"status": "completed", "output": "done"})
+        reply = await _finalize_dispatch(session, demand_id, {"status": "completed", "output": "done\nSTATUS: DONE"})
         await session.commit()
 
     assert reply is None
 
     async with AsyncSessionLocal() as session:
         original = await session.get(AgentDemand, demand_id)
-        assert original.dispatch_result.endswith("\n---\ndone")
+        assert original.dispatch_result.endswith("\n---\ndone\nSTATUS: DONE")

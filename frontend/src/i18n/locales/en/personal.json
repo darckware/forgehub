@@ -6,10 +6,12 @@
     "agenda": "Agenda",
     "notes": "Notes",
     "demands": "Demands",
-    "contacts": "Contacts",
+    "contacts": "Personal contacts",
     "maia": "Maia",
     "suggestions": "Suggestions",
-    "agentWork": "Agent tasks"
+    "agentWork": "Agent tasks",
+    "location": "Daily summary",
+    "groups": "WhatsApp groups"
   },
   "fields": {
     "date": "Date",
@@ -144,7 +146,13 @@
       "description_zero": "No open demand uses this type.",
       "description_one": "Its demand stays, now under \"No type\".",
       "description_other": "Its {{count}} demands stay, now under \"No type\"."
-    }
+    },
+    "statusOpen": "Open",
+    "statusDone": "Completed",
+    "registeredBy": "Registered by {{agent}}",
+    "registeredAt": "Registered",
+    "completedAt": "Completed",
+    "completedBy": "Completed by {{agent}}"
   },
   "contacts": {
     "search": "Search by name, phone or relation",
@@ -390,5 +398,99 @@
     "investigationHint": "Records what was checked. Reconciliation stays pending until you confirm the run is not active.",
     "confirmInactiveHint": "Confirm only after checking this run is not running. The failure becomes known, nothing runs, and another attempt still needs authorization.",
     "typeRun": "Type the run identifier to confirm:"
+  },
+  "location": {
+    "title": "Current location",
+    "description": "The weather in the Maia's daily summary uses this GPS location. Only the latest one is kept. Never the VPS's location.",
+    "useMine": "Use my current location",
+    "locating": "Getting GPS…",
+    "none": "No location yet. Without one, the forecast uses Rio de Janeiro (RJ).",
+    "unnamed": "GPS location",
+    "accuracy": "accuracy {{meters}} m",
+    "sharedAt": "Updated {{when}}",
+    "pinHint": "You can also send the Maia a location pin on Telegram or WhatsApp.",
+    "source": {
+      "telegram": "Telegram pin",
+      "whatsapp": "WhatsApp pin",
+      "browser": "Browser GPS"
+    },
+    "gpsError": {
+      "unsupported": "This browser has no GPS.",
+      "denied": "Location permission was denied. Allow it in the browser settings.",
+      "unavailable": "Couldn't get a GPS fix right now.",
+      "timeout": "GPS took too long to answer. Try again."
+    }
+  },
+  "dailySummary": {
+    "title": "Daily summaries",
+    "description": "The morning summary the Maia sent, with the location the weather used.",
+    "from": "From",
+    "to": "To",
+    "empty": "No summary recorded in this period.",
+    "locationUsed": "Location: {{place}}",
+    "noLocation": "No GPS location"
+  },
+  "groups": {
+    "description": "Groups monitored by Maia. Captures preserve the group, requester and source message.",
+    "sync": "Register monitored groups",
+    "syncError": "Could not register the monitored groups. Try again.",
+    "loadError": "Could not read monitored groups. The registry has not changed.",
+    "retry": "Try again",
+    "loading": "Loading captures…",
+    "captureError": "Could not read this group's captures.",
+    "noCaptures": "No captures registered for this group.",
+    "more": "Load more",
+    "search": "Search groups",
+    "noResults": "No groups match the search.",
+    "empty": "No monitored groups registered. Maia can register a monitored group, or you can use the button above.",
+    "pending": "{{count}} pending capture(s)",
+    "accepted": "{{count}} accepted capture(s)",
+    "monitored": "Monitored",
+    "lastSeen": "Last observed activity",
+    "select": "Select a group to see its captures and demand origins.",
+    "origin": "Source group",
+    "unknown": "Unidentified group"
+  },
+  "origins": {
+    "contact": "Personal contact",
+    "requester": "Requester",
+    "unknownAuthor": "Author not identified",
+    "messageDate": "Message date"
+  },
+  "moodleApproval": {
+    "title": "Moodle approvals",
+    "hint": "Select requests and review their effects before authorizing. Choose an agent able to execute the task.",
+    "loading": "Loading requests…",
+    "loadError": "Could not load requests.",
+    "retry": "Retry",
+    "empty": "No pending requests.",
+    "select": "Select #{{number}}",
+    "operation": "Operation",
+    "environment": "Environment",
+    "destructive": "Destructive",
+    "nonDestructive": "Non-destructive",
+    "executor": "Executor agent",
+    "executorAccessHint": "The agent needs access to the Moodle MCP; selecting an agent does not grant access.",
+    "chooseAgent": "Select an agent",
+    "agentsError": "Could not load agents.",
+    "instruction": "Instruction for the executor",
+    "password": "Password",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
+    "review": "Review authorization",
+    "confirmTitle": "Confirm Moodle authorization",
+    "confirmHint": "Authorization sends the selected requests to the executor.",
+    "confirm": "Authorize selected",
+    "error": "Could not authorize. Review the items and try again.",
+    "success": "Requests authorized.",
+    "improve": "Improve instruction with Athos",
+    "challengeReady": "Authorization link received.",
+    "challengeNeeded": "Request a link and open it in Telegram to authorize.",
+    "requestLink": "Request Telegram link",
+    "linkSent": "Link sent to Telegram.",
+    "linkError": "Could not send the link. Try again.",
+    "host": "Host",
+    "params": "Parameters",
+    "sessionHint": "Sign in to ForgeHub before opening the link received in Telegram."
   }
 }

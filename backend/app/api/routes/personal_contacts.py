@@ -43,6 +43,7 @@ from app.db.base import get_db
 from app.db.models.personal import (
     PersonalAssistantSettings,
     PersonalCaptureSuggestion,
+    PersonalWhatsAppGroup,
     PersonalContact,
     PersonalContactCategory,
     PersonalContactMessage,
@@ -53,6 +54,8 @@ from app.db.models.personal import (
 )
 
 router = APIRouter(prefix="/api/v1/personal", tags=["personal"])
+
+from app.core.personal_captures import audit as capture_audit, contact_demand_reference, demand_source_key, suggestion_out
 
 CONTEXT_HISTORY_LINES = 8
 
@@ -427,30 +430,29 @@ async def whatsapp_message(payload: WhatsappMessageIn, actor: str = Depends(pers
 async def list_suggestions(
     suggestion_status: str | None = Query("pending", alias="status"),
     contact_phone: str | None = None,
+    group_id: uuid.UUID | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     actor: str = Depends(personal_actor),
     db: AsyncSession = Depends(get_db),
 ) -> list[SuggestionOut]:
-    stmt = select(PersonalCaptureSuggestion, PersonalContact).join(
+    stmt = select(PersonalCaptureSuggestion, PersonalContact, PersonalWhatsAppGroup).outerjoin(
         PersonalContact, PersonalContact.id == PersonalCaptureSuggestion.contact_id
-    )
+    ).outerjoin(PersonalWhatsAppGroup, PersonalWhatsAppGroup.id == PersonalCaptureSuggestion.group_id)
     if suggestion_status and suggestion_status != "all":
         stmt = stmt.where(PersonalCaptureSuggestion.status == suggestion_status)
     if contact_phone:
         stmt = stmt.where(PersonalContact.phone == rules.normalize_phone(contact_phone))
+    if group_id:
+        stmt = stmt.where(PersonalCaptureSuggestion.group_id == group_id)
     stmt = stmt.order_by(PersonalCaptureSuggestion.created_at.desc()).limit(limit).offset(offset)
-    result = []
-    for suggestion, contact in (await db.execute(stmt)).all():
-        out = SuggestionOut.model_validate(suggestion)
-        out.contact_name = contact.name
-        out.contact_phone = contact.phone
-        result.append(out)
-    return result
+    return [suggestion_out(suggestion, contact, group) for suggestion, contact, group in (await db.execute(stmt)).all()]
 
 
 async def _pending_suggestion(db: AsyncSession, suggestion_id: uuid.UUID) -> PersonalCaptureSuggestion:
-    suggestion = await db.get(PersonalCaptureSuggestion, suggestion_id)
+    suggestion = (await db.execute(select(PersonalCaptureSuggestion).where(
+        PersonalCaptureSuggestion.id == suggestion_id
+    ).with_for_update())).scalar_one_or_none()
     if suggestion is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Sugestão não encontrada")
     if suggestion.status != "pending":
@@ -462,18 +464,68 @@ async def _pending_suggestion(db: AsyncSession, suggestion_id: uuid.UUID) -> Per
 async def accept_suggestion(suggestion_id: uuid.UUID, payload: SuggestionAccept, actor: str = Depends(personal_actor),
                             db: AsyncSession = Depends(get_db)) -> SuggestionOut:
     """Turns the suggestion into a real demand, task or note, with where it came from."""
-    suggestion = await _pending_suggestion(db, suggestion_id)
-    contact = await db.get(PersonalContact, suggestion.contact_id)
+    preview = await db.get(PersonalCaptureSuggestion, suggestion_id)
+    if preview is None:
+        raise HTTPException(404, 'Sugestão não encontrada')
+    # All source-aware writers lock the source before the suggestion/demand.
+    if preview.group_id:
+        await db.execute(select(PersonalWhatsAppGroup).where(PersonalWhatsAppGroup.id == preview.group_id).with_for_update())
+    elif preview.contact_id:
+        await db.execute(select(PersonalContact).where(PersonalContact.id == preview.contact_id).with_for_update())
+    suggestion = (await db.execute(select(PersonalCaptureSuggestion).where(PersonalCaptureSuggestion.id == suggestion_id).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+    if suggestion is None:
+        raise HTTPException(404, 'Sugestão não encontrada')
+    contact = await db.get(PersonalContact, suggestion.contact_id) if suggestion.contact_id else None
+    group = await db.get(PersonalWhatsAppGroup, suggestion.group_id) if suggestion.group_id else None
+    if suggestion.status == 'accepted':
+        changes = payload.model_dump(exclude_none=True)
+        for field in ('kind', 'title', 'details'):
+            if field in changes and changes[field].strip() != getattr(suggestion, field):
+                raise HTTPException(409, 'Esta sugestão já foi aceita com outro conteúdo')
+        if payload.type_id is not None and suggestion.kind == 'demand':
+            previous = await db.get(PersonalDemand, suggestion.created_item_id)
+            if previous is None or previous.type_id != payload.type_id:
+                raise HTTPException(409, 'Esta sugestão já foi aceita com outro tipo')
+        return suggestion_out(suggestion, contact, group)
+    if suggestion.status != 'pending':
+        raise HTTPException(409, 'Esta sugestão já foi decidida')
     kind = payload.kind or suggestion.kind
     title = (payload.title or suggestion.title).strip()
     details = (payload.details if payload.details is not None else suggestion.details).strip()
-    origin = f"Capturado do WhatsApp — {contact.name or 'contato'} ({rules.format_phone(contact.phone)})"
+    if not title:
+        raise HTTPException(422, 'Título obrigatório')
+    if group:
+        origin = f"Capturado do grupo WhatsApp — {group.name}"
+        origin += f"\nSolicitante: {suggestion.source_author or suggestion.source_author_id or 'não identificado'}"
+        origin += f"\nMensagem de origem: {suggestion.source_message_ref}"
+    elif contact:
+        origin = f"Capturado do WhatsApp — {contact.name or 'contato'} ({rules.format_phone(contact.phone)})"
+    else:
+        raise HTTPException(409, 'Origem da sugestão indisponível')
     body = f"{details}\n\n{origin}" if details else origin
     item: PersonalDemand | PersonalTask | PersonalNote
     if kind == "demand":
         if payload.type_id is not None and await db.get(PersonalDemandType, payload.type_id) is None:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown demand type")
-        item = PersonalDemand(title=title, notes=body, type_id=payload.type_id, created_by=actor)
+        from app.api.schemas.personal import PersonalDemandOrigin
+        message = await db.get(PersonalContactMessage, suggestion.message_id) if suggestion.message_id else None
+        source = PersonalDemandOrigin(kind='group' if group else 'contact',
+            group_id=group.id if group else None, group_name=group.name if group else '',
+            contact_id=contact.id if contact else None, contact_name=contact.name if contact else '',
+            author=(suggestion.source_author or suggestion.source_author_id or '') if group else (suggestion.source_author or (message.author if message else '') or (contact.name if contact else '')),
+            author_id=suggestion.source_author_id, message_ref=suggestion.source_message_ref,
+            message_id=suggestion.message_id, captured_at=suggestion.source_at or (message.at if message else None) or suggestion.created_at)
+        key = suggestion.capture_key if group and suggestion.capture_key else demand_source_key(
+            'group' if group else 'contact', group.whatsapp_id if group else contact.id,
+            suggestion.source_message_ref if group else contact_demand_reference(suggestion.message_id, title, details))
+        existing = (await db.execute(select(PersonalDemand).where(PersonalDemand.origin_key == key))).scalar_one_or_none()
+        if existing is not None:
+            if payload.type_id is not None and payload.type_id != existing.type_id:
+                raise HTTPException(409, 'Esta origem já tem uma demanda com outro tipo')
+            item = existing
+        else:
+            item = PersonalDemand(title=title, notes=body, type_id=payload.type_id, created_by=actor,
+                                  origin=source.model_dump(mode='json'), origin_key=key)
     elif kind == "task":
         item = PersonalTask(title=title, notes=body, list_name="Pessoal", reminders=[], created_by=actor)
     else:
@@ -486,11 +538,10 @@ async def accept_suggestion(suggestion_id: uuid.UUID, payload: SuggestionAccept,
     suggestion.status = "accepted"
     suggestion.created_item_id = item.id
     suggestion.decided_at = datetime.now(timezone.utc)
+    capture_audit(db, "personal_capture_suggestion", suggestion.id, "accepted", actor, {"created_item_id": str(item.id), "kind": kind, "group_id": str(suggestion.group_id) if suggestion.group_id else None, "contact_id": str(suggestion.contact_id) if suggestion.contact_id else None, "message_ref": suggestion.source_message_ref})
     await db.commit()
     await db.refresh(suggestion)
-    out = SuggestionOut.model_validate(suggestion)
-    out.contact_name, out.contact_phone = contact.name, contact.phone
-    return out
+    return suggestion_out(suggestion, contact, group)
 
 
 @router.post("/suggestions/{suggestion_id}:dismiss", response_model=SuggestionOut)
@@ -499,6 +550,9 @@ async def dismiss_suggestion(suggestion_id: uuid.UUID, actor: str = Depends(pers
     suggestion = await _pending_suggestion(db, suggestion_id)
     suggestion.status = "dismissed"
     suggestion.decided_at = datetime.now(timezone.utc)
+    capture_audit(db, "personal_capture_suggestion", suggestion.id, "dismissed", actor,
+                  {"group_id": str(suggestion.group_id) if suggestion.group_id else None,
+                   "contact_id": str(suggestion.contact_id) if suggestion.contact_id else None})
     await db.commit()
     await db.refresh(suggestion)
     return SuggestionOut.model_validate(suggestion)

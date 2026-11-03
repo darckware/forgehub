@@ -1,0 +1,561 @@
+{
+  "title": "Onda 1 — base comprovada",
+  "updated_at": "2026-11-03",
+  "scope": "Planejamento consolidado autorizado; nenhuma execução/cadastro criado por esta edição",
+  "external_prerequisites": {
+    "0.14": [
+      "0.13 histórico e documentos consolidados"
+    ]
+  },
+  "tasks": [
+    {
+      "id": "0.14",
+      "title": "**Rodada cruzada** sobre os documentos consolidados, modelos e a matriz da Onda 1: alguma decisão cria contradição entre camadas?",
+      "executor_agent_slug": "athos",
+      "reviewer_agent_slug": "porthus",
+      "executor_label": "Athos",
+      "reviewer_label": "Porthus",
+      "depends_on": [],
+      "acceptance": "Pareceres da 2ª rodada",
+      "status": "done",
+      "project_task_id": null
+    },
+    {
+      "id": "0.15",
+      "title": "**Registro da aprovação de consolidação** do Marcelo e dos limites/defaults em 09; corrigir documentos com referência aos itens do consolidado",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "athos",
+      "executor_label": "Porthus (registro), Marcelo (autoridade)",
+      "reviewer_label": "Athos",
+      "depends_on": [
+        "0.14"
+      ],
+      "acceptance": "Nenhum item \"bloqueia\" sem decisão; documentos atualizados",
+      "status": "done",
+      "project_task_id": null
+    },
+    {
+      "id": "T.1",
+      "title": "Postgres de teste em **contêiner próprio**, volume/rede/credencial/porta próprios; Alembic e guard que rejeita banco/host/credencial de produção; `dev.sh` e suíte usam somente esse ambiente",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus (apoio Hephaestus)",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "0.15"
+      ],
+      "acceptance": "Teste negativo prova conexão à produção proibida; reset não opera fora da allowlist de teste",
+      "status": "done",
+      "project_task_id": null
+    },
+    {
+      "id": "T.2",
+      "title": "Backend/frontend de teste com limites de recurso, seed fictício reproduzível e reset explícito",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus (apoio Hephaestus)",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "T.1"
+      ],
+      "acceptance": "Health, seed e dois resets no ambiente isolado; dados sentinela de produção intactos",
+      "status": "done",
+      "project_task_id": null
+    },
+    {
+      "id": "T.3",
+      "title": "Credenciais exclusivas de teste e integrações externas simuladas; primeiro o deny de egress/stubs, depois iniciar o app de teste",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus (apoio Aegis)",
+      "reviewer_label": "Dartan (segundo revisor: Aegis)",
+      "depends_on": [
+        "T.2"
+      ],
+      "acceptance": "Tentativas de e-mail/Telegram/portal e integração real recusadas; nenhum envio externo",
+      "status": "done",
+      "project_task_id": null
+    },
+    {
+      "id": "T.4a",
+      "title": "Alvo Linux de teste, sem dados/credenciais de cliente, com delegação e scripts autorizados; inventariar antes de provisionar",
+      "executor_agent_slug": "hephaestus",
+      "reviewer_agent_slug": "aegis",
+      "executor_label": "Hephaestus",
+      "reviewer_label": "Aegis",
+      "depends_on": [
+        "T.2",
+        "T.3"
+      ],
+      "acceptance": "Script inofensivo em alvo autorizado produz evidência; alvo não autorizado recusado",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "T.6",
+      "title": "Regra na Foundation/skill: registro da missão em produção; tarefa mutante valida primeiro no teste; implantação real só pelo gate aplicável",
+      "executor_agent_slug": "athos",
+      "reviewer_agent_slug": "aegis",
+      "executor_label": "Athos",
+      "reviewer_label": "Aegis",
+      "depends_on": [
+        "T.2",
+        "T.3"
+      ],
+      "acceptance": "Regra única publicada sem dizer que a missão de leitura/política roda em app de teste",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "F.1",
+      "title": "**Desenho** (documento no ForgeVault e no ForgeHub): algoritmo RS256/ES256 escolhido na spec, kid/JWKS e rotação sobreposta, claims sub/aud/env/roles/scopes/mission_id/delegation_id/jti, vida curta, revogação com push+polling, mapeamento por sistema, HA/cache, transição agt_ e procedimento de emergência F.1.1",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "aegis",
+      "executor_label": "Porthus",
+      "reviewer_label": "Aegis",
+      "depends_on": [
+        "0.15"
+      ],
+      "acceptance": "Aegis revisa a especificação e o procedimento F.1.1; Aramis é consumidor do contrato; nenhum token emitido/rotacionado nesta onda",
+      "status": "done",
+      "project_task_id": null
+    },
+    {
+      "id": "N.0",
+      "title": "Validar o navegador atual do Workspace (ligar, navegar, uma rotina, um teste em segundo plano) e registrar o que falha",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "T.2",
+        "T.3"
+      ],
+      "acceptance": "Relatório do que funciona e do que falta",
+      "status": "done",
+      "project_task_id": null
+    },
+    {
+      "id": "V-a",
+      "title": "Validar roteiro V.1–V.15 por tela/API com dados fictícios, relatando defeitos e correções",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "T.2",
+        "T.3"
+      ],
+      "acceptance": "Relatório com prova de cada passo; produção intacta, sem envios externos",
+      "status": "done",
+      "project_task_id": null
+    },
+    {
+      "id": "M0.SPEC",
+      "title": "Especificar contratos MCP/modelo/guards/contexto mínimo sem recuperação privada automática: arquivos, endpoints existentes/propostos, schemas, permissões, idempotência, erros, migrations, testes e rollback em `MCP_MISSION_TOOLS_SPEC.md`; escopo global prospectivo de conclusão e importação histórica com execução/revisão reais, sem bypass; aceite formal mínimo M0; inclui a **tela mínima de execuções da missão** (tarefas, executor, estado, provas, revisor, aceite), antecipada da M.1 por decisão de 29/10; inclui o **ciclo de decisão do orquestrador pela Operação 24x7** (despachar, agendar, reatribuir, serializar alvos, perguntar/pausar) e várias missões com prioridade (04 §6–7)",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus (consulta: Daedalus)",
+      "reviewer_label": "Dartan (segundo revisor: Aegis)",
+      "depends_on": [
+        "0.15"
+      ],
+      "acceptance": "Revisores Dartan e Aegis aprovam os contratos antes de M0.0/M0.2/M0.6; tela mínima de execuções especificada (rotas, estados, permissões, 390px); ciclo de decisão e agendamento especificados com limites de autonomia e registro de cada decisão",
+      "status": "done",
+      "project_task_id": null
+    },
+    {
+      "id": "M0.0",
+      "title": "Tipo missão e base mínima de coordenação conforme 04; migrar CHECK/schema/guard sem alterar criação/manutenção; preservar critérios, membros e revisões existentes; estado `em planejamento` com as etapas P1–P8 e suas condições de saída (04 Validação do plano); `required_skill_ids` por tarefa e checagem de skills de executor e revisor na P2",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "M0.SPEC",
+        "T.2",
+        "T.3"
+      ],
+      "acceptance": "Migração ida/volta em fixture; tipos existentes intactos; projeto comum não recebe gate de missão indevidamente; etapas de planejamento com condições de saída testadas; falta de skill aparece na checagem automática",
+      "status": "developed",
+      "project_task_id": null
+    },
+    {
+      "id": "M0.0b",
+      "title": "Registro do planejamento da missão: ambiente e pré-requisitos por tarefa; pareceres de revisão por camada (projeto, camada, revisor, versão do plano); itens de revisão com disposição (aceitar/ajustar/recusar), motivo e marcação de decisão do Marcelo; revisões cruzadas; verificação por amostra das correções aplicadas; dossiê de entrega; ligar cada condição de saída P1–P7 e `verifying → awaiting_acceptance` a esses registros (hoje recusam por `not_recorded`)",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "M0.0"
+      ],
+      "acceptance": "Uma missão de teste percorre P1→baseline só com registros reais; cada condição de saída recusa sem o registro e passa com ele; revisor do parecer ≠ planejador; item sem disposição ou sem decisão do Marcelo bloqueia; nenhuma condição passa por falta de dado",
+      "status": "developed",
+      "project_task_id": null
+    },
+    {
+      "id": "M0.1",
+      "title": "Inventário e cadastro idempotente do produto Ecossistema Foundation/ciclo vigente e do projeto comum Plano integrado, sem duplicar registros existentes",
+      "executor_agent_slug": "atlas",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Atlas (apoio Porthus nas tools)",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "V-a",
+        "M0.R"
+      ],
+      "acceptance": "Repetir criação não duplica; ids reais, ambiente e vínculo documentados",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "M0.2a",
+      "title": "MCP create_internal_project/manage_project_members; papéis e permissão por projeto",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "M0.0"
+      ],
+      "acceptance": "Contratos e escopo testados, repetição idempotente, não membro recusado",
+      "status": "developed",
+      "project_task_id": null
+    },
+    {
+      "id": "M0.2b",
+      "title": "MCP submit_project_plan/add_task_dependency; aprovação só pela tela na primeira onda",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "M0.2a",
+        "M0.6b",
+        "M0.0b"
+      ],
+      "acceptance": "Plano vira proposta, nunca autoaprovado; ciclo recusado; aprovação e hash por usuário autorizado",
+      "status": "developed",
+      "project_task_id": null
+    },
+    {
+      "id": "M0.2c",
+      "title": "MCP assign_task/dispatch_task/report_task_execution, reutilizando Messages",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "M0.2b",
+        "M0.6a",
+        "M0.6b"
+      ],
+      "acceptance": "Baseline/dependências/permissões guardadas; retry sem despacho duplicado; DONE só relato",
+      "status": "developed",
+      "project_task_id": null
+    },
+    {
+      "id": "M0.2d",
+      "title": "MCP attach_project_document/get_my_mission_role e minhas tarefas",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "M0.2a"
+      ],
+      "acceptance": "DocLink/artefato com escopo e versão; agente só vê seu papel/tarefas permitidas",
+      "status": "developed",
+      "project_task_id": null
+    },
+    {
+      "id": "M0.6a",
+      "title": "Guard global prospectivo de done/deployed: execução git/file/db verificada e revisão independente; auditoria da credencial, preservando conclusões históricas",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "M0.0"
+      ],
+      "acceptance": "Transições novas protegidas em todos os projetos; importação histórica cria execução e revisão com prova real, nunca PATCH direto nem run_id inventado; tarefa de missão com código só fica done com o commit integrado na mainline, inclusive pela aprovação de revisão",
+      "status": "developed",
+      "project_task_id": null
+    },
+    {
+      "id": "M0.6b",
+      "title": "Baseline imutável com ids e hash de conteúdo; guard em todos os caminhos de despacho; alteração exige change request",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "M0.0"
+      ],
+      "acceptance": "Edição/adição/CR invalida autorização anterior; nenhum bypass por MCP, Approval ou reconciliação",
+      "status": "developed",
+      "project_task_id": null
+    },
+    {
+      "id": "M0.7",
+      "title": "**Tela mínima de execuções da missão** conforme `MISSION_EXECUTIONS_SCREEN_SPEC.md`: tarefas e dependências, executor/revisor com bloqueio autor = revisor, estados com tempo e prazo, provas verificadas, conflitos de worktree/branch/produção, publicado por ambiente, ações só pelas rotas com guard; várias missões com filtro e prioridade; visão do pipeline de planejamento (etapas, pareceres, consolidação, decisões pendentes); versão de contexto de cada despacho e skills por tarefa visíveis",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "M0.2c",
+        "M0.6a",
+        "M0.6b"
+      ],
+      "acceptance": "Os 7 pontos da spec visíveis em fixture de teste a 390 e 1440 px; nenhuma ação contorna guard; estados de carregamento/vazio/parcial/erro",
+      "status": "developed",
+      "project_task_id": null
+    },
+    {
+      "id": "M0.8",
+      "title": "**Ciclo de decisão do orquestrador pela Operação 24x7** conforme `MISSION_ORCHESTRATOR_CYCLE_SPEC.md`: despachar, agendar com `scheduled_at` (inclusive retorno de cota), reatribuir, pedir revisão, recusar, serializar alvos, perguntar/pausar; `mission_decisions` com motivo; publicação em produção serializada em todo o Messages (D-M0-2); **continuação até o fim** (§3.4): integrar a entrega aprovada, reverificar antes da revisão, falha de infraestrutura ≠ recusa, vigia do próprio ciclo; o ciclo conduz o pipeline de planejamento sem decidir itens nem aprovar a baseline; o ciclo mantém o **pacote de contexto** versionado da missão e propõe skills faltantes ao dono (04 §8); **decide a execução de forma independente** e pergunta ao Marcelo pelo Telegram (`ask_marcelo`) só quando tem dúvida (04 §9)",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan (segundo revisor: Aegis)",
+      "depends_on": [
+        "M0.2c",
+        "M0.6b"
+      ],
+      "acceptance": "Cada ação com limite de autonomia, registro e gate testados em ambiente isolado; reagendamento por cota comprovado; duas publicações simultâneas da produção recusadas; tarefa aprovada só termina integrada; missão ativa nunca fica parada sem motivo registrado; todo despacho registra a versão de contexto; skill faltante bloqueia a tarefa e gera proposta, nunca concessão; pergunta aberta bloqueia só as tarefas dependentes; padrão irreversível nunca aplicado sem resposta",
+      "status": "developed",
+      "project_task_id": null
+    },
+    {
+      "id": "M0.3",
+      "title": "Convenção M0 na Foundation: papéis, delegação por projeto, substituto, evidência, documentos, aceite e ambientes",
+      "executor_agent_slug": "athos",
+      "reviewer_agent_slug": "themis",
+      "executor_label": "Athos (apoio Scriba)",
+      "reviewer_label": "Themis",
+      "depends_on": [
+        "M0.2c",
+        "M0.2d",
+        "T.6"
+      ],
+      "acceptance": "Convenção revisada; duas identidades diferentes; delegações limitadas e revogáveis",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "M0.4",
+      "title": "Instruções versionadas e ensaio M0 com runner/MCP simulados de teste; sem usar perfis, bridge ou credenciais de produção",
+      "executor_agent_slug": "athos",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Athos (apoio Porthus)",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "M0.3"
+      ],
+      "acceptance": "Instruções versionadas; ensaio inclui contexto mínimo por allowlist e teste de vazamento com fixtures; sem recuperação automática ampla antes de C.2; nenhuma aprovação humana simulada em produção",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "M0.5",
+      "title": "Registrar e abrir missão real C.0+C.1 sob baseline exata; plano integrado segue projeto comum",
+      "executor_agent_slug": "athos",
+      "reviewer_agent_slug": "porthus",
+      "executor_label": "Athos",
+      "reviewer_label": "Porthus",
+      "depends_on": [
+        "M0.1",
+        "M0.4",
+        "M0.R",
+        "C.2.R"
+      ],
+      "acceptance": "Papéis, orçamento/prazo, critérios e contexto aprovados antes do despacho; não fechar antes de C.0/C.1 e aceite",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "C.0",
+      "title": "**Linha de base** (fase 0 do diagnóstico): matriz por perfil com memória nativa (uso × limite), banco e modos do Hindsight (`auto_retain`, `auto_recall`, `recall_budget`, tags), hook ativo, pasta da KB, compactação e limite real de contexto por rota",
+      "executor_agent_slug": "mnemosyne",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Mnemosyne (levantamento; apoio Porthus)",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "M0.5"
+      ],
+      "acceptance": "Matriz gerada sem nenhum segredo; vira a primeira aba da tela C.4",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "C.1",
+      "title": "**Política de classificação e retenção** na Foundation (`36_governance/MEMORY_CLASSIFICATION_AND_RETENTION.md`): classes, tipos, TTL por classe, proveniência, confiabilidade, precedência, redação, consumidores, regras Maia/Lara, base legal por categoria, controlador/operador, lead/cliente e transferência internacional (H1). Complementa os documentos existentes, sem duplicar",
+      "executor_agent_slug": "athos",
+      "reviewer_agent_slug": "mnemosyne",
+      "executor_label": "Athos (Foundation) (apoio: Themis (LGPD))",
+      "reviewer_label": "Mnemosyne (Marcelo aprova a política)",
+      "depends_on": [
+        "C.0"
+      ],
+      "acceptance": "Aprovada pelo Marcelo; exemplos de permitido e proibido",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "C.2b",
+      "title": "Isolamento completo e classificação de recuperação: completar a contenção C.2a com política C.1, allowed_consumers, validade/metadados e modo observação",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus (código; Mnemosyne confere isolamento)",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "C.1",
+        "C.2.R",
+        "T.2",
+        "T.3"
+      ],
+      "acceptance": "Canários artificiais Maia/Lara, paths/symlinks, política e falhas seguras; patch revisado antes de C.2b.R",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "A.1",
+      "title": "Quadro com todos os agentes das cartas (externos sempre presentes) + saúde de canal/gateway",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus (API e tela)",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "T.2",
+        "T.3"
+      ],
+      "acceptance": "Todos os agentes ativos/elegíveis do registro atual, sem contagem fixa ou perfis aposentados",
+      "status": "developed",
+      "project_task_id": null
+    },
+    {
+      "id": "A.2",
+      "title": "Rotinas na timeline (passado e próximas 24 h) com desfecho; alerta de rotina perdida",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan",
+      "depends_on": [
+        "A.1"
+      ],
+      "acceptance": "Ocorrência perdida aparece e alerta",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "B0",
+      "title": "Backup elegível do escopo forgehub_postgres, inventário/RPO/RTO e restauração de amostra em quarentena isolada; nunca usar backup real como seed de testes",
+      "executor_agent_slug": "hephaestus",
+      "reviewer_agent_slug": "aegis",
+      "executor_label": "Hephaestus",
+      "reviewer_label": "Aegis",
+      "depends_on": [
+        "T.2",
+        "T.3"
+      ],
+      "acceptance": "Snapshot identificável, integridade/restore e rollback aprovados; sem conexão de apps/agentes comuns aos dados restaurados; revalidar recência no gate",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "M0.R",
+      "title": "Publicação manual da base/guards/tools M0 com backup e rollback testados; aprovação de Marcelo do conteúdo exato antes de produção",
+      "executor_agent_slug": "hephaestus",
+      "reviewer_agent_slug": "aegis",
+      "executor_label": "Hephaestus",
+      "reviewer_label": "Aegis",
+      "depends_on": [
+        "M0.0b",
+        "M0.2c",
+        "M0.2d",
+        "M0.6a",
+        "M0.6b",
+        "M0.4",
+        "B0",
+        "V-a",
+        "M0.7",
+        "M0.8"
+      ],
+      "acceptance": "Artefatos revisados/implantados, migrations e smoke reais; uso real M0.1/M0.5 só após esta entrega",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "A.R",
+      "title": "Publicar A.1/A.2 pelo mesmo gate manual, backup do escopo e rollback testados",
+      "executor_agent_slug": "hephaestus",
+      "reviewer_agent_slug": "aegis",
+      "executor_label": "Hephaestus",
+      "reviewer_label": "Aegis",
+      "depends_on": [
+        "A.1",
+        "A.2",
+        "B0"
+      ],
+      "acceptance": "Aprovação específica, versão implantada e prova de agentes/rotinas; teste isolado sozinho não comprova release",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "C.2a",
+      "title": "Contenção mínima pré-política: negar KB de outros agentes e conteúdo pessoal/cliente fora do dono; patch do hook compartilhado, fixtures e modo observação sem texto nos logs",
+      "executor_agent_slug": "porthus",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Porthus",
+      "reviewer_label": "Dartan (segundo revisor: Aegis)",
+      "depends_on": [
+        "M0.SPEC",
+        "T.2",
+        "T.3"
+      ],
+      "acceptance": "Não depende de C.1; canários comprovam isolamento por perfil e nenhuma fuga de path; ativação ainda não realizada",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "C.2.R",
+      "title": "Ativar contenção revisada por processo do Athos em shared-skills, com backup/restauração do arquivo efetivo, inventário dos consumidores e teste de canário no runtime real",
+      "executor_agent_slug": "athos",
+      "reviewer_agent_slug": "aegis",
+      "executor_label": "Athos",
+      "reviewer_label": "Aegis",
+      "depends_on": [
+        "C.2a"
+      ],
+      "acceptance": "Aprovação específica, ativação/versionamento/rollback e prova do hook efetivo em todos os perfis afetados; sem restart do gateway",
+      "status": "planned",
+      "project_task_id": null
+    },
+    {
+      "id": "C.2b.R",
+      "title": "Ativar o isolamento completo C.2b pelo processo canônico, com backup do hook, rollback e canários no runtime real",
+      "executor_agent_slug": "athos",
+      "reviewer_agent_slug": "aegis",
+      "executor_label": "Athos",
+      "reviewer_label": "Aegis",
+      "depends_on": [
+        "C.2b"
+      ],
+      "acceptance": "Política C.1 aplicada, versão efetiva e teste de não vazamento reais antes de sair da onda",
+      "status": "planned",
+      "project_task_id": null
+    }
+  ],
+  "source_of_truth": "onda1-tarefas.json",
+  "mirrors": [
+    "07-fases-de-implementacao.md",
+    "12-primeira-onda.md"
+  ],
+  "status_vocabulary": {
+    "planned": "não iniciada",
+    "developed": "integrada na develop com testes; ainda não publicada (publicação = nó .R)",
+    "done": "concluída e verificada (documento aprovado ou ambiente de teste em uso)"
+  }
+}

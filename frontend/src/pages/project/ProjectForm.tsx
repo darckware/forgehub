@@ -5,7 +5,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
-import { PROJECT_STATUSES, type ProjectCreateInput } from "@/hooks/useProject";
+import {
+  PROJECT_STATUSES,
+  PROJECT_SOLUTION_TYPES,
+  PROJECT_SOLUTION_TYPE_LABELS,
+  type ProjectCreateInput,
+} from "@/hooks/useProject";
+import { useDarckwareClients } from "@/hooks/useClientOps";
 import { WorkingDirPicker } from "@/components/WorkingDirPicker";
 import { useProjectFormViewModel } from "@/hooks/useProjectFormViewModel";
 
@@ -26,6 +32,8 @@ export function ProjectForm({
 }: ProjectFormProps) {
   const { t } = useTranslation("project");
   const submitLabel = submitLabelProp ?? t("form.submitLabelDefault");
+  const { data: clientsData } = useDarckwareClients();
+  const clientList = clientsData?.items ?? [];
   const {
     register,
     handleSubmit,
@@ -115,6 +123,31 @@ export function ProjectForm({
           {errors.product_version_id && (
             <p className="text-sm text-destructive">{errors.product_version_id.message}</p>
           )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="solution_type">Tipo de Solução / Implementação</Label>
+          <Select id="solution_type" {...register("solution_type")}>
+            {PROJECT_SOLUTION_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {PROJECT_SOLUTION_TYPE_LABELS[type]}
+              </option>
+            ))}
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="darckware_client_id">Cliente Associado (Darckware)</Label>
+          <Select id="darckware_client_id" {...register("darckware_client_id")}>
+            <option value="">⚡ Produto Próprio Darckware</option>
+            {clientList.map((client) => (
+              <option key={client.id} value={client.id}>
+                🏢 {client.company_name}
+              </option>
+            ))}
+          </Select>
         </div>
       </div>
 

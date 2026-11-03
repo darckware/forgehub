@@ -15,6 +15,7 @@ from app.api.schemas.governed_approval import (
 )
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
 from app.core.governed_approval import decide_concept_approval, decide_task_approval
+from app.core.mission_plan import decide_plan_approval
 from app.db.base import AsyncSessionLocal, get_db
 from app.db.models.agent import Agent, AgentServiceCredential
 from app.db.models.governance import ApprovalRequest, AuthorityDelegation, AuditEvent, PolicyEvaluation
@@ -77,6 +78,12 @@ async def decide_request(
         decision = await decide_task_approval(
             db, principal, request, payload.decision, payload.comments, payload.idempotency_key
         )
+    elif request.target_type == "project_plan":
+        # M0.2b (MCP_MISSION_TOOLS_SPEC.md §7 item 3): a mission plan baseline,
+        # human_only. Approval creates the next baseline; it dispatches nothing.
+        decision = await decide_plan_approval(
+            db, principal, request, payload.decision, payload.comments, payload.idempotency_key
+        )
     else:
         raise HTTPException(422, "Unsupported governed target type")
     await db.commit()
@@ -88,7 +95,8 @@ async def decide_request(
             event_key = f"approval:decision:{request.id}"
             exists = await notify_db.scalar(select(Notification.id).where(Notification.event_key == event_key))
             if not exists:
-                subject = "Concept" if request.target_type == "product_concept" else "Task"
+                subject = {"product_concept": "Concept", "project_plan": "Mission plan"}.get(
+                    request.target_type, "Task")
                 notify_db.add(Notification(
                     source="system", severity="success" if payload.decision == "approved" else "warning",
                     title=f"{subject} {payload.decision.replace('_', ' ')}",

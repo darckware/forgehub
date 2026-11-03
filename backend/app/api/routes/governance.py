@@ -182,9 +182,13 @@ async def _decide_approval(
         try:
             await _dispatch_task_by_id(approval.entity_id, TaskInboxDispatchIn(), db)
         except HTTPException as exc:
+            # The approval is already committed; drop whatever the refused
+            # dispatch flushed (its TaskExecution/AgentDemand) before the notice.
+            await db.rollback()
+            await db.refresh(approval)
             db.add(Notification(
                 source="system", severity="warning",
-                title=f"Approval decided but task dispatch failed: {exc.detail}",
+                title=f"Approval decided but task dispatch failed: {exc.detail}"[:255],
                 message=f"Task {approval.entity_id} was approved but could not be auto-dispatched. Dispatch it manually once resolved.",
                 event_key=f"approval-dispatch-failed:{approval.id}",
                 occurred_at=datetime.now(timezone.utc),

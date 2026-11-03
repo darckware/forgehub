@@ -821,11 +821,24 @@ describe("AgentActivityPage live stream (phase 2)", () => {
     expect(screen.getByTestId("activity-stream-status")).toHaveTextContent(/ao vivo/i);
   });
 
-  it("hides an idle external executor and shows it while Messages runs it", () => {
-    stream([{ agent_id: IDS.athos, live: { ...LIVE_BASE, state: "idle" } }]);
+  it("keeps an idle external executor on the board and shows it running for Messages (A.1)", () => {
+    stream([
+      { agent_id: IDS.athos, live: { ...LIVE_BASE, state: "idle" } },
+      {
+        agent_id: ARAMIS_ID,
+        live: { ...LIVE_BASE, state: "idle", source: "messages", platform: null, counterpart_kind: null,
+                tool_name: null, last_event_at: null, since: null, turns_last_hour: 0, tools_last_hour: 0 },
+      },
+    ]);
     const { unmount } = renderPage(withExternal);
-    expect(within(screen.getByTestId("live-agent-cards")).queryByText("Aramis")).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("live-agent-cards")).getByText("Aramis")).toBeInTheDocument();
     unmount();
+
+    // Even with no stream frame for it, an eligible agent sent by the backend stays listed.
+    stream([{ agent_id: IDS.athos, live: { ...LIVE_BASE, state: "idle" } }]);
+    const second = renderPage(withExternal);
+    expect(within(screen.getByTestId("live-agent-cards")).getByText("Aramis")).toBeInTheDocument();
+    second.unmount();
 
     stream([
       { agent_id: IDS.athos, live: { ...LIVE_BASE, state: "idle" } },
@@ -839,6 +852,23 @@ describe("AgentActivityPage live stream (phase 2)", () => {
     const cards = screen.getByTestId("live-agent-cards");
     expect(within(cards).getByText("Aramis")).toBeInTheDocument();
     expect(within(cards).getByText(/executando mensagem #9123/i)).toBeInTheDocument();
+  });
+
+  it("shows channel and gateway health, and nothing for an agent with neither (A.1)", () => {
+    stream([{ agent_id: IDS.athos, live: { ...LIVE_BASE, state: "idle" } }]);
+    renderPage({
+      ...withExternal,
+      agents: withExternal.agents.map((agent) =>
+        agent.id === ARAMIS_ID
+          ? { ...agent, channel_health: { telegram: "not_applicable", gateway: "not_applicable" } }
+          : { ...agent, channel_health: { telegram: "unknown", gateway: "ok" } },
+      ),
+    });
+    const cards = screen.getByTestId("live-agent-cards");
+    expect(within(cards).getAllByText("Telegram não verificado").length).toBeGreaterThan(0);
+    expect(within(cards).getAllByText("Gateway ativo").length).toBeGreaterThan(0);
+    const aramisCard = within(cards).getByText("Aramis").closest("button")!;
+    expect(within(aramisCard).queryByTestId("agent-channel-badges")).not.toBeInTheDocument();
   });
 
   it("shows the reconnecting state of the stream", () => {

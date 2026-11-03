@@ -195,9 +195,17 @@ async def test_list_agent_memberships_is_the_inverse_of_project_team(client, orc
     assert empty_resp.json() == []
 
 
+@pytest_asyncio.fixture
+async def admin_client(admin_headers):
+    """Recording a review needs the reviewer itself or an admin (M0.6a)."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test", headers=admin_headers) as ac:
+        yield ac
+
+
 @pytest.mark.asyncio
 async def test_assignment_execution_and_independent_review_are_traceable(
-    client, orchestration_context
+    client, admin_client, orchestration_context
 ):
     ctx = orchestration_context
     producer_profile = await _create_profile(
@@ -254,7 +262,7 @@ async def test_assignment_execution_and_independent_review_are_traceable(
     assert execution["runtime_type"] == "codex"
     assert execution["assignment_id"] == assignment["id"]
 
-    self_review = await client.post(
+    self_review = await admin_client.post(
         f"/api/v1/orchestration/executions/{execution['id']}/reviews",
         json={
             "reviewer_membership_id": producer["id"],
@@ -264,7 +272,7 @@ async def test_assignment_execution_and_independent_review_are_traceable(
     )
     assert self_review.status_code == 409
 
-    review_response = await client.post(
+    review_response = await admin_client.post(
         f"/api/v1/orchestration/executions/{execution['id']}/reviews",
         json={
             "reviewer_membership_id": reviewer["id"],

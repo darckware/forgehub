@@ -94,6 +94,7 @@ Permissions, deletion/retention, billing, and legal policy remain owned by their
 
 ## Overlays and feedback
 
+- **Modal policy (Regra do Operador):** Modais/diálogos são permitidos **EXCLUSIVAMENTE para confirmação de ações** (`ConfirmDialog` / `ConfirmModal`: exclusão, encerramento, reinicialização ou cancelamento). Formulários de criação, edição ou entrada de dados **NUNCA devem ser modais** — devem ser sempre páginas dedicadas (rotas próprias) ou seções completas na tela.
 - Confirmation owner: `frontend/src/components/ui/confirm-dialog.tsx`.
 - Confirmation names the operation and consequence; serious actions initially focus Cancel.
 - Dialogs trap focus, make the background inert, lock document scroll, close on Escape when safe, and restore focus.

@@ -4,6 +4,7 @@ from app.db.models.project import (  # noqa: F401
     Project,
     ProjectPlan,
     PlanBaseline,
+    PlanBaselineItem,
     ChangeRequest,
     ProjectStructureNode,
     ProjectForgeRouterConfig,
@@ -28,6 +29,7 @@ from app.db.models.backlog import (  # noqa: F401
 from app.db.models.task import (  # noqa: F401
     ProjectTask,
     TaskDependency,
+    TaskExecutionTarget,
     TaskRequiredSkill,
     TaskAssignment,
     TaskExecution,
@@ -68,6 +70,7 @@ from app.db.models.tool import AgentTool  # noqa: F401
 from app.db.models.audit import AuditCheck, AuditCheckRun  # noqa: F401
 from app.db.models.doc_link import DocLink  # noqa: F401
 from app.db.models.demand import AgentDemand, DemandAttachment, DemandGroup  # noqa: F401
+from app.db.models.moodle_approval import MoodleApproval, MoodleChallenge  # noqa: F401
 from app.db.models.docs_area import DocsArea  # noqa: F401
 from app.db.models.prompt_command import PromptCommand  # noqa: F401
 from app.db.models.prompt_technique import PromptTechnique  # noqa: F401
@@ -108,6 +111,7 @@ from app.db.models.channel import (  # noqa: F401
     ChatChannelTask,
 )
 from app.db.models.file_explorer import ExplorerQuickAccessEntry  # noqa: F401
+from app.db.models.offsite_backup import OffsiteBackupRun, OffsiteBackupTarget  # noqa: F401
 from app.db.models.agent_activity_event import AgentActivityEvent  # noqa: F401
 from app.db.models.operations import (  # noqa: F401
     AgentCharter,
@@ -128,4 +132,27 @@ from app.db.models.personal import (  # noqa: F401
     PersonalNote,
     PersonalTask,
 )
+from app.db.models.mission import (  # noqa: F401
+    MissionAcceptanceCriterion,
+    MissionCriterionTask,
+    MissionDecision,
+    MissionDossier,
+    MissionPlanReview,
+    MissionPlanSubmission,
+    MissionPlanVerification,
+    MissionPlanVersion,
+    MissionProjectLink,
+    MissionReviewItem,
+    MissionReviewWaiver,
+    ProjectMission,
+)
+from app.db.models.mission_cycle import (  # noqa: F401
+    AgentAvailability,
+    MissionContextVersion,
+    MissionCycleLock,
+    MissionDependency,
+    MissionSkillProposal,
+)
+from app.db.models.command_receipt import AgentCommandReceipt  # noqa: F401
 from app.db.models.terminal_metadata import TerminalMetadata  # noqa: F401
+from app.db.models.environment import EnvironmentRelease  # noqa: F401

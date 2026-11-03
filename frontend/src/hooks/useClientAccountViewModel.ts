@@ -32,7 +32,7 @@ export type ClientAccountStatus = "loading" | "ready" | "editing" | "confirming"
 export type ContractDialog = { mode: "create" } | { mode: "edit"; contract: Contract };
 
 export function contractDefaults(contract?: Contract): ContractInput {
-  if (!contract) return { contract_type: "suporte_horas", plan_name: "", billing_cycle_day: 1 };
+  if (!contract) return { contract_type: "servico", plan_name: "", billing_cycle_day: 1 };
   return {
     contract_type: contract.contract_type,
     plan_name: contract.plan_name,

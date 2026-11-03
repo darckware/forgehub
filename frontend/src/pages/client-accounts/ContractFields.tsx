@@ -52,7 +52,8 @@ export function ContractFields({ prefix = "", lockType = false }: { prefix?: "" 
             tabIndex={lockType ? -1 : undefined}
             {...register(field("contract_type"))}
           >
-            <option value="suporte_horas">{t("contract.type.suporte_horas")}</option>
+            <option value="servico">{t("contract.type.servico")}</option>
+            <option value="locacao">{t("contract.type.locacao")}</option>
             <option value="desenvolvimento">{t("contract.type.desenvolvimento")}</option>
           </Select>
         </div>
@@ -63,11 +64,16 @@ export function ContractFields({ prefix = "", lockType = false }: { prefix?: "" 
         </div>
       </div>
 
-      {type === "suporte_horas" ? (
+      {type === "servico" || type === "suporte_horas" ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {numberInput("monthly_hours_quota", "0.5")}
           {numberInput("monthly_price")}
           {numberInput("extra_hour_rate")}
+          {numberInput("billing_cycle_day", "1")}
+        </div>
+      ) : type === "locacao" || type === "locacao_software" ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {numberInput("monthly_price")}
           {numberInput("billing_cycle_day", "1")}
         </div>
       ) : (

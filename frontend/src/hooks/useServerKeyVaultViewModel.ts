@@ -17,17 +17,13 @@
 import { useCallback, useMemo, useState } from "react";
 
 import {
-  useBackupServerKey,
   useClearServerKey,
-  useRestoreServerKey,
   useStoreServerKey,
   type Server,
 } from "@/hooks/useServers";
 
 export type ServerKeyVaultStatus =
   | "idle"
-  | "backing_up"
-  | "restoring"
   | "storing"
   | "confirming_clear"
   | "clearing"
@@ -46,8 +42,6 @@ export interface ServerKeyVaultViewModel {
   /** Outcome of the last completed action, for the section's status line. */
   message: string | null;
   error: string | null;
-  backup: () => void;
-  restore: () => void;
   storePasted: () => void;
   requestClear: () => void;
   cancelClear: () => void;
@@ -60,8 +54,6 @@ export function useServerKeyVaultViewModel(server: Server): ServerKeyVaultViewMo
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const backupKey = useBackupServerKey();
-  const restoreKey = useRestoreServerKey();
   const storeKey = useStoreServerKey();
   const clearKey = useClearServerKey();
 
@@ -76,29 +68,6 @@ export function useServerKeyVaultViewModel(server: Server): ServerKeyVaultViewMo
     setError(null);
     setMessage(text);
   }, []);
-
-  const backup = useCallback(() => {
-    setStatus("backing_up");
-    setError(null);
-    backupKey.mutate(server.id, {
-      onSuccess: (result) => succeed(`Key read from ${result.key_path} and stored encrypted.`),
-      onError: fail,
-    });
-  }, [backupKey, server.id, succeed, fail]);
-
-  const restore = useCallback(() => {
-    setStatus("restoring");
-    setError(null);
-    restoreKey.mutate(server.id, {
-      onSuccess: (result) =>
-        succeed(
-          result.written.length > 0
-            ? `Restored to ${result.written.join(", ")}.`
-            : "Nothing was written.",
-        ),
-      onError: fail,
-    });
-  }, [restoreKey, server.id, succeed, fail]);
 
   const storePasted = useCallback(() => {
     const material = pastedKey.trim();
@@ -130,7 +99,7 @@ export function useServerKeyVaultViewModel(server: Server): ServerKeyVaultViewMo
   }, [clearKey, server.id, succeed, fail]);
 
   const isBusy = useMemo(
-    () => status === "backing_up" || status === "restoring" || status === "storing" || status === "clearing",
+    () => status === "storing" || status === "clearing",
     [status],
   );
 
@@ -143,8 +112,6 @@ export function useServerKeyVaultViewModel(server: Server): ServerKeyVaultViewMo
     setPastedKey,
     message,
     error,
-    backup,
-    restore,
     storePasted,
     requestClear,
     cancelClear,

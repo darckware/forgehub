@@ -49,6 +49,15 @@ the inherited default directory does not infer a project from the message body.
 | `backend/app/api/routes/task.py:update_task` | Validate task transitions and wake scheduling after committed done/deployed status. |
 | `host-bridge/forgehub_messages_mcp.py:send_agent_message` | Explicit self-target and scheduling for omitted recipients. |
 
+External CLI executions run as the bridge service account, not inside each
+agent's configured home. The launcher therefore supplies the `forgehub`
+Messages MCP for each Claude Code and Codex run, with the registered agent
+slug and the existing protected environment-file path; it does not copy a
+token into CLI arguments or modify global runtime configuration. Hermes uses
+its own profile configuration, and agy continues to load its existing runtime
+MCP configuration. Every dispatch path must pass the executor's `profile_slug`
+to the bridge so Messages tools resolve the correct agent identity.
+
 ## Concurrency and recovery invariants
 
 Capture a run ID before network polling. Re-read the demand under a row lock and check that exact

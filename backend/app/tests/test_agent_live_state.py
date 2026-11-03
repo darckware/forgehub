@@ -270,7 +270,7 @@ async def test_stream_requires_authentication():
 
 
 @pytest.mark.asyncio
-async def test_external_agent_is_on_the_board_only_while_messages_runs_it(monkeypatch):
+async def test_external_agent_is_idle_on_the_board_until_messages_runs_it(monkeypatch):
     from app.core import agent_activity_stream
     from app.db.models.demand import AgentDemand
 
@@ -290,7 +290,10 @@ async def test_external_agent_is_on_the_board_only_while_messages_runs_it(monkey
     try:
         async with AsyncSessionLocal() as db:
             snapshot = await agent_activity_stream.build_live_snapshot(db)
-        assert all(item.agent_id != external_id for item in snapshot.agents)
+        # A.1: always on the board; idle (no telemetry invented) while nothing runs for it.
+        idle = next(item for item in snapshot.agents if item.agent_id == external_id)
+        assert idle.live.state == "idle" and idle.live.source == "messages"
+        assert idle.live.last_event_at is None and sum(idle.spark) == 0
 
         async with AsyncSessionLocal() as db:
             demand = AgentDemand(

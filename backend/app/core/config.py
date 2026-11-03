@@ -4,11 +4,29 @@ forgehub.config.
 This is the single source of truth for configuration. Every other module
 (db.base, core.security, alembic/env.py) must import `settings` from here
 instead of reading os.environ directly.
+
+ENVIRONMENT=test (Plano Integrado T.1, 2026-10-28) switches the process to
+the isolated test Postgres (`test-env/`): the repo-root `.env` -- production
+credentials and integration tokens -- is not loaded at all, `test-env/.env.test`
+is, and Settings refuses to build unless the database target is on the test
+allowlist. The refusal happens while the settings object is constructed, i.e.
+before db/base.py can create an engine, so no connection is ever attempted.
 """
+import os
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.core.test_integration_policy import (
+    INTEGRATION_URL_SETTINGS,
+    OPTIONAL_TEST_SECRETS,
+    REQUIRED_TEST_SECRETS,
+    UnsafeTestConfigurationError,  # noqa: F401 -- re-exported for callers/tests
+    assert_safe_test_configuration,
+    load_production_secret_hashes,
+)
 
 # Repo root, two levels up from backend/app/core/.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -19,6 +37,76 @@ _ENV_FILE = _REPO_ROOT / ".env"
 # (pydantic-settings' env_file tuple: later files win); in practice the two
 # files don't share keys today.
 _APP_CONFIG_FILE = _REPO_ROOT / "forgehub.config"
+# Isolated test database (test-env/docker-compose.yml). Out of git; the
+# versioned template is test-env/.env.test.example.
+TEST_ENV_FILE = _REPO_ROOT / "test-env" / ".env.test"
+# Production reference for the T.3 credential check: the repo-root .env when
+# this process can see it (host), else these SHA-256 hashes of its secrets,
+# written by test-env/init-env.sh and mounted into the test containers (which
+# never get the .env itself). Out of git.
+PRODUCTION_ENV_FILE = _ENV_FILE
+PRODUCTION_SECRET_HASH_FILE = _REPO_ROOT / "test-env" / ".prod-secret-hashes"
+
+TEST_ENVIRONMENT = "test"
+
+# The only (host, port, database, user) targets a test process may reach.
+# An allowlist, not just the denylist below: any target nobody listed --
+# another app's instance, a typo, a new production port -- is refused too.
+# The container-name entry (T.2) is how forgehub_test_backend reaches the
+# same instance from inside forgehub_test_network, which is `internal` and
+# has no route to the host: that name only resolves on that network.
+TEST_DATABASE_ALLOWLIST: frozenset[tuple[str, int, str, str]] = frozenset({
+    ("127.0.0.1", 5439, "forgehub_test", "forgehub_test"),
+    ("localhost", 5439, "forgehub_test", "forgehub_test"),
+    ("forgehub_test_postgres", 5432, "forgehub_test", "forgehub_test"),
+})
+# Known production markers, reported by name so the refusal says *why*.
+PRODUCTION_DATABASE_PORTS = frozenset({5433})
+PRODUCTION_DATABASE_HOSTS = frozenset({"forgehub_postgres"})
+PRODUCTION_DATABASE_NAMES = frozenset({"forgehub"})
+PRODUCTION_DATABASE_USERS = frozenset({"foundation"})
+
+
+class UnsafeDatabaseTargetError(RuntimeError):
+    """A test process was pointed at a database outside the test allowlist.
+
+    A RuntimeError, not a ValueError, so pydantic lets it propagate as-is
+    instead of folding it into a ValidationError."""
+
+
+def is_test_environment(value: str | None) -> bool:
+    return (value or "").strip().lower() == TEST_ENVIRONMENT
+
+
+def assert_test_database_target(host: str, port: int, database: str, user: str) -> None:
+    """Raise UnsafeDatabaseTargetError unless the target is on the test
+    allowlist. Pure check -- never opens a connection. The password is not
+    an input, so it can never end up in the error message."""
+    normalized_host = (host or "").strip().lower()
+    reasons = []
+    if port in PRODUCTION_DATABASE_PORTS:
+        reasons.append(f"port {port} is production")
+    if normalized_host in PRODUCTION_DATABASE_HOSTS:
+        reasons.append(f"host {normalized_host!r} is production")
+    if database in PRODUCTION_DATABASE_NAMES:
+        reasons.append(f"database {database!r} is production")
+    if user in PRODUCTION_DATABASE_USERS:
+        reasons.append(f"user {user!r} is production")
+    if (normalized_host, port, database, user) not in TEST_DATABASE_ALLOWLIST:
+        reasons.append("target is not on the test allowlist (forgehub_test@127.0.0.1:5439, or forgehub_test_postgres:5432 inside the test network)")
+    if reasons:
+        raise UnsafeDatabaseTargetError(
+            f"ENVIRONMENT=test refuses database {user}@{normalized_host}:{port}/{database}: "
+            + "; ".join(reasons)
+        )
+
+
+def _env_files() -> tuple[str, ...]:
+    # Decided from the process environment, before any file is read: a test
+    # process must never load the production .env, not even to override it.
+    if is_test_environment(os.environ.get("ENVIRONMENT")):
+        return (str(_APP_CONFIG_FILE), str(TEST_ENV_FILE))
+    return (str(_ENV_FILE), str(_APP_CONFIG_FILE))
 
 
 # Response languages the in-app AI chat can be pinned to (Settings -> AI
@@ -52,7 +140,7 @@ def chat_response_language_allowed(value: str, current: str) -> bool:
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(str(_ENV_FILE), str(_APP_CONFIG_FILE)),
+        env_file=_env_files(),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -67,6 +155,14 @@ class Settings(BaseSettings):
 
     # Auth
     JWT_SECRET: str = "dev_only_insecure_jwt_secret_change_me"
+    # Key material for core/secrets.py (Fernet over ForgeRouter keys, machine
+    # keys, ...). Empty = derive from JWT_SECRET, as before. Separate so
+    # JWT_SECRET can be rotated without making every stored credential
+    # unreadable (2026-10-29: production ran on the public code default above
+    # and was rotated, keeping the old value here). Required, and distinct,
+    # under ENVIRONMENT=test (T.3): a test process must not be able to decrypt
+    # a production credential.
+    SECRETS_ENCRYPTION_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
     # Browser/API access-token lifetime. Keep this at eight hours so a normal
     # workday does not require a fresh login; active sessions still refresh
@@ -81,6 +177,18 @@ class Settings(BaseSettings):
     # is reachable from the public internet (forgehub.darckware.net), and
     # the schema would publish every route's shape.
     ENVIRONMENT: str = "production"
+
+    # Mission MCP tools switch (Plano Integrado M0.2a, MCP_MISSION_TOOLS_SPEC.md
+    # §0.6). Off = the mission MCP write contract (POST /missions with an
+    # idempotency_key, /missions/{id}/members:apply) answers 503
+    # MISSION_TOOLS_DISABLED without touching data. Guards are never behind it.
+    MISSION_TOOLS_ENABLED: bool = False
+    # Orchestrator decision cycle switch (Plano Integrado M0.8,
+    # MISSION_ORCHESTRATOR_CYCLE_SPEC.md §7 rollback). Off = no mission gets a
+    # coordination routine and the mission loop does nothing; existing
+    # routines are disabled at the next transition. Decisions/locks stay as
+    # history. The loop also needs background_workers_enabled (never under test).
+    MISSION_CYCLE_ENABLED: bool = False
 
     # Google reCAPTCHA v2 (login screen, see api/routes/auth.py +
     # core/recaptcha.py). Empty = feature off (fail-open, same convention as
@@ -99,6 +207,15 @@ class Settings(BaseSettings):
     CHAT_BRIDGE_URL: str = "http://host.docker.internal:8910"
     CHAT_BRIDGE_TOKEN: str = ""
 
+    # Opt-in only: owner UUID, fixed source-agent UUID -> proposal-store file,
+    # and Telegram destination are administered outside agent requests.
+    MOODLE_APPROVAL_ENABLED: bool = False
+    MOODLE_APPROVAL_OWNER_ID: str = ""
+    MOODLE_APPROVAL_SOURCE_FILES: str = "{}"
+    MOODLE_APPROVAL_WORKING_PATH: str = ""
+    MOODLE_APPROVAL_TELEGRAM_CHAT_ID: str = ""
+    MOODLE_APPROVAL_FORM_URL: str = ""
+
     # HMAC secret the agent runtimes sign their activity webhooks with
     # (POST /api/v1/agent-activity/events). The same value lives in each Hermes
     # profile's .env as FORGEHUB_ACTIVITY_WEBHOOK_SECRET. Empty = the endpoint
@@ -113,15 +230,21 @@ class Settings(BaseSettings):
     # when translation timed out; the SSO call shared the same dead address).
     FORGEROUTER_URL: str = "http://forgerouter:2100"
     FORGEROUTER_SSO_SECRET: str = ""
+    # Test environment only (T.3): the one ForgeRouter key the integration stub
+    # accepts, `frtest_` + random, generated by test-env/init-env.sh. Under
+    # ENVIRONMENT=test it is the key every agent uses (core/forgerouter_llm.py);
+    # outside test it is never read.
+    FORGEROUTER_TEST_API_KEY: str = ""
 
     # Darckware CRM (client demands, contracts, outbound e-mail queue -- see
     # api/routes/client_ops.py). Darckware stores, ForgeHub operates. Two
     # credentials on purpose: the agent token is the same one Lara's MCP uses
     # (read/write), the approver token is ForgeHub-only and is what lets an
     # e-mail to a client actually leave -- the drafter can never approve.
-    # Empty URL/token = integration off (routes answer 503).
+    # Empty URL and token (or unreadable token file) = integration off (routes answer 503).
     DARCKWARE_API_URL: str = "http://darckware-backend:8020"
     DARCKWARE_AGENT_TOKEN: str = ""
+    DARCKWARE_AGENT_TOKEN_FILE: str = ""
     DARCKWARE_APPROVER_TOKEN: str = ""
     # "Traduzir" on a client demand (2026-10-14): a plain ForgeRouter chat
     # completion billed to this agent's own key -- Lara, who owns the client
@@ -138,13 +261,17 @@ class Settings(BaseSettings):
     PERSONAL_WHATSAPP_STATE_DIR: str = "/profiles/maia/whatsapp"
 
     # Optional Open-Meteo integration for Pessoal. No API key is required;
-    # leaving coordinates unset keeps weather out of summaries.
+    # missing coordinates use Rio de Janeiro as the temporary default.
     WEATHER_ENABLED: bool = False
     WEATHER_LATITUDE: float | None = None
     WEATHER_LONGITUDE: float | None = None
     WEATHER_LOCATION: str = ""
     WEATHER_TIMEZONE: str = "America/Sao_Paulo"
     WEATHER_API_URL: str = "https://api.open-meteo.com/v1/forecast"
+    WEATHER_REVERSE_GEOCODE_URL: str = "https://nominatim.openstreetmap.org/reverse"
+
+    # Tailscale's public API (core/tailscale_api.py: per-station auth keys).
+    TAILSCALE_API_URL: str = "https://api.tailscale.com/api/v2"
 
     # Hindsight/Foundation PostgreSQL instance.
     FOUNDATION_POSTGRES_HOST: str = "hindsight_postgres"
@@ -259,6 +386,48 @@ class Settings(BaseSettings):
     # hand can hold anything; this is what actually bounds the host.
     MAX_CONCURRENT_DISPATCHES_CEILING: int = 20
 
+    # The background loops main.py starts (scheduled dispatch to the
+    # host-bridge, Telegram feedback, Darckware polling, ForgeRouter key sync,
+    # the Maia's context pass, ...). Read through `background_workers_enabled`,
+    # never directly: under ENVIRONMENT=test they stay off whatever this says
+    # (Plano Integrado T.2) -- a loop would act on its own, with nobody having
+    # asked, even though every integration it could reach is a stub (T.3).
+    BACKGROUND_WORKERS_ENABLED: bool = True
+
+    @property
+    def background_workers_enabled(self) -> bool:
+        return self.BACKGROUND_WORKERS_ENABLED and not is_test_environment(self.ENVIRONMENT)
+
+    @model_validator(mode="after")
+    def _refuse_production_database_in_test(self) -> "Settings":
+        if is_test_environment(self.ENVIRONMENT):
+            assert_test_database_target(
+                self.POSTGRES_HOST, self.POSTGRES_PORT, self.POSTGRES_DB, self.POSTGRES_USER
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _refuse_real_integrations_in_test(self) -> "Settings":
+        """T.3: under test every integration URL is the stub (or empty) and
+        every credential is the test's own -- see core/test_integration_policy.py.
+        Runs while Settings is built, so a refused process never starts."""
+        if not is_test_environment(self.ENVIRONMENT):
+            return self
+        extra = []
+        if self.DARCKWARE_AGENT_TOKEN_FILE:
+            extra.append("DARCKWARE_AGENT_TOKEN_FILE is set (that file is the real Lara token); use DARCKWARE_AGENT_TOKEN from .env.test")
+        if self.RECAPTCHA_SECRET_KEY:
+            extra.append("RECAPTCHA_SECRET_KEY is set; the test login never calls Google")
+        if self.WEATHER_ENABLED and not self.WEATHER_API_URL:
+            extra.append("WEATHER_ENABLED with no WEATHER_API_URL would fall back to Open-Meteo")
+        assert_safe_test_configuration(
+            {name: getattr(self, name) for name in INTEGRATION_URL_SETTINGS},
+            {name: getattr(self, name) for name in (*REQUIRED_TEST_SECRETS, *OPTIONAL_TEST_SECRETS)},
+            load_production_secret_hashes(PRODUCTION_ENV_FILE, PRODUCTION_SECRET_HASH_FILE),
+            extra_problems=extra,
+        )
+        return self
+
     @property
     def DATABASE_URL(self) -> str:
         """Async SQLAlchemy connection string (postgresql+asyncpg://...)."""
@@ -276,9 +445,15 @@ class Settings(BaseSettings):
         user: str | None = None,
         password: str | None = None,
     ) -> str:
-        """Build a connection URL for an arbitrary PostgreSQL instance."""
+        """Build a connection URL for an arbitrary PostgreSQL instance.
+
+        Under ENVIRONMENT=test this raises for anything off the test
+        allowlist -- the other instances it serves (Hindsight, ForgeRouter)
+        are production ones."""
         effective_password = password or self.FOUNDATION_POSTGRES_PASSWORD or self.POSTGRES_PASSWORD
         effective_user = user or self.FOUNDATION_POSTGRES_USER or self.POSTGRES_USER
+        if is_test_environment(self.ENVIRONMENT):
+            assert_test_database_target(host, port, db, effective_user)
         return f"postgresql+asyncpg://{effective_user}:{effective_password}@{host}:{port}/{db}"
 
 

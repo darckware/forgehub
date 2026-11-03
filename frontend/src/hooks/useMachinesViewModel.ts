@@ -17,11 +17,9 @@
 import { useMemo, useState } from "react";
 import {
   useDeleteServer,
-  useKeysToVault,
   useServers,
   useToggleServerAccess,
   type HostKind,
-  type KeysToVaultResult,
   type Server,
 } from "@/hooks/useServers";
 import {
@@ -209,13 +207,6 @@ export interface MachinesViewModel {
   /** One "Configure access" per machine (phase 5): a server gets the key
    * installed with an admin account, a station gets prepared. */
   configure: (machine: Server) => void;
-  confirmingMigration: boolean;
-  askMigrate: () => void;
-  cancelMigrate: () => void;
-  confirmMigrate: () => void;
-  migrating: boolean;
-  migration: KeysToVaultResult | null;
-  migrationError: string | null;
   importingCsv: boolean;
   setImportingCsv: (open: boolean) => void;
   deleting: Server | null;
@@ -250,7 +241,6 @@ export function useMachinesViewModel(): MachinesViewModel {
   const vpnAction = useVpnAction();
   const toggle = useToggleServerAccess();
   const deleteServer = useDeleteServer();
-  const keysToVault = useKeysToVault();
   const createGroup = useCreateHostGroup();
   const deleteGroup = useDeleteHostGroup();
 
@@ -261,7 +251,6 @@ export function useMachinesViewModel(): MachinesViewModel {
   const [form, setForm] = useState<Server | "new" | null>(null);
   const [installing, setInstalling] = useState<Server | null>(null);
   const [preparing, setPreparing] = useState<Server | null>(null);
-  const [confirmingMigration, setConfirmingMigration] = useState(false);
   const [importingCsv, setImportingCsv] = useState(false);
   const [deleting, setDeleting] = useState<Server | null>(null);
   const [groupDraft, setGroupDraft] = useState<{ name: string; clientId: string } | null>(null);
@@ -343,22 +332,6 @@ export function useMachinesViewModel(): MachinesViewModel {
     preparing,
     closePrepare: () => setPreparing(null),
     configure: (machine) => (machine.kind === "workstation" ? setPreparing(machine) : setInstalling(machine)),
-    confirmingMigration,
-    askMigrate: () => {
-      keysToVault.reset();
-      setConfirmingMigration(true);
-    },
-    cancelMigrate: () => setConfirmingMigration(false),
-    confirmMigrate: () =>
-      keysToVault.mutate(undefined, {
-        onSuccess: () => {
-          setConfirmingMigration(false);
-          readiness.forceProbe.mutate();
-        },
-      }),
-    migrating: keysToVault.isPending,
-    migration: keysToVault.data ?? null,
-    migrationError: keysToVault.error?.message ?? null,
     importingCsv,
     setImportingCsv,
     deleting,

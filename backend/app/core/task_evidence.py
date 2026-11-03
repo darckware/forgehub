@@ -18,6 +18,11 @@ request.
 
 Evidence prefixes (see the convention _dispatch_task_by_id's dispatch body
 teaches the recipient agent):
+Since M0.6a the `file:`/`git:` checks run on the host, through the bridge
+(core/evidence_bridge.py): this container has neither git nor the project
+folders, so the in-container checks always failed in production. A bridge
+that can't answer leaves the execution "reported" (unverified).
+
 - `file:<relpath>` -- resolved against the task's Project.working_directory_
   path; must exist and have mtime >= the execution's started_at. This is
   the exact check that would have caught the incident (the cited file's
@@ -26,15 +31,16 @@ teaches the recipient agent):
 - `db:<entity_type>:<uuid>` -- confirms the referenced row actually exists
   (closes "I registered project X" when no such project was ever created).
 """
-import asyncio
 import logging
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.evidence_bridge import EvidenceUnverifiable, verify_on_host
 from app.core.governed_approval import request_task_approval
 from app.db.models.backlog import PlanningItem
 from app.db.models.governance import AuditEvent
@@ -44,6 +50,8 @@ from app.db.models.project import ChangeRequest, Project
 from app.db.models.task import ProjectTask, TaskExecution
 
 logger = logging.getLogger(__name__)
+
+GIT_SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
 
 # Entity types a db:<type>:<uuid> evidence ref may name, mapped to the model
 # that owns that table. Deliberately a small allowlist rather than a generic
@@ -80,47 +88,22 @@ async def _check_file_evidence(db: AsyncSession, execution: TaskExecution, relpa
     if project is None or not project.working_directory_path:
         return False, "no project working_directory_path to resolve the file against"
     # Reject absolute paths / traversal outside the project root -- evidence_ref
-    # is agent-supplied text, not a trusted path.
+    # is agent-supplied text, not a trusted path. The bridge re-checks after
+    # realpath (a symlink pointing out of the project is refused there).
     if os.path.isabs(relpath) or ".." in relpath.split("/"):
         return False, "file evidence must be a relative path inside the project"
-    full_path = os.path.join(project.working_directory_path, relpath)
-    if not os.path.isfile(full_path):
-        return False, f"file does not exist: {full_path}"
-    mtime = datetime.fromtimestamp(os.path.getmtime(full_path), tz=timezone.utc)
-    if execution.started_at and mtime < execution.started_at:
-        return False, (
-            f"file mtime ({mtime.isoformat()}) predates the execution's start "
-            f"({execution.started_at.isoformat()}) -- this is the exact signature "
-            "of a narrated-but-not-executed claim"
-        )
-    return True, "file exists with mtime after execution start"
+    # Checked on the host (M0.6a): this container has no project folders.
+    return await verify_on_host("file", project.working_directory_path, relpath, execution.started_at)
 
 
 async def _check_git_evidence(db: AsyncSession, execution: TaskExecution, sha: str) -> tuple[bool, str]:
     project = await _resolve_execution_project(db, execution)
     if project is None or not project.working_directory_path:
         return False, "no project working_directory_path to resolve the repo against"
-    proc = await asyncio.create_subprocess_exec(
-        "git", "-C", project.working_directory_path, "cat-file", "-e", sha,
-        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-    )
-    if await proc.wait() != 0:
-        return False, f"commit {sha} not found in {project.working_directory_path}"
-    log_proc = await asyncio.create_subprocess_exec(
-        "git", "-C", project.working_directory_path, "log", "-1", "--format=%cI", sha,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
-    )
-    stdout, _ = await log_proc.communicate()
-    try:
-        commit_at = datetime.fromisoformat(stdout.decode().strip())
-    except ValueError:
-        return True, f"commit {sha} exists (commit date unparsable, skipped timing check)"
-    if execution.started_at and commit_at < execution.started_at:
-        return False, (
-            f"commit date ({commit_at.isoformat()}) predates the execution's start "
-            f"({execution.started_at.isoformat()})"
-        )
-    return True, f"commit {sha} exists with date after execution start"
+    if not GIT_SHA_RE.match(sha.strip().lower()):
+        return False, f"git evidence is not a commit sha: {sha!r}"
+    # Checked on the host (M0.6a): this container has no git and no repository.
+    return await verify_on_host("git", project.working_directory_path, sha.strip().lower(), execution.started_at)
 
 
 async def _check_db_evidence(db: AsyncSession, entity_type: str, entity_id: str) -> tuple[bool, str]:
@@ -148,12 +131,14 @@ async def verify_evidence(db: AsyncSession, execution: TaskExecution) -> tuple[b
     if ":" not in ref:
         return None, f"evidence_ref has no recognized prefix: {ref!r}"
     prefix, _, rest = ref.partition(":")
-    if prefix == "file":
-        ok, reason = await _check_file_evidence(db, execution, rest)
-        return ok, reason
-    if prefix == "git":
-        ok, reason = await _check_git_evidence(db, execution, rest)
-        return ok, reason
+    try:
+        if prefix == "file":
+            return await _check_file_evidence(db, execution, rest)
+        if prefix == "git":
+            return await _check_git_evidence(db, execution, rest)
+    except EvidenceUnverifiable as exc:
+        # Bridge down/refused: unverified, never verified nor proven false.
+        return None, f"evidence could not be checked: {exc}"
     if prefix == "db":
         entity_type, _, entity_id = rest.partition(":")
         ok, reason = await _check_db_evidence(db, entity_type, entity_id)

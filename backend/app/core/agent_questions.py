@@ -38,7 +38,9 @@ QUIET_TZ = ZoneInfo("America/Sao_Paulo")
 QUIET_START = time(23, 0)
 QUIET_END = time(7, 0)
 COORDINATOR_SLUG = "athos"
-_BRIDGE_MESSAGES_URL = f"{settings.CHAT_BRIDGE_URL.rstrip('/')}/v1/messages/send"
+def _bridge_messages_url() -> str:
+    # Per call, like core/feedback.py: CHAT_BRIDGE_URL is the one switch point.
+    return f"{settings.CHAT_BRIDGE_URL.rstrip('/')}/v1/messages/send"
 
 # (profile_slug or None, "telegram:<chat>", text) -> raises on failure.
 TelegramSender = Callable[[str | None, str, str], Awaitable[None]]
@@ -119,9 +121,52 @@ async def _bridge_send(profile: str | None, target: str, text: str) -> None:
         payload["profile"] = profile
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
-            _BRIDGE_MESSAGES_URL, json=payload, headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN}
+            _bridge_messages_url(), json=payload, headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN}
         )
         response.raise_for_status()
+
+
+async def create_question(
+    db: AsyncSession,
+    asker: Agent,
+    *,
+    question: str,
+    context: str | None = None,
+    recommendation: str | None = None,
+    blocking: bool = False,
+    urgent: bool = False,
+    origin_demand_id: uuid.UUID | None = None,
+) -> AgentQuestion:
+    """Record a question for Marcelo and its bell notification; the Telegram
+    message goes with the next delivery pass. Shared by the MCP `ask_marcelo`
+    route and the mission cycle's `ask_marcelo` decision (M0.8). Caller commits."""
+    relay, chat = await resolve_relay(db, asker)
+    now = datetime.now(timezone.utc)
+    row = AgentQuestion(
+        agent_id=asker.id,
+        relay_agent_id=relay.id if relay else None,
+        telegram_chat=chat,
+        question=question.strip(),
+        context=(context or "").strip() or None,
+        recommendation=(recommendation or "").strip() or None,
+        blocking=blocking,
+        urgent=urgent,
+        origin_demand_id=origin_demand_id,
+        notify_after=notify_after_for(now, urgent),
+    )
+    db.add(row)
+    await db.flush()
+    db.add(
+        Notification(
+            source="system",
+            severity="warning" if urgent or blocking else "info",
+            title=f"Pergunta #{row.number} de {asker.name}",
+            message=row.question[:500],
+            event_key=f"agent-question:{row.id}",
+            occurred_at=now,
+        )
+    )
+    return row
 
 
 async def run_question_delivery_pass(

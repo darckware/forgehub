@@ -64,7 +64,9 @@ from vpn_control import VpnControl, VpnPolicyError
 from remote_fs import make_remote_fs_router
 from host_exec import AgentCache, make_host_exec_router
 from forgevault_proxy import VaultClient, make_forgevault_router
+from evidence_probe import make_evidence_router
 from hindsight_retention import read_status as read_hindsight_retention_status
+from server_monitoring import collector as monitoring_collector
 
 BRIDGE_TOKEN = os.environ["FORGEHUB_BRIDGE_TOKEN"]
 HERMES_PYTHON = "/usr/local/lib/hermes-agent/venv/bin/python"
@@ -1267,34 +1269,16 @@ class AgentRunRequest(BaseModel):
     routing_group: str = "auto"
     api_key: str = ""
     mode: str = "execute"  # plan | execute
-    autonomous: bool = False
     max_seconds: int = 1800
     # Required when runtime_type == "hermes": which /root/.hermes/profiles/<slug>
     # to run as (Athos, Aegis, ...). Ignored for every other runtime_type.
     hermes_profile: str | None = None
     max_budget_usd: float | None = None
     work_package_hash: str | None = None
-
-
-def _antigravity_env(project_dir: Path) -> dict[str, str]:
-    """Read the project-scoped ForgeRouter env without invoking a shell."""
-    env = os.environ.copy()
-    env_file = project_dir / ".forgerouter" / "antigravity.env"
-    if not env_file.exists():
-        return env
-    for raw_line in env_file.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:]
-        if "=" not in line:
-            continue
-        key, raw_value = line.split("=", 1)
-        if re.fullmatch(r"[A-Z_][A-Z0-9_]*", key):
-            values = shlex.split(raw_value)
-            env[key] = values[0] if values else ""
-    return env
+    # The agent's autonomous_runs flag (2026-10-28): in execute mode, run the
+    # external CLI without permission prompts. Headless runs have nobody to
+    # approve a tool, so a prompt is an automatic denial. Plan mode ignores it.
+    autonomous: bool = False
 
 
 def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[str], dict[str, str]]:
@@ -1335,19 +1319,16 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
             hermes_env,
         )
 
-    routing_groups = {"auto", "simple", "standard", "complex", "reasoning", "vision", "audio", "code"}
-    if req.routing_group not in routing_groups:
-        raise HTTPException(status_code=400, detail="unsupported ForgeRouter routing_group")
-    # req.api_key is only set when the Agent row in ForgeHub has a
-    # ForgeRouter credential configured. Porthus/Aramis/Dartan each have
-    # their own native CLI auth already logged in on this host (Claude
-    # Code subscription, Codex's own auth.json, Antigravity's own OAuth
-    # token under ~/.gemini/antigravity-cli/) -- with no ForgeRouter key
-    # on file, dispatch falls back to that native auth instead of forcing
-    # ForgeRouter with an empty/invalid key (which would 401). Same
-    # "agent already has its own credential" pattern as runtime_type ==
-    # "hermes" above.
-    use_forgerouter = bool(req.api_key)
+    # Claude Code, Codex and agy always run on their own native login and
+    # default model (Claude Code subscription, Codex's auth.json, agy's OAuth
+    # token) -- never through ForgeRouter (Marcelo, 2026-10-24: "os modelos
+    # usados pelo codex, claude e agy são deles"). Routing them through
+    # `forgerouter/auto` handed Aramis's `codex exec` runs to free models
+    # (nemotron, command-r7b, ...) that ended the turn mid-task with exit 0,
+    # so the Messages dispatch was recorded as completed with the work half
+    # done. model_ref/routing_group/api_key stay on AgentRunRequest so older
+    # callers aren't rejected, but are ignored here.
+    autonomous = req.autonomous and req.mode == "execute"
     default_agent_slug = {
         "claude": "porthus",
         "codex": "aramis",
@@ -1355,108 +1336,88 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
         "antigravity": "dartan",
     }.get(req.runtime_type)
     messages_mcp = _messages_mcp_config(req.agent_slug or default_agent_slug)
-    autonomous = req.autonomous and req.mode == "execute"
-    effective_model = (
-        f"forgerouter/{req.routing_group}"
-        if req.model_ref == "forgerouter/auto"
-        else req.model_ref
-    )
-    model_args = ["--model", effective_model] if use_forgerouter else []
-    agent_env = os.environ.copy()
-    if use_forgerouter:
-        agent_env.update({
-            "FORGEROUTER_API_KEY": req.api_key,
-            "FORGEROUTER_MODEL": effective_model,
-            "OPENAI_API_KEY": req.api_key,
-            "ANTHROPIC_AUTH_TOKEN": req.api_key,
-            "ANTHROPIC_API_KEY": req.api_key,
-        })
+
     if req.runtime_type == "claude":
-        if use_forgerouter:
-            # Without this, ANTHROPIC_API_KEY above still points `claude` at
-            # the real Anthropic API with a ForgeRouter-issued key -> 401
-            # Invalid API key. Same fix
-            # /root/.claude/scripts/claude_fallback.sh already applies, and
-            # the same constant _configure_claude_forgerouter already uses
-            # for the project-settings.json flow -- just never wired into
-            # this ad hoc agent-runs dispatch path before now.
-            agent_env = {**agent_env, "ANTHROPIC_BASE_URL": FORGEROUTER_ANTHROPIC_BASE_URL}
-        permission_args = ["--dangerously-skip-permissions"] if autonomous else [
-            "--permission-mode",
-            "plan" if req.mode == "plan" else "acceptEdits",
-        ]
+        env = _native_runtime_env()
         if autonomous:
-            agent_env["IS_SANDBOX"] = "1"
+            # The bridge runs as root, where Claude Code refuses to skip
+            # permissions unless told it is sandboxed (as claude-yolo.sh does).
+            permission_args = ["--dangerously-skip-permissions"]
+            env["IS_SANDBOX"] = "1"
+        else:
+            permission_args = ["--permission-mode", "plan" if req.mode == "plan" else "acceptEdits"]
         command = [
-            resolve_runtime_executable("claude", env=agent_env),
+            resolve_runtime_executable("claude"),
             "--print",
             "--output-format",
             "json",
             *permission_args,
             "--no-session-persistence",
-            *model_args,
             "--mcp-config",
             json.dumps(messages_mcp, separators=(",", ":")),
         ]
         if req.max_budget_usd is not None:
             command.extend(["--max-budget-usd", str(req.max_budget_usd)])
         command.append(req.prompt)
-        return command, agent_env
+        return command, env
 
     if req.runtime_type == "codex":
-        codex_overrides: list[str] = []
-        if use_forgerouter and effective_model.startswith("forgerouter/"):
-            # -c overrides, not the project's .codex/config.toml: Codex
-            # ignores model_provider/model_providers from project-local
-            # files (see FORGEROUTER_CODEX_OVERRIDES comment above). Skipped
-            # entirely when running on Codex's own native auth.json login
-            # (use_forgerouter False) -- those overrides would otherwise
-            # force Codex's provider back to ForgeRouter.
-            for override in FORGEROUTER_CODEX_OVERRIDES:
-                codex_overrides += ["-c", override]
-        sandbox_args = (
-            ["--dangerously-bypass-approvals-and-sandbox"]
-            if autonomous
-            else ["--sandbox", "read-only" if req.mode == "plan" else "workspace-write"]
-        )
+        if autonomous:
+            sandbox_args = ["--dangerously-bypass-approvals-and-sandbox"]
+        else:
+            sandbox_args = ["--sandbox", "read-only" if req.mode == "plan" else "workspace-write"]
         return (
             [
-                resolve_runtime_executable("codex", env=agent_env),
+                resolve_runtime_executable("codex"),
                 "exec",
                 "--json",
                 "--config",
                 _codex_messages_mcp_override(
                     messages_mcp["mcpServers"]["forgehub"]["env"]["FORGEHUB_AGENT_SLUG"]
                 ),
+                # Explicit filesystem workspaces are valid for Messages too.
+                # This does not change sandbox/approval settings or trust config.
+                *([] if any((parent / ".git").is_file() or (parent / ".git" / "HEAD").is_file() for parent in (project_dir.resolve(), *project_dir.resolve().parents)) else ["--skip-git-repo-check"]),
                 *sandbox_args,
                 "-C",
                 str(project_dir),
-                *codex_overrides,
-                *model_args,
                 req.prompt,
             ],
-            agent_env,
+            _native_runtime_env(),
         )
 
-    agy_sandbox_args = [] if autonomous else ["--sandbox"]
     return (
         [
-            resolve_runtime_executable("agy", env=agent_env),
+            resolve_runtime_executable("agy"),
             "--print",
             req.prompt,
             "--mode",
             "plan" if req.mode == "plan" else "accept-edits",
-            *agy_sandbox_args,
+            *(["--dangerously-skip-permissions"] if autonomous else ["--sandbox"]),
             "--print-timeout",
             f"{req.max_seconds}s",
-
         ],
-        {**_antigravity_env(project_dir), **agent_env} if use_forgerouter else agent_env,
+        _native_runtime_env(),
     )
 
 
+def _native_runtime_env() -> dict[str, str]:
+    """The bridge's env minus anything that would point a CLI at ForgeRouter
+    instead of its own login (e.g. an inherited ANTHROPIC_BASE_URL)."""
+    env = os.environ.copy()
+    for key in _FORGEROUTER_ENV_KEYS:
+        env.pop(key, None)
+    return env
+
+
 def _messages_mcp_config(agent_slug: str | None) -> dict[str, dict]:
-    """Session-scoped Messages MCP config without copying credentials to argv."""
+    """Session-only ForgeHub Messages MCP config for external CLI runs.
+
+    The host bridge launches all native CLIs as root, so they cannot rely on
+    MCP servers installed in an agent's separate home directory. Pass only
+    non-secret connection metadata; the stdio server reads CHAT_BRIDGE_TOKEN
+    from the existing protected environment file when it starts.
+    """
     slug = (agent_slug or "").strip().lower()
     if not slug or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,49}", slug):
         raise ValueError("agent_slug is required to configure ForgeHub Messages MCP")
@@ -1485,6 +1446,16 @@ def _codex_messages_mcp_override(agent_slug: str | None) -> str:
         "mcp_servers.forgehub={command=\"uv\","
         f"args=[{args}],env={{{env_entries}}}}}"
     )
+
+
+_FORGEROUTER_ENV_KEYS = (
+    "FORGEROUTER_API_KEY",
+    "FORGEROUTER_MODEL",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+)
 
 
 def _monitor_agent_run(run_id: str, proc: subprocess.Popen, max_seconds: int) -> None:
@@ -3499,21 +3470,21 @@ async def check_server_status(
 
 
 # ---------------------------------------------------------------------------
-# SSH key installation -- backs the Servers page's "install key" action.
-# Parameterized, non-interactive version of /root/.hermes/scripts/
-# configure_ssh.sh (same three steps, same key-naming convention): generate
-# an ed25519 pair on THIS host (where the terminal's ssh runs), push the
-# .pub into the server's authorized_keys using the password the user typed
-# (sshpass -e: password travels via env, never argv, never logged), then
-# verify with BatchMode. Idempotent: an existing key pair is reused.
+# SSH key installation -- private material is stored directly in ForgeVault.
+# Temporary key generation uses /dev/shm; the remote receives only the public
+# half. Password bootstrap remains non-interactive and never logs credentials.
 # ---------------------------------------------------------------------------
 
-SSH_KEYS_DIR = "/root/agents/aegis/server-management/ssh_keys"
+class GenerateKeyRequest(BaseModel):
+    secret_name: str = Field(min_length=3, max_length=120)
+    comment: str = Field(min_length=1, max_length=120)
+    description: str = Field(min_length=1, max_length=500)
 
 
 class InstallKeyRequest(BaseModel):
     ip_address: str
     remote_user: str  # key owner on the server (e.g. "aegis")
+    public_key: str
     # Password of the LOGIN account: admin_user when set, remote_user otherwise.
     password: str
     ssh_port: int = 22
@@ -3576,19 +3547,16 @@ async def _run_step(
 # holding the bridge token could name an arbitrary file and have its contents
 # returned. Covers where SSH keys actually live on this host: the shell's own
 # ~/.ssh, the Aegis profile's forgenet/server-management key directories, and
-# whatever SSH_KEYS_DIR is set to.
+# the legacy ForgeHub Remote Access key directory.
 PRIVATE_KEY_ROOTS = (
     "/root/.ssh",
-    "/root/agents",
     "/root/.hermes/profiles",
-    SSH_KEYS_DIR,
 )
 
 
 def _resolve_key_path(raw: str) -> str:
     """Validates a private-key path against PRIVATE_KEY_ROOTS. Resolves
-    symlinks first (/root/agents/aegis is one), so `..` or a symlink pointing
-    outside can't smuggle a path past the prefix check."""
+    symlinks first, so `..` or a symlink pointing outside can't smuggle a path past the prefix check."""
     path = (raw or "").strip()
     if not path:
         raise HTTPException(status_code=400, detail="key_path is required")
@@ -3601,139 +3569,40 @@ def _resolve_key_path(raw: str) -> str:
     return resolved
 
 
-class PrivateKeyRequest(BaseModel):
-    key_path: str
-
-
-class WritePrivateKeyRequest(BaseModel):
-    key_path: str
-    private_key: str
-    public_key: str | None = None
-
-
-@app.post("/v1/servers/read-private-key")
-async def read_private_key(
-    req: PrivateKeyRequest, x_bridge_token: str | None = Header(default=None)
-) -> dict:
-    """Reads an identity file so ForgeHub can keep an encrypted copy of it
-    (see servers.private_key_encrypted). The material crosses the wire on
-    localhost, token-checked, and is encrypted before it is stored -- the
-    alternative, leaving the only copy on disk, is what lost the 172.15.2.5
-    key when the Aegis profile directory was recreated."""
+@app.post("/v1/servers/generate-key")
+async def generate_server_key(req: GenerateKeyRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    """Generate an Ed25519 key in tmpfs, store it in ForgeVault, and return
+    only the secret id and public half. No private key is written to disk."""
     _check_token(x_bridge_token)
-    path = _resolve_key_path(req.key_path)
-    if not os.path.isfile(path):
-        raise HTTPException(status_code=404, detail=f"No identity file at {path}")
-    with open(path, encoding="utf-8", errors="replace") as fh:
-        private_key = fh.read()
-    if "PRIVATE KEY" not in private_key:
-        raise HTTPException(status_code=400, detail="File does not look like an SSH private key")
-    public_key = None
-    if os.path.isfile(path + ".pub"):
-        with open(path + ".pub", encoding="utf-8", errors="replace") as fh:
-            public_key = fh.read().strip()
-    return {"private_key": private_key, "public_key": public_key, "key_path": path}
+    if not re.fullmatch(r"[A-Z][A-Z0-9_]{2,119}", req.secret_name):
+        raise HTTPException(status_code=400, detail="Invalid ForgeVault secret name")
+    if not re.fullmatch(r"[\w.@:-]+", req.comment):
+        raise HTTPException(status_code=400, detail="Invalid key comment")
+    shm = "/dev/shm"
+    if not os.path.isdir(shm):
+        raise HTTPException(status_code=503, detail="Temporary memory filesystem is unavailable")
 
-
-@app.post("/v1/servers/write-private-key")
-async def write_private_key(
-    req: WritePrivateKeyRequest, x_bridge_token: str | None = Header(default=None)
-) -> dict:
-    """Pours a vaulted identity file back onto the host at key_path (0600,
-    parent directory created if needed), so a lost key can be restored without
-    touching the server's authorized_keys. Refuses to overwrite an existing
-    file: restoring is for a key that is *missing*, and silently replacing a
-    working identity would be a much worse failure than reporting the
-    conflict."""
-    _check_token(x_bridge_token)
-    path = _resolve_key_path(req.key_path)
-    if "PRIVATE KEY" not in req.private_key:
-        raise HTTPException(status_code=400, detail="Payload does not look like an SSH private key")
-    if os.path.exists(path):
-        raise HTTPException(status_code=409, detail=f"An identity file already exists at {path}")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    # Create with 0600 from the start -- writing then chmod'ing would leave a
-    # window where the private key is world-readable.
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(req.private_key if req.private_key.endswith("\n") else req.private_key + "\n")
-    written = [path]
-    if req.public_key and not os.path.exists(path + ".pub"):
-        with open(path + ".pub", "w", encoding="utf-8") as fh:
-            fh.write(req.public_key.strip() + "\n")
-        os.chmod(path + ".pub", 0o644)
-        written.append(path + ".pub")
-    return {"ok": True, "written": written}
-
-
-class ReadPubKeyRequest(BaseModel):
-    key_path: str
-
-
-@app.post("/v1/servers/read-public-key")
-async def read_public_key(req: ReadPubKeyRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
-    """Reads the public half of a configured SSH identity file on the host.
-    Backs the Servers page's "copy public key" button: given the row's
-    ssh_key_path, returns the contents of "<path>.pub" (or the path itself
-    when it already ends in .pub). Read-only, .pub files only -- never
-    returns a private key."""
-    _check_token(x_bridge_token)
-    path = req.key_path.strip()
-    if not path:
-        raise HTTPException(status_code=400, detail="key_path is required")
-    pub_path = path if path.endswith(".pub") else path + ".pub"
-    if not os.path.isfile(pub_path):
-        raise HTTPException(status_code=404, detail=f"Public key not found at {pub_path}")
-    with open(pub_path, encoding="utf-8", errors="replace") as fh:
-        content = fh.read().strip()
-    if not content.startswith("ssh-") and "ssh-" not in content.split(" ", 1)[0]:
-        raise HTTPException(status_code=400, detail="File does not look like an SSH public key")
-    return {"public_key": content, "pub_path": pub_path}
-
-
-class EnsureKeyRequest(BaseModel):
-    # One of the two names the key file: the IP (install-key's convention) or,
-    # for a station that hasn't joined the tailnet yet and so has no IP, an
-    # explicit key_name ("ws_<uuid>").
-    ip_address: str | None = None
-    key_name: str | None = None
-    comment: str | None = None
-
-
-@app.post("/v1/servers/ensure-key")
-async def ensure_server_key(req: EnsureKeyRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
-    """Creates (or reuses) the ed25519 pair a machine's preparation script
-    authorizes -- same file naming as install-key, so both flows meet on the
-    same identity. Used by Remote Access's "Prepare" for stations where the
-    key is authorized by a script run on the station (RustDesk), not pushed
-    with a password from here. Returns only the public half and the path."""
-    _check_token(x_bridge_token)
-    if req.key_name:
-        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", req.key_name):
-            raise HTTPException(status_code=400, detail="Invalid key_name")
-        base = req.key_name
-    elif req.ip_address and re.fullmatch(r"[\w.:-]+", req.ip_address):
-        base = re.sub(r"[.:]", "_", req.ip_address)
-    else:
-        raise HTTPException(status_code=400, detail="Invalid ip_address")
-    comment = req.comment or f"forgehub@{base}"
-    if not re.fullmatch(r"[\w.@:-]+", comment):
-        raise HTTPException(status_code=400, detail="Invalid comment")
-    key_path = os.path.join(SSH_KEYS_DIR, base + "_key")
-    pub_path = key_path + ".pub"
-    os.makedirs(SSH_KEYS_DIR, exist_ok=True)
-    created = False
-    if not (os.path.exists(key_path) and os.path.exists(pub_path)):
-        code, out = await _run_step(
-            ["ssh-keygen", "-q", "-t", "ed25519", "-f", key_path, "-N", "", "-C", comment], timeout=30
-        )
-        if code != 0:
-            raise HTTPException(status_code=500, detail=f"ssh-keygen failed: {out[-300:]}")
-        created = True
-    os.chmod(key_path, 0o600)
-    with open(pub_path, encoding="utf-8") as fh:
-        public_key = fh.read().strip()
-    return {"key_path": key_path, "public_key": public_key, "created": created}
+    try:
+        with tempfile.TemporaryDirectory(prefix="forgehub-key-", dir=shm) as temp_dir:
+            os.chmod(temp_dir, 0o700)
+            key_path = os.path.join(temp_dir, "identity")
+            code, out = await _run_step(
+                ["ssh-keygen", "-q", "-t", "ed25519", "-f", key_path, "-N", "", "-C", req.comment],
+                timeout=30,
+            )
+            if code != 0:
+                raise HTTPException(status_code=500, detail=f"ssh-keygen failed: {out[-300:]}")
+            os.chmod(key_path, 0o600)
+            private_key = Path(key_path).read_text(encoding="utf-8")
+            public_key = Path(key_path + ".pub").read_text(encoding="utf-8").strip()
+            stored = await _vault_client.upsert(
+                req.secret_name, private_key, req.description, "SshPrivateKey"
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Could not store the generated key in ForgeVault") from exc
+    return {"ssh_key_ref": stored["id"], "public_key": public_key, "created": bool(stored.get("created"))}
 
 
 @app.post("/v1/servers/install-key")
@@ -3745,27 +3614,11 @@ async def install_server_key(
         raise HTTPException(status_code=400, detail="Invalid ip_address or remote_user")
     if not req.password:
         raise HTTPException(status_code=400, detail="Password is required")
-
-    key_name = re.sub(r"[.:]", "_", req.ip_address) + "_key"
-    key_path = os.path.join(SSH_KEYS_DIR, key_name)
-    pub_path = key_path + ".pub"
-    os.makedirs(SSH_KEYS_DIR, exist_ok=True)
+    public_key = req.public_key.strip()
+    if not re.fullmatch(r"ssh-ed25519 [A-Za-z0-9+/=]+(?: [\w.@:-]+)?", public_key):
+        raise HTTPException(status_code=400, detail="Invalid SSH public key")
+    public_key_literal = shlex.quote(public_key)
     steps: list[str] = []
-
-    if os.path.exists(key_path) and os.path.exists(pub_path):
-        steps.append(f"Key pair already exists at {key_path} — reusing (idempotent)")
-    else:
-        code, out = await _run_step(
-            ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", "", "-C", f"monitoramento-{req.ip_address}"],
-            timeout=30,
-        )
-        if code != 0:
-            return {"ok": False, "step": "generate", "error": out, "steps": steps}
-        steps.append(f"Generated ed25519 key pair at {key_path}")
-    os.chmod(key_path, 0o600)
-
-    with open(pub_path, encoding="utf-8") as fh:
-        public_key = fh.read().strip()
 
     if req.admin_user and req.admin_user != req.remote_user:
         # Admin path: log in as admin_user, create remote_user if missing
@@ -3832,11 +3685,18 @@ echo "__KEY_INSTALLED__"
             steps.append(f"User '{req.remote_user}' already exists on the server")
         steps.append(f"Public key installed in ~{req.remote_user}/.ssh/authorized_keys (via {req.admin_user})")
     else:
+        script = f"""set -e
+mkdir -p \"$HOME/.ssh\"
+chmod 700 \"$HOME/.ssh\"
+grep -qxF {public_key_literal} \"$HOME/.ssh/authorized_keys\" 2>/dev/null || printf '%s\\n' {public_key_literal} >> \"$HOME/.ssh/authorized_keys\"
+chmod 600 \"$HOME/.ssh/authorized_keys\"
+echo __KEY_INSTALLED__
+"""
+        script_b64 = base64.b64encode(script.encode()).decode()
+        remote_cmd = f"echo {script_b64} | base64 -d | sh"
         copy_args = [
-            "sshpass", "-e", "ssh-copy-id",
-            "-i", pub_path,
-            # Same rationale as the admin path: override the host's key-only
-            # ~/.ssh/config hardening for 172.15.* so password bootstrap works.
+            "sshpass", "-e", "ssh", "-T",
+            # Force password auth: this is the one-time bootstrap login.
             "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ConnectTimeout=15",
             "-o", "NumberOfPasswordPrompts=1",
@@ -3847,22 +3707,13 @@ echo "__KEY_INSTALLED__"
         ]
         if req.ssh_port != 22:
             copy_args += ["-p", str(req.ssh_port)]
-        copy_args.append(f"{req.remote_user}@{req.ip_address}")
+        copy_args += [f"{req.remote_user}@{req.ip_address}", remote_cmd]
         code, out = await _run_step(copy_args, timeout=45, env={**os.environ, "SSHPASS": req.password})
-        if code != 0:
+        if code != 0 or "__KEY_INSTALLED__" not in out:
             return {"ok": False, "step": "install", "error": out + _install_hint(out, req.remote_user), "steps": steps}
         steps.append(f"Public key installed in {req.remote_user}@{req.ip_address}:~/.ssh/authorized_keys")
 
-    verify_args = ["ssh", "-i", key_path, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new"]
-    if req.ssh_port != 22:
-        verify_args += ["-p", str(req.ssh_port)]
-    verify_args += [f"{req.remote_user}@{req.ip_address}", "true"]
-    code, out = await _run_step(verify_args, timeout=25)
-    if code != 0:
-        return {"ok": False, "step": "verify", "error": out, "steps": steps}
-    steps.append("Key authentication verified (BatchMode)")
-
-    return {"ok": True, "key_path": key_path, "public_key": public_key, "steps": steps}
+    return {"ok": True, "public_key": public_key, "steps": steps}
 
 
 @app.get("/v1/health")
@@ -5184,6 +5035,8 @@ async def open_terminal_agent(req: TerminalAgentRequest, x_bridge_token: str | N
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 # See forgevault_proxy.py (Remote Access secrets in ForgeVault, infra/Production only).
 app.include_router(make_forgevault_router(_check_token))
+# See evidence_probe.py (M0.6a: read-only file/git evidence for the completion guard).
+app.include_router(make_evidence_router(_check_token))
 
 
 # ---------------------------------------------------------------------------
@@ -6031,3 +5884,9 @@ async def clear_hindsight_log(
         return {"success": True, "path": str(path), "cleared": False, "note": "File did not exist"}
     path.write_text("", encoding="utf-8")
     return {"success": True, "path": str(path), "cleared": True}
+
+
+@app.get("/v1/server-monitoring")
+async def get_server_monitoring(x_bridge_token: str | None = Header(default=None)):
+    _check_token(x_bridge_token)
+    return await asyncio.to_thread(monitoring_collector.collect)

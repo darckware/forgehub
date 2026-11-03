@@ -4,17 +4,51 @@ main.py's RequireAuthMiddleware guards every /api/v1/* route with a bearer
 token (it validates the JWT itself, not a user row), so every test client
 must send one. Domain test files keep their own `client` fixture (some add
 extra setup) and take `auth_headers` from here to build it.
+
+The suite only ever runs against the isolated test Postgres (test-env/,
+Plano Integrado T.1). The guard below runs while this file is imported --
+before app.db.base exists and before any fixture -- and ends the whole
+session unless ENVIRONMENT=test and the target is on the test allowlist.
+Run it as `ENVIRONMENT=test pytest` (see CLAUDE.md, Backend tests).
 """
 import uuid
 
 import pytest
-import pytest_asyncio
-from sqlalchemy import delete, select, text
 
-from app.core.security import create_access_token, hash_password
-from app.db.base import AsyncSessionLocal
-from app.db.models.agent import Agent
-from app.db.models.user import User
+
+def _abort_unless_test_database() -> None:
+    try:
+        from app.core.config import (
+            assert_test_database_target,
+            is_test_environment,
+            settings,
+        )
+    except Exception as exc:  # Settings itself refused the target
+        pytest.exit(f"Test database guard: {exc}", returncode=4)
+    if not is_test_environment(settings.ENVIRONMENT):
+        pytest.exit(
+            "Test database guard: the suite runs only with ENVIRONMENT=test "
+            f"(got {settings.ENVIRONMENT!r}); it never runs against production.",
+            returncode=4,
+        )
+    try:
+        assert_test_database_target(
+            settings.POSTGRES_HOST, settings.POSTGRES_PORT, settings.POSTGRES_DB, settings.POSTGRES_USER
+        )
+    except Exception as exc:
+        pytest.exit(f"Test database guard: {exc}", returncode=4)
+
+
+_abort_unless_test_database()
+
+import pytest_asyncio  # noqa: E402
+from sqlalchemy import delete, select, text  # noqa: E402
+
+from app.core.security import create_access_token, hash_password  # noqa: E402
+from app.db.base import AsyncSessionLocal  # noqa: E402
+from app.db.models.agent import Agent  # noqa: E402
+from app.db.models.user import User  # noqa: E402
+from app.tests.fixtures.demand_cleanup import cleanup_agent_demands  # noqa: E402
 
 # The free-text `from_agent` most demand tests post with. create_demand
 # auto-resolves it to a real Agent row by profile_slug (_find_agent_by_slug),
@@ -59,6 +93,9 @@ async def _cleanup_stale_agent_fixtures() -> None:
         await session.execute(
             text(f"DELETE FROM company.task_assignments WHERE agent_id IN ({fixture_ids.text})")
         )
+        # Incubation ownership is CHECK-enforced: ON DELETE SET NULL on the
+        # agent FK cannot clean up a thought left by an interrupted test.
+        await cleanup_agent_demands(session, list((await session.scalars(fixture_ids)).all()))
         await session.execute(
             text(f"DELETE FROM company.agents WHERE id IN ({fixture_ids.text})")
         )
@@ -154,3 +191,39 @@ async def test_suite_agent():
     async with AsyncSessionLocal() as session:
         await session.execute(delete(Agent).where(Agent.id == agent_id))
         await session.commit()
+
+
+@pytest.fixture
+def bind_evidence_bridge(monkeypatch):
+    """Binds core/evidence_bridge.py to the real host-bridge evidence router
+    (host-bridge/evidence_probe.py, M0.6a) in process, accepting only the
+    given roots -- file/git evidence is then checked for real against
+    temporary folders and repositories. Only the transport is replaced; the
+    running integration stub doesn't know a test's tmp_path."""
+    import sys
+    from pathlib import Path
+
+    import httpx
+    from fastapi import FastAPI, HTTPException
+
+    from app.core import evidence_bridge
+    from app.core.config import settings
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "host-bridge"))
+    import evidence_probe
+
+    real_client = httpx.AsyncClient
+
+    def bind(*roots) -> None:
+        def check(token):
+            if token != settings.CHAT_BRIDGE_TOKEN:
+                raise HTTPException(status_code=401)
+
+        bridge_app = FastAPI()
+        bridge_app.include_router(evidence_probe.make_evidence_router(check, roots=tuple(str(r) for r in roots)))
+        monkeypatch.setattr(
+            evidence_bridge, "_client",
+            lambda: real_client(transport=httpx.ASGITransport(app=bridge_app), timeout=20),
+        )
+
+    return bind

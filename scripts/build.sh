@@ -7,7 +7,7 @@ export FORGEHUB_VERSION="$(cat VERSION)"
 export FORGEHUB_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 export FORGEHUB_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-docker compose build
+./scripts/compose-vault.py build
 
 # Compose now gives each freshly built service a stable `:latest` name.
 # `docker compose images -q` inspects the images of currently running

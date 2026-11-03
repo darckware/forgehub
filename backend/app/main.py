@@ -17,7 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from app.core.config import settings
+from app.core.config import is_test_environment, settings
 from app.core.security import decode_access_token
 
 from app.api.routes import (
@@ -40,7 +40,9 @@ from app.api.routes import (
     factory,
     file_explorer,
     personal,
+    moodle_approval,
     personal_contacts,
+    personal_groups,
     forgerouter,
     foundation,
     foundation_docs,
@@ -49,6 +51,14 @@ from app.api.routes import (
     governed_approval,
     hindsight,
     mcp_catalog,
+    mission,
+    mission_plan,
+    mission_task,
+    mission_cycle,
+    agent_availability,
+    mission_records,
+    mission_board,
+    environment,
     notifications,
     operations,
     orchestration,
@@ -65,6 +75,7 @@ from app.api.routes import (
     host_script,
     server,
     system_control,
+    offsite_backup,
     system_info,
     system_scope,
     systemstats,
@@ -113,10 +124,16 @@ async def _lifespan(_app: FastAPI):
     startup and shutdown in one context also guarantees that every worker
     started here is cancelled when the application exits.
     """
-    await _bootstrap_admin()
+    # The test database's users come from the fictitious seed
+    # (app/scripts/seed_test_database.py), never from the DEV_USER default.
+    if not is_test_environment(settings.ENVIRONMENT):
+        await _bootstrap_admin()
     await _recover_host_executions()
     await _seed_system_scripts()
-    await _start_background_tasks()
+    if settings.background_workers_enabled:
+        await _start_background_tasks()
+    else:
+        logger.warning("Background workers disabled (ENVIRONMENT=%s): no loop started", settings.ENVIRONMENT)
     try:
         yield
     finally:
@@ -150,6 +167,11 @@ _PUBLIC_API_PATHS = {
     "/api/v1/audit/run-internal",
     # Monthly client report trigger (Athos cron); self-guards with the bridge token.
     "/api/v1/client-ops/reports/run-internal",
+    # Off-site backup worker (Athos cron); each checks the bridge token itself.
+    "/api/v1/offsite-backup/internal/enqueue",
+    "/api/v1/offsite-backup/internal/runs:claim",
+    "/api/v1/offsite-backup/internal/runs",
+    "/api/v1/offsite-backup/internal/runs:finish",
     "/api/v1/demands/submit",
     # Agent runtime activity webhooks -- authenticated by the HMAC signature
     # over the body (AGENT_ACTIVITY_WEBHOOK_SECRET), checked in the route.
@@ -164,6 +186,75 @@ _PUBLIC_API_PATHS = {
     # auto-created) -- see task.py's submit_task docstring.
     "/api/v1/tasks/submit",
 }
+
+
+def is_agent_command_path(method: str, path: str) -> bool:
+    """Paths an `agt_` AgentServiceCredential may reach (RequireAuthMiddleware).
+    Each admitted route still authorizes the agent itself; see
+    tests_unit/test_mission_auth_paths.py (M0.2a)."""
+    command_path = path.startswith((
+        "/api/v1/governed/", "/api/v1/executions/", "/api/v1/execution-waves/",
+        "/api/v1/work-packages/", "/api/v1/execution-runners", "/api/v1/pipeline-stages/",
+        "/api/v1/workspace-browser/", "/api/v1/products",
+        "/api/v1/tools",
+        # 2026-08-05, see docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md:
+        # /governance/ lets a delegated agent-orchestrator (e.g. Athos,
+        # once granted an AuthorityDelegation for
+        # "governance.approval.decide") decide an Approval with its own
+        # agt_ credential, same as a human would via JWT; /channels/
+        # lets an agent call POST /channels/{id}/tasks/propose with its
+        # own credential instead of only the shared bridge token.
+        "/api/v1/governance/", "/api/v1/channels/",
+        # 2026-10-07: Marcelo's personal tasks/agenda/notes; the route itself only admits the
+        # agents in settings.PERSONAL_AGENT_SLUGS (Maia).
+        "/api/v1/personal/",
+        # 2026-10-19: machine maintenance by agents; the routes check the
+        # delegation for "remote_access.execute" themselves.
+        "/api/v1/host-executions/agent",
+        # 2026-10-29 (M0.0): the mission's orchestrator acts with its own
+        # agt_; every /missions route calls authorize_action itself.
+        "/api/v1/missions/",
+    )) or path == "/api/v1/missions" or (
+        # M0.7: the single writer of environment_releases; the route checks
+        # environment.release.record itself.
+        path == "/api/v1/environments/releases"
+    ) or (
+        path.startswith("/api/v1/projects/") and ("/progress" in path or "/execution-waves" in path)
+    )
+    factory_read_path = method == "GET" and path.startswith((
+        "/api/v1/projects",
+        "/api/v1/tasks",
+        "/api/v1/planning-items",
+        "/api/v1/project-scopes/",
+        "/api/v1/blueprint-revisions/",
+    ))
+    parts = path.split("/")
+    task_path = path.startswith("/api/v1/tasks/") and len(parts) >= 5 and parts[4] != ""
+    # Exactly PATCH /tasks/{id} (update_task_status). M0.2c: not
+    # PATCH /tasks/{id}/executions/{eid}, which can set verified (§5.7).
+    factory_task_command = method == "PATCH" and task_path and len(parts) == 5
+    # M0.2b (§5.4): add_task_dependency, exactly POST /tasks/{id}/dependencies;
+    # the route authorizes planning.execution.manage itself. DELETE stays human.
+    task_dependency_command = method == "POST" and task_path and len(parts) == 6 and parts[5] == "dependencies"
+    # M0.2c (§5.6, §5.7, §5.11): dispatch_task, report_task_execution and the
+    # reviewer's own decision; each route authorizes the agent itself.
+    task_dispatch_command = method == "POST" and task_path and len(parts) == 6 and parts[5] == "dispatch"
+    # M0.8 (cycle spec §7): set_agent_unavailable; the route authorizes
+    # mission.orchestrate itself.
+    agent_availability_command = (
+        method in ("GET", "PUT") and path.startswith("/api/v1/agents/") and len(parts) == 6
+        and parts[4] != "" and parts[5] == "availability"
+    )
+    task_report_command = (
+        method == "POST" and task_path and len(parts) == 7 and parts[5] == "executions"
+        and parts[6].endswith(":report") and len(parts[6]) > len(":report")
+    )
+    review_decision = (
+        method == "PATCH" and path.startswith("/api/v1/orchestration/reviews/") and len(parts) == 6
+        and parts[5] != ""
+    )
+    return (command_path or factory_read_path or factory_task_command or task_dependency_command
+            or task_dispatch_command or task_report_command or review_decision or agent_availability_command)
 
 
 class RequireAuthMiddleware(BaseHTTPMiddleware):
@@ -183,35 +274,7 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         auth_header = request.headers.get("authorization", "")
         token = auth_header[7:] if auth_header.lower().startswith("bearer ") else None
-        agent_command_path = path.startswith((
-            "/api/v1/governed/", "/api/v1/executions/", "/api/v1/execution-waves/",
-            "/api/v1/work-packages/", "/api/v1/execution-runners", "/api/v1/pipeline-stages/",
-            "/api/v1/workspace-browser/", "/api/v1/products",
-            "/api/v1/tools",
-            # 2026-08-05, see docs/architecture/CHANNEL_AGENT_ROLES_AND_ORCHESTRATION.md:
-            # /governance/ lets a delegated agent-orchestrator (e.g. Athos,
-            # once granted an AuthorityDelegation for
-            # "governance.approval.decide") decide an Approval with its own
-            # agt_ credential, same as a human would via JWT; /channels/
-            # lets an agent call POST /channels/{id}/tasks/propose with its
-            # own credential instead of only the shared bridge token.
-            "/api/v1/governance/", "/api/v1/channels/",
-            # 2026-10-07: Marcelo's personal tasks/agenda/notes; the route itself only admits the
-            # agents in settings.PERSONAL_AGENT_SLUGS (Maia).
-            "/api/v1/personal/",
-            # 2026-10-19: machine maintenance by agents; the routes check the
-            # delegation for "remote_access.execute" themselves.
-            "/api/v1/host-executions/agent",
-        )) or (path.startswith("/api/v1/projects/") and ("/progress" in path or "/execution-waves" in path))
-        factory_read_path = request.method == "GET" and path.startswith((
-            "/api/v1/projects",
-            "/api/v1/tasks",
-            "/api/v1/planning-items",
-            "/api/v1/project-scopes/",
-            "/api/v1/blueprint-revisions/",
-        ))
-        factory_task_command = request.method == "PATCH" and path.startswith("/api/v1/tasks/")
-        agent_command_path = agent_command_path or factory_read_path or factory_task_command
+        agent_command_path = is_agent_command_path(request.method, path)
         if token and token.startswith("agt_") and agent_command_path:
             from sqlalchemy import select
             from app.db.base import AsyncSessionLocal
@@ -291,7 +354,8 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
 
         # System operations via bridge token (system-control, backups, audit, deploy, database query)
         is_system_bridge_path = (
-            path.startswith("/api/v1/system-control/")
+            path == "/api/v1/system-stats"
+            or path.startswith("/api/v1/system-control/")
             or path.startswith("/api/v1/deploy/")
             or path.startswith("/api/v1/backups")
             or path.startswith("/api/v1/audit/")
@@ -378,7 +442,9 @@ app.include_router(systemstats.router)
 app.include_router(workspace_browser.router)
 app.include_router(file_explorer.router)
 app.include_router(personal.router)
+app.include_router(moodle_approval.router)
 app.include_router(personal_contacts.router)
+app.include_router(personal_groups.router)
 app.include_router(vault.router)
 app.include_router(docs.router)
 app.include_router(demand.router)
@@ -397,10 +463,19 @@ app.include_router(host_script.router)
 app.include_router(host_script.schedules_router)
 app.include_router(remote_access.router)
 app.include_router(system_control.router)
+app.include_router(offsite_backup.router)
 app.include_router(vpn.router)
 app.include_router(forgerouter.router)
 app.include_router(operations.router)
 app.include_router(orchestration.router)
+app.include_router(mission.router)
+app.include_router(mission_records.router)
+app.include_router(mission_plan.router)
+app.include_router(mission_task.router)
+app.include_router(mission_board.router)
+app.include_router(environment.router)
+app.include_router(mission_cycle.router)
+app.include_router(agent_availability.router)
 app.include_router(system_scope.router)
 # ---------------------------------------------------------------------------
 
@@ -426,6 +501,7 @@ INCUBATION_MATURATION_POLL_INTERVAL_SECONDS = 300
 # (routine_schedule.MIN_INTERVAL_SECONDS), so a 60s pass starts each one
 # within a minute of its occurrence.
 ROUTINE_POLL_INTERVAL_SECONDS = 60
+MISSION_CYCLE_POLL_INTERVAL_SECONDS = 60
 
 # How often stalled dispatches are checked against their deadline. Minutes,
 # not seconds: the deadline itself is DISPATCH_TIMEOUT_MINUTES (45), so a
@@ -572,6 +648,25 @@ async def _routine_poll_loop() -> None:
         except Exception:
             logger.exception("Agent question delivery failed")
         await asyncio.sleep(ROUTINE_POLL_INTERVAL_SECONDS)
+
+
+async def _mission_cycle_poll_loop() -> None:
+    """M0.8 (cycle spec §2.2, §3.4 item 4): each mission's event-triggered
+    cycle, its pending rerun and the watchdog. Its own task, beside the
+    routine loop that materializes the scheduled cycles. Does nothing while
+    MISSION_CYCLE_ENABLED is off (read every pass, so turning it off stops
+    the loop's work without a restart)."""
+    from app.core.mission_cycle import run_mission_cycle_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        if settings.MISSION_CYCLE_ENABLED:
+            try:
+                async with AsyncSessionLocal() as db:
+                    await run_mission_cycle_pass(db)
+            except Exception:
+                logger.exception("Mission cycle pass failed")
+        await asyncio.sleep(MISSION_CYCLE_POLL_INTERVAL_SECONDS)
 
 
 async def _dispatch_completion_poll_loop() -> None:
@@ -764,6 +859,21 @@ async def _agent_activity_retention_loop() -> None:
         await asyncio.sleep(DEMAND_RETENTION_POLL_INTERVAL_SECONDS)
 
 
+async def _command_receipt_retention_loop() -> None:
+    """Deletes agent command receipts past their 30-day retention (M0.2a,
+    MCP_MISSION_TOOLS_SPEC.md §0.4). Own task, like the other sweeps."""
+    from app.core.command_receipts import run_command_receipt_retention
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_command_receipt_retention(db)
+        except Exception:
+            logger.exception("Command receipt retention sweep failed")
+        await asyncio.sleep(DEMAND_RETENTION_POLL_INTERVAL_SECONDS)
+
+
 async def _active_turn_sweep_loop() -> None:
     """Fecha turnos que passaram do prazo sem reportar (2026-08-13)."""
     from app.core.active_turns import sweep_stale
@@ -870,12 +980,14 @@ async def _start_background_tasks() -> None:
         ("feedback-poll", _feedback_poll_loop),
         ("incubation-maturation-poll", _incubation_maturation_poll_loop),
         ("routine-poll", _routine_poll_loop),
+        ("mission-cycle-poll", _mission_cycle_poll_loop),
         ("dispatch-completion-poll", _dispatch_completion_poll_loop),
         ("background-test-completion-poll", _background_test_completion_poll_loop),
         ("task-failure-poll", _task_failure_poll_loop),
         ("evidence-verification-poll", _evidence_verification_poll_loop),
         ("demand-retention-poll", _demand_retention_poll_loop),
         ("agent-activity-retention", _agent_activity_retention_loop),
+        ("command-receipt-retention", _command_receipt_retention_loop),
         ("host-schedule-poll", _host_schedule_poll_loop),
     )
     _background_tasks = [asyncio.create_task(worker(), name=name) for name, worker in workers]

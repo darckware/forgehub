@@ -62,7 +62,7 @@ export const projectCockpitRowSchema = z.object({
   channel_id: z.string().nullable().optional(),
   // creation | maintenance + the project's active pipeline, if any
   // (2026-08-15) -- which development path this project is actually on.
-  project_type: z.enum(["creation", "maintenance"]).default("creation"),
+  project_type: z.enum(["creation", "maintenance", "mission"]).default("creation"),
   pipeline_name: z.string().nullable().optional(),
   pipeline_template_name: z.string().nullable().optional(),
 });

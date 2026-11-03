@@ -5,7 +5,9 @@ effects, seconds instead of a full agent run): client-demand translation (core/t
 the Maia's per-message context pass (core/personal_context.py). The key is read from ForgeRouter's
 own registry first -- ForgeRouter issued it and is what validates it, while ForgeHub's encrypted copy
 can lag behind a rotation (2026-10-14) -- and the copy is only the fallback when the registry can't
-be read.
+be read. Under ENVIRONMENT=test neither is read: every agent uses FORGEROUTER_TEST_API_KEY, the
+only key the integration stub accepts (Plano Integrado T.3), so no key is ever stored in the test
+database.
 """
 from __future__ import annotations
 
@@ -17,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import forgerouter_sync
-from app.core.config import settings
+from app.core.config import is_test_environment, settings
 from app.core.secrets import decrypt_secret
 from app.db.models.agent import Agent
 
@@ -39,7 +41,10 @@ class LlmError(Exception):
 
 async def agent_api_key(db: AsyncSession, slug: str) -> str:
     agent = (await db.execute(select(Agent).where(Agent.profile_slug == slug))).scalars().first()
-    if agent is not None:
+    if agent is not None and is_test_environment(settings.ENVIRONMENT):
+        if settings.FORGEROUTER_TEST_API_KEY:
+            return settings.FORGEROUTER_TEST_API_KEY
+    elif agent is not None:
         try:
             keys = {k.name.strip().lower(): k.api_key for k in await forgerouter_sync.read_forgerouter_agent_keys()}
         except Exception:  # registry unreachable: fall back to the copy

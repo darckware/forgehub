@@ -204,8 +204,28 @@ def resumo_do_dia(dia: str = "") -> str:
 
 
 def clima(dia: str = "") -> dict[str, Any]:
-    """Consulta a previsão Open-Meteo para a localização configurada no ForgeHub."""
+    """Consulta a previsão Open-Meteo para a localização GPS atual do Marcelo no ForgeHub."""
     return _call("GET", "/weather", query={"day": dia})
+
+
+def localizacao_atual() -> dict[str, Any] | None:
+    """A localização GPS atual do Marcelo no ForgeHub (None se ele ainda não enviou nenhuma)."""
+    return _call("GET", "/location")
+
+
+def resumos_diarios(dias: int = 7) -> list[dict[str, Any]]:
+    """Os resumos da manhã gravados nos últimos ``dias`` dias, do mais recente ao mais antigo."""
+    hoje = agora().date()
+    inicio = hoje - timedelta(days=max(1, min(dias, 90)) - 1)
+    return _call("GET", "/daily-summaries", query={"start": inicio.isoformat(), "end": hoje.isoformat()})
+
+
+def gravar_resumo_diario(conteudo: str, dia: str = "") -> dict[str, Any]:
+    """Grava no ForgeHub o resumo da manhã que a Maia enviou (um por dia; regravar substitui)."""
+    if not conteudo.strip():
+        raise AgendaError("O resumo está vazio.")
+    dia = dia or agora().date().isoformat()
+    return _call("PUT", f"/daily-summaries/{dia}", {"content": conteudo})
 
 
 def register(mcp) -> None:
@@ -257,7 +277,7 @@ def register(mcp) -> None:
 
     @mcp.tool()
     async def personal_weather(data: str = "") -> dict[str, Any]:
-        """Consulta o clima do dia (ou hoje) na localização configurada no ForgeHub.
+        """Consulta o clima do dia (ou hoje) na localização GPS atual do Marcelo.
         data: dd/mm/aaaa. Só use quando Marcelo pedir previsão ou clima."""
         try:
             dia = _parse_quando(data)[0][:10] if data else ""
@@ -274,6 +294,30 @@ def register(mcp) -> None:
         except AgendaError as exc:
             return {"success": False, "error": str(exc)}
         return _safe(resumo_do_dia, dia)
+
+    @mcp.tool()
+    async def personal_location_get() -> dict[str, Any]:
+        """A localização GPS atual do Marcelo no ForgeHub: cidade, UF, coordenadas, de onde veio
+        (telegram, whatsapp ou browser) e quando foi atualizada. Só existe a última, sem histórico;
+        um pin que ele envia a você já a atualiza sozinho. resultado null = ele ainda não enviou."""
+        return _safe(localizacao_atual)
+
+    @mcp.tool()
+    async def personal_daily_summaries_list(dias: int = 7) -> dict[str, Any]:
+        """Os resumos da manhã já gravados (texto enviado e a localização usada na previsão) dos
+        últimos `dias` dias (máx. 90), do mais recente ao mais antigo."""
+        return _safe(resumos_diarios, dias)
+
+    @mcp.tool()
+    async def personal_daily_summary_save(conteudo: str, data: str = "") -> dict[str, Any]:
+        """Grava o resumo da manhã exatamente como foi enviado ao Marcelo (tela Pessoal →
+        Localização e resumos). Use uma vez, no cron do resumo, com o texto final. data:
+        dd/mm/aaaa (padrão: hoje). Gravar de novo no mesmo dia substitui."""
+        try:
+            dia = _parse_quando(data)[0][:10] if data else ""
+        except AgendaError as exc:
+            return {"success": False, "error": str(exc)}
+        return _safe(gravar_resumo_diario, conteudo, dia)
 
     @mcp.tool()
     async def tasks_list(lista: str = "", status: str = "pendente", busca: str = "") -> dict[str, Any]:

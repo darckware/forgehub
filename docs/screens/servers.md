@@ -4,7 +4,7 @@
 
 - Route: `/servers` (registered in `frontend/src/App.tsx:120`, nav entry in `frontend/src/components/layout/navSections.ts:141` under **Operations**, icon `Network`, permission module `servers`).
 - Component: `frontend/src/pages/servers/index.tsx` (`ServersPage`, default export).
-- Purpose: the inventory of SSH-reachable machines. It answers four questions and lets an operator act on each: *which servers exist* (name, IP, user, port, description), *which are actually reachable right now* (live probe per row), *how do I get a shell on one* (hands the built `ssh` command to the Workspace terminal), and *is this server's access recoverable* — the key vault, which keeps an encrypted copy of the identity file on the row so losing the file on the host no longer means losing the server.
+- Purpose: the inventory of SSH-reachable machines. It answers four questions and lets an operator act on each: *which servers exist* (name, IP, user, port, description), *which are actually reachable right now* (live probe per row), *how do I get a shell on one* (hands the built `ssh` command to the Workspace terminal), and *where the private key lives* — ForgeVault is the only persistent store; the host bridge loads key material only into temporary memory for SSH operations.
 - One of ForgeHub's own DB-backed domains (`company.servers`), but deliberately standalone: no FK into the product/version/project traceability chain, since this is infrastructure, not planned work (see the model docstring, `backend/app/db/models/server.py:1-7`).
 
 ## Components
@@ -13,9 +13,9 @@
 |---|---|
 | `frontend/src/pages/servers/index.tsx` (`ServersPage`) | Page shell: header with "Check status"/"Import CSV"/"New server"/assistant toggle, the inventory table, and the four modals/dialogs. Owns `formTarget`/`importOpen`/`deleteTarget`/`installTarget`/`statuses`/`checkingIds` local state. |
 | `frontend/src/pages/servers/index.tsx` (`ModalShell`, local) | Shared modal chrome (backdrop + card + close button) used by the three modals below. |
-| `frontend/src/pages/servers/index.tsx` (`ServerFormModal`, local) | Create/edit form: name, IP, port, remote user, SSH key path (+ copy-public-key button), description, the read-only installed public key, and — when editing — the key vault section. Editable fields read from `form` (seeded once, so a refetch never overwrites typing); the read-only blocks read from `live` (`resolveLiveServer`), so an action taken *inside* the dialog is visible without reopening it. |
+| `frontend/src/pages/servers/ServerForm.tsx` (`ServerForm`) | Create/edit form without a local SSH path; private keys are managed in ForgeVault. Editable fields read from `form` (seeded once, so a refetch never overwrites typing); the read-only blocks read from `live` (`resolveLiveServer`), so an action taken *inside* the dialog is visible without reopening it. |
 | `frontend/src/pages/servers/index.tsx` (`KeyVaultSection`, local, `:82`) | The key vault UI. A pure render of `useServerKeyVaultViewModel` with no state of its own — the §21 ViewModel pair described in `docs/architecture/FRONTEND_VIEWMODEL_MIGRATION_PLAN.md`. |
-| `frontend/src/hooks/useServerKeyVaultViewModel.ts` (`useServerKeyVaultViewModel`) | ViewModel for that section: `status` state machine (`idle`/`backing_up`/`restoring`/`storing`/`confirming_clear`/`clearing`/`error`), the paste field, the confirmation step, and the four actions. |
+| `frontend/src/hooks/useServerKeyVaultViewModel.ts` (`useServerKeyVaultViewModel`) | Paste a key into ForgeVault or remove its ForgeVault reference.
 | `frontend/src/pages/servers/index.tsx` (`InstallKeyModal`, local, `:331`) | One-shot dedicated-key installation: admin/registered-user choice, password field, step-by-step result list. Mirrors `/root/.hermes/scripts/configure_ssh.sh`, parameterized. |
 | `frontend/src/pages/servers/index.tsx` (`ImportCsvModal`, local, `:510`) | CSV paste/file-pick bulk upsert, with a created/updated/errors result block. |
 | `frontend/src/pages/servers/index.tsx` (`StatusBadge`, local, `:475`) | Renders one probe result: Online / Offline / No key / Checking… / "not checked". |
@@ -32,10 +32,7 @@
 | Bulk CSV upsert | `useImportServers()` | `/api/v1/servers/import` | POST |
 | Live reachability probe | `useCheckServer()` | `/api/v1/servers/{id}/check` | POST |
 | Install a dedicated key | `useInstallServerKey()` | `/api/v1/servers/{id}/install-key` | POST |
-| Read + store the public key | `useReadServerPublicKey()` | `/api/v1/servers/{id}/public-key` | POST |
-| Vault the host's identity file | `useBackupServerKey()` | `/api/v1/servers/{id}/key:backup` | POST |
 | Vault a pasted key | `useStoreServerKey()` | `/api/v1/servers/{id}/key` | PUT |
-| Write the vaulted key back | `useRestoreServerKey()` | `/api/v1/servers/{id}/key:restore` | POST |
 | Drop the vaulted copy | `useClearServerKey()` | `/api/v1/servers/{id}/key` | DELETE |
 
 Every mutation except the probe invalidates the `["servers"]` query key on success — which is what `resolveLiveServer` (`useServers.ts`) turns into a visible update inside an already-open dialog, by re-reading the captured row from that same list instead of trusting the object the dialog was opened with. `useCheckServer` deliberately does not: each result is an ephemeral snapshot, so `ServersPage` keeps them in local `statuses` state instead of the query cache.
@@ -68,14 +65,10 @@ Host bridge (`host-bridge/app.py`), for the vault:
 - **Edit** (pencil) — opens `ServerFormModal` pre-filled; the key vault section appears only in edit mode (a vault action needs a persisted row).
 - **Delete** (trash) — `ConfirmDialog`, then `useDeleteServer`.
 
-**Key vault section (edit dialog only)**
-- **Store key from host / Update copy from host** — `key:backup`. Disabled without an `ssh_key_path` (there is nothing to read). Overwrites any previous copy: the file on the host is what `ssh` actually uses, so it wins when both exist.
-- **Restore to host** — `key:restore`. Disabled unless a copy is vaulted *and* a path is set. Refuses (409) when a file is already at that path.
-- **Store pasted key** — `PUT key`, for material this host does not have (recovered from a backup by hand, or living on another machine).
-- **Remove copy** — `ConfirmDialog` ("The file on the host is left untouched — but if it is ever lost, there will be no copy to restore from"), then `DELETE key`.
-
-**SSH key path field**
-- **Copy public key** (copy icon, only when the row already has an `ssh_key_path`) — calls `/public-key`, writes the result to the clipboard and persists it on the row; shows a green check for 1.5s.
+**ForgeVault key section (edit dialog only)**
+- New keys are generated under `/dev/shm`, stored in ForgeVault, and installed remotely using only the public key.
+- Pasted private keys go directly to ForgeVault. The UI has no action to restore private keys to disk.
+- The old host file read/write routes and migration button were removed. Rows without a ForgeVault reference must be reinstalled.
 
 ## States
 
@@ -93,14 +86,13 @@ Host bridge (`host-bridge/app.py`), for the vault:
 The domain has no SPEC.md §6 rules (it is outside the traceability chain), but four safety rules are enforced server-side and visible on this screen:
 
 - **Unique server name.** `create_server` 409s on a duplicate (`server.py:159-161`), and `import_servers` treats the name as the upsert key.
-- **Private key material never leaves the backend.** `ServerOut` exposes only the boolean `private_key_stored` (`schemas/server.py`), derived from the `Server.private_key_stored` property. No endpoint returns `private_key_encrypted`, and the restore path writes to the host rather than answering the browser.
-- **A restore never overwrites.** Restoring is for a key that is *missing*; silently replacing a working identity is the worse failure, so the bridge 409s and the section surfaces the conflict (`host-bridge/app.py:2823-2824`).
-- **Nothing about the vault is automatic.** No backup on save, no restore on a failed connection. A key reappearing on disk from a stale copy would be its own surprise — every vault action is an explicit click.
+- **Private key material never leaves the backend.** `ServerOut` exposes only the boolean `private_key_stored` (`schemas/server.py`), derived from the `Server.private_key_stored` property. Private keys are stored only in ForgeVault; the database keeps a secret reference and public key.
+- **ForgeVault is the only persistent key store.** The bridge generates in `/dev/shm`; no private key file is created on the host.
 
 Two more rules live in the frontend:
 
 - **A NULL `ssh_key_path` means "ForgeHub knows of no key", never "the host has none"** (`buildSshCommand`, `useServers.ts`). The command adds `-o PasswordAuthentication=yes -o BatchMode=no` so a genuinely keyless server can still prompt, but it must **not** add `PubkeyAuthentication=no` — that was the 2026-08-14 bug: every inventory row has a NULL path (HermesOps installs keys by writing `~/.ssh/config` and never touched this table), so disabling pubkey auth turned working connections into a password prompt for a password nobody has. Regression test: `frontend/src/hooks/useServers.test.ts`.
-- **Admin-gated actions.** `install-key`, `public-key` and the four vault routes require an admin; plain CRUD and CSV import do not.
+- **Admin-gated actions.** Key installation and ForgeVault key management require an admin; plain CRUD and CSV import do not.
 
 ## Dependencies
 
@@ -118,6 +110,4 @@ Two more rules live in the frontend:
 - **The auto-probe fans out unbounded.** `checkAll` fires one `POST /check` per row in parallel on first load, each up to a 15s bridge call; with a large inventory this is a burst of concurrent SSH probes with no concurrency cap.
 - **No search, sort or pagination** on the table.
 - **ViewModel conversion is partial.** Only `KeyVaultSection` is a §21 pair; the form modal, install-key modal and probe state are still inline `useState` in the page, which is why the screen's checkbox in `docs/architecture/FRONTEND_VIEWMODEL_MIGRATION_PLAN.md` stays unchecked.
-- **A vaulted key cannot be restored without a path.** `key:restore` 400s when `ssh_key_path` is NULL — reasonable (it needs a destination), but it means the vault cannot by itself answer "where did this key live?" for a row whose path was never recorded. The path and the key are stored together; only one of them is validated as present at backup time.
 - **Backup overwrites the previous copy with no confirmation.** Deliberate (the host file is the authority), but there is no history — an older vaulted key is not recoverable once replaced.
-- **Newly installed keys and existing keys land in different directories.** "Install SSH key" generates into `SSH_KEYS_DIR` = `/root/agents/aegis/server-management/ssh_keys` (`host-bridge/app.py:2688`, created on demand by `os.makedirs`), but the inventory's actual keys live in `/root/agents/aegis/forgenet/ssh_keys/<ip_with_underscores>_key` — verified on the host, where the `server-management` path does not exist at all. Nothing breaks (`/root/agents` is itself a `PRIVATE_KEY_ROOTS` entry, so both are allowed, and each row records its own `ssh_key_path`), but the fleet ends up split across two conventions and `SSH_KEYS_DIR` names a directory that has never been used. Worth reconciling before the next key is installed.

@@ -278,8 +278,12 @@
   },
   "contract": {
     "type": {
-      "suporte_horas": "Hourly support",
-      "desenvolvimento": "Development"
+      "servico": "Service",
+      "locacao": "Leasing",
+      "desenvolvimento": "Development",
+      "suporte_horas": "Service",
+      "locacao_software": "Leasing",
+      "implementacao": "Development"
     },
     "status": {
       "ativo": "Active",

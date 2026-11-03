@@ -4,6 +4,10 @@ Covers the property that made the feature necessary (2026-08-14): the vaulted
 material must survive on the row, never appear in a response, and be handed to
 the host bridge verbatim on restore. The bridge itself is mocked — these tests
 must not read or write real SSH keys on the host.
+
+The backup/restore/public-key routes were retired with ForgeVault-only keys
+(docs/superpowers/plans/2026-10-24-forgevault-only-ssh-keys.md), and their
+tests with them; what remains covers the row-level fields still in use.
 """
 import uuid
 from unittest.mock import AsyncMock, patch
@@ -93,102 +97,11 @@ def _bridge_response(status_code: int, payload: dict) -> httpx.Response:
 
 
 @pytest.mark.asyncio
-async def test_backup_stores_encrypted_and_never_returns_the_key(client, server_row):
-    with patch.object(
-        server_routes, "_bridge_post",
-        AsyncMock(return_value=_bridge_response(200, {
-            "private_key": FAKE_KEY, "public_key": "ssh-ed25519 AAAA test", "key_path": "/root/.ssh/test_vault_key",
-        })),
-    ):
-        resp = await client.post(f"/api/v1/servers/{server_row.id}/key:backup")
-    assert resp.status_code == 200
-    assert resp.json()["private_key_stored"] is True
-    # The material must not travel in any response body, here or on a read.
-    assert FAKE_KEY not in resp.text
-    read = await client.get(f"/api/v1/servers/{server_row.id}")
-    assert read.status_code == 200
-    assert FAKE_KEY not in read.text
-    assert read.json()["private_key_stored"] is True
-
-    # Stored encrypted at rest, and decryptable back to the original.
-    async with AsyncSessionLocal() as db:
-        stored = await db.get(Server, server_row.id)
-        assert stored.private_key_encrypted
-        assert stored.private_key_encrypted != FAKE_KEY
-        assert decrypt_secret(stored.private_key_encrypted) == FAKE_KEY
-
-
-@pytest.mark.asyncio
-async def test_restore_hands_the_decrypted_key_to_the_bridge(client, server_row):
-    async with AsyncSessionLocal() as db:
-        row = await db.get(Server, server_row.id)
-        row.private_key_encrypted = encrypt_secret(FAKE_KEY)
-        await db.commit()
-
-    bridge = AsyncMock(return_value=_bridge_response(200, {"ok": True, "written": ["/root/.ssh/test_vault_key"]}))
-    with patch.object(server_routes, "_bridge_post", bridge):
-        resp = await client.post(f"/api/v1/servers/{server_row.id}/key:restore")
-
-    assert resp.status_code == 200
-    assert resp.json()["written"] == ["/root/.ssh/test_vault_key"]
-    sent = bridge.await_args.args[1]
-    assert sent["private_key"] == FAKE_KEY
-    assert sent["key_path"] == "/root/.ssh/test_vault_key"
-
-
-@pytest.mark.asyncio
-async def test_restore_surfaces_the_bridge_refusal_instead_of_overwriting(client, server_row):
-    """The bridge refuses when a file already exists; that has to reach the
-    caller as 409, not be flattened into a generic bridge error."""
-    async with AsyncSessionLocal() as db:
-        row = await db.get(Server, server_row.id)
-        row.private_key_encrypted = encrypt_secret(FAKE_KEY)
-        await db.commit()
-
-    with patch.object(
-        server_routes, "_bridge_post",
-        AsyncMock(return_value=_bridge_response(409, {"detail": "An identity file already exists"})),
-    ):
-        resp = await client.post(f"/api/v1/servers/{server_row.id}/key:restore")
-    assert resp.status_code == 409
-    assert "already exists" in resp.json()["detail"]
-
-
-@pytest.mark.asyncio
-async def test_restore_without_a_vaulted_key_is_rejected(client, server_row):
-    resp = await client.post(f"/api/v1/servers/{server_row.id}/key:restore")
-    assert resp.status_code == 400
-
-
-@pytest.mark.asyncio
 async def test_store_pasted_key_rejects_something_that_is_not_a_key(client, server_row):
     resp = await client.put(f"/api/v1/servers/{server_row.id}/key", json={"private_key": "hunter2"})
     assert resp.status_code == 422
     async with AsyncSessionLocal() as db:
         assert (await db.get(Server, server_row.id)).private_key_encrypted is None
-
-
-@pytest.mark.asyncio
-async def test_public_key_is_encrypted_at_rest_but_still_returned(client, server_row):
-    """A public key is not secret material, but it is encrypted in the column
-    anyway (2026-08-14, Marcelo). The screen exists to show and copy it, so it
-    must still come back in plain text on a read."""
-    public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 test@forgehub"
-    with patch.object(
-        server_routes, "_bridge_post",
-        AsyncMock(return_value=_bridge_response(200, {
-            "private_key": FAKE_KEY, "public_key": public_key, "key_path": "/root/.ssh/test_vault_key",
-        })),
-    ):
-        assert (await client.post(f"/api/v1/servers/{server_row.id}/key:backup")).status_code == 200
-
-    read = await client.get(f"/api/v1/servers/{server_row.id}")
-    assert read.json()["public_key"] == public_key
-
-    async with AsyncSessionLocal() as db:
-        stored = await db.get(Server, server_row.id)
-        assert stored.public_key_encrypted != public_key
-        assert decrypt_secret(stored.public_key_encrypted) == public_key
 
 
 @pytest.mark.asyncio

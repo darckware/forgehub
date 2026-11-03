@@ -150,20 +150,11 @@ describe("MachinesCard", () => {
     expect(await screen.findByText(/Instalar chave SSH — srv-ad03/)).toBeInTheDocument();
   });
 
-  it("moves keys to ForgeVault only after confirmation and lists what stayed on the file", async () => {
-    vi.mocked(apiClient.post).mockImplementation(async (url: string) => {
-      if (url === "/api/v1/servers/keys:to-vault") {
-        return { stored: ["srv-sup"], switched: ["srv-sup"], already: [], failed: { "srv-ad03": "file kept" } } as never;
-      }
-      return READINESS as never;
-    });
+  it("no longer offers moving key files to ForgeVault", async () => {
+    // The keys:to-vault migration route was retired with ForgeVault-only keys.
     renderCard();
     await screen.findByText("srv-ad03");
-    fireEvent.click(screen.getByRole("button", { name: /Migrar chaves para a ForgeVault/ }));
-    expect(apiClient.post).not.toHaveBeenCalledWith("/api/v1/servers/keys:to-vault", {});
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Migrar" }));
-    expect(await screen.findByText(/1 migradas · 0 já estavam · 1 mantidas no arquivo/)).toBeInTheDocument();
-    expect(screen.getByText(": file kept", { exact: false })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Migrar chaves para a ForgeVault/ })).not.toBeInTheDocument();
   });
 
   it("registers an unregistered tailnet device through the tailnet sync", async () => {

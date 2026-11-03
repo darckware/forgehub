@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { MoodleApprovalPanel } from "./MoodleApprovalPanel";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, Loader2 } from "lucide-react";
@@ -28,6 +29,7 @@ export function AgentTasksTab() {
 
   return <div className="space-y-4 pt-4">
     <p className="text-sm text-muted-foreground">{t("agentTasks.description")}</p>
+    <MoodleApprovalPanel />
     {vm.notice && <p role="status" className="text-sm">{t("agentTasks.saved")}</p>}
     <div className="flex flex-wrap gap-2">
       <Select aria-label={t("agentTasks.view")} value={vm.view} onChange={e => vm.setView(e.target.value)} className="w-full sm:w-56">

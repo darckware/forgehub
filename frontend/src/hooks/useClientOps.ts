@@ -338,7 +338,13 @@ export function useCancelOutboundEmail() {
 // Onda 2 -- clients, contracts and lead conversion
 // ---------------------------------------------------------------------------
 
-export type ContractType = "suporte_horas" | "desenvolvimento";
+export type ContractType =
+  | "servico"
+  | "locacao"
+  | "desenvolvimento"
+  | "suporte_horas"
+  | "locacao_software"
+  | "implementacao";
 export type ContractStatus = "ativo" | "suspenso" | "encerrado";
 
 export interface Contract {
@@ -456,7 +462,14 @@ const optionalNumber = (schema: z.ZodNumber) =>
 
 export const contractSchema = z
   .object({
-    contract_type: z.enum(["suporte_horas", "desenvolvimento"]),
+    contract_type: z.enum([
+      "servico",
+      "locacao",
+      "desenvolvimento",
+      "suporte_horas",
+      "locacao_software",
+      "implementacao",
+    ]),
     plan_name: z.string().trim().min(1, "required").max(100),
     monthly_hours_quota: optionalNumber(z.number().positive()),
     monthly_price: optionalNumber(z.number().min(0)),
@@ -469,9 +482,13 @@ export const contractSchema = z
     document_url: z.string().optional(),
   })
   .superRefine((c, ctx) => {
-    // Same rule Darckware enforces: a support contract needs its monthly quota and price.
-    if (c.contract_type === "suporte_horas") {
+    // Contrato de serviço exige quota mensal e preço.
+    if (c.contract_type === "servico" || c.contract_type === "suporte_horas") {
       if (c.monthly_hours_quota === undefined) ctx.addIssue({ code: "custom", path: ["monthly_hours_quota"], message: "required" });
+      if (c.monthly_price === undefined) ctx.addIssue({ code: "custom", path: ["monthly_price"], message: "required" });
+    }
+    // Contrato de locação exige preço mensal.
+    if (c.contract_type === "locacao" || c.contract_type === "locacao_software") {
       if (c.monthly_price === undefined) ctx.addIssue({ code: "custom", path: ["monthly_price"], message: "required" });
     }
     if (c.start_date && c.end_date && c.end_date < c.start_date) {

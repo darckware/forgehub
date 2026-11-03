@@ -4,12 +4,15 @@ task_required_skills, task_assignments, task_executions).
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from app.db.models.task import (
     TASK_EXECUTION_RUNTIME_TYPES as _TASK_EXECUTION_RUNTIME_TYPES_TUPLE,
 )
 from app.db.models.task import TASK_STATUSES as _TASK_STATUSES_TUPLE
+from app.db.models.task import TASK_TARGET_ENVIRONMENTS
 
 # --------------------------------------------------------------------------
 # ProjectTask
@@ -31,6 +34,10 @@ TASK_TYPES = {
 # rationale behind each status, notably "done" vs "deployed".
 TASK_STATUSES = set(_TASK_STATUSES_TUPLE)
 TASK_PRIORITIES = {"low", "medium", "high", "critical"}
+# M0.0b (mission spec §2.6): environment a task's work lands in, and what must
+# exist there first. NULL prerequisites = not recorded; [] = recorded "none".
+TargetEnvironment = Annotated[str, StringConstraints(pattern=f"^({'|'.join(TASK_TARGET_ENVIRONMENTS)})$")]
+EnvironmentPrerequisite = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 
 
 class ProjectTaskBase(BaseModel):
@@ -52,6 +59,11 @@ class ProjectTaskBase(BaseModel):
     planned_start_date: date | None = None
     planned_end_date: date | None = None
     policy_id: uuid.UUID | None = None
+    # Skills the executor and reviewer must hold (mission spec §6.1); for a
+    # mission task, changeable only while the mission is planning.
+    required_skill_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50)
+    target_environment: TargetEnvironment | None = None
+    environment_prerequisites: list[EnvironmentPrerequisite] | None = Field(default=None, max_length=20)
 
     @model_validator(mode="after")
     def _validate_choices(self) -> "ProjectTaskBase":
@@ -106,6 +118,9 @@ class ProjectTaskUpdate(BaseModel):
     planning_item_id: uuid.UUID | None = None
     change_request_id: uuid.UUID | None = None
     policy_id: uuid.UUID | None = None
+    required_skill_ids: list[uuid.UUID] | None = Field(default=None, max_length=50)
+    target_environment: TargetEnvironment | None = None
+    environment_prerequisites: list[EnvironmentPrerequisite] | None = Field(default=None, max_length=20)
 
     @model_validator(mode="after")
     def _validate_choices(self) -> "ProjectTaskUpdate":
@@ -187,6 +202,9 @@ class TaskDependencyCreate(BaseModel):
     task_id: uuid.UUID
     depends_on_task_id: uuid.UUID
     dependency_type: str = "finish_to_start"
+    # add_task_dependency (M0.2b, §5.4): required from an agt_ caller, whose
+    # retry replays the stored receipt; optional for a person.
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=150)
 
     @model_validator(mode="after")
     def _validate(self) -> "TaskDependencyCreate":
@@ -206,6 +224,14 @@ class TaskDependencyOut(BaseModel):
     dependency_type: str
     created_at: datetime
     updated_at: datetime
+
+
+class TaskDependencyAddedOut(TaskDependencyOut):
+    """POST /tasks/{id}/dependencies (§5.4). `requires_change_request`: the
+    dependent task belongs to a mission that already has a baseline it is not
+    in, so it runs only after an applied change request and a new approval."""
+
+    baseline_impact: Literal["none", "requires_change_request"] = "none"
 
 
 # --------------------------------------------------------------------------
@@ -389,6 +415,11 @@ class TaskInboxDispatchIn(BaseModel):
     command_text: str | None = None
     # Whether the agent's reply should come back as a linked Inbox item.
     requires_response: bool = True
+    # M0.2c (§5.6): a future time files the linked demand into the queue
+    # without reserving; the scheduled pass starts it when due.
+    scheduled_at: datetime | None = None
+    # Required for an agt_ caller (§0.4 receipt); optional for a person.
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=150)
 
 
 class TaskInboxDispatchOut(BaseModel):
@@ -402,3 +433,4 @@ class TaskInboxDispatchOut(BaseModel):
     target_agent_id: uuid.UUID
     dispatch_status: str | None = None
     agent_run_id: str | None = None
+    scheduled_at: datetime | None = None

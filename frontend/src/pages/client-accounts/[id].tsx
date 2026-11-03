@@ -420,9 +420,11 @@ function ContractRow({ contract: c, vm }: { contract: Contract; vm: ClientAccoun
             <Badge variant={STATUS_VARIANT[c.status] ?? "outline"}>{t(`contract.status.${c.status}`, c.status)}</Badge>
           </div>
           <div className="text-sm text-muted-foreground">
-            {c.contract_type === "suporte_horas"
+            {c.contract_type === "servico" || c.contract_type === "suporte_horas"
               ? `${c.monthly_hours_quota ?? "—"} ${t("contract.hoursPerMonth")} · ${money(c.monthly_price, i18n.language)} · ${t("contract.fields.billing_cycle_day")}: ${c.billing_cycle_day ?? "—"}`
-              : `${money(c.total_value, i18n.language)}${c.scope_summary ? ` · ${c.scope_summary}` : ""}`}
+              : c.contract_type === "locacao" || c.contract_type === "locacao_software"
+                ? `${money(c.monthly_price, i18n.language)}/mês · ${t("contract.fields.billing_cycle_day")}: ${c.billing_cycle_day ?? "—"}`
+                : `${money(c.total_value, i18n.language)}${c.scope_summary ? ` · ${c.scope_summary}` : ""}`}
           </div>
           {c.hours_used_current_cycle !== undefined && (
             <div className="text-xs text-muted-foreground">

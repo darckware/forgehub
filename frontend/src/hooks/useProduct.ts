@@ -64,14 +64,18 @@ export const productInputSchema = z.object({
   // a de desenvolvimento.
   application_url: z.string().url("Enter a valid http(s) URL").optional().or(z.literal("")),
   application_url_dev: z.string().url("Enter a valid http(s) URL").optional().or(z.literal("")),
+  darckware_client_id: z.string().uuid().nullable().optional().or(z.literal("")),
+  darckware_client_name: z.string().max(200).nullable().optional().or(z.literal("")),
 });
 
 export type ProductInput = z.infer<typeof productInputSchema>;
 export type ProductUpdateInput = Partial<
-  Omit<ProductInput, "application_url" | "application_url_dev">
+  Omit<ProductInput, "application_url" | "application_url_dev" | "darckware_client_id" | "darckware_client_name">
 > & {
   application_url?: string | null;
   application_url_dev?: string | null;
+  darckware_client_id?: string | null;
+  darckware_client_name?: string | null;
 };
 
 const RESOURCE = "/api/v1/products";
@@ -205,6 +209,7 @@ export function useCreateProduct() {
     mutationFn: (payload: ProductInput) => apiClient.post<Product>(RESOURCE, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["cockpit"] });
     },
   });
 }
@@ -216,6 +221,7 @@ export function useUpdateProduct() {
       apiClient.put<Product>(`${RESOURCE}/${id}`, payload),
     onSuccess: (product) => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["cockpit"] });
       queryClient.setQueryData(["products", product.id], product);
     },
   });
@@ -227,6 +233,7 @@ export function useDeleteProduct() {
     mutationFn: (id: string) => apiClient.delete<void>(`${RESOURCE}/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["cockpit"] });
     },
   });
 }

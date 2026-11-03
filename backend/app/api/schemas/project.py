@@ -67,6 +67,9 @@ class ProjectUpdate(BaseModel):
     backup_enabled: bool | None = None
     backup_location: str | None = Field(default=None, max_length=1024)
     darckware_client_id: uuid.UUID | None = None
+    # Never applied: read only so the route can refuse it for a mission
+    # (409 MISSION_STATUS_IS_PROJECTED); a common project ignores it as before.
+    project_type: str | None = None
 
     @model_validator(mode="after")
     def _validate_status(self) -> "ProjectUpdate":

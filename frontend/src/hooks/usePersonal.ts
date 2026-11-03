@@ -78,13 +78,19 @@ export interface PersonalDemandType {
 
 export type DemandStatus = "open" | "done";
 
+export interface PersonalDemandOrigin {
+ kind:'contact'|'group'; contact_id:string|null; contact_name:string; group_id:string|null; group_name:string;
+ author:string; author_id:string|null; message_ref:string|null; message_id:string|null; captured_at:string|null;
+}
 export interface PersonalDemand {
+  origin?: PersonalDemandOrigin | null;
   id: string;
   title: string;
   notes: string | null;
   type_id: string | null;
   status: DemandStatus;
   completed_at: string | null;
+  completed_by?: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -103,6 +109,8 @@ const keys = {
   notes: (q: string, archived: boolean) => ["personal", "notes", q, archived] as const,
   demands: (status: string) => ["personal", "demands", status] as const,
   demandTypes: ["personal", "demand-types"] as const,
+  location: ["personal", "location"] as const,
+  dailySummaries: (start: string, end: string) => ["personal", "daily-summaries", start, end] as const,
 };
 
 function qs(params: Record<string, string | boolean | undefined>): string {
@@ -284,5 +292,60 @@ export function useDeletePersonalDemandType() {
   return useMutation<void, Error, string>({
     mutationFn: (id) => apiClient.delete(`${BASE}/demand-types/${id}`),
     onSettled: invalidate,
+  });
+}
+
+/** Marcelo's current GPS location -- one, no history. A pin sent to the Maia (telegram/whatsapp)
+ * or this browser's GPS ("browser"). Feeds the daily summary's weather. */
+export interface PersonalLocation {
+  latitude: number;
+  longitude: number;
+  accuracy_m: number | null;
+  city: string | null;
+  state: string | null;
+  source: "telegram" | "whatsapp" | "browser";
+  shared_at: string;
+}
+
+export interface LocationFix {
+  latitude: number;
+  longitude: number;
+  accuracy_m: number | null;
+}
+
+/** The morning summary the Maia sent, with the location its weather used. */
+export interface PersonalDailySummary {
+  id: string;
+  day: string;
+  content: string;
+  location_city: string | null;
+  location_state: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function usePersonalLocation() {
+  return useQuery<PersonalLocation | null>({
+    queryKey: keys.location,
+    queryFn: () => apiClient.get(`${BASE}/location`),
+  });
+}
+
+/** Replaces the current location with a GPS fix from this browser. */
+export function useSetPersonalLocation() {
+  const invalidate = useInvalidatePersonal();
+  return useMutation<PersonalLocation, Error, LocationFix>({
+    mutationFn: (body) => apiClient.put(`${BASE}/location`, body),
+    onSettled: invalidate,
+  });
+}
+
+export function usePersonalDailySummaries(start: string, end: string) {
+  return useQuery<PersonalDailySummary[]>({
+    queryKey: keys.dailySummaries(start, end),
+    queryFn: () => apiClient.get(`${BASE}/daily-summaries${qs({ start, end })}`),
   });
 }

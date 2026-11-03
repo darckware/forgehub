@@ -10,7 +10,7 @@ came due and marks them sent, so each one fires exactly once. ``GET /summary`` f
 summary.
 """
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, delete, func, or_, select
@@ -35,11 +35,15 @@ from app.api.schemas.personal import (
     PersonalTaskCreate,
     PersonalTaskOut,
     PersonalTaskUpdate,
+    PersonalDailySummaryOut,
+    PersonalDailySummarySave,
+    PersonalLocationOut,
+    PersonalLocationSet,
     RemindersDueOut,
 )
 from app.core.config import settings
 from app.core.deps import ActorPrincipal, get_actor_principal
-from app.core.weather import WeatherError, format_summary, get_weather
+from app.core.weather import WeatherError, format_summary, get_weather, reverse_geocode
 from app.core.personal_schedule import (
     DEFAULT_REMINDERS,
     collect_due,
@@ -49,7 +53,19 @@ from app.core.personal_schedule import (
     task_moment,
 )
 from app.db.base import get_db
-from app.db.models.personal import PersonalDemand, PersonalDemandType, PersonalEvent, PersonalNote, PersonalTask
+from app.db.models.personal import (
+    PersonalDailySummary,
+    PersonalDemand,
+    PersonalCaptureSuggestion,
+    PersonalContact,
+    PersonalContactMessage,
+    PersonalWhatsAppGroup,
+    PersonalDemandType,
+    PersonalEvent,
+    PersonalLocation,
+    PersonalNote,
+    PersonalTask,
+)
 
 router = APIRouter(prefix="/api/v1/personal", tags=["personal"])
 
@@ -360,13 +376,29 @@ async def list_demands(
     actor: str = Depends(personal_actor),
     db: AsyncSession = Depends(get_db),
 ) -> list[PersonalDemand]:
-    stmt = select(PersonalDemand)
+    stmt = select(PersonalDemand, PersonalCaptureSuggestion, PersonalContact, PersonalWhatsAppGroup, PersonalContactMessage).outerjoin(
+        PersonalCaptureSuggestion, and_(PersonalCaptureSuggestion.created_item_id == PersonalDemand.id, PersonalCaptureSuggestion.kind == 'demand')
+    ).outerjoin(PersonalContact, PersonalContact.id == PersonalCaptureSuggestion.contact_id).outerjoin(
+        PersonalWhatsAppGroup, PersonalWhatsAppGroup.id == PersonalCaptureSuggestion.group_id).outerjoin(PersonalContactMessage, PersonalContactMessage.id == PersonalCaptureSuggestion.message_id)
     if demand_status:
         stmt = stmt.where(PersonalDemand.status == demand_status)
     if type_id:
         stmt = stmt.where(PersonalDemand.type_id == type_id)
     stmt = stmt.order_by(PersonalDemand.created_at.desc())
-    return list((await db.execute(stmt)).scalars())
+    result = []
+    from app.api.schemas.personal import PersonalDemandOrigin
+    for demand, suggestion, contact, group, message in (await db.execute(stmt)).all():
+        out = PersonalDemandOut.model_validate(demand)
+        if suggestion:
+            out.origin = PersonalDemandOrigin(kind='group' if group else 'contact',
+                contact_id=contact.id if contact else None, contact_name=contact.name if contact else '',
+                group_id=group.id if group else None, group_name=group.name if group else '',
+                author=(suggestion.source_author or suggestion.source_author_id or '') if group else (suggestion.source_author or (message.author if message else '') or (contact.name if contact else '')),
+                author_id=suggestion.source_author_id, message_ref=suggestion.source_message_ref,
+                message_id=suggestion.message_id, captured_at=suggestion.source_at or (message.at if message else None) or suggestion.created_at)
+        result.append(out)
+    return result
+
 
 
 async def _check_type(db: AsyncSession, type_id: uuid.UUID | None) -> None:
@@ -378,7 +410,10 @@ async def _check_type(db: AsyncSession, type_id: uuid.UUID | None) -> None:
 async def create_demand(payload: PersonalDemandCreate, actor: str = Depends(personal_actor),
                         db: AsyncSession = Depends(get_db)) -> PersonalDemand:
     await _check_type(db, payload.type_id)
-    demand = PersonalDemand(**payload.model_dump(), created_by=actor)
+    if payload.origin is not None:
+        from app.core.personal_demand_sources import create_direct_demand
+        return await create_direct_demand(db, payload, actor)
+    demand = PersonalDemand(**payload.model_dump(exclude={'origin'}), created_by=actor)
     db.add(demand)
     await db.commit()
     await db.refresh(demand)
@@ -388,12 +423,20 @@ async def create_demand(payload: PersonalDemandCreate, actor: str = Depends(pers
 @router.patch("/demands/{demand_id}", response_model=PersonalDemandOut)
 async def update_demand(demand_id: uuid.UUID, payload: PersonalDemandUpdate, actor: str = Depends(personal_actor),
                         db: AsyncSession = Depends(get_db)) -> PersonalDemand:
-    demand = await _get(db, PersonalDemand, demand_id)
+    demand = (await db.execute(select(PersonalDemand).where(PersonalDemand.id == demand_id).with_for_update())).scalar_one_or_none()
+    if demand is None:
+        raise HTTPException(404, 'PersonalDemand not found')
     changes = payload.model_dump(exclude_unset=True)
     if "type_id" in changes:
         await _check_type(db, changes["type_id"])
     if "status" in changes and changes["status"] != demand.status:
+        from app.core.personal_captures import audit
+        previous_status = demand.status
         demand.completed_at = datetime.now().astimezone() if changes["status"] == "done" else None
+        demand.completed_by = actor if changes['status'] == 'done' else None
+        audit(db, 'personal_demand', demand.id, 'completed' if changes['status'] == 'done' else 'reopened', actor,
+              {'from_status': previous_status, 'to_status': changes['status'],
+               'completed_at': demand.completed_at.isoformat() if demand.completed_at else None})
     for key, value in changes.items():
         setattr(demand, key, value)
     await db.commit()
@@ -408,6 +451,87 @@ async def delete_demands(payload: PersonalDemandsDelete, actor: str = Depends(pe
     _owner_only(actor)
     await db.execute(delete(PersonalDemand).where(PersonalDemand.id.in_(payload.ids)))
     await db.commit()
+
+
+
+
+# --- current location and daily summaries -----------------------------------------------------
+
+async def _current_location(db: AsyncSession) -> PersonalLocation | None:
+    """Marcelo's current GPS location; None means the weather falls back to the configured or
+    default city -- never the VPS's."""
+    return (await db.execute(select(PersonalLocation).limit(1))).scalar_one_or_none()
+
+
+@router.get("/location", response_model=PersonalLocationOut | None)
+async def get_location(actor: str = Depends(personal_actor),
+                       db: AsyncSession = Depends(get_db)) -> PersonalLocation | None:
+    return await _current_location(db)
+
+
+@router.put("/location", response_model=PersonalLocationOut)
+async def set_location(payload: PersonalLocationSet, actor: str = Depends(personal_actor),
+                       db: AsyncSession = Depends(get_db)) -> PersonalLocation:
+    """Replace the current GPS location: a pin the Maia received (``source`` telegram|whatsapp)
+    or the browser's GPS when Marcelo calls. City and state come from a reverse geocode."""
+    city, state = await reverse_geocode(payload.latitude, payload.longitude)
+    values = {
+        "latitude": payload.latitude, "longitude": payload.longitude, "accuracy_m": payload.accuracy_m,
+        "city": city, "state": state, "source": "browser" if actor == OWNER else payload.source,
+        "shared_at": datetime.now(timezone.utc),
+    }
+    location = await _current_location(db)
+    if location is None:
+        location = PersonalLocation(**values)
+        db.add(location)
+    else:
+        for key, value in values.items():
+            setattr(location, key, value)
+    await db.commit()
+    await db.refresh(location)
+    return location
+
+
+@router.get("/daily-summaries", response_model=list[PersonalDailySummaryOut])
+async def list_daily_summaries(start: date | None = None, end: date | None = None,
+                               actor: str = Depends(personal_actor),
+                               db: AsyncSession = Depends(get_db)) -> list[PersonalDailySummary]:
+    """The Maia's morning summaries between ``start`` and ``end`` (default: the last 30 days), newest first."""
+    end = end or now_local().date()
+    start = start or end - timedelta(days=30)
+    return list((await db.execute(
+        select(PersonalDailySummary)
+        .where(PersonalDailySummary.day >= start, PersonalDailySummary.day <= end)
+        .order_by(PersonalDailySummary.day.desc())
+    )).scalars())
+
+
+@router.put("/daily-summaries/{day}", response_model=PersonalDailySummaryOut)
+async def save_daily_summary(day: date, payload: PersonalDailySummarySave, actor: str = Depends(personal_actor),
+                             db: AsyncSession = Depends(get_db)) -> PersonalDailySummary:
+    """Record the summary the Maia sent on ``day``; saving again the same day replaces it.
+    The current location is copied in, since it keeps no history of its own."""
+    location = await _current_location(db)
+    values = {
+        "content": payload.content,
+        "location_city": location.city if location else None,
+        "location_state": location.state if location else None,
+        "latitude": location.latitude if location else None,
+        "longitude": location.longitude if location else None,
+        "created_by": actor,
+    }
+    summary_row = (await db.execute(
+        select(PersonalDailySummary).where(PersonalDailySummary.day == day)
+    )).scalar_one_or_none()
+    if summary_row is None:
+        summary_row = PersonalDailySummary(day=day, **values)
+        db.add(summary_row)
+    else:
+        for key, value in values.items():
+            setattr(summary_row, key, value)
+    await db.commit()
+    await db.refresh(summary_row)
+    return summary_row
 
 
 # --- combined agenda, reminders, summary -------------------------------------------------------
@@ -460,9 +584,11 @@ async def reminders_due(actor: str = Depends(personal_actor), db: AsyncSession =
 
 
 @router.get("/weather", response_model=WeatherOut)
-async def weather(day: date | None = None, actor: str = Depends(personal_actor)) -> WeatherOut:
+async def weather(day: date | None = None, actor: str = Depends(personal_actor),
+                  db: AsyncSession = Depends(get_db)) -> WeatherOut:
+    day = day or now_local().date()
     try:
-        return await get_weather(day or now_local().date())
+        return await get_weather(day, await _current_location(db))
     except WeatherError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
 
@@ -482,9 +608,9 @@ async def summary(day: date | None = None, actor: str = Depends(personal_actor),
     )))).scalars())
     text = day_summary(day, events, tasks)
     weather = None
-    if settings.WEATHER_ENABLED and settings.WEATHER_LATITUDE is not None and settings.WEATHER_LONGITUDE is not None:
+    if settings.WEATHER_ENABLED:
         try:
-            weather = await get_weather(day)
+            weather = await get_weather(day, await _current_location(db))
             text += "\n" + format_summary(weather)
         except WeatherError:
             # Weather is an optional enrichment; agenda summaries remain available.

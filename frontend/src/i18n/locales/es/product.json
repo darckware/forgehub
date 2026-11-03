@@ -27,7 +27,10 @@
       "save": "Guardar",
       "cancel": "Cancelar",
       "urlDevLabel": "Desarrollo URL",
-      "urlDevPlaceholder": "http://localhost:4173"
+      "urlDevPlaceholder": "http://localhost:4173",
+      "clientLabel": "Cliente asociado (Darckware)",
+      "noClient": "⚡ Producto propio de Darckware (Sin cliente vinculado)",
+      "clientHint": "Opcional. Dejar en blanco si es un producto o sistema interno de Darckware."
     },
     "loading": "Cargando productos...",
     "loadError": "Fallo al cargar los productos.",
@@ -36,6 +39,7 @@
     "emptyDescription": "Crea tu primer producto para empezar.",
     "columns": {
       "name": "Nombre",
+      "client": "Cliente / Origen",
       "status": "Situación",
       "versions": "Versiones",
       "actions": "Medidas"
@@ -70,7 +74,10 @@
     "save": "Guardar",
     "cancel": "Cancelar",
     "urlDevLabel": "Desarrollo URL",
-    "urlDevPlaceholder": "http://localhost:4173"
+    "urlDevPlaceholder": "http://localhost:4173",
+    "clientLabel": "Cliente asociado (Darckware)",
+    "noClient": "⚡ Producto propio de Darckware (Sin cliente vinculado)",
+    "clientHint": "Opcional. Dejar en blanco si es un producto o sistema interno de Darckware."
   },
   "restoreModal": {
     "title": "Restaurar copia de seguridad",

@@ -38,6 +38,17 @@ def _excerpt(value: str | None, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "\n[Extrato: consulte a mensagem original para o conteúdo completo.]"
 
 
+async def _is_mission_task(db: AsyncSession, source: AgentDemand) -> bool:
+    """True when the failed demand runs a task under at least one mission."""
+    if source.origin_id is None:
+        return False
+    from app.core.task_baseline_guard import task_missions
+    from app.db.models.task import ProjectTask
+
+    task = await db.get(ProjectTask, source.origin_id)
+    return task is not None and bool(await task_missions(db, task))
+
+
 async def ensure_failure_check(db: AsyncSession, source_id: UUID) -> AgentDemand | None:
     """Caller commits. Lock, child insert and archive share one transaction.
 
@@ -53,6 +64,14 @@ async def ensure_failure_check(db: AsyncSession, source_id: UUID) -> AgentDemand
     if (source.status == "archived" or source.consolidated_into_id is not None
             or source.origin_type != "task" or source.dispatch_status != "failed"
             or requires_reconciliation(source) or "ended as 'stale'" in (source.dispatch_error or "")):
+        return None
+    if await _is_mission_task(db, source):
+        # A mission's own orchestrator cycle decides what follows a failed
+        # task (M0.8, MISSION_ORCHESTRATOR_CYCLE_SPEC.md §3.3/§3.4: reschedule
+        # after quota, reprocess infrastructure, reassign), recorded in
+        # mission_decisions. A second, automatic follow-up here would be read
+        # by the cycle as "already queued" and bypass its decisions
+        # (Marcelo, 2026-11-03: "Orquestrador decide").
         return None
     owner_id = source.from_agent_id or source.target_agent_id
     if owner_id is None:

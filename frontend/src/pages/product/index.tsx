@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, Plus, Loader2, PackageSearch, Trash2, Pencil, Download, Upload, Database, FolderOpen } from "lucide-react";
+import { ArrowLeft, Plus, Loader2, PackageSearch, Trash2, Pencil, Download, Upload, Database, FolderOpen, Building2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -38,6 +38,7 @@ import {
   type ProductUpdateInput,
   type Product,
 } from "@/hooks/useProduct";
+import { useDarckwareClients, type DarckwareClient } from "@/hooks/useClientOps";
 import { apiClient } from "@/lib/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -54,10 +55,11 @@ const statusBadgeVariant: Record<string, "success" | "secondary" | "outline"> = 
 // ---------------------------------------------------------------------------
 interface EditFormProps {
   product: Product;
+  clients?: DarckwareClient[];
   onClose: () => void;
 }
 
-function EditProductForm({ product, onClose }: EditFormProps) {
+function EditProductForm({ product, clients, onClose }: EditFormProps) {
   const { t } = useTranslation("product");
   const queryClient = useQueryClient();
   const update = useMutation({
@@ -65,6 +67,7 @@ function EditProductForm({ product, onClose }: EditFormProps) {
       apiClient.put<Product>(`/api/v1/products/${product.id}`, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["cockpit"] });
       onClose();
     },
   });
@@ -77,21 +80,26 @@ function EditProductForm({ product, onClose }: EditFormProps) {
       status: (product.status as "active" | "inactive" | "archived") ?? "active",
       application_url: product.application_url ?? "",
       application_url_dev: product.application_url_dev ?? "",
+      darckware_client_id: product.darckware_client_id ?? "",
+      darckware_client_name: product.darckware_client_name ?? "",
     },
   });
 
   return (
     <Card>
       <form noValidate
-        onSubmit={handleSubmit((v) =>
+        onSubmit={handleSubmit((v) => {
+          const selectedClient = clients?.find((c) => c.id === v.darckware_client_id);
           update.mutate({
             ...v,
             // "" limpa a URL: o backend precisa de null, não de string vazia
             // (o pattern ^https?:// rejeitaria "").
             application_url: v.application_url || null,
             application_url_dev: v.application_url_dev || null,
-          }),
-        )}
+            darckware_client_id: v.darckware_client_id || null,
+            darckware_client_name: selectedClient ? selectedClient.company_name : null,
+          });
+        })}
       >
         <CardHeader>
           <CardTitle>{t("editRow.title")}</CardTitle>
@@ -106,6 +114,18 @@ function EditProductForm({ product, onClose }: EditFormProps) {
           <div className="space-y-2">
             <Label htmlFor="edit-description">{t("editRow.descriptionLabel")}</Label>
             <Textarea className="resize-none" id="edit-description" rows={6} {...register("description")} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="edit-client">{t("editRow.clientLabel")}</Label>
+            <Select id="edit-client" {...register("darckware_client_id")}>
+              <option value="">{t("editRow.noClient")}</option>
+              {clients?.map((client) => (
+                <option key={client.id} value={client.id}>
+                  🏢 {client.company_name}
+                </option>
+              ))}
+            </Select>
+            <p className="text-xs text-muted-foreground">{t("editRow.clientHint")}</p>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
@@ -224,6 +244,8 @@ function RestoreModal({ open, onClose, onConfirm, loading }: RestoreModalProps) 
 export default function ProductPage() {
   const { t } = useTranslation("product");
   const { data: products, isLoading, isError, error, refetch } = useProducts();
+  const { data: clientsData } = useDarckwareClients();
+  const clientList = clientsData?.items ?? [];
   const createProduct = useCreateProduct();
   const deleteProduct = useDeleteProduct();
   const [view, setView] = useState<"list" | "form">("list");
@@ -247,28 +269,22 @@ export default function ProductPage() {
       status: "active",
       application_url: "",
       application_url_dev: "",
+      darckware_client_id: "",
+      darckware_client_name: "",
     },
   });
 
   const onSubmit = async (values: ProductInput) => {
+    const selectedClient = clientList.find((c) => c.id === values.darckware_client_id);
     await createProduct.mutateAsync({
       ...values,
       application_url: values.application_url || undefined,
       application_url_dev: values.application_url_dev || undefined,
+      darckware_client_id: values.darckware_client_id || undefined,
+      darckware_client_name: selectedClient ? selectedClient.company_name : undefined,
     });
     reset();
     setView("list");
-  };
-
-  const openCreateForm = () => {
-    reset();
-    setEditingId(null);
-    setView("form");
-  };
-
-  const openEditForm = (id: string) => {
-    setEditingId(id);
-    setView("form");
   };
 
   const backToList = () => {
@@ -355,10 +371,12 @@ export default function ProductPage() {
                   <Upload className="mr-2 h-4 w-4" />
                   {t("list.restoreButton")}
                 </Button>
-                <Button onClick={openCreateForm}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  {t("list.newButton")}
-                </Button>
+                <Link to="/systems/novo">
+                  <Button>
+                    <Plus className="mr-2 h-4 w-4" />
+                    {t("list.newButton")}
+                  </Button>
+                </Link>
               </>
             ) : (
               <Button variant="outline" onClick={backToList}>
@@ -372,7 +390,7 @@ export default function ProductPage() {
 
       {view === "form" ? (
         editingId && editingProduct ? (
-          <EditProductForm product={editingProduct} onClose={backToList} />
+          <EditProductForm product={editingProduct} clients={clientList} onClose={backToList} />
         ) : (
           <Card>
             <form noValidate onSubmit={handleSubmit(onSubmit)}>
@@ -400,6 +418,19 @@ export default function ProductPage() {
                   {errors.description && (
                     <p className="text-sm text-destructive">{errors.description.message}</p>
                   )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="create-client">{t("list.createForm.clientLabel")}</Label>
+                  <Select id="create-client" {...register("darckware_client_id")}>
+                    <option value="">{t("list.createForm.noClient")}</option>
+                    {clientList.map((client) => (
+                      <option key={client.id} value={client.id}>
+                        🏢 {client.company_name}
+                      </option>
+                    ))}
+                  </Select>
+                  <p className="text-xs text-muted-foreground">{t("list.createForm.clientHint")}</p>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
@@ -499,6 +530,7 @@ export default function ProductPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>{t("list.columns.name")}</TableHead>
+                    <TableHead>{t("list.columns.client")}</TableHead>
                     <TableHead>{t("list.columns.status")}</TableHead>
                     <TableHead>{t("list.columns.versions")}</TableHead>
                     <TableHead className="text-right">{t("list.columns.actions")}</TableHead>
@@ -547,6 +579,19 @@ export default function ProductPage() {
                         )}
                       </TableCell>
                       <TableCell>
+                        {product.darckware_client_id ? (
+                          <Badge variant="outline" className="border-sky-500/40 text-sky-600 bg-sky-500/10 gap-1 text-[11px] font-medium">
+                            <Building2 className="h-3 w-3 shrink-0" />
+                            {product.darckware_client_name || "Cliente"}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="border-purple-500/40 text-purple-600 bg-purple-500/10 gap-1 text-[11px] font-medium">
+                            <Sparkles className="h-3 w-3 shrink-0" />
+                            Produto Darckware
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
                         <Badge
                           variant={statusBadgeVariant[product.status] ?? "outline"}
                           className={cn("capitalize")}
@@ -557,15 +602,16 @@ export default function ProductPage() {
                       <TableCell>{product.versions?.length ?? 0}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title={t("list.actions.edit")}
-                            disabled={product.status === "concept"}
-                            onClick={() => openEditForm(product.id)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
+                          <Link to={`/systems/${product.id}/editar`}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title={t("list.actions.edit")}
+                              disabled={product.status === "concept"}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          </Link>
                           <Button
                             variant="ghost"
                             size="icon"

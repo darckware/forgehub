@@ -278,8 +278,12 @@
   },
   "contract": {
     "type": {
-      "suporte_horas": "Suporte por horas",
-      "desenvolvimento": "Desenvolvimento"
+      "servico": "Serviço",
+      "locacao": "Locação",
+      "desenvolvimento": "Desenvolvimento",
+      "suporte_horas": "Serviço",
+      "locacao_software": "Locação",
+      "implementacao": "Desenvolvimento"
     },
     "status": {
       "ativo": "Ativo",

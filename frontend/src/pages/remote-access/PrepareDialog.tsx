@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { usePreparationViewModel } from "@/hooks/usePreparationViewModel";
+import { SshPortField } from "@/pages/servers/SshPortField";
 
 export function PrepareDialog({ onClose, onExecution, initialServerId }: {
   onClose: () => void;
@@ -65,6 +66,7 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
           {vm.mode === "ssh" ? (
             <div className="space-y-3 rounded-md border border-border p-3">
               <p className="text-xs text-muted-foreground">{t("prepare.sshHelp")}</p>
+              <SshPortField id="prep-ssh-port" value={vm.sshPort} onChange={vm.setSshPort} disabled={busy} />
               <p className="text-sm font-medium">{t("prepare.loginRequired")}</p>
               {vm.registeredUser && (
                 <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t("prepare.accountLabel")}>

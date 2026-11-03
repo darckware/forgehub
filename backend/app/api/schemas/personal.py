@@ -4,9 +4,10 @@ Datetimes are naive America/Sao_Paulo wall time ("2026-10-08T15:00"), the same c
 model uses; a timezone-aware value is converted to São Paulo time and stripped.
 """
 import uuid
-from datetime import datetime
+from datetime import date, datetime
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.personal_schedule import TZ
 from app.db.models.personal import (
@@ -219,10 +220,38 @@ class PersonalDemandTypeOut(BaseModel):
     created_at: datetime
 
 
+class PersonalDemandSource(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    kind: Literal['group', 'contact']
+    group_whatsapp_id: str | None = Field(default=None, pattern=r'^\d+(?:-\d+)?@g\.us$', max_length=160)
+    contact_id: uuid.UUID | None = None
+    message_ref: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
+    message_id: uuid.UUID | None = None
+    item_key: str = Field(default='principal', min_length=1, max_length=80, pattern=r'^[a-zA-Z0-9_-]+$')
+
+    @model_validator(mode='after')
+    def validate_source(self):
+        if self.kind == 'group':
+            if not self.group_whatsapp_id or not self.message_ref or self.contact_id or self.message_id:
+                raise ValueError('Group origin requires its real WhatsApp id and message reference only')
+        elif not self.contact_id or self.group_whatsapp_id or self.message_ref:
+            raise ValueError('Contact origin requires its real contact id only')
+        return self
+
+
 class PersonalDemandCreate(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     notes: str | None = None
     type_id: uuid.UUID | None = None
+    origin: PersonalDemandSource | None = None
+
+    @field_validator('title')
+    @classmethod
+    def nonblank_title(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError('Title must not be blank')
+        return value
 
 
 class PersonalDemandUpdate(BaseModel):
@@ -237,8 +266,22 @@ class PersonalDemandUpdate(BaseModel):
         return _choice(v, PERSONAL_DEMAND_STATUSES, "status")
 
 
+class PersonalDemandOrigin(BaseModel):
+    kind: str
+    contact_id: uuid.UUID | None = None
+    contact_name: str = ''
+    group_id: uuid.UUID | None = None
+    group_name: str = ''
+    author: str = ''
+    author_id: str | None = None
+    message_ref: str | None = None
+    message_id: uuid.UUID | None = None
+    captured_at: datetime | None = None
+
+
 class PersonalDemandOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+    origin: PersonalDemandOrigin | None = None
 
     id: uuid.UUID
     title: str
@@ -246,6 +289,7 @@ class PersonalDemandOut(BaseModel):
     type_id: uuid.UUID | None
     status: str
     completed_at: datetime | None
+    completed_by: str | None = None
     created_by: str
     created_at: datetime
     updated_at: datetime
@@ -253,3 +297,42 @@ class PersonalDemandOut(BaseModel):
 
 class PersonalDemandsDelete(BaseModel):
     ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+
+
+class PersonalLocationSet(BaseModel):
+    """A GPS fix. ``source`` is only read from the Maia (telegram|whatsapp); Marcelo's is "browser"."""
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    accuracy_m: float | None = Field(default=None, ge=0)
+    source: Literal["telegram", "whatsapp"] = "telegram"
+
+
+class PersonalLocationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    latitude: float
+    longitude: float
+    accuracy_m: float | None
+    city: str | None
+    state: str | None
+    source: str
+    shared_at: datetime
+
+
+class PersonalDailySummarySave(BaseModel):
+    content: str = Field(min_length=1, max_length=20000)
+
+
+class PersonalDailySummaryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    day: date
+    content: str
+    location_city: str | None
+    location_state: str | None
+    latitude: float | None
+    longitude: float | None
+    created_by: str
+    created_at: datetime
+    updated_at: datetime

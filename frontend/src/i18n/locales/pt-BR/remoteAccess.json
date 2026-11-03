@@ -747,6 +747,7 @@
       "name": "Nome do servidor",
       "ipAddress": "Endereço IP",
       "sshPort": "Porta SSH",
+      "invalidSshPort": "Informe uma porta inteira entre 1 e 65535.",
       "remoteUser": "Usuário remoto",
       "group": "Classificação / Grupo",
       "groups": {

@@ -3,6 +3,10 @@
 .env.*
 !.env.example
 !.env.sample
+# Isolated test Postgres (Plano Integrado T.1): the real file holds the
+# generated password; only the template is versioned.
+test-env/.env.test
+!test-env/.env.test.example
 *.pem
 *.key
 
@@ -42,3 +46,5 @@ dist/
 
 # Isolated implementation worktrees
 .worktrees/
+claude-yolo.sh
+test-env/.prod-secret-hashes

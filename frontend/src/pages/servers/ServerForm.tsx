@@ -34,7 +34,6 @@ import {
   resolveLiveServer,
   serverFormSchema,
   useCreateServer,
-  useReadServerPublicKey,
   useServer,
   useServers,
   useToggleServerAccess,
@@ -72,43 +71,6 @@ function KeyVaultSection({ server }: { server: Server }) {
       <p className="text-[11px] text-muted-foreground">
         {t("form.vault.description")}
       </p>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={!vm.hasKeyPath || vm.isBusy}
-          title={vm.hasKeyPath ? t("form.vault.storeTitle") : t("form.vault.pathRequired")}
-          onClick={vm.backup}
-        >
-          {vm.status === "backing_up" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-          {vm.vaulted ? t("form.vault.updateCopy") : t("form.vault.storeFromHost")}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={!vm.vaulted || !vm.hasKeyPath || vm.isBusy}
-          title={t("form.vault.restoreTitle")}
-          onClick={vm.restore}
-        >
-          {vm.status === "restoring" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-          {t("form.vault.restore")}
-        </Button>
-        {vm.vaulted && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="text-destructive"
-            disabled={vm.isBusy}
-            onClick={vm.requestClear}
-          >
-            {vm.status === "clearing" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-            {t("form.vault.removeCopy")}
-          </Button>
-        )}
-      </div>
       <div className="space-y-1">
         <Textarea
           value={vm.pastedKey}
@@ -283,7 +245,6 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
   const { t } = useTranslation("remoteAccess", { keyPrefix: "servers" });
   const [saveError, setSaveError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [pubKeyCopied, setPubKeyCopied] = useState(false);
   const [passphrase, setPassphrase] = useState("");
   const [passphraseTouched, setPassphraseTouched] = useState(false);
   const [groupIds, setGroupIds] = useState<string[]>(initial?.group_ids ?? []);
@@ -292,7 +253,6 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
 
   const createServer = useCreateServer();
   const updateServer = useUpdateServer();
-  const readPublicKey = useReadServerPublicKey();
   const pending = createServer.isPending || updateServer.isPending;
 
   // `initial` is the row as it was when the dialog opened. The read-only
@@ -315,7 +275,6 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
       ip_address: initial?.ip_address ?? "",
       remote_user: initial?.remote_user ?? "",
       ssh_port: initial?.ssh_port ?? 22,
-      ssh_key_path: initial?.ssh_key_path ?? "",
       environment: (initial?.environment as "vps" | "semed" | "client") ?? "semed",
       description: initial?.description ?? "",
       kind: initial?.kind ?? "server",
@@ -339,7 +298,6 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
       ip_address: values.ip_address,
       remote_user: values.remote_user,
       ssh_port: values.ssh_port,
-      ssh_key_path: values.ssh_key_path?.trim() || null,
       environment: values.environment,
       description: values.description?.trim() || null,
       kind: values.kind,
@@ -515,50 +473,6 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
               )}
             </div>
           )}
-
-          <div className="space-y-1">
-            <Label>{t("form.sshKeyPath")}</Label>
-            <div className="flex items-start gap-2">
-              <Input
-                {...register("ssh_key_path")}
-                placeholder="/root/.ssh/id_ed25519_aegis"
-                className="flex-1 font-mono text-xs"
-              />
-              {live?.ssh_key_path && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  title={t("form.copyPathPublicKey")}
-                  disabled={readPublicKey.isPending}
-                  onClick={() => {
-                    readPublicKey.mutate(live.id, {
-                      onSuccess: (srv) => {
-                        if (srv.public_key) {
-                          void navigator.clipboard.writeText(srv.public_key);
-                          setPubKeyCopied(true);
-                          setTimeout(() => setPubKeyCopied(false), 1500);
-                        }
-                      },
-                    });
-                  }}
-                >
-                  {readPublicKey.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : pubKeyCopied ? (
-                    <Check className="h-3.5 w-3.5 text-emerald-600" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" />
-                  )}
-                </Button>
-              )}
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              {t("form.sshKeyHelpBefore")} <code className="font-mono">ssh -i &lt;path&gt;</code> {t("form.sshKeyHelpAfter")}
-              {live?.ssh_key_path && ` ${t("form.sshKeyCopyHelp")}`}
-            </p>
-            {readPublicKey.isError && <p className="text-[11px] text-destructive">{readPublicKey.error.message}</p>}
-          </div>
 
           {live ? <PassphraseSection server={live} /> : (
             // No row yet, so there is nothing to save a passphrase against --

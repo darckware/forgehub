@@ -27,7 +27,10 @@
       "save": "Save",
       "cancel": "Cancel",
       "urlDevLabel": "Development URL",
-      "urlDevPlaceholder": "http://localhost:4173"
+      "urlDevPlaceholder": "http://localhost:4173",
+      "clientLabel": "Associated Client (Darckware)",
+      "noClient": "⚡ Darckware Proprietary Product (No client linked)",
+      "clientHint": "Optional. Leave blank if this is an internal Darckware product or system."
     },
     "loading": "Loading products...",
     "loadError": "Failed to load products.",
@@ -36,6 +39,7 @@
     "emptyDescription": "Create your first product to get started.",
     "columns": {
       "name": "Name",
+      "client": "Client / Origin",
       "status": "Status",
       "versions": "Versions",
       "actions": "Actions"
@@ -70,7 +74,10 @@
     "save": "Save",
     "cancel": "Cancel",
     "urlDevLabel": "Development URL",
-    "urlDevPlaceholder": "http://localhost:4173"
+    "urlDevPlaceholder": "http://localhost:4173",
+    "clientLabel": "Associated Client (Darckware)",
+    "noClient": "⚡ Darckware Proprietary Product (No client linked)",
+    "clientHint": "Optional. Leave blank if this is an internal Darckware product or system."
   },
   "restoreModal": {
     "title": "Restore backup",

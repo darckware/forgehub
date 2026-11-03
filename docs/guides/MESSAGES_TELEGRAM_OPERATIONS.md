@@ -1,7 +1,9 @@
 # Messages e Telegram — operação e recuperação
 
-**Estado:** implementado e verificado em 2026-08-23  
+**Estado:** implementado; contrato revisado em 2026-10-22
 **Escopo:** ForgeHub Messages MCP, feedback de conclusão pelo Telegram e gateways Hermes por perfil
+
+> **Atualização de 2026-10-22:** a recuperação de execuções incertas, a reconciliação de resultados, a liberação de dependências e a entrega idempotente de feedback estão detalhadas em [`docs/architecture/MESSAGES.md`](../architecture/MESSAGES.md), atualizado em 2026-10-21. Este guia permanece como runbook operacional de Telegram/gateway; não duplica o catálogo MCP nem o contrato de recuperação.
 
 ## Contrato de comunicação
 

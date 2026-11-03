@@ -78,9 +78,12 @@ async def world():
         await conn.execute(
             text("DELETE FROM company.agent_demands WHERE origin_id = :id"), {"id": ids["task_id"]}
         )
+        # Only the areas this test's own agents own: `project_id IS NULL`
+        # matched every real global default too, and wiped them whenever
+        # the suite ran against a shared database.
         await conn.execute(
-            text("DELETE FROM company.responsibility_areas WHERE project_id = :id OR project_id IS NULL"),
-            {"id": ids["project_id"]},
+            text("DELETE FROM company.responsibility_areas WHERE owner_agent_id = ANY(:ids)"),
+            {"ids": [ids["global_agent_id"], ids["scoped_agent_id"]]},
         )
         await conn.execute(
             text("DELETE FROM company.task_executions WHERE task_id = :id"), {"id": ids["task_id"]}

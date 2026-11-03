@@ -11,7 +11,6 @@ class ServerCreate(BaseModel):
     ip_address: str = Field(min_length=1, max_length=100)
     remote_user: str = Field(min_length=1, max_length=100)
     ssh_port: int = Field(default=22, ge=1, le=65535)
-    ssh_key_path: str | None = Field(default=None, max_length=500)
     # Write-only: encrypted on arrival and never echoed back (ServerOut carries
     # the key_passphrase_stored boolean instead).
     key_passphrase: str | None = None
@@ -35,7 +34,6 @@ class ServerUpdate(BaseModel):
     ip_address: str | None = Field(default=None, min_length=1, max_length=100)
     remote_user: str | None = Field(default=None, min_length=1, max_length=100)
     ssh_port: int | None = Field(default=None, ge=1, le=65535)
-    ssh_key_path: str | None = Field(default=None, max_length=500)
     # Three distinct intents, which is why the field is write-only and
     # tri-state: omitted -> keep whatever is stored (the form cannot re-send a
     # passphrase it never received); "" or null -> clear it; a value -> replace
@@ -118,9 +116,7 @@ class ServerKeyStoreRequest(BaseModel):
 
 
 class ServerKeyVaultResult(BaseModel):
-    """Outcome of a vault action (backup / restore). `key_path` is the host
-    path read from or written to; `written` lists the files a restore
-    actually created."""
+    """Outcome of an operation that stores key material in ForgeVault."""
 
     server_id: uuid.UUID
     private_key_stored: bool
