@@ -88,7 +88,7 @@
         "T.3"
       ],
       "acceptance": "Script inofensivo em alvo autorizado produz evidência; alvo não autorizado recusado",
-      "status": "planned",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -516,7 +516,7 @@
         "T.3"
       ],
       "acceptance": "Não depende de C.1; canários comprovam isolamento por perfil e nenhuma fuga de path; ativação ainda não realizada",
-      "status": "planned",
+      "status": "developed",
       "project_task_id": null
     },
     {

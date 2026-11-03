@@ -18,6 +18,14 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET="$DIR/.env.test"
 
 umask 077
+mkdir -p "$DIR/linux-target"
+if [ ! -f "$DIR/linux-target/id_ed25519" ]; then
+    ssh-keygen -q -t ed25519 -N '' -f "$DIR/linux-target/id_ed25519"
+fi
+if [ ! -f "$DIR/linux-target/id_ed25519.pub" ]; then
+    ssh-keygen -y -f "$DIR/linux-target/id_ed25519" > "$DIR/linux-target/id_ed25519.pub"
+fi
+chmod 644 "$DIR/linux-target/id_ed25519.pub"
 python3 - "$DIR/.env.test.example" "$TARGET" <<'PY'
 import re, secrets, sys
 from pathlib import Path

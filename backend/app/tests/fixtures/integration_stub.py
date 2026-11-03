@@ -41,12 +41,15 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import paramiko
 from fastapi import FastAPI, Request
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
@@ -302,10 +305,45 @@ async def host_bridge(path: str, request: Request):
             reason = (f"{', '.join(real)} is not a fictitious test target (RFC 5737 / .test)"
                       if real else "no target host in the request")
             return _refuse(integration, request, operation, reason, destination=destination, auth=auth)
-        if path == "exec":
+        if path == "servers/exec" and settings.TEST_LINUX_TARGET_KEY and all(
+            h == (settings.TEST_LINUX_TARGET_HOST or "linux-target.test") for h in hosts
+        ):
+            def execute():
+                client = paramiko.SSHClient()
+                client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                try:
+                    client.connect(hostname=hosts[0], username="darckware", key_filename=settings.TEST_LINUX_TARGET_KEY,
+                                   timeout=30, banner_timeout=30, auth_timeout=30, allow_agent=False, look_for_keys=False)
+                    _, stdout, _ = client.exec_command(body.get("script", ""), timeout=30)
+                    channel = stdout.channel
+                    deadline = time.monotonic() + 30
+                    output, errors = bytearray(), bytearray()
+                    while True:
+                        if channel.recv_ready():
+                            output.extend(channel.recv(65536))
+                        if channel.recv_stderr_ready():
+                            errors.extend(channel.recv_stderr(65536))
+                        if channel.exit_status_ready() and not channel.recv_ready() and not channel.recv_stderr_ready():
+                            break
+                        if time.monotonic() >= deadline:
+                            channel.close()
+                            raise TimeoutError("SSH execution timed out")
+                        time.sleep(0.01)
+                    return {"exit_code": channel.recv_exit_status(), "stdout": output.decode(errors="replace"),
+                            "stderr": errors.decode(errors="replace"), "stub": False}
+                finally:
+                    client.close()
+            try:
+                result = await run_in_threadpool(execute)
+            except (OSError, paramiko.SSHException) as exc:
+                return _reply(integration, request, 502, {"detail": type(exc).__name__}, operation=operation,
+                              outcome="failed", destination=destination, auth=auth)
+            return _reply(integration, request, 200, result, operation=operation, outcome="executed",
+                          destination=destination, auth=auth)
+        if path == "servers/exec":
             result: dict[str, Any] = {"exit_code": 0, "stdout": "[forgehub test stub] nothing ran",
                                       "stderr": "", "stub": True}
-        elif path == "check-status":
+        elif path == "servers/check-status":
             entries = body.get("servers") or []
             result = {"statuses": {str(e.get("id")): "offline" for e in entries if isinstance(e, dict)},
                       "stub": True}

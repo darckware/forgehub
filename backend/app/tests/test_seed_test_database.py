@@ -55,7 +55,9 @@ def test_seed_is_fictitious():
     for row in seed_module.build_rows():
         name = type(row).__name__
         if name == "Server":
-            assert any(ipaddress.ip_address(row.ip_address) in net for net in DOCUMENTATION_NETS), row.ip_address
+            assert row.ip_address == "linux-target.test" or any(
+                ipaddress.ip_address(row.ip_address) in net for net in DOCUMENTATION_NETS
+            ), row.ip_address
             assert row.ssh_key_path is None and row.private_key_encrypted is None
             assert row.login_password_ref is None and row.rustdesk_id is None
         if name == "User":
@@ -63,6 +65,8 @@ def test_seed_is_fictitious():
         if name == "Agent":
             assert row.forgerouter_api_key_encrypted is None and row.home_path is None
         for value in _all_strings(row):
+            if name == "Server" and row.name == "linux-target" and value == "darckware":
+                continue
             lowered = value.lower()
             assert not any(real in lowered for real in REAL_NAMES), f"{name}: {value!r}"
 

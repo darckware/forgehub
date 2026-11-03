@@ -561,3 +561,12 @@ async def test_evidence_probes_answer_only_for_fictitious_roots(stubbed):
     assert len(calls) == 8
     assert [c["outcome"] for c in calls[-2:]] == ["refused", "refused"]
     assert all(c["auth"] == "test" for c in calls)
+
+
+def test_linux_target_configuration_is_test_only_and_fictitious(production_env):
+    values = _test_values()
+    values['TEST_LINUX_TARGET_HOST'] = '10.0.0.5'
+    with pytest.raises(ValueError, match='TEST_LINUX_TARGET_HOST'):
+        Settings(**values)
+    with pytest.raises(ValueError, match='TEST_LINUX_TARGET'):
+        Settings(ENVIRONMENT='production', TEST_LINUX_TARGET_KEY='/tmp/key')

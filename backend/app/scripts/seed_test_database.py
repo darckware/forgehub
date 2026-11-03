@@ -105,6 +105,7 @@ PLANNING = (
 
 # name, kind, os, ip (RFC 5737 only), remote user, client key or None, location
 MACHINES = (
+    ("linux-target", "server", "linux", "linux-target.test", "darckware", None, "Rede de teste"),
     ("srv-teste-01", "server", "linux", "192.0.2.10", "operador", None, "Datacenter fictício"),
     ("srv-teste-02", "server", "linux", "192.0.2.11", "operador", "cliente-alfa", "Sala técnica fictícia"),
     ("est-alfa-01", "workstation", "windows", "198.51.100.21", "suporte", "cliente-alfa", "Recepção fictícia"),
