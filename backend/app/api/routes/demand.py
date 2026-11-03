@@ -1908,12 +1908,13 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
         # Oldest first: with a concurrency cap, what is left out of this pass
         # waits for the next one, and a due message must not be overtaken by
         # a newer one just because the cap happened to cut there.
-        .order_by(AgentDemand.scheduled_at)
+        .order_by(AgentDemand.scheduled_at, AgentDemand.number)
     )
     due = list(result.scalars().all())
     # M0.8 (cycle spec §6.1): a mission task goes by its mission's priority
     # (1 = most urgent), everything else by the default 100; scheduled_at
-    # breaks ties, so the contested agent goes to the higher priority.
+    # breaks ties, then the message number preserves creation order for equal
+    # scheduled times, so the contested agent goes to the higher priority.
     from app.core.agent_availability import unavailable_agents
     from app.core.mission_cycle import effective_priorities
 

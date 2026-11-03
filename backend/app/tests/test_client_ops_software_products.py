@@ -164,7 +164,7 @@ async def test_link_and_unlink_software_product(client, fake_darckware, test_pro
                 select(AuditEvent).where(
                     AuditEvent.entity_type == "darckware_software_product",
                     AuditEvent.entity_id == uuid.UUID(OFFER_2_ID),
-                )
+                ).order_by(AuditEvent.created_at)
             )
         ).scalars().all()
         assert len(events) >= 1
@@ -187,7 +187,7 @@ async def test_link_and_unlink_software_product(client, fake_darckware, test_pro
                 select(AuditEvent).where(
                     AuditEvent.entity_type == "darckware_software_product",
                     AuditEvent.entity_id == uuid.UUID(OFFER_2_ID),
-                )
+                ).order_by(AuditEvent.created_at)
             )
         ).scalars().all()
         assert len(events) >= 2
