@@ -13,16 +13,16 @@ from app.db.models.mission import MissionPlanSubmission, ProjectMission
 from app.db.models.personal import PersonalNote
 from app.db.models.product import Product
 from app.db.models.project import PlanBaseline
-from app.db.models.task import TaskExecutionTarget
+from app.db.models.task import TaskExecution, TaskExecutionTarget
 from app.tests.test_mission_base import _transition
 from app.tests.test_mission_plan_approval import _remove_plan_approvals
 from app.tests.test_mission_planning_records import Cast, world as planning_source  # noqa: F401,F811
 from app.tests.test_mission_dispatch import (
-    _assign, _audits, _dispatch, _latest_execution, _report, runner, world,  # noqa: F401,F811
+    _assign, _audits, _dispatch, _latest_execution, _mission_row, _report, runner, world,  # noqa: F401,F811
 )
 from app.tests.test_mission_dispatch_context import _canary
 from app.tests.test_mission_base import _member
-from app.tests.test_task_baseline_guard import _code, _mission
+from app.tests.test_task_baseline_guard import _code, _mission, _update
 from app.tests.test_mission_mcp import _key, docs_root, mcp_as, mw  # noqa: F401
 
 
@@ -208,3 +208,57 @@ async def test_rehearsal_step4_5_dispatch_and_report(world, runner, tmp_path, mo
             async with AsyncSessionLocal() as db:
                 await db.execute(text("DELETE FROM company.personal_notes WHERE id = :id"), {"id": note_id})
                 await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_rehearsal_step6_review_and_completion(world, runner):  # noqa: F811
+    mission = await _mission(world)
+    task = await mission.task("rehearsal review")
+    reviewer = await world.agent("reviewer")
+    await _member(mission.project_id, reviewer, role="reviewer", can_review=True)
+    await mission.baseline([task.id])
+    assigned = await _assign(world, mission, task.id, mission.executor)
+    assert assigned.status_code in (200, 201), assigned.text
+    dispatched = await _dispatch(world, task.id)
+    assert dispatched.status_code in (200, 201), dispatched.text
+    execution = await _latest_execution(task.id)
+    executor = await world.agent_token(mission.executor, ["mission.execution.report"])
+    reported = await _report(world, task.id, execution.id, executor,
+                             evidence=[f"db:project:{mission.project_id}"])
+    assert reported.status_code == 200 and reported.json()["status"] == "reported", reported.text
+
+    orchestrator = (await _mission_row(mission)).orchestrator_agent_id
+    coordinator = await world.agent_token(orchestrator, ["planning.execution.manage", "mission.orchestrate"])
+    path = f"/api/v1/missions/{mission.project_id}/tasks/{task.id}:request-review"
+
+    async def request_review():
+        async with world.client(coordinator) as client:
+            return await client.post(path, json={"execution_id": str(execution.id),
+                                                "reviewer_agent_id": str(reviewer),
+                                                "idempotency_key": uuid.uuid4().hex})
+
+    refused = await request_review()
+    assert refused.status_code == 409 and _code(refused) == "EXECUTION_NOT_VERIFIED", refused.text
+    await _update(TaskExecution, execution.id, status="verified")
+    assert (await _latest_execution(task.id)).status == "verified"
+    requested = await request_review()
+    assert requested.status_code in (200, 201), requested.text
+    again = await request_review()
+    assert again.status_code == 409 and _code(again) == "REVIEW_ALREADY_OPEN", again.text
+
+    review_path = f"/api/v1/orchestration/reviews/{requested.json()['review_id']}"
+    async with world.client(executor) as client:
+        self_review = await client.patch(review_path, json={"status": "approved", "feedback": "ok"})
+    # HTTP 403: an agent can only decide reviews for its own membership.
+    assert self_review.status_code == 403, self_review.text
+    reviewer_token = await world.agent_token(reviewer, None)
+    async with world.client(reviewer_token) as client:
+        no_feedback = await client.patch(review_path, json={"status": "approved"})
+        assert no_feedback.status_code == 422, no_feedback.text
+        approved = await client.patch(review_path, json={"status": "approved", "feedback": "Reviewed evidence"})
+    assert approved.status_code == 200 and approved.json()["status"] == "approved", approved.text
+    async with world.client() as client:
+        done = await client.patch(f"/api/v1/tasks/{task.id}", json={"status": "done"})
+        assert done.status_code == 200 and done.json()["status"] == "done", done.text
+        deployed = await client.patch(f"/api/v1/tasks/{task.id}", json={"status": "deployed"})
+    assert deployed.status_code == 409 and _code(deployed) == "DEPLOYED_WITHOUT_RELEASE", deployed.text

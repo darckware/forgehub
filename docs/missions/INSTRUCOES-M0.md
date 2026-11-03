@@ -1,9 +1,7 @@
 Versão: 1.0.0  
 Data: 2026-11-03  
 Fonte canônica: /root/.hermes/foundation/52_policies/MISSION_CONVENTION_M0.md  
-Testado por: backend/app/tests/test_mission_rehearsal_m0.py
-
-> Rascunho: o ensaio indicado cobre apenas a criação e os vínculos; o percurso completo ainda não foi verificado.
+Testado por: `backend/app/tests/test_mission_rehearsal_m0.py`: `test_mission_rehearsal_membership`, `test_rehearsal_step3_planning_to_active`, `test_rehearsal_step4_5_dispatch_and_report` e `test_rehearsal_step6_review_and_completion`.
 
 # Roteiro de missão M0
 
@@ -26,11 +24,11 @@ Nas escritas com `idempotency_key`, gere uma chave de 1 a 150 caracteres por int
 ## Executor
 
 1. `get_my_mission_role(project_id)` e `list_my_tasks()` consultam o próprio papel e tarefas com o `agt_`; não exigem delegação de escrita. `PROJECT_NOT_FOUND`: confira o vínculo ativo e o projeto; `INVALID_STATE_FILTER`: use `open`, `all` ou um status válido.
-2. `report_task_execution(task_id, status, summary, evidence, idempotency_key)` requer `mission.execution.report`. Use `reported`, `failed` ou `blocked`; `verified` é recusado pela própria ferramenta. `NOT_EXECUTOR`: relate somente a tarefa atribuída; `EVIDENCE_INVALID` ou `EVIDENCE_OUT_OF_SCOPE`: corrija a referência; `EXECUTION_CLOSED`: consulte a execução atual. `COMPLETION_NO_INDEPENDENT_REVIEW`: obtenha revisão independente; `COMPLETION_EVIDENCE_INVALID`: forneça evidência verificável; `COMPLETION_NOT_INTEGRATED`: aguarde integração do commit na `develop`. Relatar não conclui a tarefa.
+2. `report_task_execution(task_id, status, summary, evidence, idempotency_key)` requer `mission.execution.report`. Use `reported`, `failed` ou `blocked`; `verified` é recusado pela própria ferramenta. `NOT_EXECUTOR`: relate somente a tarefa atribuída; `EVIDENCE_INVALID` ou `EVIDENCE_OUT_OF_SCOPE`: corrija a referência; `EXECUTION_CLOSED`: consulte a execução atual. Relatar não conclui a tarefa. Na tentativa de conclusão, `COMPLETION_EXECUTION_NOT_VERIFIED`: aguarde verificação; `COMPLETION_NO_INDEPENDENT_REVIEW`: obtenha revisão independente; `COMPLETION_EVIDENCE_INVALID`: forneça evidência verificável; `COMPLETION_NOT_INTEGRATED`: aguarde integração do commit na `develop`.
 
 ## Revisor e verificador
 
-O revisor recebe `request_task_review` e decide com a própria credencial pela rota de revisão, com `status` e parecer (`feedback`); não há ferramenta MCP de decisão de revisão neste recorte. O verificador registra P7 em `plan-verifications`, com `project_plan_id`, `sampled_item_ids` e `result`, usando `mission.plan.review`. `REVIEWER_IS_PLANNER`: escolha outro verificador; `SAMPLE_TOO_SMALL` ou `SAMPLE_ITEM_INVALID`: corrija a amostra; `APPLICATION_VERIFICATION_DISCREPANCIES`: resolva as divergências e verifique novamente. A revisão da própria execução é recusada: escolha outro revisor.
+O revisor recebe `request_task_review` e decide com a própria credencial pela rota de revisão, com `status` e parecer (`feedback`); não há ferramenta MCP de decisão de revisão neste recorte. Uma decisão sem parecer recebe HTTP 422. A tentativa do executor de decidir a revisão atribuída a outro agente recebe HTTP 403. O verificador registra P7 em `plan-verifications`, com `project_plan_id`, `sampled_item_ids` e `result`, usando `mission.plan.review`. `REVIEWER_IS_PLANNER`: escolha outro verificador; `SAMPLE_TOO_SMALL` ou `SAMPLE_ITEM_INVALID`: corrija a amostra; `APPLICATION_VERIFICATION_DISCREPANCIES`: resolva as divergências e verifique novamente.
 
 ## Documentação
 
