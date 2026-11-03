@@ -818,6 +818,13 @@ async def test_translator_key_comes_from_forgerouter_registry_first(monkeypatch)
         agent_id = agent.id
     monkeypatch.setattr(settings, "CLIENT_OPS_TRANSLATOR_AGENT", slug)
     try:
+        # Under test (T.3) every agent gets the test key, never the registry
+        # or the stored copy.
+        async with AsyncSessionLocal() as db:
+            assert await forgerouter_llm.agent_api_key(db, slug) == settings.FORGEROUTER_TEST_API_KEY
+        # The production precedence below is exercised with the test switch off.
+        monkeypatch.setattr(forgerouter_llm, "is_test_environment", lambda _env: False)
+
         async def registry():
             return [forgerouter_sync.ForgeRouterAgentKey(name=f"Tradutor {slug}", api_key="live-key")]
 

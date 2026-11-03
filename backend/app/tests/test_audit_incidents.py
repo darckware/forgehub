@@ -22,7 +22,32 @@ async def client():
         yield ac
 
 
-async def test_failed_check_creates_one_owner_task_and_recovery_closes_it(client, monkeypatch):
+@pytest_asyncio.fixture
+async def athos_agent():
+    """The Auditor files its Tasks from Athos; a Task needs both agents
+    registered (otherwise it becomes an incubation). The fresh test database
+    has only the fictitious seed, so register the slug if it isn't there and
+    remove only what was created here."""
+    from app.db.models.agent import Agent
+
+    async with AsyncSessionLocal() as db:
+        existing = (await db.execute(select(Agent).where(Agent.profile_slug == "athos"))).scalar_one_or_none()
+        if existing is not None:
+            yield existing.id
+            return
+        agent = Agent(name=f"Athos (test) {uuid.uuid4().hex[:6]}", profile_slug="athos", is_active=True)
+        db.add(agent)
+        await db.commit()
+        agent_id = agent.id
+    yield agent_id
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(AgentDemand).where(
+            (AgentDemand.from_agent_id == agent_id) | (AgentDemand.target_agent_id == agent_id)))
+        await db.execute(delete(Agent).where(Agent.id == agent_id))
+        await db.commit()
+
+
+async def test_failed_check_creates_one_owner_task_and_recovery_closes_it(client, monkeypatch, athos_agent, test_suite_agent):
     check = AuditCheck(
         name=f"test-incident-{uuid.uuid4().hex[:10]}",
         command="verify-test-control",

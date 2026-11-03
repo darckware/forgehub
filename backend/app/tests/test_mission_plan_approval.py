@@ -529,10 +529,16 @@ async def test_migration_roundtrip_only_this_revision(world):
     """Downgrade this revision only and back, with a duplicate dependency and
     a required_skill_ids entry written in between: the upgrade collapses the
     duplicate (audited) and folds the column into task_required_skills.
-    Skipped unless the database is exactly at this revision."""
+    Revisions above this one move too and come back to the same head (one
+    transaction per run, so a refusal leaves everything in place). Skipped
+    only when the database carries more than one head (a sibling slice's
+    revision would be unapplied)."""
     current = _alembic("current").stdout.split()
-    if [t for t in current if len(t) == 12 and t.isalnum()] != [REVISION]:
-        pytest.skip(f"database at {current}, not only {REVISION}")
+    heads = [t for t in current if len(t) == 12 and t.isalnum()]
+    if len(heads) != 1:
+        pytest.skip(f"database at {current}, more than one head")
+    head = heads[0]
+    assert _alembic("history", "-r", f"{REVISION}:{head}").stdout, f"{REVISION} is not below {head}"
     plan = await Plan().build(world)
     second = await plan.add_task("second")
     skill = await world.skill()
@@ -541,7 +547,7 @@ async def test_migration_roundtrip_only_this_revision(world):
     submitted = (await plan.submit()).json()
     refused = _alembic("downgrade", DOWN_REVISION)
     assert refused.returncode != 0 and "Refusing to downgrade" in refused.stderr
-    assert REVISION in _alembic("current").stdout
+    assert head in _alembic("current").stdout
     await _remove_plan_approvals([plan.project_id], [])
     assert await _request(submitted["approval_request_id"]) is None
 
@@ -561,9 +567,9 @@ async def test_migration_roundtrip_only_this_revision(world):
                              {"s": str(skill), "g": str(uuid.uuid4()), "t": str(second.id)})
             await db.commit()
     finally:
-        up = _alembic("upgrade", REVISION)
+        up = _alembic("upgrade", head)
         assert up.returncode == 0, up.stderr
-    assert REVISION in _alembic("current").stdout
+    assert head in _alembic("current").stdout
     async with AsyncSessionLocal() as db:
         assert await db.scalar(select(func.count()).select_from(TaskDependency).where(
             TaskDependency.task_id == second.id)) == 1

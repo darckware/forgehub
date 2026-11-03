@@ -1,5 +1,7 @@
 """End-to-end integration test validating the entire Software Factory pipeline from Conception to Version Closure."""
 import uuid
+from datetime import datetime, timezone
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -8,6 +10,7 @@ from sqlalchemy import delete, select
 from app.db.base import AsyncSessionLocal
 from app.db.models.agent import Agent
 from app.db.models.backlog import PlanningItem
+from app.db.models.orchestration import ProjectAgentMembership, TaskExecutionReview
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import Project
 from app.db.models.system_scope import (
@@ -68,6 +71,7 @@ async def test_full_software_factory_pipeline_lifecycle(api_client, factory_acto
     suffix = factory_actor["suffix"]
     created_product_ids = []
     created_project_ids = []
+    reviewer_ids: list[uuid.UUID] = []
 
     try:
         # -------------------------------------------------------------
@@ -211,10 +215,29 @@ async def test_full_software_factory_pipeline_lifecycle(api_client, factory_acto
             json={
                 "status": "verified",
                 "outcome_summary": "All dashboard widgets verified and tests passing",
-                "evidence_ref": "test://dashboard-validation-ok",
+                # M0.6a: evidence must be a git:/file:/db: ref that checks out now.
+                "evidence_ref": f"db:planning_item:{plan_id}",
             },
         )
         assert exec_resp.status_code == 201, exec_resp.text
+
+        # 6b'. An independent agent reviews it (M0.6a: no done without an
+        # approved review by someone other than the executor).
+        async with AsyncSessionLocal() as db:
+            reviewer = Agent(name=f"Reviewer Agent {factory_actor['suffix']}",
+                             profile_slug=f"rev-{factory_actor['suffix']}", is_active=True)
+            db.add(reviewer)
+            await db.flush()
+            reviewer_ids.append(reviewer.id)
+            membership = ProjectAgentMembership(project_id=uuid.UUID(project_id), agent_id=reviewer.id,
+                                                role="reviewer", can_review=True)
+            db.add(membership)
+            await db.flush()
+            db.add(TaskExecutionReview(execution_id=uuid.UUID(exec_resp.json()["id"]),
+                                       reviewer_membership_id=membership.id, status="approved",
+                                       feedback="widgets and tests checked",
+                                       decided_at=datetime.now(timezone.utc)))
+            await db.commit()
 
         # 6c. Mark task done and planning done
         task_done_resp = await api_client.patch(f"/api/v1/tasks/{task_id}", json={"status": "done"})
@@ -250,11 +273,14 @@ async def test_full_software_factory_pipeline_lifecycle(api_client, factory_acto
                 if plan_ids:
                     task_ids = list((await db.execute(select(ProjectTask.id).where(ProjectTask.planning_item_id.in_(plan_ids)))).scalars())
                     if task_ids:
+                        await db.execute(delete(TaskExecutionReview).where(TaskExecutionReview.execution_id.in_(
+                            select(TaskExecution.id).where(TaskExecution.task_id.in_(task_ids)))))
                         await db.execute(delete(TaskAssignment).where(TaskAssignment.task_id.in_(task_ids)))
                         await db.execute(delete(TaskExecution).where(TaskExecution.task_id.in_(task_ids)))
                     await db.execute(delete(ProjectTask).where(ProjectTask.planning_item_id.in_(plan_ids)))
                 await db.execute(delete(PlanningItem).where(PlanningItem.project_id == proj_uuid))
                 await db.execute(delete(ProjectScope).where(ProjectScope.project_id == proj_uuid))
+                await db.execute(delete(ProjectAgentMembership).where(ProjectAgentMembership.project_id == proj_uuid))
                 await db.execute(delete(Project).where(Project.id == proj_uuid))
 
             for prod_id in created_product_ids:
@@ -265,4 +291,6 @@ async def test_full_software_factory_pipeline_lifecycle(api_client, factory_acto
                 await db.execute(delete(SystemBlueprint).where(SystemBlueprint.product_id == prod_uuid))
                 await db.execute(delete(Product).where(Product.id == prod_uuid))
 
+            if reviewer_ids:
+                await db.execute(delete(Agent).where(Agent.id.in_(reviewer_ids)))
             await db.commit()

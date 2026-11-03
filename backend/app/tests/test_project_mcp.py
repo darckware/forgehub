@@ -8,9 +8,9 @@ db/models/project_mcp.py's docstring for why: a project's
 working_directory_path isn't guaranteed reachable from the backend
 container, so ForgeHub never writes it directly). These tests hit the real
 running host-bridge and a real temp directory on the host filesystem --
-per this repo's no-mocking test convention -- so they only pass with
-`./dev.sh` (or an equivalent host-bridge) actually running and reachable at
-settings.CHAT_BRIDGE_URL.
+per this repo's no-mocking test convention -- since the T.3 test
+environment (whose stub refuses these routes) they run that real host-bridge
+code in process through conftest's `bind_host_bridge`.
 """
 import uuid
 
@@ -30,6 +30,13 @@ _ALREADY_WIRED = any(
 )
 if not _ALREADY_WIRED:
     app.include_router(project_routes.router)
+
+@pytest_asyncio.fixture(autouse=True)
+async def _real_bridge(bind_host_bridge):
+    """The real host-bridge's project-mcp-servers routes, in process (the T.3
+    stub refuses them); they write only into each test's temp directory."""
+    bind_host_bridge(project_routes)
+
 
 _STUB_PRODUCT_VERSION_ID: uuid.UUID | None = None
 _STUB_PRODUCT_ID: uuid.UUID | None = None

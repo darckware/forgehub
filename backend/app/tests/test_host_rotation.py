@@ -21,6 +21,7 @@ from app.db.models.server import Server
 
 OLD_PUB = "ssh-ed25519 AAAAOLDKEYOLDKEY forgehub@old"
 NEW_PUB = "ssh-ed25519 AAAANEWKEYNEWKEY forgehub@new"
+NEW_REF = "00000000-0000-0000-0000-00000000dddd"
 
 
 @pytest_asyncio.fixture
@@ -71,15 +72,16 @@ def _resp(payload, code=200):
 
 async def _rotate(client, station, kind, outcomes, vault):
     calls = []
+    generated: list[dict] = []
 
     async def fake_exec(**kw):
         calls.append(kw)
         return outcomes.pop(0)
 
     async def bridge(path, payload, timeout=20.0):
-        if path == "/v1/servers/ensure-key":
-            return _resp({"key_path": "/root/agents/aegis/server-management/ssh_keys/new_key", "public_key": NEW_PUB, "created": True})
-        return _resp({"private_key": "NEW-PRIVATE", "public_key": NEW_PUB, "key_path": "x"})
+        assert path == "/v1/servers/generate-key", path
+        generated.append(payload)
+        return _resp({"ssh_key_ref": NEW_REF, "public_key": NEW_PUB})
 
     with (
         patch.object(server_routes, "call_bridge_exec_as", fake_exec),
@@ -94,6 +96,7 @@ async def _rotate(client, station, kind, outcomes, vault):
     async with AsyncSessionLocal() as db:
         detail = await exec_routes._detail(db, await db.get(HostExecution, execution_id))
         row = await db.get(Server, station.id)
+    vault.generated = generated
     return calls, detail.results[0], row
 
 
@@ -129,13 +132,15 @@ async def test_password_rotation_failure_restores_previous_in_vault(client, stat
 async def test_key_rotation_removes_old_only_after_new_works(client, station):
     vault = FakeVault()
     calls, result, row = await _rotate(client, station, "ssh_key", [OK, OK, OK], vault)
+    (generated,) = vault.generated                             # one new Vault secret, unique name
+    assert "_SSH_KEY_" in generated["secret_name"]
     assert NEW_PUB in calls[0]["script"]                      # installed with the current key
-    assert calls[1]["key_path"].endswith("new_key")            # login checked with the new key
-    assert "AAAAOLDKEYOLDKEY" in calls[2]["script"] and calls[2]["key_path"].endswith("new_key")
+    assert calls[1]["key_ref"] == NEW_REF  # login checked with the new key (key_ref wins over key_path in call_bridge_exec_as)
+    assert "AAAAOLDKEYOLDKEY" in calls[2]["script"] and calls[2]["key_ref"] == NEW_REF
     assert result.status == "succeeded"
-    assert row.ssh_key_path.endswith("new_key") and row.public_key == NEW_PUB
-    assert row.ssh_key_ref == "00000000-0000-0000-0000-00000000bbbb"
-    assert list(vault.versions)[0].endswith("_SSH_KEY")
+    assert row.ssh_key_path is None and row.public_key == NEW_PUB and row.ssh_key_ref == NEW_REF
+    assert row.private_key_encrypted is None
+    assert vault.versions == {}                                # nothing stored outside generate-key
 
 
 @pytest.mark.asyncio
@@ -144,82 +149,24 @@ async def test_key_rotation_keeps_old_key_when_new_login_fails(client, station):
     calls, result, row = await _rotate(client, station, "ssh_key", [OK, FAIL], vault)
     assert len(calls) == 2  # never tried to remove the old key
     assert result.status == "failed" and "a chave atual continua valendo" in result.stdout
-    assert row.ssh_key_path.endswith("old_key") and row.public_key == OLD_PUB
+    assert row.ssh_key_path.endswith("old_key") and row.public_key == OLD_PUB and row.ssh_key_ref is None
 
 
-def _vault_bridge(check_status: str = "active", key_status: int = 200, strict_flag: bool = True):
-    """Fake bridge for the vault migration: the key file read, then the
-    strict check-status probe with the vault key."""
+def _install_bridge(check_status: str = "active", strict_flag: bool = True):
+    """Fake bridge for install-key: ForgeVault key generation, then the strict
+    check-status probe with that key. (The keys:to-vault migration route was
+    retired with ForgeVault-only keys, 2026-10-24 design.)"""
     seen: list[tuple[str, dict]] = []
 
     async def bridge(path, payload, timeout=20.0):
         seen.append((path, payload))
-        if path == "/v1/servers/check-status":
-            entry = payload["servers"][0]
-            return _resp({"statuses": {entry["id"]: check_status}, "vault_strict": strict_flag})
-        if key_status != 200:
-            return _resp({"detail": "No identity file"}, key_status)
-        return _resp({"private_key": "PRIV", "public_key": OLD_PUB, "key_path": payload["key_path"]})
+        if path == "/v1/servers/generate-key":
+            return _resp({"ssh_key_ref": NEW_REF, "public_key": NEW_PUB})
+        assert path == "/v1/servers/check-status", path
+        entry = payload["servers"][0]
+        return _resp({"statuses": {entry["id"]: check_status}, "vault_strict": strict_flag})
 
     return bridge, seen
-
-
-@pytest.mark.asyncio
-async def test_keys_to_vault_switches_only_after_the_vault_key_logs_in(client, station):
-    vault = FakeVault()
-    bridge, seen = _vault_bridge()
-    with (
-        patch.object(server_routes, "_bridge_post", AsyncMock(side_effect=bridge)),
-        patch.object(server_routes, "vault_store", vault.store),
-    ):
-        # Scoped to this test's row: the test database is the real one.
-        first = (await client.post(f"/api/v1/servers/keys:to-vault?server_ids={station.id}")).json()
-        assert first["stored"] == [station.name] and first["switched"] == [station.name]
-        second = (await client.post(f"/api/v1/servers/keys:to-vault?server_ids={station.id}")).json()
-        assert second["already"] == [station.name] and second["switched"] == []
-    probe = next(p for path, p in seen if path == "/v1/servers/check-status")["servers"][0]
-    assert probe["strict"] is True and probe["ssh_key_ref"]
-    async with AsyncSessionLocal() as db:
-        row = await db.get(Server, station.id)
-        assert row.ssh_key_path is None and row.ssh_key_ref
-        released = (await db.execute(select(AuditEvent).where(
-            AuditEvent.entity_id == station.id, AuditEvent.event_type == "ssh_key_path_released"))).scalar_one()
-    assert released.payload["old_key_path"].endswith("old_key")
-
-
-@pytest.mark.asyncio
-async def test_keys_to_vault_keeps_the_file_when_the_vault_key_is_refused(client, station):
-    vault = FakeVault()
-    bridge, _ = _vault_bridge(check_status="not_installed")
-    with (
-        patch.object(server_routes, "_bridge_post", AsyncMock(side_effect=bridge)),
-        patch.object(server_routes, "vault_store", vault.store),
-    ):
-        out = (await client.post(f"/api/v1/servers/keys:to-vault?server_ids={station.id}")).json()
-    assert out["switched"] == [] and "file kept" in out["failed"][station.name]
-    async with AsyncSessionLocal() as db:
-        row = await db.get(Server, station.id)
-    # Stored (useful later), but the terminal keeps using the file.
-    assert row.ssh_key_ref and row.ssh_key_path.endswith("old_key")
-
-
-@pytest.mark.asyncio
-async def test_keys_to_vault_falls_back_to_the_encrypted_copy(client, station):
-    from app.core.secrets import encrypt_secret
-
-    async with AsyncSessionLocal() as db:
-        row = await db.get(Server, station.id)
-        row.private_key_encrypted = encrypt_secret("COPY-PRIV")
-        await db.commit()
-    vault = FakeVault()
-    bridge, _ = _vault_bridge(key_status=404)
-    with (
-        patch.object(server_routes, "_bridge_post", AsyncMock(side_effect=bridge)),
-        patch.object(server_routes, "vault_store", vault.store),
-    ):
-        out = (await client.post(f"/api/v1/servers/keys:to-vault?server_ids={station.id}")).json()
-    assert out["stored"] == [station.name]
-    assert list(vault.versions.values()) == [["COPY-PRIV"]]
 
 
 @pytest.mark.asyncio
@@ -238,47 +185,58 @@ async def test_terminal_command_uses_the_vault_agent(client, station):
     assert out == {"command": "ssh -o IdentityAgent=/dev/shm/fh-agent-1/agent.sock darckware@100.127.4.1", "vault_key": True}
 
 
+class _FakeInstallClient:
+    def __init__(self, *a, **k): ...
+    async def __aenter__(self): return self
+    async def __aexit__(self, *a): return False
+    async def post(self, url, **kw):
+        assert url.endswith("/v1/servers/install-key")
+        assert kw["json"]["public_key"] == NEW_PUB   # only the public half goes to the machine
+        return httpx.Response(200, json={"ok": True, "steps": ["install", "verify"]},
+                              request=httpx.Request("POST", "http://bridge"))
+
+
+async def _install(client, station, bridge):
+    with (
+        patch.object(server_routes.httpx, "AsyncClient", _FakeInstallClient),
+        patch.object(server_routes, "_bridge_post", AsyncMock(side_effect=bridge)),
+    ):
+        return await client.post(f"/api/v1/servers/{station.id}/install-key", json={"password": "x"})
+
+
 @pytest.mark.asyncio
 async def test_install_key_puts_the_new_key_on_forgevault(client, station):
-    vault = FakeVault()
-    bridge, _ = _vault_bridge()
-    install = httpx.Response(200, json={"ok": True, "steps": ["generate", "install", "verify"],
-                                        "key_path": "/root/agents/aegis/server-management/ssh_keys/new_key",
-                                        "public_key": NEW_PUB}, request=httpx.Request("POST", "http://bridge"))
-
-    class FakeClient:
-        def __init__(self, *a, **k): ...
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): return False
-        async def post(self, url, **kw):
-            assert url.endswith("/v1/servers/install-key")
-            return install
-
-    with (
-        patch.object(server_routes.httpx, "AsyncClient", FakeClient),
-        patch.object(server_routes, "_bridge_post", AsyncMock(side_effect=bridge)),
-        patch.object(server_routes, "vault_store", vault.store),
-    ):
-        resp = await client.post(f"/api/v1/servers/{station.id}/install-key", json={"password": "x"})
+    bridge, seen = _install_bridge()
+    resp = await _install(client, station, bridge)
     assert resp.status_code == 200, resp.text
-    assert resp.json()["vault"] == "switched"
+    assert resp.json()["vault"] == "switched" and resp.json()["key_path"] is None
+    probe = next(p for path, p in seen if path == "/v1/servers/check-status")["servers"][0]
+    assert probe["strict"] is True and probe["ssh_key_ref"] == NEW_REF
     async with AsyncSessionLocal() as db:
         row = await db.get(Server, station.id)
-    assert row.ssh_key_ref and row.ssh_key_path is None and row.public_key == NEW_PUB
+        released = (await db.execute(select(AuditEvent).where(
+            AuditEvent.entity_id == station.id, AuditEvent.event_type == "ssh_key_path_released"))).scalar_one()
+    assert row.ssh_key_ref == NEW_REF and row.ssh_key_path is None and row.public_key == NEW_PUB
+    assert released.payload["old_key_path"].endswith("old_key")
 
 
 @pytest.mark.asyncio
-async def test_keys_to_vault_never_trusts_an_old_bridge(client, station):
+async def test_install_key_keeps_the_previous_record_when_the_vault_key_is_refused(client, station):
+    bridge, _ = _install_bridge(check_status="not_installed")
+    resp = await _install(client, station, bridge)
+    assert resp.status_code == 200 and resp.json()["ok"] is False and resp.json()["failed_step"] == "verify"
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, station.id)
+    assert row.ssh_key_path.endswith("old_key") and row.ssh_key_ref is None and row.public_key == OLD_PUB
+
+
+@pytest.mark.asyncio
+async def test_install_key_never_trusts_an_old_bridge(client, station):
     """A bridge without the strict mode ignores the vault key and could pass
     on any key the host has: no switch then."""
-    vault = FakeVault()
-    bridge, _ = _vault_bridge(strict_flag=False)
-    with (
-        patch.object(server_routes, "_bridge_post", AsyncMock(side_effect=bridge)),
-        patch.object(server_routes, "vault_store", vault.store),
-    ):
-        out = (await client.post(f"/api/v1/servers/keys:to-vault?server_ids={station.id}")).json()
-    assert out["switched"] == [] and "too old" in out["failed"][station.name]
+    bridge, _ = _install_bridge(strict_flag=False)
+    resp = await _install(client, station, bridge)
+    assert resp.status_code == 503 and "too old" in resp.json()["detail"]
     async with AsyncSessionLocal() as db:
         row = await db.get(Server, station.id)
-    assert row.ssh_key_path.endswith("old_key")
+    assert row.ssh_key_path.endswith("old_key") and row.ssh_key_ref is None
