@@ -74,6 +74,33 @@ export const timelineEventSchema = z.object({
 });
 export type TimelineEvent = z.infer<typeof timelineEventSchema>;
 
+export const routineOutcomeSchema = z.enum(["scheduled", "pending", "running", "done", "failed", "missed", "skipped"]);
+export type RoutineOutcome = z.infer<typeof routineOutcomeSchema>;
+
+/**
+ * One routine occurrence (A.2): one per (routine, instant). Past ones carry their outcome,
+ * the next 24 h are `scheduled`; `missed` = its deadline passed without a run.
+ */
+export const timelineRoutineSchema = z.object({
+  key: z.string(),
+  routine_id: uuidSchema,
+  agent_id: uuidSchema,
+  title: z.string(),
+  routine_kind: z.string(),
+  timezone: z.string(),
+  occurrence_at: timestampSchema,
+  deadline_at: timestampSchema,
+  outcome: routineOutcomeSchema,
+  recorded: z.boolean(),
+  run_id: uuidSchema.nullable(),
+  detail: z.string().nullable(),
+  finished_at: timestampSchema.nullable(),
+  duration_ms: z.number().int().nullable(),
+  message_number: z.number().int().nullable(),
+  canonical_path: z.string().nullable(),
+});
+export type TimelineRoutine = z.infer<typeof timelineRoutineSchema>;
+
 export const activityTimelineSchema = z.object({
   start: timestampSchema,
   end: timestampSchema,
@@ -82,6 +109,9 @@ export const activityTimelineSchema = z.object({
   messages: z.array(timelineMessageSchema),
   events: z.array(timelineEventSchema),
   truncated: z.boolean(),
+  // Optional: a backend from before A.2 doesn't send them.
+  routines: z.array(timelineRoutineSchema).optional(),
+  routines_until: timestampSchema.nullable().optional(),
 });
 export type ActivityTimeline = z.infer<typeof activityTimelineSchema>;
 

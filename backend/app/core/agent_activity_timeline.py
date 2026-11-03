@@ -9,7 +9,10 @@ Three sources, each already ForgeHub's own record (nothing reads a runtime's sto
 - ``agent_activity_events`` -- runtime turns and tool calls, paired start/end here;
 - ``agent_demands`` -- Messages dispatches (``dispatched_at`` -> ``task_execution_at``)
   and agent-to-agent messages;
-- ``active_turns`` -- Workspace chat turns.
+- ``active_turns`` -- Workspace chat turns;
+- ``agent_routines``/``agent_routine_runs`` -- routine occurrences in the window and the next
+  24 h (A.2, ``core/agent_activity_routines.py``), in their own ``routines`` field so the
+  lanes/events shape older clients parse is unchanged.
 
 The pairing is pure (``pair_runtime_events``) so it is testable without a database and is
 the same rule ``derive_live_state`` uses: a turn with no end after ``TURN_STALE_MINUTES``
@@ -36,6 +39,7 @@ from app.api.schemas.agent_activity import (
     TimelineMessageOut,
     TimelineToolOut,
 )
+from app.core.agent_activity_routines import UPCOMING_WINDOW, collect_routine_occurrences
 from app.core.agent_live_state import TURN_STALE_MINUTES
 from app.db.models.active_turn import ActiveTurn
 from app.db.models.agent import Agent
@@ -302,6 +306,11 @@ async def build_timeline(
                 counterpart_kind="owner", status=turn.status, canonical_path="/workspace",
             ))
 
+    routines_until = now + UPCOMING_WINDOW
+    routines = await collect_routine_occurrences(
+        db, agent_ids, start=start, end=end, now=now, horizon=routines_until
+    )
+
     table.sort(key=lambda row: row.occurred_at, reverse=True)
     truncated = len(table) > EVENT_TABLE_LIMIT
     ordered_ids = [agent.id for agent in agents if agent.id in lanes]
@@ -316,4 +325,6 @@ async def build_timeline(
         messages=sorted(messages, key=lambda message: message.at),
         events=table[:EVENT_TABLE_LIMIT],
         truncated=truncated,
+        routines=routines,
+        routines_until=routines_until,
     )

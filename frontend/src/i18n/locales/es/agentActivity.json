@@ -382,7 +382,42 @@
         "workspace_turn": "Turno del espacio de trabajo"
       }
     },
-    "onlyAgent": "Sólo {{name}} · mostrar todo"
+    "onlyAgent": "Sólo {{name}} · mostrar todo",
+    "routine": {
+      "title": "Rutinas",
+      "marker": "Rutina {{title}} · {{time}} · {{outcome}}",
+      "legend": {
+        "done": "Rutina ejecutada",
+        "failed": "Rutina que falló",
+        "missed": "Rutina perdida"
+      },
+      "noRun": "No se registró ninguna ejecución para esta ocurrencia.",
+      "later_one": "+{{count}} vez en 24 h",
+      "later_other": "+{{count}} veces en 24 h",
+      "outcome": {
+        "scheduled": "Programada",
+        "pending": "Pendiente",
+        "running": "En ejecución",
+        "done": "Ejecutada",
+        "failed": "Falló",
+        "missed": "Perdida",
+        "skipped": "Omitida (presupuesto)"
+      },
+      "count": {
+        "done_one": "{{count}} ejecutada",
+        "done_other": "{{count}} ejecutadas",
+        "failed_one": "{{count}} falló",
+        "failed_other": "{{count}} fallaron",
+        "missed_one": "{{count}} perdida",
+        "missed_other": "{{count}} perdidas"
+      },
+      "attention": "Perdidas o con fallo en esta ventana",
+      "attentionEmpty": "Ninguna rutina perdida o con fallo en esta ventana.",
+      "upcoming": "Próximas 24 h",
+      "upcomingEmpty": "Ninguna rutina programada en las próximas 24 h.",
+      "more": "+{{count}} otras rutinas",
+      "message": "mensaje #{{number}}"
+    }
   },
   "channel": {
     "label": "Canal y gateway",
