@@ -177,6 +177,8 @@ class Settings(BaseSettings):
     # is reachable from the public internet (forgehub.darckware.net), and
     # the schema would publish every route's shape.
     ENVIRONMENT: str = "production"
+    TEST_LINUX_TARGET_HOST: str = ""
+    TEST_LINUX_TARGET_KEY: str = ""
 
     # Mission MCP tools switch (Plano Integrado M0.2a, MCP_MISSION_TOOLS_SPEC.md
     # §0.6). Off = the mission MCP write contract (POST /missions with an
@@ -411,6 +413,9 @@ class Settings(BaseSettings):
         """T.3: under test every integration URL is the stub (or empty) and
         every credential is the test's own -- see core/test_integration_policy.py.
         Runs while Settings is built, so a refused process never starts."""
+        from app.core.test_integration_policy import validate_linux_target
+
+        validate_linux_target(self.ENVIRONMENT, self.TEST_LINUX_TARGET_HOST, self.TEST_LINUX_TARGET_KEY)
         if not is_test_environment(self.ENVIRONMENT):
             return self
         extra = []
