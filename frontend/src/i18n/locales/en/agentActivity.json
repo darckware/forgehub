@@ -382,7 +382,42 @@
         "workspace_turn": "Workspace turn"
       }
     },
-    "onlyAgent": "Only {{name}} · show all"
+    "onlyAgent": "Only {{name}} · show all",
+    "routine": {
+      "title": "Routines",
+      "marker": "Routine {{title}} · {{time}} · {{outcome}}",
+      "legend": {
+        "done": "Routine done",
+        "failed": "Routine failed",
+        "missed": "Routine missed"
+      },
+      "noRun": "No run was recorded for this occurrence.",
+      "later_one": "+{{count}} more time in 24 h",
+      "later_other": "+{{count}} more times in 24 h",
+      "outcome": {
+        "scheduled": "Scheduled",
+        "pending": "Pending",
+        "running": "Running",
+        "done": "Done",
+        "failed": "Failed",
+        "missed": "Missed",
+        "skipped": "Skipped (budget)"
+      },
+      "count": {
+        "done_one": "{{count}} done",
+        "done_other": "{{count}} done",
+        "failed_one": "{{count}} failed",
+        "failed_other": "{{count}} failed",
+        "missed_one": "{{count}} missed",
+        "missed_other": "{{count}} missed"
+      },
+      "attention": "Missed or failed in this window",
+      "attentionEmpty": "No missed or failed routine in this window.",
+      "upcoming": "Next 24 h",
+      "upcomingEmpty": "No routine scheduled in the next 24 h.",
+      "more": "+{{count}} other routines",
+      "message": "message #{{number}}"
+    }
   },
   "channel": {
     "label": "Channel and gateway",

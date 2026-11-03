@@ -311,6 +311,8 @@ class ActivityIncidentOut(BaseModel):
         "cron_failing",
         "provider_error",
         "usage_anomaly",
+        # A.2: a routine occurrence whose deadline passed without a run
+        "routine_missed",
     ]
     severity: Literal["info", "warning", "error", "critical"]
     title: str
@@ -539,6 +541,34 @@ class TimelineEventOut(BaseModel):
     canonical_path: str | None = None
 
 
+class TimelineRoutineOccurrenceOut(BaseModel):
+    """One occurrence of an agent routine (A.2, 2026-11-03), one per (routine, instant).
+
+    ``scheduled`` = still ahead (next 24 h); ``pending`` = due, inside its deadline, not
+    started yet; ``running``/``done``/``failed`` = its Messages run; ``missed`` = the
+    deadline passed and it never started (recorded by the generator, or computed here when
+    no run exists at all); ``skipped`` = not run because the agent's daily budget was spent.
+    ``recorded`` tells whether an ``agent_routine_runs`` row backs it.
+    """
+
+    key: str
+    routine_id: uuid.UUID
+    agent_id: uuid.UUID
+    title: str
+    routine_kind: str
+    timezone: str
+    occurrence_at: datetime
+    deadline_at: datetime
+    outcome: Literal["scheduled", "pending", "running", "done", "failed", "missed", "skipped"]
+    recorded: bool = False
+    run_id: uuid.UUID | None = None
+    detail: str | None = None
+    finished_at: datetime | None = None
+    duration_ms: int | None = None
+    message_number: int | None = None
+    canonical_path: str | None = None
+
+
 class AgentActivityTimelineOut(BaseModel):
     """GET /api/v1/agent-activity/timeline -- everything that happened in a window."""
 
@@ -550,3 +580,6 @@ class AgentActivityTimelineOut(BaseModel):
     events: list[TimelineEventOut]
     # True when the event table hit its cap; lanes are still complete.
     truncated: bool = False
+    # A.2: routine occurrences in the window plus the next 24 h from now (``routines_until``).
+    routines: list[TimelineRoutineOccurrenceOut] = Field(default_factory=list)
+    routines_until: datetime | None = None

@@ -4,9 +4,11 @@ import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { Button } from "@/components/ui/button";
 import type { ActivityAgent } from "@/hooks/useAgentActivity";
-import type { TimelineBlock } from "@/hooks/useAgentActivityTimeline";
+import type { TimelineBlock, TimelineRoutine } from "@/hooks/useAgentActivityTimeline";
 import type { ActivityTraceViewModel, TracePreset } from "@/hooks/useActivityTraceViewModel";
 import { cn } from "@/lib/utils";
+import { RoutineOccurrencesPanel } from "./RoutineOccurrencesPanel";
+import { ROUTINE_MARK, formatInRoutineZone, groupRoutines } from "./routineOccurrences";
 import { axisTicks, formatDuration, spanInWindow, timeToPercent } from "./swimlaneLayout";
 
 const LANE_HEIGHT = 44;
@@ -74,7 +76,7 @@ export function ActivitySwimlanes({
   onClearAgent: () => void;
   onOpenRecord: (path: string) => void;
 }) {
-  const { t } = useTranslation("agentActivity");
+  const { t, i18n } = useTranslation("agentActivity");
   const time = useTimeFormat();
   const blockLabel = useBlockLabel();
   const trackRef = useRef<HTMLDivElement>(null);
@@ -85,10 +87,28 @@ export function ActivitySwimlanes({
   const startMs = trace.windowStartMs;
   const endMs = trace.windowEndMs;
   const nowMs = Date.now();
+  // A.2: routine occurrences in the window, and the next 24 h listed below the lanes.
+  const routineGroups = useMemo(
+    () => groupRoutines(timeline?.routines, startMs ?? 0, endMs ?? 0, selectedAgentId),
+    [timeline, startMs, endMs, selectedAgentId],
+  );
+  const routinesByAgent = useMemo(() => {
+    const map = new Map<string, TimelineRoutine[]>();
+    for (const item of routineGroups.past) map.set(item.agent_id, [...(map.get(item.agent_id) ?? []), item]);
+    return map;
+  }, [routineGroups]);
   const lanes = useMemo(() => {
-    const all = timeline?.lanes ?? [];
+    const base = timeline?.lanes ?? [];
+    // An agent whose only activity in the window is a routine (e.g. a missed one) still
+    // gets its lane; the response's own lanes stay first, in their order.
+    const present = new Set(base.map((lane) => lane.agent_id));
+    const extra = [...routinesByAgent.keys()]
+      .filter((id) => !present.has(id))
+      .sort((a, b) => (agentsById.get(a)?.name ?? a).localeCompare(agentsById.get(b)?.name ?? b))
+      .map((agent_id) => ({ agent_id, blocks: [] as TimelineBlock[] }));
+    const all = [...base, ...extra];
     return selectedAgentId ? all.filter((lane) => lane.agent_id === selectedAgentId) : all;
-  }, [timeline, selectedAgentId]);
+  }, [timeline, selectedAgentId, routinesByAgent, agentsById]);
   const laneIndex = new Map(lanes.map((lane, index) => [lane.agent_id, index]));
   const messages = (timeline?.messages ?? []).filter(
     (message) => laneIndex.has(message.from_agent_id) && laneIndex.has(message.target_agent_id),
@@ -292,6 +312,33 @@ export function ActivitySwimlanes({
                           </button>
                         );
                       })}
+                      {(routinesByAgent.get(lane.agent_id) ?? []).map((item) => {
+                        const mark = ROUTINE_MARK[item.outcome];
+                        const label = t("trace.routine.marker", {
+                          title: item.title,
+                          time: formatInRoutineZone(item.occurrence_at, item.timezone, i18n.language),
+                          outcome: t(`trace.routine.outcome.${item.outcome}`),
+                        });
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            title={item.detail ? `${label} — ${item.detail}` : label}
+                            aria-label={label}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (item.canonical_path) onOpenRecord(item.canonical_path);
+                            }}
+                            className={cn(
+                              "absolute top-0.5 z-10 inline-flex h-3.5 w-3.5 -translate-x-1/2 items-center justify-center rounded-sm border text-[9px] font-bold leading-none shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                              mark.tone,
+                            )}
+                            style={{ left: `${timeToPercent(Date.parse(item.occurrence_at), startMs, endMs)}%` }}
+                          >
+                            <span aria-hidden="true">{mark.glyph}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   ))}
                   {messages.map((message) => {
@@ -363,9 +410,24 @@ export function ActivitySwimlanes({
                 <span className="h-2 w-4 rounded-sm bg-violet-500/70" aria-hidden="true" />
                 {t("trace.legendDispatch")}
               </li>
+              {(["done", "failed", "missed"] as const).map((outcome) => (
+                <li key={outcome} className="inline-flex items-center gap-1.5">
+                  <span
+                    aria-hidden="true"
+                    className={cn("inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm border text-[9px] font-bold leading-none", ROUTINE_MARK[outcome].tone)}
+                  >
+                    {ROUTINE_MARK[outcome].glyph}
+                  </span>
+                  {t(`trace.routine.legend.${outcome}`)}
+                </li>
+              ))}
             </ul>
           </div>
         </div>
+      )}
+
+      {trace.status !== "error" && startMs !== null && endMs !== null && (
+        <RoutineOccurrencesPanel groups={routineGroups} agentName={agentName} onOpenRecord={onOpenRecord} />
       )}
 
       {selected && (

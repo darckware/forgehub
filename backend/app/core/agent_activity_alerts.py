@@ -20,6 +20,10 @@ Rules (kept deliberately few and explicit, like the cockpit's traffic lights):
   the agent in the last ``PROVIDER_ERROR_WINDOW_MINUTES``.
 - ``usage_anomaly``: today's tokens (or cost) far above the agent's own 7-day daily average.
   Most calls cost $0 on this host (free/subscription models), which is why tokens count too.
+- ``routine_missed`` (A.2, 2026-11-03): a routine occurrence of the last
+  ``ROUTINE_MISSED_LOOKBACK`` whose deadline passed without a run -- one alert per routine,
+  keyed by its newest miss (``core/agent_activity_routines.py``). ForgeHub's own database,
+  so it is always evaluated; it never reads or implies anything about a Telegram channel.
 """
 from __future__ import annotations
 
@@ -34,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.agent_activity import ActivityIncidentOut
 from app.core import agent_telegram
+from app.core.agent_activity_routines import collect_routine_occurrences, routine_missed_incidents
 from app.core.agent_live_state import TURN_STALE_MINUTES, is_on_demand_runtime
 from app.core.forgerouter_sync import ForgeRouterHealth, read_forgerouter_health
 from app.db.models.agent import Agent
@@ -48,6 +53,7 @@ COST_ANOMALY_FACTOR = 3.0
 COST_ANOMALY_FLOOR = 1.0  # USD
 SOURCE_CACHE_SECONDS = 60
 SOURCE_TIMEOUT_SECONDS = 5
+ROUTINE_MISSED_LOOKBACK = timedelta(hours=24)
 
 T = TypeVar("T")
 _cache: dict[str, tuple[float, Any]] = {}
@@ -328,8 +334,12 @@ async def build_runtime_incidents(
         _telegram_states(),
         _cached("cron_jobs", _cron_jobs),
     )
+    routine_occurrences = await collect_routine_occurrences(
+        db, [agent.id for agent in agents], start=now - ROUTINE_MISSED_LOOKBACK, end=now, now=now, horizon=now
+    )
     return [
         *stuck_turn_incidents(await _newest_turns(db, agents, now=now), now=now),
+        *routine_missed_incidents(routine_occurrences, {agent.id: agent for agent in agents}, now=now),
         *adapter_incidents(agents, states, now=now),
         *cron_incidents(agents, jobs, now=now),
         *forgerouter_incidents(agents, health, now=now),

@@ -977,6 +977,43 @@ describe("AgentActivityPage traceability (phase 4)", () => {
     expect(setCursor).toHaveBeenCalledWith(Date.parse(T(5)));
   });
 
+  it("shows routine occurrences on the lanes: a missed one in words, the next 24 h listed (A.2)", () => {
+    const routine = (overrides: Partial<NonNullable<ActivityTimeline["routines"]>[number]>) => ({
+      key: "routine:r1:x", routine_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", agent_id: IDS.dartan,
+      title: "Checagem horária", routine_kind: "monitoring", timezone: "America/Sao_Paulo",
+      occurrence_at: T(30), deadline_at: T(60), outcome: "missed" as const, recorded: false, run_id: null,
+      detail: null, finished_at: null, duration_ms: null, message_number: null, canonical_path: "/operations",
+      ...overrides,
+    });
+    const timeline: ActivityTimeline = {
+      ...TIMELINE,
+      // Dartan has no runtime/Messages block in the window: its lane exists for the routine alone.
+      lanes: [TIMELINE.lanes[0]],
+      messages: [],
+      routines: [
+        routine({}),
+        routine({ key: "routine:r1:y", occurrence_at: T(-30), deadline_at: T(0), outcome: "done", recorded: true }),
+        routine({ key: "routine:r2:z", agent_id: IDS.athos, title: "Briefing", occurrence_at: T(120), deadline_at: T(180), outcome: "scheduled" }),
+      ],
+      routines_until: T(24 * 60),
+    };
+    hookMocks.useActivityTrace.mockReturnValue(traceVM({ timeline }));
+    renderPage();
+    const lanes = screen.getByRole("region", { name: "Raias" });
+    const missed = within(lanes).getByRole("button", { name: /Rotina Checagem horária · .* · Perdida/ });
+    expect(missed).toHaveTextContent("!"); // not colour alone
+    expect(within(lanes).getByRole("button", { name: /Rotina Checagem horária · .* · Executada/ })).toBeInTheDocument();
+    const list = within(lanes).getByRole("region", { name: "Rotinas" });
+    expect(within(list).getByText(/1 perdida/)).toBeInTheDocument();
+    const missedItem = within(list).getByText("Checagem horária").closest("li")!;
+    expect(missedItem).toHaveTextContent("Perdida");
+    expect(missedItem).toHaveTextContent("Dartan");
+    expect(missedItem).toHaveTextContent("America/Sao_Paulo");
+    const upcoming = within(list).getByRole("list", { name: "Próximas 24 h" });
+    expect(within(upcoming).getByText("Briefing")).toBeInTheDocument();
+    expect(within(upcoming).queryByText("Checagem horária")).not.toBeInTheDocument();
+  });
+
   it("replays: the pulse and cards use the past frame, with a way back to live", () => {
     localStorage.setItem("forgehub:agent-activity:main:v1", "cards");
     const backToLive = vi.fn();
