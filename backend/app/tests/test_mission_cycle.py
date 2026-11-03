@@ -457,6 +457,11 @@ async def test_schedule_on_quota_reset(cw):
         assert execution.status == "failed"
         assert await db.scalar(select(func.count(TaskExecutionReview.id)).where(
             TaskExecutionReview.execution_id == execution.id)) == 0  # not a rejection
+        # The orchestrator decides what follows, not Messages' automatic
+        # failure check (Marcelo, 2026-11-03).
+        from app.db.models.demand import AgentDemand
+        assert await db.scalar(select(func.count(AgentDemand.id)).where(
+            AgentDemand.failure_check_source_id == demand.id)) == 0
 
     cycle = await _cycle(cw, mission, headers)
     [proposal] = _proposals(cycle, task.id)
@@ -806,7 +811,10 @@ async def test_irreversible_default_never_applied_without_answer(cw):
     irreversible_ids = {asked.json()["question_id"], again.json()["question_id"]}
     for proposal in cycle["proposals"]:
         if proposal["reason_facts"].get("question_id") in irreversible_ids:
-            assert proposal["action"] == "wait", proposal
+            # Spec §3.7: the mission keeps waiting; a task that depends on the
+            # open question is deferred (`awaiting_marcelo:<id>`). Neither applies it.
+            expected = "defer" if proposal.get("task_id") else "wait"
+            assert proposal["action"] == expected, proposal
     assert not [p for p in cycle["proposals"] if p["action"] == "apply_default"
                 and p["reason_facts"]["question_id"] in irreversible_ids]
 
