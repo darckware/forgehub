@@ -80,6 +80,8 @@ primeira missão, o aceite é de Marcelo. M.1n automatiza o que esse registro m�
 
 A [matriz JSON](onda1-tarefas.json) é canônica para a Onda 1. As tabelas de 07 e o resumo abaixo são projeções verificadas integralmente (ids, responsáveis, revisores, arestas e aceite); editar a matriz e atualizar as projeções na mesma mudança. Status inicial de tudo: planejado. Em 2026-11-03 a matriz passou a registrar o andamento (`planned`, `developed` = integrada na develop e ainda não publicada, `done`); ver `status_vocabulary`.
 
+> **Redistribuição em 03/11/2026 (decisão do Marcelo):** para o processo andar rápido, todo trabalho técnico restante (código, testes, infraestrutura, publicação `.R` e revisões que liberam tarefa) passa para Aramis (codex) e Dartan (agy), cada um revisando o outro. Os agentes Hermes, que rodam em LLMs gratuitas, ficam com documentação e atividades simples, sempre recebendo o texto final pronto e com conferência independente. Mudaram: T.4a, M0.1, M0.3 (revisão), M0.4, C.0, C.1 (revisão), B0, M0.R, A.R, C.2.R e C.2b.R. O coordenador da missão continua sendo o orquestrador (Athos). Quando o processo estiver totalmente finalizado, todos os agentes serão testados para decidir se vale a pena manter os Hermes em LLMs gratuitas.
+
 | ID | Responsável | Verificador | Predecessores |
 |---|---|---|---|
 | 0.14 | athos | porthus | — |
@@ -87,7 +89,7 @@ A [matriz JSON](onda1-tarefas.json) é canônica para a Onda 1. As tabelas de 07
 | T.1 | porthus | dartan | 0.15 |
 | T.2 | porthus | dartan | T.1 |
 | T.3 | porthus | dartan | T.2 |
-| T.4a | hephaestus | aegis | T.2, T.3 |
+| T.4a | aramis | dartan | T.2, T.3 |
 | T.6 | athos | aegis | T.2, T.3 |
 | F.1 | porthus | aegis | 0.15 |
 | N.0 | porthus | dartan | T.2, T.3 |
@@ -95,7 +97,7 @@ A [matriz JSON](onda1-tarefas.json) é canônica para a Onda 1. As tabelas de 07
 | M0.SPEC | porthus | dartan | 0.15 |
 | M0.0 | porthus | dartan | M0.SPEC, T.2, T.3 |
 | M0.0b | porthus | dartan | M0.0 |
-| M0.1 | atlas | dartan | V-a, M0.R |
+| M0.1 | aramis | dartan | V-a, M0.R |
 | M0.2a | porthus | dartan | M0.0 |
 | M0.2b | porthus | dartan | M0.2a, M0.6b, M0.0b |
 | M0.2c | porthus | dartan | M0.2b, M0.6a, M0.6b |
@@ -104,20 +106,20 @@ A [matriz JSON](onda1-tarefas.json) é canônica para a Onda 1. As tabelas de 07
 | M0.6b | porthus | dartan | M0.0 |
 | M0.7 | porthus | dartan | M0.2c, M0.6a, M0.6b |
 | M0.8 | porthus | dartan | M0.2c, M0.6b |
-| M0.3 | athos | themis | M0.2c, M0.2d, T.6 |
-| M0.4 | athos | dartan | M0.3 |
+| M0.3 | athos | dartan | M0.2c, M0.2d, T.6 |
+| M0.4 | aramis | dartan | M0.3 |
 | M0.5 | athos | porthus | M0.1, M0.4, M0.R, C.2.R |
-| C.0 | mnemosyne | dartan | M0.5 |
-| C.1 | athos | mnemosyne | C.0 |
+| C.0 | aramis | dartan | M0.5 |
+| C.1 | athos | dartan | C.0 |
 | C.2b | porthus | dartan | C.1, C.2.R, T.2, T.3 |
 | A.1 | porthus | dartan | T.2, T.3 |
 | A.2 | porthus | dartan | A.1 |
-| B0 | hephaestus | aegis | T.2, T.3 |
-| M0.R | hephaestus | aegis | M0.0b, M0.2c, M0.2d, M0.6a, M0.6b, M0.4, B0, V-a, M0.7, M0.8 |
-| A.R | hephaestus | aegis | A.1, A.2, B0 |
+| B0 | aramis | dartan | T.2, T.3 |
+| M0.R | aramis | dartan | M0.0b, M0.2c, M0.2d, M0.6a, M0.6b, M0.4, B0, V-a, M0.7, M0.8 |
+| A.R | aramis | dartan | A.1, A.2, B0 |
 | C.2a | porthus | dartan | M0.SPEC, T.2, T.3 |
-| C.2.R | athos | aegis | C.2a |
-| C.2b.R | athos | aegis | C.2b |
+| C.2.R | aramis | dartan | C.2a |
+| C.2b.R | aramis | dartan | C.2b |
 
 ## Especificações e passos por entrega
 

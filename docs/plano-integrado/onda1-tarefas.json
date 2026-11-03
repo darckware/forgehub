@@ -79,10 +79,10 @@
     {
       "id": "T.4a",
       "title": "Alvo Linux de teste, sem dados/credenciais de cliente, com delegação e scripts autorizados; inventariar antes de provisionar",
-      "executor_agent_slug": "hephaestus",
-      "reviewer_agent_slug": "aegis",
-      "executor_label": "Hephaestus",
-      "reviewer_label": "Aegis",
+      "executor_agent_slug": "aramis",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Aramis",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "T.2",
         "T.3"
@@ -197,9 +197,9 @@
     {
       "id": "M0.1",
       "title": "Inventário e cadastro idempotente do produto Ecossistema Foundation/ciclo vigente e do projeto comum Plano integrado, sem duplicar registros existentes",
-      "executor_agent_slug": "atlas",
+      "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "dartan",
-      "executor_label": "Atlas (apoio Porthus nas tools)",
+      "executor_label": "Aramis (inventário com apoio Atlas)",
       "reviewer_label": "Dartan",
       "depends_on": [
         "V-a",
@@ -332,9 +332,9 @@
       "id": "M0.3",
       "title": "Convenção M0 na Foundation: papéis, delegação por projeto, substituto, evidência, documentos, aceite e ambientes",
       "executor_agent_slug": "athos",
-      "reviewer_agent_slug": "themis",
-      "executor_label": "Athos (apoio Scriba)",
-      "reviewer_label": "Themis",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Athos (texto final fornecido)",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "M0.2c",
         "M0.2d",
@@ -347,9 +347,9 @@
     {
       "id": "M0.4",
       "title": "Instruções versionadas e ensaio M0 com runner/MCP simulados de teste; sem usar perfis, bridge ou credenciais de produção",
-      "executor_agent_slug": "athos",
+      "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "dartan",
-      "executor_label": "Athos (apoio Porthus)",
+      "executor_label": "Aramis",
       "reviewer_label": "Dartan",
       "depends_on": [
         "M0.3"
@@ -378,9 +378,9 @@
     {
       "id": "C.0",
       "title": "**Linha de base** (fase 0 do diagnóstico): matriz por perfil com memória nativa (uso × limite), banco e modos do Hindsight (`auto_retain`, `auto_recall`, `recall_budget`, tags), hook ativo, pasta da KB, compactação e limite real de contexto por rota",
-      "executor_agent_slug": "mnemosyne",
+      "executor_agent_slug": "aramis",
       "reviewer_agent_slug": "dartan",
-      "executor_label": "Mnemosyne (levantamento; apoio Porthus)",
+      "executor_label": "Aramis (levantamento; apoio Mnemosyne)",
       "reviewer_label": "Dartan",
       "depends_on": [
         "M0.5"
@@ -393,9 +393,9 @@
       "id": "C.1",
       "title": "**Política de classificação e retenção** na Foundation (`36_governance/MEMORY_CLASSIFICATION_AND_RETENTION.md`): classes, tipos, TTL por classe, proveniência, confiabilidade, precedência, redação, consumidores, regras Maia/Lara, base legal por categoria, controlador/operador, lead/cliente e transferência internacional (H1). Complementa os documentos existentes, sem duplicar",
       "executor_agent_slug": "athos",
-      "reviewer_agent_slug": "mnemosyne",
+      "reviewer_agent_slug": "dartan",
       "executor_label": "Athos (Foundation) (apoio: Themis (LGPD))",
-      "reviewer_label": "Mnemosyne (Marcelo aprova a política)",
+      "reviewer_label": "Dartan (Marcelo aprova a política)",
       "depends_on": [
         "C.0"
       ],
@@ -452,10 +452,10 @@
     {
       "id": "B0",
       "title": "Backup elegível do escopo forgehub_postgres, inventário/RPO/RTO e restauração de amostra em quarentena isolada; nunca usar backup real como seed de testes",
-      "executor_agent_slug": "hephaestus",
-      "reviewer_agent_slug": "aegis",
-      "executor_label": "Hephaestus",
-      "reviewer_label": "Aegis",
+      "executor_agent_slug": "aramis",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Aramis",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "T.2",
         "T.3"
@@ -467,10 +467,10 @@
     {
       "id": "M0.R",
       "title": "Publicação manual da base/guards/tools M0 com backup e rollback testados; aprovação de Marcelo do conteúdo exato antes de produção",
-      "executor_agent_slug": "hephaestus",
-      "reviewer_agent_slug": "aegis",
-      "executor_label": "Hephaestus",
-      "reviewer_label": "Aegis",
+      "executor_agent_slug": "aramis",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Aramis",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "M0.0b",
         "M0.2c",
@@ -490,10 +490,10 @@
     {
       "id": "A.R",
       "title": "Publicar A.1/A.2 pelo mesmo gate manual, backup do escopo e rollback testados",
-      "executor_agent_slug": "hephaestus",
-      "reviewer_agent_slug": "aegis",
-      "executor_label": "Hephaestus",
-      "reviewer_label": "Aegis",
+      "executor_agent_slug": "aramis",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Aramis",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "A.1",
         "A.2",
@@ -522,10 +522,10 @@
     {
       "id": "C.2.R",
       "title": "Ativar contenção revisada por processo do Athos em shared-skills, com backup/restauração do arquivo efetivo, inventário dos consumidores e teste de canário no runtime real",
-      "executor_agent_slug": "athos",
-      "reviewer_agent_slug": "aegis",
-      "executor_label": "Athos",
-      "reviewer_label": "Aegis",
+      "executor_agent_slug": "aramis",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Aramis",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "C.2a"
       ],
@@ -536,10 +536,10 @@
     {
       "id": "C.2b.R",
       "title": "Ativar o isolamento completo C.2b pelo processo canônico, com backup do hook, rollback e canários no runtime real",
-      "executor_agent_slug": "athos",
-      "reviewer_agent_slug": "aegis",
-      "executor_label": "Athos",
-      "reviewer_label": "Aegis",
+      "executor_agent_slug": "aramis",
+      "reviewer_agent_slug": "dartan",
+      "executor_label": "Aramis",
+      "reviewer_label": "Dartan",
       "depends_on": [
         "C.2b"
       ],
