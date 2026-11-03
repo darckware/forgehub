@@ -12,8 +12,11 @@ export interface CommercialOffersViewModel {
   selectedOfferId: string;
   pendingUnlinkOffer: DarckwareSoftwareProduct | null;
   isLoading: boolean;
+  isError: boolean;
   isMutating: boolean;
   error: Error | null;
+  mutationError: Error | null;
+  mutationAction: "link" | "unlink" | null;
   startLinking: () => void;
   cancelLinking: () => void;
   setSelectedOfferId: (id: string) => void;
@@ -26,12 +29,18 @@ export interface CommercialOffersViewModel {
 export function useCommercialOffersViewModel(
   productId: string | undefined
 ): CommercialOffersViewModel {
-  const { data: offers = [], isLoading, error: queryError } = useDarckwareSoftwareProducts();
+  const {
+    data: offers = [],
+    isLoading,
+    isError: isListError,
+    error: queryError,
+  } = useDarckwareSoftwareProducts();
   const linkMutation = useLinkSoftwareProduct();
 
   const [isLinking, setIsLinking] = useState(false);
   const [selectedOfferId, setSelectedOfferId] = useState("");
   const [pendingUnlinkOffer, setPendingUnlinkOffer] = useState<DarckwareSoftwareProduct | null>(null);
+  const [mutationAction, setMutationAction] = useState<"link" | "unlink" | null>(null);
 
   const linkedOffers = useMemo(
     () => (productId ? offers.filter((o) => o.forgehub_product_id === productId) : []),
@@ -44,40 +53,58 @@ export function useCommercialOffersViewModel(
   );
 
   const startLinking = () => {
+    linkMutation.reset();
+    setMutationAction(null);
     setIsLinking(true);
     setSelectedOfferId("");
   };
 
   const cancelLinking = () => {
+    linkMutation.reset();
+    setMutationAction(null);
     setIsLinking(false);
     setSelectedOfferId("");
   };
 
   const linkOffer = async () => {
     if (!selectedOfferId || !productId) return;
-    await linkMutation.mutateAsync({
-      id: selectedOfferId,
-      forgehubProductId: productId,
-    });
-    setIsLinking(false);
-    setSelectedOfferId("");
+    setMutationAction("link");
+    try {
+      await linkMutation.mutateAsync({
+        id: selectedOfferId,
+        forgehubProductId: productId,
+      });
+      setIsLinking(false);
+      setSelectedOfferId("");
+    } catch {
+      // linkMutation.error is captured by React Query
+    }
   };
 
   const confirmUnlink = (offer: DarckwareSoftwareProduct) => {
+    linkMutation.reset();
+    setMutationAction(null);
     setPendingUnlinkOffer(offer);
   };
 
   const cancelUnlink = () => {
+    linkMutation.reset();
+    setMutationAction(null);
     setPendingUnlinkOffer(null);
   };
 
   const executeUnlink = async () => {
     if (!pendingUnlinkOffer) return;
-    await linkMutation.mutateAsync({
-      id: pendingUnlinkOffer.id,
-      forgehubProductId: null,
-    });
-    setPendingUnlinkOffer(null);
+    setMutationAction("unlink");
+    try {
+      await linkMutation.mutateAsync({
+        id: pendingUnlinkOffer.id,
+        forgehubProductId: null,
+      });
+      setPendingUnlinkOffer(null);
+    } catch {
+      setPendingUnlinkOffer(null);
+    }
   };
 
   return {
@@ -87,8 +114,11 @@ export function useCommercialOffersViewModel(
     selectedOfferId,
     pendingUnlinkOffer,
     isLoading,
+    isError: isListError || Boolean(queryError),
     isMutating: linkMutation.isPending,
     error: (linkMutation.error || queryError) as Error | null,
+    mutationError: (linkMutation.error as Error | null) ?? null,
+    mutationAction,
     startLinking,
     cancelLinking,
     setSelectedOfferId,

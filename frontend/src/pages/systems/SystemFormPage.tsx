@@ -29,6 +29,7 @@ import {
   useProducts,
   useCreateProduct,
   useUpdateProduct,
+  type ProductInput,
 } from "@/hooks/useProduct";
 import {
   useProjects,
@@ -177,7 +178,9 @@ export default function SystemFormPage() {
         }
       } else {
         // Mode 2: Create new Product + initial Version + Project
-        const newProduct = await createProduct.mutateAsync({
+        const initialVersionStr = values.initial_version?.trim();
+
+        const productPayload: ProductInput = {
           name: values.name,
           description: values.description,
           status: "active",
@@ -185,13 +188,16 @@ export default function SystemFormPage() {
           application_url_dev: values.application_url_dev || undefined,
           darckware_client_id: clientId || undefined,
           darckware_client_name: clientName || undefined,
-          initial_version: values.initial_version
-            ? {
-                version: values.initial_version,
-                status: (values.initial_version_status as any) || "planned",
-              }
-            : undefined,
-        });
+        };
+
+        if (initialVersionStr) {
+          productPayload.initial_version = {
+            version: initialVersionStr,
+            status: (values.initial_version_status as any) || "planned",
+          };
+        }
+
+        const newProduct = await createProduct.mutateAsync(productPayload);
 
         const initialVersionId = newProduct.versions?.[0]?.id;
         if (initialVersionId) {

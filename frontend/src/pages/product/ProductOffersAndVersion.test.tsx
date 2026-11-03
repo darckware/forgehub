@@ -3,19 +3,23 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import "@/i18n";
-import { apiClient } from "@/lib/api";
+import { apiClient, ApiError } from "@/lib/api";
 import { productInputSchema } from "@/hooks/useProduct";
 import { CommercialOffersCard } from "./CommercialOffersCard";
 import SystemFormPage from "../systems/SystemFormPage";
 
-vi.mock("@/lib/api", () => ({
-  apiClient: {
-    get: vi.fn(),
-    post: vi.fn(),
-    put: vi.fn(),
-    delete: vi.fn(),
-  },
-}));
+vi.mock("@/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api")>();
+  return {
+    ...actual,
+    apiClient: {
+      get: vi.fn(),
+      post: vi.fn(),
+      put: vi.fn(),
+      delete: vi.fn(),
+    },
+  };
+});
 
 const MOCK_OFFERS = [
   {
@@ -138,6 +142,98 @@ describe("CommercialOffersCard and Product Detail", () => {
       );
     });
   });
+
+  it("shows error alert when listing offers fails without confusing with empty list", async () => {
+    vi.mocked(apiClient.get).mockRejectedValueOnce(
+      new ApiError("Internal server error", 500, { detail: "Failed to connect to Darckware API" })
+    );
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <CommercialOffersCard productId="prod-1" />
+      </QueryClientProvider>
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Falha ao carregar ofertas comerciais.");
+    expect(alert).toHaveTextContent("Failed to connect to Darckware API");
+    // Ensure "empty" list message is NOT shown
+    expect(
+      screen.queryByText(/Nenhuma oferta comercial vinculada/i)
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows error alert when linking an offer fails with API error message", async () => {
+    vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
+      if (url === "/api/v1/client-ops/software-products") {
+        return MOCK_OFFERS as never;
+      }
+      return [] as never;
+    });
+
+    vi.mocked(apiClient.put).mockRejectedValueOnce(
+      new ApiError("Bad Request", 400, { detail: "Offer already assigned to another system" })
+    );
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <CommercialOffersCard productId="prod-1" />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText("Oferta Pro")).toBeInTheDocument();
+
+    // Click "Ligar oferta"
+    const linkButton = screen.getByRole("button", { name: /Ligar oferta/i });
+    fireEvent.click(linkButton);
+
+    // Select offer
+    const select = await screen.findByRole("combobox");
+    fireEvent.change(select, { target: { value: "offer-starter" } });
+
+    // Confirm link
+    const confirmButton = screen.getByRole("button", { name: /Vincular/i });
+    fireEvent.click(confirmButton);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Falha ao ligar oferta: Offer already assigned to another system");
+  });
+
+  it("shows error alert when unlinking an offer fails with API error message", async () => {
+    vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
+      if (url === "/api/v1/client-ops/software-products") {
+        return MOCK_OFFERS as never;
+      }
+      return [] as never;
+    });
+
+    vi.mocked(apiClient.put).mockRejectedValueOnce(
+      new ApiError("Conflict", 409, { detail: "Cannot unlink offer with active billing cycle" })
+    );
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <CommercialOffersCard productId="prod-1" />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText("Oferta Pro")).toBeInTheDocument();
+
+    // Click "Desligar"
+    const unlinkButton = screen.getByRole("button", { name: /Desligar/i });
+    fireEvent.click(unlinkButton);
+
+    // Confirm dialog
+    const dialogConfirmButton = await screen.findByRole("button", {
+      name: "Desligar oferta",
+    });
+    fireEvent.click(dialogConfirmButton);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Falha ao desligar oferta: Cannot unlink offer with active billing cycle"
+    );
+  });
 });
 
 describe("System creation form sends initial_version", () => {
@@ -205,17 +301,89 @@ describe("System creation form sends initial_version", () => {
     });
   });
 
-  it("validates productInputSchema includes initial_version", () => {
-    const parsed = productInputSchema.parse({
+  it("submits payload without initial_version when version is empty", async () => {
+    vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
+      if (url.includes("/clients")) return { items: [] } as never;
+      if (url === "/api/v1/products") return [] as never;
+      if (url === "/api/v1/projects") return [] as never;
+      return [] as never;
+    });
+
+    vi.mocked(apiClient.post).mockImplementation(async (url: string, body: any) => {
+      if (url === "/api/v1/products") {
+        return {
+          id: "prod-new-2",
+          name: body.name,
+          versions: [{ id: "ver-default-1", version: "0.1.0" }],
+        } as never;
+      }
+      if (url === "/api/v1/projects") {
+        return { id: "proj-new-2" } as never;
+      }
+      return {} as never;
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={["/systems/novo"]}>
+          <Routes>
+            <Route path="/systems/novo" element={<SystemFormPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    const nameInput = await screen.findByLabelText(/Nome do Sistema/i);
+    fireEvent.change(nameInput, { target: { value: "Sistema Sem Versao" } });
+
+    const versionInput = screen.getByLabelText(/Versão Inicial/i);
+    fireEvent.change(versionInput, { target: { value: "" } });
+
+    const submitButton = screen.getByRole("button", { name: /Cadastrar Sistema/i });
+    fireEvent.click(submitButton);
+
+    await waitFor(() => {
+      expect(apiClient.post).toHaveBeenCalled();
+    });
+
+    const productPostCall = vi
+      .mocked(apiClient.post)
+      .mock.calls.find((call) => call[0] === "/api/v1/products");
+
+    expect(productPostCall).toBeDefined();
+    expect(productPostCall![1]).toEqual(
+      expect.objectContaining({
+        name: "Sistema Sem Versao",
+      })
+    );
+    expect(productPostCall![1]).not.toHaveProperty("initial_version");
+  });
+
+  it("validates productInputSchema allows empty or present initial_version", () => {
+    const withVersion = productInputSchema.parse({
       name: "Ecossistema Foundation",
       initial_version: {
         version: "2026.11",
         status: "planned",
       },
     });
-    expect(parsed.initial_version).toEqual({
+    expect(withVersion.initial_version).toEqual({
       version: "2026.11",
       status: "planned",
     });
+
+    const emptyVersion = productInputSchema.parse({
+      name: "Ecossistema Foundation",
+      initial_version: {
+        version: "",
+        status: "planned",
+      },
+    });
+    expect(emptyVersion.initial_version?.version).toBe("");
+
+    const omittedVersion = productInputSchema.parse({
+      name: "Ecossistema Foundation",
+    });
+    expect(omittedVersion.initial_version).toBeUndefined();
   });
 });

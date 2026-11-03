@@ -141,6 +141,9 @@
       "empty": "No commercial offers linked to this system.",
       "noAvailableOffers": "No available offers to link.",
       "loading": "Loading commercial offers...",
+      "loadError": "Failed to load commercial offers.",
+      "linkError": "Failed to link offer",
+      "unlinkError": "Failed to unlink offer",
       "active": "Active",
       "inactive": "Inactive",
       "columns": {

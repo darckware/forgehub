@@ -280,19 +280,26 @@ export default function ProductPage() {
 
   const onSubmit = async (values: ProductInput) => {
     const selectedClient = clientList.find((c) => c.id === values.darckware_client_id);
-    await createProduct.mutateAsync({
+    const initialVersionStr = values.initial_version?.version?.trim();
+
+    const payload: ProductInput = {
       ...values,
       application_url: values.application_url || undefined,
       application_url_dev: values.application_url_dev || undefined,
       darckware_client_id: values.darckware_client_id || undefined,
       darckware_client_name: selectedClient ? selectedClient.company_name : undefined,
-      initial_version: values.initial_version?.version
-        ? {
-            version: values.initial_version.version,
-            status: values.initial_version.status || "planned",
-          }
-        : undefined,
-    });
+    };
+
+    if (initialVersionStr) {
+      payload.initial_version = {
+        version: initialVersionStr,
+        status: values.initial_version?.status || "planned",
+      };
+    } else {
+      delete payload.initial_version;
+    }
+
+    await createProduct.mutateAsync(payload);
     reset();
     setView("list");
   };

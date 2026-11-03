@@ -55,8 +55,8 @@ export const productSchema = z.object({
 export type Product = z.infer<typeof productSchema>;
 
 export const initialProductVersionSchema = z.object({
-  version: z.string().min(1, "Version is required"),
-  status: z.enum(["planned", "in_development", "in_test", "published", "deprecated"]).default("planned"),
+  version: z.string().optional().or(z.literal("")),
+  status: z.enum(["planned", "in_development", "in_test", "published", "deprecated"]).default("planned").optional(),
 });
 
 export type InitialProductVersion = z.infer<typeof initialProductVersionSchema>;
@@ -73,7 +73,7 @@ export const productInputSchema = z.object({
   application_url_dev: z.string().url("Enter a valid http(s) URL").optional().or(z.literal("")),
   darckware_client_id: z.string().uuid().nullable().optional().or(z.literal("")),
   darckware_client_name: z.string().max(200).nullable().optional().or(z.literal("")),
-  initial_version: initialProductVersionSchema.optional(),
+  initial_version: initialProductVersionSchema.optional().nullable(),
 });
 
 export type ProductInput = z.infer<typeof productInputSchema>;
@@ -214,7 +214,22 @@ export function useUpdateRelease() {
 export function useCreateProduct() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: ProductInput) => apiClient.post<Product>(RESOURCE, payload),
+    mutationFn: (payload: ProductInput) => {
+      const body: Record<string, any> = { ...payload };
+      const hasInitialVersion =
+        typeof body.initial_version?.version === "string" &&
+        body.initial_version.version.trim().length > 0;
+
+      if (!hasInitialVersion) {
+        delete body.initial_version;
+      } else {
+        body.initial_version = {
+          version: body.initial_version.version.trim(),
+          status: body.initial_version.status || "planned",
+        };
+      }
+      return apiClient.post<Product>(RESOURCE, body as ProductInput);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["cockpit"] });

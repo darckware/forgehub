@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Loader2, Plus, Unlink, PackageSearch } from "lucide-react";
+import { Loader2, Plus, Unlink, PackageSearch, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -21,6 +21,32 @@ import {
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useCommercialOffersViewModel } from "@/hooks/useCommercialOffersViewModel";
 
+export function extractApiErrorMessage(error: unknown): string {
+  if (!error) return "";
+  if (error && typeof error === "object") {
+    const apiErr = error as any;
+    if (apiErr.body) {
+      if (typeof apiErr.body === "string") return apiErr.body;
+      if (typeof apiErr.body === "object") {
+        if (typeof apiErr.body.detail === "string") return apiErr.body.detail;
+        if (apiErr.body.detail && typeof apiErr.body.detail === "object" && typeof apiErr.body.detail.message === "string") {
+          return apiErr.body.detail.message;
+        }
+        if (typeof apiErr.body.message === "string") return apiErr.body.message;
+        if (Array.isArray(apiErr.body.detail)) {
+          return apiErr.body.detail
+            .map((d: any) => (typeof d === "string" ? d : d.msg || JSON.stringify(d)))
+            .join(", ");
+        }
+      }
+    }
+    if (typeof apiErr.message === "string" && apiErr.message) {
+      return apiErr.message;
+    }
+  }
+  return String(error);
+}
+
 interface CommercialOffersCardProps {
   productId: string;
 }
@@ -28,6 +54,14 @@ interface CommercialOffersCardProps {
 export function CommercialOffersCard({ productId }: CommercialOffersCardProps) {
   const { t } = useTranslation("product");
   const vm = useCommercialOffersViewModel(productId);
+
+  const mutationErrorMessage =
+    !vm.isError && vm.error ? extractApiErrorMessage(vm.error) : "";
+  const displayMutationError = mutationErrorMessage
+    ? vm.mutationAction === "unlink"
+      ? `${t("detail.offers.unlinkError")}: ${mutationErrorMessage}`
+      : `${t("detail.offers.linkError")}: ${mutationErrorMessage}`
+    : null;
 
   return (
     <Card>
@@ -54,6 +88,16 @@ export function CommercialOffersCard({ productId }: CommercialOffersCardProps) {
       </CardHeader>
 
       <CardContent className="space-y-4">
+        {displayMutationError && (
+          <div
+            role="alert"
+            className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+          >
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{displayMutationError}</span>
+          </div>
+        )}
+
         {vm.isLinking && (
           <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-4 sm:flex-row sm:items-center">
             <div className="flex-1">
@@ -96,6 +140,17 @@ export function CommercialOffersCard({ productId }: CommercialOffersCardProps) {
           <div className="flex items-center justify-center gap-2 p-8 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
             {t("detail.offers.loading")}
+          </div>
+        ) : vm.isError ? (
+          <div
+            role="alert"
+            className="flex flex-col items-center gap-2 p-8 text-center text-destructive"
+          >
+            <AlertCircle className="h-8 w-8" />
+            <p className="text-sm font-medium">{t("detail.offers.loadError")}</p>
+            {vm.error && (
+              <p className="text-xs text-muted-foreground">{extractApiErrorMessage(vm.error)}</p>
+            )}
           </div>
         ) : vm.linkedOffers.length === 0 ? (
           <div className="flex flex-col items-center gap-2 p-8 text-center text-muted-foreground">

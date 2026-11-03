@@ -141,6 +141,9 @@
       "empty": "Nenhuma oferta comercial vinculada a este sistema.",
       "noAvailableOffers": "Não há ofertas disponíveis para vincular.",
       "loading": "Carregando ofertas...",
+      "loadError": "Falha ao carregar ofertas comerciais.",
+      "linkError": "Falha ao ligar oferta",
+      "unlinkError": "Falha ao desligar oferta",
       "active": "Ativa",
       "inactive": "Inativa",
       "columns": {
