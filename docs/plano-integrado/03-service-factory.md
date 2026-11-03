@@ -95,6 +95,8 @@ O projeto sai de `rascunho` e libera a primeira tarefa só quando:
 
 É o mesmo princípio da Missão ("pronta"), aplicado a cada projeto.
 
+> **Situação em 03/11/2026:** o grupo do menu já foi reorganizado (commit `6dd4518`, 02/11, verificado por Marcelo): "Produtos" virou **Aplicações & Sistemas**, o Cockpit virou **0. Cockpit de Execução** (com cadastro de sistema, cliente e tipo de solução) e as fases são numeradas de 1 a 6. O nome do grupo ainda é "Software Factory"; S.3 continua aberta. Documentos e convenções novas (M0.3, M0.1) usam esses rótulos atuais.
+
 ## Fase S — Service Factory (antes da Fase B, depois da V)
 
 | # | Tarefa | Dono | Depende | Aceite |
