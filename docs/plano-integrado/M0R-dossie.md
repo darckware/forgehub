@@ -215,7 +215,7 @@ Smoke na cópia migrada, sem workers e só em rede interna: `/health` retornou `
 
 `/root/.forgehub/releases/m0r-afef230/`: cópia do bridge da worktree, overrides, scripts e `release.json`. Imagens reconstruídas com cache: `forgehub-backend:m0r-afef230` (3,294 s; `sha256:89163dd70794b2619d255f63330878c3a92d94260f829934661a2f9258317256`) e `forgehub-frontend:m0r-afef230` (2,009 s; `sha256:af69998f2de43d730236ba7ac28d2162393e31b6051957cab7ebe2d5967b6a2b`). Tempos de relógio desta execução, não previsões para build sem cache. Teste do bridge: 123 passaram em 16,26 s. Backend essencial: 30 passaram em 26,97 s, com duas advertências de descontinuação; executado com o ambiente isolado de teste carregado após inicializar as referências de segurança. `bash -n` passou.
 
-SHA-256: `activate.sh` `6ac086ff9489f8d0fa7aa312caaef9655626392aeace7598f655775f66a491ae`; `rollback.sh` `da5be23512a08413b3850f57f923f510cc33c34d452eabc582541086cbee4f11`.
+SHA-256: `activate.sh` `38244586fa30027967435454ae55080c12233caf359d64bc8551842c31a1d048`; `rollback.sh` `da5be23512a08413b3850f57f923f510cc33c34d452eabc582541086cbee4f11`.
 
 O dump das 11:22, usado no ensaio de restauração, continua conferido por `sha256sum -c`. A ativação cria sempre um novo dump verificado após parar o backend e registra seu caminho em `backup-path.txt`. A proteção de falha reinicia o backend anterior caso a migration não termine. O smoke exige leitura autenticada da API e frontend com HTTP 200, além das verificações existentes.
 
