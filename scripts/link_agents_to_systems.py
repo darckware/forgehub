@@ -6,12 +6,15 @@ permissões e status ativo para que o ForgeHub tenha o controle operacional
 de quais agentes têm acesso e atuação em cada sistema do ecossistema.
 """
 
+import os
 import sys
 import uuid
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-DB_URI = "postgresql://foundation:foundation_local_dev_password@127.0.0.1:5433/forgehub"
+# No credential in the repository: the target comes from the environment.
+# It writes directly (no API, no audit); prefer the API for new registrations.
+DB_URI = os.environ.get("FORGEHUB_SCRIPT_DB_URL", "")
 
 # Mapeamento: project_name -> lista de (profile_slug, role, can_review, can_approve, allocation_percent)
 MEMBERSHIPS = {
@@ -83,6 +86,8 @@ MEMBERSHIPS = {
 
 
 def link_memberships():
+    if not DB_URI:
+        sys.exit("Defina FORGEHUB_SCRIPT_DB_URL (postgresql://usuario:senha@host:porta/banco).")
     conn = psycopg2.connect(DB_URI)
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=RealDictCursor)
