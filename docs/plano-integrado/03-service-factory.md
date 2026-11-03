@@ -97,6 +97,8 @@ O projeto sai de `rascunho` e libera a primeira tarefa só quando:
 
 > **Situação em 03/11/2026:** o grupo do menu já foi reorganizado (commit `6dd4518`, 02/11, verificado por Marcelo): "Produtos" virou **Aplicações & Sistemas**, o Cockpit virou **0. Cockpit de Execução** (com cadastro de sistema, cliente e tipo de solução) e as fases são numeradas de 1 a 6. O nome do grupo ainda é "Software Factory"; S.3 continua aberta. Documentos e convenções novas (M0.3, M0.1) usam esses rótulos atuais.
 
+> **Decisão do Marcelo (03/11/2026), S.6 antecipada como S.6a:** o Darckware guarda a **oferta comercial** (`software_products`: preço, módulos, contratos) e o ForgeHub guarda o **sistema** (produto, versões, projetos). A ligação fica só no Darckware (`software_products.forgehub_product_id`); um sistema pode ter várias ofertas, e o ForgeHub lê as ofertas pela API interna do Darckware, sem guardar preço ou contrato. Ligação inicial: CoreTI Monitor & Ativos → CoreTI; ForgeRouter Enterprise → ForgeRouter; Duplica Backup & Replicação → Duplica; Motor de IA Lara → Ecossistema Foundation. Feita antes de seguir a Onda 1, para evitar cadastro duplicado entre vendas e desenvolvimento.
+
 ## Fase S — Service Factory (antes da Fase B, depois da V)
 
 | # | Tarefa | Dono | Depende | Aceite |
