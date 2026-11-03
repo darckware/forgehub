@@ -1,6 +1,6 @@
 # M0.R — dossiê de preparação, 03/11/2026
 
-**NÃO APTO PARA PUBLICAÇÃO:** revisão de Dartan e aprovação de Marcelo pendentes; o bridge em execução usa código antigo sem a rota e o critério de contagem não passou. Nenhuma publicação ou escrita em produção foi feita nesta preparação. Este roteiro é proposta incompleta: fechar os bloqueios e obter aprovação ao conteúdo exato antes de executar.
+**NÃO APTO PARA PUBLICAÇÃO:** revisão de Dartan e aprovação de Marcelo pendentes; há uma falha de teste do bridge e o ensaio DRY_RUN parou por despachos em voo. Nenhuma publicação ou escrita em produção foi feita nesta preparação.
 
 ## Conteúdo exato
 
@@ -184,64 +184,34 @@ d010d25 Merge pull request #2 from marcelodarckferreira/develop
 
 Dump `/root/backup/forgehub-m0r-2026-11-03/forgehub.dump`: SHA-256 `18312d9bcd75806ff2765f8407705a568804e6cade5aca68082165fe5a6043f9`; diretório 700, dump 600. Revisão inicial `a4d238b759c1`. Restauração `pg_restore --no-owner --exit-on-error` em rede interna isolada: 2,464 s (após uma tentativa prematura durante a inicialização falhar com socket indisponível); upgrade: 3,161 s, `f2d7a4c9e1b6 (head)`. Tempos de comandos, sem preparo de infraestrutura; não representam RTO total.
 
-`rowcounts-prod.txt` e `rowcounts-restore.txt` no diretório do backup contêm estimativas estatísticas, frequentemente diferentes. As contagens exatas das 10 maiores segundo a estatística de produção estão nos arquivos `rowcounts-exact-prod-top10.txt` e `rowcounts-exact-restore-top10.txt`: 9 bateram; `personal_contact_messages` era 2727 na produção consultada depois do dump e 2724 na cópia. Atividade concorrente pode explicar, mas isso não comprova igualdade no instante do snapshot. Critério solicitado **falhou**; investigar e repetir validação com snapshot consistente antes da aprovação.
+`rowcounts-prod.txt` e `rowcounts-restore.txt` no diretório do backup contêm estimativas estatísticas, frequentemente diferentes. As contagens exatas das 10 maiores segundo a estatística de produção estão nos arquivos `rowcounts-exact-prod-top10.txt` e `rowcounts-exact-restore-top10.txt`: 9 bateram; `personal_contact_messages` era 2727 na produção consultada depois do dump e 2724 na cópia. Marcelo confirmou 2724 linhas com `created_at < 2026-11-03 11:22:53-03`, início do dump; outras quatro chegaram depois por WhatsApp. A cópia coincide com o snapshot: validação concluída. A consulta anterior de 2727 ocorreu antes da chegada de todas as quatro.
 
 Smoke na cópia migrada, sem workers e só em rede interna: `/health` retornou `{"status":"ok"}`; SELECT `id, target_environment` em `company.project_tasks` retornou uma linha; `run_task_failure_pass` executou uma vez sem erro. A função captura exceções individuais de notificação internamente, portanto saída sem erro não prova que toda notificação possível funcionaria. Não houve integração externa.
 
 `alembic downgrade a4d238b759c1`: exit 0, 2,789 s, mas deixou **duas** heads `a4d238b759c1` e `e8c4b2d9a7f1` por causa do merge; não reverteu as migrations da outra linhagem. Não se exercitou a recusa de `b9e4d2a7c615` por missão ativa. Rollback principal: restauração do dump numa segunda base, 2,864 s, revisão `a4d238b759c1`; não é RTO completo. Containers e rede de quarentena removidos, imagem de ensaio preservada.
 
-## Bloqueio do bridge e roteiro proposto
+## Pacote da rodada 2
 
-Em 03/11 o serviço estava ativo, mas `POST /v1/evidence/verify` retornou 404. `systemctl show` revelou `WorkingDirectory=/root/.forgehub/releases/autonomy-e043f37/host-bridge`; seu `app.py` não contém o router de evidence. Reiniciar o serviço como está não carrega o código da worktree. É necessário planejar e revisar a publicação da versão correta do bridge e seu rollback, inclusive preservação dos processos, antes de uma sequência exata poder ser aprovada. Não executar os comandos seguintes enquanto isso não estiver resolvido. Alterações subsequentes exigem nova revisão e aprovação do conteúdo exato.
+`/root/.forgehub/releases/m0r-118ca2f/`, baseado na develop `118ca2f2eb82bd75a06a81f3888f3e8d36d0b00b`, posterior ao ensaio por um commit exclusivamente documental. Os diretórios de código e o compose coincidem com a worktree ensaiada. Os 31 commits sem merge do escopo original até `15b06a3` passam a 32 com esse documento adicional; 43 commits incluindo merges desde a base.
 
-Após resolver o bloqueio, validar que a árvore usada para build continua no hash aprovado, não contém alterações e que o backup validado é adequado à janela. O snapshot envelhece: restaurá-lo perde gravações posteriores. Coordenar suspensão de todos os escritores, inclusive workers externos, antes de qualquer restauração. A sequência abaixo é um esqueleto de publicação, não uma autorização:
+O bridge antigo em execução é a cópia de `/root/.forgehub/releases/autonomy-e043f37/host-bridge`; o pacote contém a cópia atual. Testes do bridge na cópia: 122 passaram e 1 falhou (`test_install_key_reports_missing_local_ssh_dependency`, `SSH_KEYS_DIR` ausente); a falha também ocorre na worktree. Revisão de Dartan deve avaliar essa falha antes da publicação.
 
-```bash
-cd /root/project/forgehub
-[ "$(git rev-parse HEAD)" = 15b06a33439e8e76fbce68b1300ff4c6cf424db4 ] && test -z "$(git status --porcelain)"
-sha256sum -c /root/backup/forgehub-m0r-2026-11-03/SHA256SUMS
-docker tag forgehub-backend:latest forgehub-backend:pre-m0r-2026-11-03
-docker tag sha256:b9348ce8ca4bfcea9ef3c5885a8edafa821839aac4bba325083e7a502c238132 forgehub-frontend:pre-m0r-2026-11-03
-# BLOQUEIO: publicar e validar o código correto do bridge conforme procedimento ainda não definido.
-systemctl restart forgehub-chat-bridge
-code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8910/v1/evidence/verify)
-[ "$code" != 404 ] && [ "$code" != 000 ] || { echo 'Bridge indisponível ou rota ausente'; exit 1; }
-docker compose build forgehub-backend forgehub-frontend
-docker compose run --rm --no-deps -e BACKGROUND_WORKERS_ENABLED=false forgehub-backend alembic current
-docker compose run --rm --no-deps -e BACKGROUND_WORKERS_ENABLED=false forgehub-backend alembic upgrade head
-docker compose run --rm --no-deps -e BACKGROUND_WORKERS_ENABLED=false forgehub-backend alembic current
-docker compose up -d --build forgehub-backend forgehub-frontend
-curl -fsS http://127.0.0.1:8000/health
-# Com JWT de administrador obtido pelo operador e sem expô-lo em logs:
-curl -fsS -H "Authorization: Bearer $FORGEHUB_SMOKE_JWT" http://127.0.0.1:8000/api/v1/tasks > /dev/null
-curl -fsS -H "Authorization: Bearer $FORGEHUB_SMOKE_JWT" http://127.0.0.1:8000/api/v1/demands > /dev/null
-docker logs --since 35m forgehub-backend 2>&1 | grep -F 'Task failure poll failed' || true
+O downgrade produziu duas heads conforme esperado: os ramos `a4d238b759c1` e `e8c4b2d9a7f1` convergem em `b9f246c18a73`. **Downgrade não é rollback.** O rollback do banco é restaurar o dump; ele descarta todas as gravações posteriores ao snapshot. Todos os escritores precisam ser coordenados e parados antes da restauração; a confirmação `CONFIRM_RESTORE=yes` é obrigatória.
+
+Scripts SHA-256:
+
+- `activate.sh`: `425186aa3a26b741a673396f98d80a7c9c9f41487c5e721c9f62a7917944176c`
+- `rollback.sh`: `cedc7cbbcc2cbf87da4b03b5fc6c3776664f6535c1f5cb5fac33049f8471409c`
+
+`bash -n` passou; shellcheck não instalado. O checksum do dump e os IDs `497121be1132` e `b9348ce8ca4b` foram conferidos separadamente com sucesso. Saída real de `DRY_RUN=1 activate.sh` (stderr e stdout):
+
+```text
+dispatches=2
+abort: dispatch in flight
 ```
 
-O `!=404` é apenas teste de presença de rota; fazer também POST autenticado válido com credencial do bridge, verificar resposta sem revelar token, abrir a tela de tarefas e Messages autenticado, e observar pelo menos um ciclo de 30 minutos sem falha. O comando de logs acima é ponto de partida, não prova imediata de ausência futura. Confirmar tags pelo ID em execução imediatamente antes de marcar; `latest` pode ter mudado. Parar se qualquer pré-condição falhar.
+A guarda impediu continuar; repetir o ensaio completo quando não houver despachos em voo, antes de pedir aprovação. Uma ativação depois de 03/11 exige dump novo no dia e registra o caminho para rollback. A soma das medições isoladas é 8,489 s (restauração, upgrade e restauração de rollback); não representa indisponibilidade. O smoke aguarda 900 s de polling, além de build, migração, reinicialização, health e coordenação; reservar pelo menos 15 minutos mais o build e a coordenação, com margem operacional. Build frontend: 411 s; o backend terminou com sucesso, mas seu tempo não foi registrado. As imagens são `forgehub-backend:m0r-118ca2f` (`sha256:caae281e2c255cd3c47558cf21628ff18a075af22b1ab9179f69ae9594c85fe8`) e `forgehub-frontend:m0r-118ca2f` (`sha256:9a58c5a05b1670fb2bfcd3ebaa430f8074fbfe89ef1250cf28f12bc62d1b1996`). Planejar ao menos 21min51s mais o tempo do build backend, coordenação e margem; o build é prévio à ativação e não precisa ser indisponibilidade.
 
-## Rollback proposto — requer procedimento operacional revisado
+### Aprovação solicitada a Marcelo, após revisão e ensaio completo
 
-Downgrade ensaiado não é reversão completa; restauração do dump é o rollback principal e perde alterações após seu snapshot. Antes de qualquer comando: parar todos os escritores e sessões da base, verificar checksum, obter aprovação expressa para perda de dados e confirmar usuários/conexões e dependências. A restauração completa destrói a base existente. O procedimento abaixo é ilustrativo e precisa ser validado para os consumidores e privilégios reais antes de aprovação:
-
-```bash
-cd /root/project/forgehub
-sha256sum -c /root/backup/forgehub-m0r-2026-11-03/SHA256SUMS
-docker compose stop forgehub-frontend forgehub-backend
-# Após parar TODOS os demais escritores; opcional, pode falhar ou deixar duas heads:
-docker compose run --rm --no-deps -e BACKGROUND_WORKERS_ENABLED=false forgehub-backend alembic downgrade a4d238b759c1
-# Com conexões encerradas e aprovação de perda de dados:
-docker exec forgehub_postgres dropdb -U foundation --if-exists forgehub
-docker exec forgehub_postgres createdb -U foundation forgehub
-docker exec -i forgehub_postgres pg_restore -U foundation --no-owner --exit-on-error -d forgehub < /root/backup/forgehub-m0r-2026-11-03/forgehub.dump
-docker exec forgehub_postgres psql -U foundation -d forgehub -Atc 'select version_num from company.alembic_version'
-docker tag forgehub-backend:pre-m0r-2026-11-03 forgehub-backend:latest
-docker tag forgehub-frontend:pre-m0r-2026-11-03 forgehub-frontend:latest
-docker compose up -d --no-build forgehub-backend forgehub-frontend
-```
-
-Se downgrade falhar, seguir para restauração somente após verificar o estado e a autorização; não presumir que falha signifique ausência de alterações. Rollback do bridge depende do procedimento ainda não definido. Validar saúde, login e fluxos após restaurar.
-
-## Janela e riscos
-
-Não há estimativa confiável de indisponibilidade: a soma das medições não inclui preparo, parada de escritores, build, bridge, deploy, validação e tráfego concorrente. Planejar janela após ensaio completo do procedimento corrigido. O backend antigo já apresenta falhas de leitura de tarefas até a migração; migração e troca de imagem não são atômicas. Backup e contagens foram medidos com produção ativa; há risco de perda de dados entre snapshot e eventual rollback. Builds `--build` podem não ser reproduzíveis por dependências externas; fixar e aprovar artefatos antes de produção.
+Aprovar explicitamente o commit e imagens do pacote, execução de `activate.sh` com verificação de despachos e backup (novo se necessário), migração das oito revisões na produção, troca de backend/frontend, troca e reinício do bridge e smoke com espera de 900 s. Aprovar também o procedimento de contingência documentado; a execução da restauração exige confirmação explícita no momento, coordenação de todos os escritores e reconhecimento de perda das gravações após o backup. Não habilitar `MISSION_TOOLS_ENABLED` por esta publicação. Revisão de Dartan e autorização de Marcelo permanecem pendentes.
