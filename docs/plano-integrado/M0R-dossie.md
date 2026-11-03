@@ -211,11 +211,13 @@ Smoke na cópia migrada, sem workers e só em rede interna: `/health` retornou `
 
 `alembic downgrade a4d238b759c1`: exit 0, 2,789 s, mas deixou **duas** heads `a4d238b759c1` e `e8c4b2d9a7f1` por causa do merge; não reverteu as migrations da outra linhagem. Não se exercitou a recusa de `b9e4d2a7c615` por missão ativa. Rollback principal: restauração do dump numa segunda base, 2,864 s, revisão `a4d238b759c1`; não é RTO completo. Containers e rede de quarentena removidos, imagem de ensaio preservada.
 
-## Pacote da rodada 3
+## Pacote revisado na rodada 4
 
 `/root/.forgehub/releases/m0r-afef230/`: cópia do bridge da worktree, overrides, scripts e `release.json`. Imagens reconstruídas com cache: `forgehub-backend:m0r-afef230` (3,294 s; `sha256:89163dd70794b2619d255f63330878c3a92d94260f829934661a2f9258317256`) e `forgehub-frontend:m0r-afef230` (2,009 s; `sha256:af69998f2de43d730236ba7ac28d2162393e31b6051957cab7ebe2d5967b6a2b`). Tempos de relógio desta execução, não previsões para build sem cache. Teste do bridge: 123 passaram em 16,26 s. Backend essencial: 30 passaram em 26,97 s, com duas advertências de descontinuação; executado com o ambiente isolado de teste carregado após inicializar as referências de segurança. `bash -n` passou.
 
-SHA-256: `activate.sh` `03998e7425325e46e921a9c587e3fec57079f0c5cdbd7cbd8d33712955425d5f`; `rollback.sh` `da5be23512a08413b3850f57f923f510cc33c34d452eabc582541086cbee4f11`.
+SHA-256: `activate.sh` `6ac086ff9489f8d0fa7aa312caaef9655626392aeace7598f655775f66a491ae`; `rollback.sh` `da5be23512a08413b3850f57f923f510cc33c34d452eabc582541086cbee4f11`.
+
+O dump das 11:22, usado no ensaio de restauração, continua conferido por `sha256sum -c`. A ativação cria sempre um novo dump verificado após parar o backend e registra seu caminho em `backup-path.txt`. A proteção de falha reinicia o backend anterior caso a migration não termine. O smoke exige leitura autenticada da API e frontend com HTTP 200, além das verificações existentes.
 
 Em DRY_RUN despachos em voo produzem aviso e o ensaio continua; em execução real continuam impedindo a operação. O rollback seco usa o dump conhecido quando ainda não existe o ponteiro de uma ativação real; execução real continua exigindo o ponteiro e `CONFIRM_RESTORE=yes`.
 
@@ -231,13 +233,17 @@ image available: forgehub-backend:m0r-afef230
 image available: forgehub-frontend:m0r-afef230
 DRY_RUN: docker tag 497121be1132 forgehub-backend:pre-m0r
 DRY_RUN: docker tag b9348ce8ca4b forgehub-frontend:pre-m0r
-DRY_RUN: record rollback dump /root/backup/forgehub-m0r-2026-11-03/forgehub.dump in /root/.forgehub/releases/m0r-afef230/backup-path.txt
+DRY_RUN: docker compose -p forgehub stop forgehub-backend
+DRY_RUN: create fresh custom pg_dump and SHA256SUMS in /root/backup/forgehub-pre-m0r-20261103-115518
+DRY_RUN: record rollback dump /root/backup/forgehub-pre-m0r-20261103-115518/forgehub.dump in /root/.forgehub/releases/m0r-afef230/backup-path.txt
 version before:
 a4d238b759c1
 DRY_RUN: POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5433 alembic upgrade head
 DRY_RUN: show version after migration
 DRY_RUN: docker compose -p forgehub -f docker-compose.yml -f /root/.forgehub/releases/m0r-afef230/compose.override.yml up -d --no-build forgehub-backend forgehub-frontend
 DRY_RUN: wait for and check /health
+DRY_RUN: /usr/bin/python3 /root/.hermes/scripts/forgehub_vault_token.py athos /bin/sh -c 'curl -fsS -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $FORGEHUB_AGENT_TOKEN" "http://127.0.0.1:8000/api/v1/tasks?limit=1"' (expect 200)
+DRY_RUN: curl -fsS -o /dev/null -w "%{http_code}" http://127.0.0.1:4173/ (expect 200)
 DRY_RUN: write systemd drop-in WorkingDirectory=/root/.forgehub/releases/m0r-afef230/host-bridge
 DRY_RUN: systemctl daemon-reload
 DRY_RUN: systemctl restart forgehub-chat-bridge
@@ -265,12 +271,12 @@ DRY_RUN: wait for and check /health
 
 ### Janela e ponto pendente
 
-O upgrade isolado medido levou 3,161 s. A janela requerida é parada do backend + ~3,161 s de migrations + subida/health do backend e frontend + reinício do bridge; esses demais tempos não foram medidos, portanto não há estimativa numérica confiável do total. O monitoramento posterior aguarda 900 s adicionais; builds são prévios à janela. O script atual **não para o backend antes da migration**: migra com o backend antigo em execução e só depois troca os containers. Isso precisa de avaliação de compatibilidade e decisão sobre parada de escritores antes de autorizar; não presumir que os ~3 s sejam indisponibilidade total. O rollback restaura o dump e perde gravações posteriores: coordenar e parar todos os escritores; o downgrade não é rollback.
+O upgrade isolado medido levou 3,161 s. A janela requerida é parada do backend + ~3,161 s de migrations + subida/health do backend e frontend + reinício do bridge; esses demais tempos não foram medidos, portanto não há estimativa numérica confiável do total. O monitoramento posterior aguarda 900 s adicionais; builds são prévios à janela. O backend é parado antes do novo dump e da migration; o frontend permanece no ar sem API até a subida e o health. Não presumir que os ~3 s sejam indisponibilidade total. O rollback restaura o dump e perde gravações posteriores: coordenar e parar todos os escritores; o downgrade não é rollback.
 
 ### Itens para aprovação de Marcelo, após revisão independente
 
-1. Commit `afef230ebe71d7bdbba60e4e544db3fba5377182`, imagens e hashes dos scripts acima, após revisão do pacote e resolução da sequência de migrations com backend ativo.
-2. Janela coordenada, ausência de despachos em voo e backup verificado, novo no dia quando necessário.
+1. Commit `afef230ebe71d7bdbba60e4e544db3fba5377182`, imagens e hashes dos scripts acima, após revisão independente do pacote revisado.
+2. Janela coordenada, ausência de despachos em voo e backup novo e verificado após parar o backend.
 3. Aplicação das oito migrations em produção e troca das imagens de backend e frontend, conforme sequência revisada.
 4. Alteração do drop-in e reinício do bridge, verificação de saúde e monitoramento de 900 s; não habilitar `MISSION_TOOLS_ENABLED`.
 5. Plano de contingência por restauração do dump, com todos os escritores parados e perda das gravações posteriores ao snapshot reconhecida; a restauração exige confirmação explícita no momento (`CONFIRM_RESTORE=yes`).
