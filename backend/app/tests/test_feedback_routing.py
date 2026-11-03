@@ -104,7 +104,7 @@ async def test_failed_agent_request_receives_one_linked_feedback(agent):
     async with AsyncSessionLocal() as session:
         item = await session.get(AgentDemand, demand_id)
         item.working_path = "/root/project/example"
-        item.dispatch_error = "Execution unavailable"
+        item.dispatch_error = "The agent run ended as 'stale'."
         await deliver_feedback(session, item)
         await session.commit()
         await deliver_feedback(session, item)
@@ -483,3 +483,42 @@ def test_telegram_bot_name_resolves_to_the_target_profiles_home_chat(monkeypatch
 
     assert _resolve_telegram_channel_ref(target, "-100123456:42") == "-100123456:42"
     assert _resolve_telegram_channel_ref(target, "@public_channel") == "@public_channel"
+
+
+async def test_eligible_failure_does_not_create_failure_note(agent):
+    demand_id = await _finished(agent, channel="agent", status="failed")
+    async with AsyncSessionLocal() as session:
+        demand = await session.get(AgentDemand, demand_id)
+        demand.dispatch_error = "Execution unavailable"
+        await deliver_feedback(session, demand)
+        await session.flush()
+        assert await session.scalar(select(AgentDemand.id).where(AgentDemand.reply_to_id == demand_id)) is None
+        await session.rollback()
+
+
+async def test_failed_check_still_creates_failure_note(agent):
+    source_id = await _finished(agent, channel="agent", status="failed")
+    check_id = await _finished(agent, channel="agent", status="failed")
+    async with AsyncSessionLocal() as session:
+        check = await session.get(AgentDemand, check_id)
+        check.failure_check_source_id = source_id
+        await deliver_feedback(session, check)
+        await session.flush()
+        note = await session.scalar(select(AgentDemand).where(AgentDemand.reply_to_id == check_id))
+        assert note is not None and note.subject.startswith("Falha na tarefa #")
+        await session.rollback()
+
+
+async def test_failed_mission_task_still_creates_failure_note(agent, monkeypatch):
+    async def is_mission(db, source):
+        return True
+
+    monkeypatch.setattr("app.core.demand_failure_check._is_mission_task", is_mission)
+    demand_id = await _finished(agent, channel="agent", status="failed")
+    async with AsyncSessionLocal() as session:
+        demand = await session.get(AgentDemand, demand_id)
+        await deliver_feedback(session, demand)
+        await session.flush()
+        note = await session.scalar(select(AgentDemand).where(AgentDemand.reply_to_id == demand_id))
+        assert note is not None and note.subject.startswith("Falha na tarefa #")
+        await session.rollback()

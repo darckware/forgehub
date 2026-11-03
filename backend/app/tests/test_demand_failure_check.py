@@ -1,6 +1,7 @@
 """A failed attempt hands its context to one diagnostic task before archive."""
 import uuid
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import delete, select
 
@@ -43,6 +44,8 @@ async def test_failure_creates_one_check_with_context_then_archives(world):
         assert check.origin_id is None
         for content in ("Original acceptance criteria", "Check tests", "Partial evidence", "The agent run ended as 'failed'."):
             assert content in check.body
+        for text in ("PRÓPRIA checagem", "STATUS: DONE", "STATUS: BLOCKED", "STATUS: PARTIAL", "ORIGEM: CONCLUIDA | PARCIAL | BLOQUEADA"):
+            assert text in check.body
         source = await db.get(AgentDemand, world)
         assert source.status == "archived"
         assert source.agent_run_id in check.body
@@ -273,3 +276,36 @@ async def test_linked_source_attachment_cannot_be_deleted(world, auth_headers):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers) as client:
         response = await client.delete(f"/api/v1/demands/{world}/attachments/{attachment_id}")
         assert response.status_code == 409, response.text
+
+
+@pytest.mark.parametrize("changes", [
+    {"status": "archived"},
+    {"consolidated_into_id": uuid.uuid4()},
+    {"origin_type": "incubation"},
+    {"dispatch_status": "completed"},
+    {"dispatch_error": "outcome uncertain"},
+    {"dispatch_error": "The agent run ended as 'stale'."},
+    {"failure_check_source_id": uuid.uuid4()},
+    {"from_agent_id": None, "target_agent_id": None},
+])
+async def test_failure_check_eligibility_excludes_noneligible_sources(world, changes):
+    from app.core.demand_failure_check import failure_check_eligible
+    async with AsyncSessionLocal() as db:
+        source = await db.get(AgentDemand, world)
+        assert await failure_check_eligible(db, source)
+        for field, value in changes.items():
+            setattr(source, field, value)
+        assert not await failure_check_eligible(db, source)
+        await db.rollback()
+
+
+async def test_failure_check_eligibility_excludes_mission_tasks(world, monkeypatch):
+    from app.core.demand_failure_check import failure_check_eligible
+
+    async def is_mission(db, source):
+        return True
+
+    monkeypatch.setattr("app.core.demand_failure_check._is_mission_task", is_mission)
+    async with AsyncSessionLocal() as db:
+        source = await db.get(AgentDemand, world)
+        assert not await failure_check_eligible(db, source)

@@ -39,10 +39,12 @@ describe("execution tracking", () => {
     expect(isRetentionEligible(row({ dispatch_status: "completed" }))).toBe(true);
     expect(isRetentionEligible(row({ dispatch_status: "failed", status: "archived" }))).toBe(true);
   });
-  it("keeps a diagnostic failure blocked and protects its evidence", () => {
+  it("classifies diagnostic failures by reason and protects their evidence", () => {
     const check = row({ failure_check_source_id: "original", dispatch_status: "failed", dispatch_error: "CLI error" });
     expect(isExecutionOpen(check)).toBe(true);
-    expect(executionStage(check)).toBe("blocked");
+    expect(executionStage({ ...check, dispatch_error: "The agent reported STATUS: PARTIAL" })).toBe("needsCorrection");
+    expect(executionStage({ ...check, dispatch_error: "The agent reported STATUS: BLOCKED" })).toBe("blocked");
+    expect(executionStage({ ...check, dispatch_error: "ended without the completion report" })).toBe("awaitingVerification");
     expect(isRetentionEligible({ ...check, status: "archived" })).toBe(false);
   });
 });

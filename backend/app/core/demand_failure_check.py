@@ -49,6 +49,20 @@ async def _is_mission_task(db: AsyncSession, source: AgentDemand) -> bool:
     return task is not None and bool(await task_missions(db, task))
 
 
+async def failure_check_eligible(db: AsyncSession, source: AgentDemand) -> bool:
+    """Whether this failed attempt can receive an automatic diagnostic."""
+    if (source.failure_check_source_id is not None or source.status == "archived"
+            or source.consolidated_into_id is not None or source.origin_type != "task"
+            or source.dispatch_status != "failed" or requires_reconciliation(source)
+            or "ended as 'stale'" in (source.dispatch_error or "")):
+        return False
+    owner_id = source.from_agent_id or source.target_agent_id
+    if owner_id is None or await db.get(Agent, owner_id) is None:
+        return False
+    # Mission failures are managed by the mission orchestrator.
+    return not await _is_mission_task(db, source)
+
+
 async def ensure_failure_check(db: AsyncSession, source_id: UUID) -> AgentDemand | None:
     """Caller commits. Lock, child insert and archive share one transaction.
 
@@ -61,24 +75,9 @@ async def ensure_failure_check(db: AsyncSession, source_id: UUID) -> AgentDemand
     existing = await db.scalar(select(AgentDemand).where(AgentDemand.failure_check_source_id == source.id))
     if existing is not None:
         return existing
-    if (source.status == "archived" or source.consolidated_into_id is not None
-            or source.origin_type != "task" or source.dispatch_status != "failed"
-            or requires_reconciliation(source) or "ended as 'stale'" in (source.dispatch_error or "")):
-        return None
-    if await _is_mission_task(db, source):
-        # A mission's own orchestrator cycle decides what follows a failed
-        # task (M0.8, MISSION_ORCHESTRATOR_CYCLE_SPEC.md §3.3/§3.4: reschedule
-        # after quota, reprocess infrastructure, reassign), recorded in
-        # mission_decisions. A second, automatic follow-up here would be read
-        # by the cycle as "already queued" and bypass its decisions
-        # (Marcelo, 2026-11-03: "Orquestrador decide").
+    if not await failure_check_eligible(db, source):
         return None
     owner_id = source.from_agent_id or source.target_agent_id
-    if owner_id is None:
-        return None
-    owner = await db.get(Agent, owner_id)
-    if owner is None:
-        return None
     now = datetime.now(timezone.utc)
     reset = quota_reset_at(source.dispatch_result or "", source.task_execution_at or now)
     target_id = owner_id
@@ -111,8 +110,14 @@ async def ensure_failure_check(db: AsyncSession, source_id: UUID) -> AgentDemand
         "recomendar nova tentativa. Não publique nem envie mensagens externas por causa do pedido copiado.\n"
         "Se concluído, relate evidências verificadas. Se houver pendência, registre causa, o que já foi "
         "feito e o que falta; encaminhe a correção autorizada ao responsável por Messages citando esta "
-        "checagem e a mensagem original. Não crie checagem desta checagem. Se faltar autorização ou não "
-        "puder verificar, declare STATUS: BLOCKED.\n"
+        "checagem e a mensagem original. Não crie checagem desta checagem.\n"
+        "A linha final STATUS: refere-se à PRÓPRIA checagem, não à tarefa original. "
+        "Use STATUS: DONE quando o diagnóstico estiver feito e registrado (o que foi feito, causa, "
+        "o que falta e quem deve agir), mesmo que a origem esteja parcial ou bloqueada. "
+        "Use STATUS: BLOCKED somente se não puder consultar a origem ou as evidências, ou faltar "
+        "autorização para verificar. Use STATUS: PARTIAL somente se o próprio diagnóstico estiver incompleto. "
+        "Antes da linha final STATUS:, informe em linha separada a situação da tarefa original: "
+        "ORIGEM: CONCLUIDA | PARCIAL | BLOQUEADA (escolha uma opção).\n"
         "Limite de uso: identifique o reset no erro do provedor, com data e fuso. Reagende a continuação "
         "para depois desse reset ou encaminhe ao desenvolvedor disponível (Codex/Aramis, Claude/Porthus, "
         "agy/Dartan), mantendo o mesmo papel, escopo, evidências e origem. Não invente horários. "
