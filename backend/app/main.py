@@ -55,6 +55,8 @@ from app.api.routes import (
     mission_plan,
     mission_task,
     mission_records,
+    mission_board,
+    environment,
     notifications,
     operations,
     orchestration,
@@ -211,6 +213,10 @@ def is_agent_command_path(method: str, path: str) -> bool:
         # agt_; every /missions route calls authorize_action itself.
         "/api/v1/missions/",
     )) or path == "/api/v1/missions" or (
+        # M0.7: the single writer of environment_releases; the route checks
+        # environment.release.record itself.
+        path == "/api/v1/environments/releases"
+    ) or (
         path.startswith("/api/v1/projects/") and ("/progress" in path or "/execution-waves" in path)
     )
     factory_read_path = method == "GET" and path.startswith((
@@ -458,6 +464,8 @@ app.include_router(mission.router)
 app.include_router(mission_records.router)
 app.include_router(mission_plan.router)
 app.include_router(mission_task.router)
+app.include_router(mission_board.router)
+app.include_router(environment.router)
 app.include_router(system_scope.router)
 # ---------------------------------------------------------------------------
 

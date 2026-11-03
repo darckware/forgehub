@@ -732,6 +732,15 @@ export default function CockpitPage() {
                               <p className="text-[11px] text-muted-foreground mt-0.5">
                                 {proj.solution_type ? t(`conception:projectPlanning.solutionTypes.${proj.solution_type}`, proj.solution_type) : t("project.application")}
                               </p>
+                              {proj.project_type === "mission" && (
+                                <Link
+                                  to={`/missions/${proj.id}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="text-[11px] font-semibold text-primary hover:underline"
+                                >
+                                  {t("project.missionExecutions")}
+                                </Link>
+                              )}
                             </div>
 
                             <div className="flex items-center gap-1 shrink-0">

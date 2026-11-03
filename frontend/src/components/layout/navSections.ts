@@ -30,6 +30,7 @@ import {
   Share2,
   ShieldCheck,
   Sparkles,
+  Target,
   Users,
   Wrench,
   ShieldEllipsis,
@@ -90,6 +91,7 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       // 6. Fechamento de Versão
       { type: "link", to: "/cockpit", labelKey: "nav.cockpit", icon: Gauge, module: "product" },
       { type: "link", to: "/product", labelKey: "nav.products", icon: Boxes, module: "product" },
+      { type: "link", to: "/missions", labelKey: "nav.missions", icon: Target, module: "product" },
       { type: "link", to: "/conception", labelKey: "nav.conception", icon: Lightbulb, module: "product" },
       { type: "link", to: "/screen-inspector", labelKey: "nav.screenInspector", icon: Layout, module: "product" },
       { type: "link", to: "/concept-erd", labelKey: "nav.conceptDatabaseDiagram", icon: Share2, module: "database" },

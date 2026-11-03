@@ -58,6 +58,8 @@ import ConceptionPage from "@/pages/conception";
 import SystemMapPage from "@/pages/system-map";
 import ProjectScopePage from "@/pages/project-scope";
 import CockpitPage from "@/pages/cockpit";
+import MissionsPage from "@/pages/missions";
+import MissionDetailPage from "@/pages/missions/[id]";
 import RemoteAccessPage from "@/pages/remote-access";
 import ExecutionPage from "@/pages/remote-access/ExecutionPage";
 
@@ -151,6 +153,8 @@ export default function App() {
         <Route path="screen-rules" element={<ScreenInspectorPage />} />
         <Route path="version-closure" element={<VersionClosurePage />} />
         <Route path="cockpit" element={<CockpitPage />} />
+        <Route path="missions" element={<MissionsPage />} />
+        <Route path="missions/:projectId" element={<MissionDetailPage />} />
         <Route path="database" element={<DatabaseLayout />}>
           <Route index element={<DatabaseSchemaPage />} />
           <Route path="schema" element={<DatabaseSchemaPage />} />
