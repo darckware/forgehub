@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/table";
 import { useProduct } from "@/hooks/useProduct";
 import { EntityDocsCard } from "@/components/EntityDocsCard";
+import { CommercialOffersCard } from "./CommercialOffersCard";
 import { apiClient } from "@/lib/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ProductVersion } from "@/hooks/useProduct";
@@ -248,6 +249,8 @@ export default function ProductDetail() {
           )}
         </CardContent>
       </Card>
+
+      <CommercialOffersCard productId={product.id} />
 
       <EntityDocsCard entityType="product" entityId={product?.id} />
     </div>

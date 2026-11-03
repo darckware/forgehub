@@ -223,6 +223,11 @@ class LinkProduct(BaseModel):
     product_id: uuid.UUID
 
 
+class LinkSoftwareProduct(BaseModel):
+    forgehub_product_id: uuid.UUID | None = None
+
+
+
 # ---------------------------------------------------------------------------
 # Onda 4 -- hours and monthly report
 # ---------------------------------------------------------------------------
