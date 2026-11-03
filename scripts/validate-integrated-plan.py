@@ -7,7 +7,8 @@ rows=data['tasks'];tasks={r['id']:r for r in rows};assert len(tasks)==len(rows)
 for r in rows:
  assert r['executor_agent_slug'] and r['reviewer_agent_slug'],r['id']
  assert r['executor_agent_slug']!=r['reviewer_agent_slug'],r['id']
- assert r['status']=='planned' and r['project_task_id'] is None,r['id']
+ assert r['status'] in data['status_vocabulary'] and r['project_task_id'] is None,r['id']
+ if r['status']!='planned':assert all(tasks[d]['status']!='planned' for d in r['depends_on']),('started before its dependencies',r['id'])
  assert all(d in tasks for d in r['depends_on']),(r['id'],r['depends_on'])
 visiting=set();visited=set();order=[]
 def visit(t):

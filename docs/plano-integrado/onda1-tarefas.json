@@ -1,6 +1,6 @@
 {
   "title": "Onda 1 — base comprovada",
-  "updated_at": "2026-10-29",
+  "updated_at": "2026-11-03",
   "scope": "Planejamento consolidado autorizado; nenhuma execução/cadastro criado por esta edição",
   "external_prerequisites": {
     "0.14": [
@@ -17,7 +17,7 @@
       "reviewer_label": "Porthus",
       "depends_on": [],
       "acceptance": "Pareceres da 2ª rodada",
-      "status": "planned",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -31,7 +31,7 @@
         "0.14"
       ],
       "acceptance": "Nenhum item \"bloqueia\" sem decisão; documentos atualizados",
-      "status": "planned",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -45,7 +45,7 @@
         "0.15"
       ],
       "acceptance": "Teste negativo prova conexão à produção proibida; reset não opera fora da allowlist de teste",
-      "status": "planned",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -59,7 +59,7 @@
         "T.1"
       ],
       "acceptance": "Health, seed e dois resets no ambiente isolado; dados sentinela de produção intactos",
-      "status": "planned",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -73,7 +73,7 @@
         "T.2"
       ],
       "acceptance": "Tentativas de e-mail/Telegram/portal e integração real recusadas; nenhum envio externo",
-      "status": "planned",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -117,7 +117,7 @@
         "0.15"
       ],
       "acceptance": "Aegis revisa a especificação e o procedimento F.1.1; Aramis é consumidor do contrato; nenhum token emitido/rotacionado nesta onda",
-      "status": "planned",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -132,7 +132,7 @@
         "T.3"
       ],
       "acceptance": "Relatório do que funciona e do que falta",
-      "status": "planned",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -147,7 +147,7 @@
         "T.3"
       ],
       "acceptance": "Relatório com prova de cada passo; produção intacta, sem envios externos",
-      "status": "planned",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -161,7 +161,7 @@
         "0.15"
       ],
       "acceptance": "Revisores Dartan e Aegis aprovam os contratos antes de M0.0/M0.2/M0.6; tela mínima de execuções especificada (rotas, estados, permissões, 390px); ciclo de decisão e agendamento especificados com limites de autonomia e registro de cada decisão",
-      "status": "planned",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -177,7 +177,7 @@
         "T.3"
       ],
       "acceptance": "Migração ida/volta em fixture; tipos existentes intactos; projeto comum não recebe gate de missão indevidamente; etapas de planejamento com condições de saída testadas; falta de skill aparece na checagem automática",
-      "status": "planned",
+      "status": "developed",
       "project_task_id": null
     },
     {
@@ -191,7 +191,7 @@
         "M0.0"
       ],
       "acceptance": "Uma missão de teste percorre P1→baseline só com registros reais; cada condição de saída recusa sem o registro e passa com ele; revisor do parecer ≠ planejador; item sem disposição ou sem decisão do Marcelo bloqueia; nenhuma condição passa por falta de dado",
-      "status": "planned",
+      "status": "developed",
       "project_task_id": null
     },
     {
@@ -220,7 +220,7 @@
         "M0.0"
       ],
       "acceptance": "Contratos e escopo testados, repetição idempotente, não membro recusado",
-      "status": "planned",
+      "status": "developed",
       "project_task_id": null
     },
     {
@@ -236,7 +236,7 @@
         "M0.0b"
       ],
       "acceptance": "Plano vira proposta, nunca autoaprovado; ciclo recusado; aprovação e hash por usuário autorizado",
-      "status": "planned",
+      "status": "developed",
       "project_task_id": null
     },
     {
@@ -252,7 +252,7 @@
         "M0.6b"
       ],
       "acceptance": "Baseline/dependências/permissões guardadas; retry sem despacho duplicado; DONE só relato",
-      "status": "planned",
+      "status": "developed",
       "project_task_id": null
     },
     {
@@ -266,7 +266,7 @@
         "M0.2a"
       ],
       "acceptance": "DocLink/artefato com escopo e versão; agente só vê seu papel/tarefas permitidas",
-      "status": "planned",
+      "status": "developed",
       "project_task_id": null
     },
     {
@@ -280,7 +280,7 @@
         "M0.0"
       ],
       "acceptance": "Transições novas protegidas em todos os projetos; importação histórica cria execução e revisão com prova real, nunca PATCH direto nem run_id inventado; tarefa de missão com código só fica done com o commit integrado na mainline, inclusive pela aprovação de revisão",
-      "status": "planned",
+      "status": "developed",
       "project_task_id": null
     },
     {
@@ -294,7 +294,7 @@
         "M0.0"
       ],
       "acceptance": "Edição/adição/CR invalida autorização anterior; nenhum bypass por MCP, Approval ou reconciliação",
-      "status": "planned",
+      "status": "developed",
       "project_task_id": null
     },
     {
@@ -310,7 +310,7 @@
         "M0.6b"
       ],
       "acceptance": "Os 7 pontos da spec visíveis em fixture de teste a 390 e 1440 px; nenhuma ação contorna guard; estados de carregamento/vazio/parcial/erro",
-      "status": "planned",
+      "status": "developed",
       "project_task_id": null
     },
     {
@@ -325,7 +325,7 @@
         "M0.6b"
       ],
       "acceptance": "Cada ação com limite de autonomia, registro e gate testados em ambiente isolado; reagendamento por cota comprovado; duas publicações simultâneas da produção recusadas; tarefa aprovada só termina integrada; missão ativa nunca fica parada sem motivo registrado; todo despacho registra a versão de contexto; skill faltante bloqueia a tarefa e gera proposta, nunca concessão; pergunta aberta bloqueia só as tarefas dependentes; padrão irreversível nunca aplicado sem resposta",
-      "status": "planned",
+      "status": "developed",
       "project_task_id": null
     },
     {
@@ -432,7 +432,7 @@
         "T.3"
       ],
       "acceptance": "Todos os agentes ativos/elegíveis do registro atual, sem contagem fixa ou perfis aposentados",
-      "status": "planned",
+      "status": "developed",
       "project_task_id": null
     },
     {
@@ -552,5 +552,10 @@
   "mirrors": [
     "07-fases-de-implementacao.md",
     "12-primeira-onda.md"
-  ]
+  ],
+  "status_vocabulary": {
+    "planned": "não iniciada",
+    "developed": "integrada na develop com testes; ainda não publicada (publicação = nó .R)",
+    "done": "concluída e verificada (documento aprovado ou ambiente de teste em uso)"
+  }
 }

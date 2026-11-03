@@ -78,7 +78,7 @@ primeira missão, o aceite é de Marcelo. M.1n automatiza o que esse registro m�
 
 ## Pacotes e ordem
 
-A [matriz JSON](onda1-tarefas.json) é canônica para a Onda 1. As tabelas de 07 e o resumo abaixo são projeções verificadas integralmente (ids, responsáveis, revisores, arestas e aceite); editar a matriz e atualizar as projeções na mesma mudança. Status inicial de tudo: planejado.
+A [matriz JSON](onda1-tarefas.json) é canônica para a Onda 1. As tabelas de 07 e o resumo abaixo são projeções verificadas integralmente (ids, responsáveis, revisores, arestas e aceite); editar a matriz e atualizar as projeções na mesma mudança. Status inicial de tudo: planejado. Em 2026-11-03 a matriz passou a registrar o andamento (`planned`, `developed` = integrada na develop e ainda não publicada, `done`); ver `status_vocabulary`.
 
 | ID | Responsável | Verificador | Predecessores |
 |---|---|---|---|
