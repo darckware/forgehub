@@ -432,7 +432,7 @@
         "T.3"
       ],
       "acceptance": "Todos os agentes ativos/elegíveis do registro atual, sem contagem fixa ou perfis aposentados",
-      "status": "developed",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -446,7 +446,7 @@
         "A.1"
       ],
       "acceptance": "Ocorrência perdida aparece e alerta",
-      "status": "developed",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -500,7 +500,7 @@
         "B0"
       ],
       "acceptance": "Aprovação específica, versão implantada e prova de agentes/rotinas; teste isolado sozinho não comprova release",
-      "status": "planned",
+      "status": "done",
       "project_task_id": null
     },
     {
