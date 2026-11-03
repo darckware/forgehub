@@ -1,16 +1,22 @@
 # M0.R — dossiê de preparação, 03/11/2026
 
-**NÃO APTO PARA PUBLICAÇÃO:** revisão de Dartan e aprovação de Marcelo pendentes; há uma falha de teste do bridge e o ensaio DRY_RUN parou por despachos em voo. Nenhuma publicação ou escrita em produção foi feita nesta preparação.
+**NÃO APTO PARA PUBLICAÇÃO:** revisão independente e aprovação de Marcelo pendentes; a sequência de parada e migrations requer decisão e revisão antes da ativação. Nenhuma publicação ou escrita em produção foi feita nesta preparação.
 
 ## Conteúdo exato
 
-Base implantada informada: `027ee0e`; develop e worktree ensaiados: `15b06a33439e8e76fbce68b1300ff4c6cf424db4`. O backup foi tirado do banco em uso. O frontend em execução é `sha256:b9348ce8ca4bfcea9ef3c5885a8edafa821839aac4bba325083e7a502c238132`, embora `forgehub-frontend:latest` seja `sha256:4d3267d2338c7f0c361bf0758d37021c7ba19221c632747d4d01206bf3c7ae44`. O backend em execução é `sha256:497121be1132e3080e40123e5c8071b7b689a735f63000fc9ea3c3de0a80dc38`.
+Base implantada informada: `027ee0e`; develop final: `afef230ebe71d7bdbba60e4e544db3fba5377182`; worktree de pacote: merge `8a712a4`, com backend, frontend, host-bridge e compose idênticos à develop. O backup foi tirado do banco em uso. O frontend em execução é `sha256:b9348ce8ca4bfcea9ef3c5885a8edafa821839aac4bba325083e7a502c238132`, embora `forgehub-frontend:latest` seja `sha256:4d3267d2338c7f0c361bf0758d37021c7ba19221c632747d4d01206bf3c7ae44`. O backend em execução é `sha256:497121be1132e3080e40123e5c8071b7b689a735f63000fc9ea3c3de0a80dc38`.
 
 Destaques: `ae7de6d` corrige duplicação de contatos WhatsApp estrangeiros de 11 dígitos; `cde2b28` corrige o texto do botão “Manter dúvida”; M0.4 adiciona instruções versionadas e ensaio completo de missão. `MISSION_TOOLS_ENABLED` tem padrão false; a publicação não deve ligá-la. Confirme a configuração real no momento da publicação, sem divulgar segredos.
 
-### Commits (`git log --oneline 027ee0e..develop`)
+### Commits (`git log --oneline 027ee0e..afef230ebe71d7bdbba60e4e544db3fba5377182`)
 
 ```text
+afef230 test(host-exec): order the stored task lookup; plan: T.4a done
+896250a Merge feat/t4a-linux-target: isolated Linux SSH test target (T.4a)
+43f5af6 test(bridge): install-key test follows the ForgeVault-only key design
+118ca2f docs(plan): C.2a developed
+7390b52 Tests: use seeded Linux targets
+6c69241 Tests: add isolated Linux SSH target
 15b06a3 docs(plan): M0.4 developed
 9827810 Merge feat/m0-4-mission-rehearsal: M0 versioned instructions and full rehearsal (M0.4)
 2b471f2 docs(missions): name DEPLOYED_WITHOUT_RELEASE in the executor steps
@@ -55,10 +61,11 @@ d010d25 Merge pull request #2 from marcelodarckferreira/develop
 5bd13ed Merge pull request #1 from marcelodarckferreira/develop
 ```
 
-### Diff (`git diff --stat 027ee0e develop`)
+### Diff (`git diff --stat 027ee0e afef230ebe71d7bdbba60e4e544db3fba5377182`)
 
 ```text
- CLAUDE.md                                          |    2 +-
+ .gitignore                                         |    1 +
+ CLAUDE.md                                          |    5 +-
  .../f2d7a4c9e1b6_m0_8_orchestrator_cycle.py        |  155 +++
  .../f3a9c6d1b8e2_m0_7_environment_releases.py      |   51 +
  backend/app/api/routes/agent_availability.py       |  112 +++
@@ -75,13 +82,14 @@ d010d25 Merge pull request #2 from marcelodarckferreira/develop
  backend/app/api/schemas/mission_cycle.py           |  175 ++++
  backend/app/core/agent_availability.py             |  197 ++++
  backend/app/core/agent_questions.py                |   43 +
- backend/app/core/config.py                         |    6 +
+ backend/app/core/config.py                         |   11 +
  backend/app/core/conversions.py                    |    2 +-
  backend/app/core/demand_dispatch_guard.py          |    5 +
  backend/app/core/demand_failure_check.py           |   19 +
  backend/app/core/mission.py                        |   15 +-
  backend/app/core/mission_board.py                  | 1013 +++++++++++++++++++
  backend/app/core/mission_cycle.py                  |  883 +++++++++++++++++
+ backend/app/core/test_integration_policy.py        |    9 +
  backend/app/db/models/__init__.py                  |    8 +
  backend/app/db/models/demand.py                    |    5 +
  backend/app/db/models/environment.py               |   56 ++
@@ -90,11 +98,14 @@ d010d25 Merge pull request #2 from marcelodarckferreira/develop
  backend/app/db/models/operations.py                |    5 +
  backend/app/main.py                                |   41 +-
  backend/app/mcp/factory_server.py                  |   91 ++
+ backend/app/scripts/seed_test_database.py          |    1 +
  backend/app/tests/conftest.py                      |   64 ++
+ backend/app/tests/fixtures/integration_stub.py     |   42 +-
  backend/app/tests/test_agent_activity.py           |    9 +-
  backend/app/tests/test_audit_incidents.py          |   27 +-
  backend/app/tests/test_client_ops.py               |    7 +
  backend/app/tests/test_host_enrollment.py          |   12 +-
+ backend/app/tests/test_host_execution.py           |    3 +-
  backend/app/tests/test_host_preparation.py         |   25 +-
  backend/app/tests/test_host_rotation.py            |  170 ++--
  backend/app/tests/test_mcp_catalog.py              |    7 +-
@@ -109,7 +120,9 @@ d010d25 Merge pull request #2 from marcelodarckferreira/develop
  backend/app/tests/test_product.py                  |    8 +-
  backend/app/tests/test_project.py                  |    6 +-
  backend/app/tests/test_project_mcp.py              |   13 +-
+ backend/app/tests/test_seed_test_database.py       |    6 +-
  backend/app/tests/test_software_factory_e2e.py     |   30 +-
+ backend/app/tests/test_t4a_linux_target.py         |  189 ++++
  backend/app/tests/test_task_baseline_guard.py      |   21 +-
  backend/app/tests/test_task_governed_approval.py   |   52 +-
  backend/pytest.ini                                 |    1 +
@@ -117,6 +130,7 @@ d010d25 Merge pull request #2 from marcelodarckferreira/develop
  .../test_direct_demand_origin_migration.py         |    8 +-
  .../tests_unit/test_personal_group_capture_api.py  |    3 +-
  .../test_personal_group_capture_migration.py       |    3 +-
+ backend/tests_unit/test_test_integration_policy.py |    9 +
  docs/architecture/MESSAGES_EXTERNAL_MCP.md         |   13 +
  .../architecture/MISSION_EXECUTIONS_SCREEN_SPEC.md |    4 +
  .../MISSION_ORCHESTRATOR_CYCLE_SPEC.md             |   10 +
@@ -124,7 +138,8 @@ d010d25 Merge pull request #2 from marcelodarckferreira/develop
  docs/plano-integrado/03-service-factory.md         |    2 +
  docs/plano-integrado/07-fases-de-implementacao.md  |   24 +-
  docs/plano-integrado/12-primeira-onda.md           |   30 +-
- docs/plano-integrado/onda1-tarefas.json            |  133 +--
+ docs/plano-integrado/T4a-alvo-linux.md             |   13 +
+ docs/plano-integrado/onda1-tarefas.json            |  137 +--
  frontend/src/App.tsx                               |    4 +
  frontend/src/components/layout/navSections.ts      |    2 +
  frontend/src/components/missions/MissionAction.tsx |  132 +++
@@ -160,13 +175,19 @@ d010d25 Merge pull request #2 from marcelodarckferreira/develop
  frontend/src/pages/missions/index.tsx              |  126 +++
  frontend/src/pages/operations/index.tsx            |    2 +-
  frontend/src/test/fixtures/missionBoard.ts         |   66 ++
+ host-bridge/tests/test_server_key_install.py       |    9 +-
  scripts/forgehub_vault_token.py                    |    2 +-
  scripts/link_agents_to_systems.py                  |    7 +-
  scripts/migrate_forgehub_vault_profiles.py         |  148 +++
  scripts/register_ecosystem_systems.py              |    7 +-
  .../tests/test_migrate_forgehub_vault_profiles.py  |   45 +
  scripts/validate-integrated-plan.py                |    3 +-
- 108 files changed, 9564 insertions(+), 312 deletions(-)
+ test-env/docker-compose.yml                        |   19 +
+ test-env/gateway-nginx.conf                        |    4 +
+ test-env/init-env.sh                               |    8 +
+ test-env/linux-target/.dockerignore                |    1 +
+ test-env/linux-target/Dockerfile                   |    6 +
+ 123 files changed, 9882 insertions(+), 326 deletions(-)
 ```
 
 ### Migrations ensaiadas
@@ -190,28 +211,68 @@ Smoke na cópia migrada, sem workers e só em rede interna: `/health` retornou `
 
 `alembic downgrade a4d238b759c1`: exit 0, 2,789 s, mas deixou **duas** heads `a4d238b759c1` e `e8c4b2d9a7f1` por causa do merge; não reverteu as migrations da outra linhagem. Não se exercitou a recusa de `b9e4d2a7c615` por missão ativa. Rollback principal: restauração do dump numa segunda base, 2,864 s, revisão `a4d238b759c1`; não é RTO completo. Containers e rede de quarentena removidos, imagem de ensaio preservada.
 
-## Pacote da rodada 2
+## Pacote da rodada 3
 
-`/root/.forgehub/releases/m0r-118ca2f/`, baseado na develop `118ca2f2eb82bd75a06a81f3888f3e8d36d0b00b`, posterior ao ensaio por um commit exclusivamente documental. Os diretórios de código e o compose coincidem com a worktree ensaiada. Os 31 commits sem merge do escopo original até `15b06a3` passam a 32 com esse documento adicional; 43 commits incluindo merges desde a base.
+`/root/.forgehub/releases/m0r-afef230/`: cópia do bridge da worktree, overrides, scripts e `release.json`. Imagens reconstruídas com cache: `forgehub-backend:m0r-afef230` (3,294 s; `sha256:89163dd70794b2619d255f63330878c3a92d94260f829934661a2f9258317256`) e `forgehub-frontend:m0r-afef230` (2,009 s; `sha256:af69998f2de43d730236ba7ac28d2162393e31b6051957cab7ebe2d5967b6a2b`). Tempos de relógio desta execução, não previsões para build sem cache. Teste do bridge: 123 passaram em 16,26 s. Backend essencial: 30 passaram em 26,97 s, com duas advertências de descontinuação; executado com o ambiente isolado de teste carregado após inicializar as referências de segurança. `bash -n` passou.
 
-O bridge antigo em execução é a cópia de `/root/.forgehub/releases/autonomy-e043f37/host-bridge`; o pacote contém a cópia atual. Testes do bridge na cópia: 122 passaram e 1 falhou (`test_install_key_reports_missing_local_ssh_dependency`, `SSH_KEYS_DIR` ausente); a falha também ocorre na worktree. Revisão de Dartan deve avaliar essa falha antes da publicação.
+SHA-256: `activate.sh` `03998e7425325e46e921a9c587e3fec57079f0c5cdbd7cbd8d33712955425d5f`; `rollback.sh` `da5be23512a08413b3850f57f923f510cc33c34d452eabc582541086cbee4f11`.
 
-O downgrade produziu duas heads conforme esperado: os ramos `a4d238b759c1` e `e8c4b2d9a7f1` convergem em `b9f246c18a73`. **Downgrade não é rollback.** O rollback do banco é restaurar o dump; ele descarta todas as gravações posteriores ao snapshot. Todos os escritores precisam ser coordenados e parados antes da restauração; a confirmação `CONFIRM_RESTORE=yes` é obrigatória.
+Em DRY_RUN despachos em voo produzem aviso e o ensaio continua; em execução real continuam impedindo a operação. O rollback seco usa o dump conhecido quando ainda não existe o ponteiro de uma ativação real; execução real continua exigindo o ponteiro e `CONFIRM_RESTORE=yes`.
 
-Scripts SHA-256:
-
-- `activate.sh`: `425186aa3a26b741a673396f98d80a7c9c9f41487c5e721c9f62a7917944176c`
-- `rollback.sh`: `cedc7cbbcc2cbf87da4b03b5fc6c3776664f6535c1f5cb5fac33049f8471409c`
-
-`bash -n` passou; shellcheck não instalado. O checksum do dump e os IDs `497121be1132` e `b9348ce8ca4b` foram conferidos separadamente com sucesso. Saída real de `DRY_RUN=1 activate.sh` (stderr e stdout):
+### Ensaio completo de ativação (stdout e stderr)
 
 ```text
-dispatches=2
-abort: dispatch in flight
+dispatches=1
+WARN: 1 dispatch(es) in flight — a real activation would abort here
+/root/backup/forgehub-m0r-2026-11-03/forgehub.dump: OK
+image available: 497121be1132
+image available: b9348ce8ca4b
+image available: forgehub-backend:m0r-afef230
+image available: forgehub-frontend:m0r-afef230
+DRY_RUN: docker tag 497121be1132 forgehub-backend:pre-m0r
+DRY_RUN: docker tag b9348ce8ca4b forgehub-frontend:pre-m0r
+DRY_RUN: record rollback dump /root/backup/forgehub-m0r-2026-11-03/forgehub.dump in /root/.forgehub/releases/m0r-afef230/backup-path.txt
+version before:
+a4d238b759c1
+DRY_RUN: POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5433 alembic upgrade head
+DRY_RUN: show version after migration
+DRY_RUN: docker compose -p forgehub -f docker-compose.yml -f /root/.forgehub/releases/m0r-afef230/compose.override.yml up -d --no-build forgehub-backend forgehub-frontend
+DRY_RUN: wait for and check /health
+DRY_RUN: write systemd drop-in WorkingDirectory=/root/.forgehub/releases/m0r-afef230/host-bridge
+DRY_RUN: systemctl daemon-reload
+DRY_RUN: systemctl restart forgehub-chat-bridge
+DRY_RUN: check bridge evidence endpoint with systemd token (secret withheld)
+DRY_RUN: wait 900 seconds; verify Task failure poll failed count is 0
+DRY_RUN: verify database version f2d7a4c9e1b6
+DRY_RUN: write /root/.forgehub/releases/m0r-afef230/activated-at.txt
 ```
 
-A guarda impediu continuar; repetir o ensaio completo quando não houver despachos em voo, antes de pedir aprovação. Uma ativação depois de 03/11 exige dump novo no dia e registra o caminho para rollback. A soma das medições isoladas é 8,489 s (restauração, upgrade e restauração de rollback); não representa indisponibilidade. O smoke aguarda 900 s de polling, além de build, migração, reinicialização, health e coordenação; reservar pelo menos 15 minutos mais o build e a coordenação, com margem operacional. Build frontend: 411 s; o backend terminou com sucesso, mas seu tempo não foi registrado. As imagens são `forgehub-backend:m0r-118ca2f` (`sha256:caae281e2c255cd3c47558cf21628ff18a075af22b1ab9179f69ae9594c85fe8`) e `forgehub-frontend:m0r-118ca2f` (`sha256:9a58c5a05b1670fb2bfcd3ebaa430f8074fbfe89ef1250cf28f12bc62d1b1996`). Planejar ao menos 21min51s mais o tempo do build backend, coordenação e margem; o build é prévio à ativação e não precisa ser indisponibilidade.
+### Ensaio completo de rollback (stdout e stderr)
 
-### Aprovação solicitada a Marcelo, após revisão e ensaio completo
+```text
+dispatches=1
+WARN: 1 dispatch(es) in flight — a real activation would abort here
+DRY_RUN: activation backup pointer absent; rehearsing with /root/backup/forgehub-m0r-2026-11-03/forgehub.dump
+/root/backup/forgehub-m0r-2026-11-03/forgehub.dump: OK
+DRY_RUN: docker compose -p forgehub -f docker-compose.yml -f /root/.forgehub/releases/m0r-afef230/rollback.override.yml stop forgehub-backend forgehub-frontend
+DRY_RUN: pg_restore --clean --if-exists --no-owner --exit-on-error from /root/backup/forgehub-m0r-2026-11-03/forgehub.dump into production forgehub
+DRY_RUN: docker compose -p forgehub -f docker-compose.yml -f /root/.forgehub/releases/m0r-afef230/rollback.override.yml up -d --no-build forgehub-backend forgehub-frontend
+DRY_RUN: write systemd drop-in WorkingDirectory=/root/.forgehub/releases/autonomy-e043f37/host-bridge
+DRY_RUN: systemctl daemon-reload
+DRY_RUN: systemctl restart forgehub-chat-bridge
+DRY_RUN: wait for and check /health
+```
 
-Aprovar explicitamente o commit e imagens do pacote, execução de `activate.sh` com verificação de despachos e backup (novo se necessário), migração das oito revisões na produção, troca de backend/frontend, troca e reinício do bridge e smoke com espera de 900 s. Aprovar também o procedimento de contingência documentado; a execução da restauração exige confirmação explícita no momento, coordenação de todos os escritores e reconhecimento de perda das gravações após o backup. Não habilitar `MISSION_TOOLS_ENABLED` por esta publicação. Revisão de Dartan e autorização de Marcelo permanecem pendentes.
+### Janela e ponto pendente
+
+O upgrade isolado medido levou 3,161 s. A janela requerida é parada do backend + ~3,161 s de migrations + subida/health do backend e frontend + reinício do bridge; esses demais tempos não foram medidos, portanto não há estimativa numérica confiável do total. O monitoramento posterior aguarda 900 s adicionais; builds são prévios à janela. O script atual **não para o backend antes da migration**: migra com o backend antigo em execução e só depois troca os containers. Isso precisa de avaliação de compatibilidade e decisão sobre parada de escritores antes de autorizar; não presumir que os ~3 s sejam indisponibilidade total. O rollback restaura o dump e perde gravações posteriores: coordenar e parar todos os escritores; o downgrade não é rollback.
+
+### Itens para aprovação de Marcelo, após revisão independente
+
+1. Commit `afef230ebe71d7bdbba60e4e544db3fba5377182`, imagens e hashes dos scripts acima, após revisão do pacote e resolução da sequência de migrations com backend ativo.
+2. Janela coordenada, ausência de despachos em voo e backup verificado, novo no dia quando necessário.
+3. Aplicação das oito migrations em produção e troca das imagens de backend e frontend, conforme sequência revisada.
+4. Alteração do drop-in e reinício do bridge, verificação de saúde e monitoramento de 900 s; não habilitar `MISSION_TOOLS_ENABLED`.
+5. Plano de contingência por restauração do dump, com todos os escritores parados e perda das gravações posteriores ao snapshot reconhecida; a restauração exige confirmação explícita no momento (`CONFIRM_RESTORE=yes`).
+
+Revisão independente e autorização de Marcelo permanecem pendentes. Nenhuma ativação real foi executada.
