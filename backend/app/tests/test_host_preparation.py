@@ -15,7 +15,6 @@ from app.api.routes import server as server_routes
 from app.core import host_exec_runner
 from app.db.models.host_execution import HostExecution
 from app.core.host_preparation import PreparationError, preparation_script
-from app.core.secrets import decrypt_secret
 from app.db.base import AsyncSessionLocal
 from app.db.models.governance import AuditEvent
 from app.db.models.server import Server
@@ -96,15 +95,23 @@ async def _fake_store(name, value, description, secret_type="Password"):
     return f"{abs(hash(name)) % 10**8:08d}-0000-0000-0000-000000000000"
 
 
+GENERATED: list[dict] = []
+GEN_REF = "00000000-0000-0000-0000-00000000eeee"
+
+
 async def _bridge(path, payload, timeout=20.0):
-    if path == "/v1/servers/ensure-key":
-        return _resp({"key_path": f"/root/agents/aegis/server-management/ssh_keys/{payload['key_name']}_key", "public_key": KEY, "created": True})
-    return _resp({"private_key": PRIV, "public_key": KEY, "key_path": "x"})
+    # ForgeVault-only keys (2026-10-24 design): the bridge generates the key in
+    # tmpfs, stores the private half in ForgeVault and returns only its id and
+    # the public half. Nothing private ever reaches ForgeHub.
+    assert path == "/v1/servers/generate-key", path
+    GENERATED.append(payload)
+    return _resp({"ssh_key_ref": GEN_REF, "public_key": KEY})
 
 
 @pytest.mark.asyncio
 async def test_copy_mode_creates_key_stores_password_in_vault_and_returns_script(client, station):
     VAULT.clear()
+    GENERATED.clear()
     with (
         patch.object(server_routes, "_bridge_post", AsyncMock(side_effect=_bridge)),
         patch.object(server_routes, "vault_store", AsyncMock(side_effect=_fake_store)),
@@ -114,16 +121,16 @@ async def test_copy_mode_creates_key_stores_password_in_vault_and_returns_script
     body = resp.json()
     assert body["language"] == "powershell" and body["key_created"] is True and body["execution_id"] is None
     base = f"WS_SEM_CLIENTE_{station.name.upper().replace('-', '_')}"
-    assert set(VAULT) == {f"{base}_LOGIN", f"{base}_SSH_KEY"}  # password AND private key in the vault
-    assert VAULT[f"{base}_SSH_KEY"] == PRIV
+    assert set(VAULT) == {f"{base}_LOGIN"}                    # the password, through vault_store
+    assert [g["secret_name"] for g in GENERATED] == [f"{base}_SSH_KEY"]  # the key, generated in ForgeVault
     password = VAULT[f"{base}_LOGIN"]
     assert password in body["script"] and KEY in body["script"] and "New-LocalUser" in body["script"]
     assert PRIV not in resp.text
     async with AsyncSessionLocal() as db:
         row = await db.get(Server, station.id)
         assert row.remote_user == "darckware" and row.admin_user == "administrador"
-        assert row.login_password_ref and row.login_password_encrypted is None and row.ssh_key_ref
-        assert decrypt_secret(row.private_key_encrypted) == PRIV
+        assert row.login_password_ref and row.login_password_encrypted is None and row.ssh_key_ref == GEN_REF
+        assert row.private_key_encrypted is None and row.ssh_key_path is None
 
 
 async def _run_ssh(client, station, outcomes, disable=True):
@@ -205,7 +212,7 @@ async def test_a_machine_on_its_vault_key_keeps_it(client, station):
         resp = await client.post(f"/api/v1/servers/{station.id}/preparation", json={"mode": "copy", "admin_user": "administrador"})
     assert resp.status_code == 200, resp.text
     assert resp.json()["key_created"] is False
-    assert all(call.args[0] != "/v1/servers/ensure-key" for call in bridge.call_args_list)
+    assert bridge.call_args_list == []                        # no second key minted
     async with AsyncSessionLocal() as db:
         row = await db.get(Server, station.id)
     assert row.ssh_key_ref.endswith("dddd") and row.ssh_key_path is None

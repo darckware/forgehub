@@ -93,11 +93,11 @@ def _resp(payload, code=200):
 @pytest.mark.asyncio
 async def test_enroll_link_and_reveal(client, station_name):
     async def bridge(path, payload, timeout=20.0):
-        if path == "/v1/servers/ensure-key":
-            assert payload["key_name"].startswith("ws_")
-            return _resp({"key_path": f"/root/agents/aegis/server-management/ssh_keys/{payload['key_name']}_key",
-                          "public_key": KEY, "created": True})
-        return _resp({"private_key": "PRIV", "public_key": KEY, "key_path": "x"})
+        # ForgeVault-only keys (2026-10-24 design): only the secret id and the
+        # public half come back.
+        assert path == "/v1/servers/generate-key", path
+        assert payload["secret_name"].endswith("_SSH_KEY")
+        return _resp({"ssh_key_ref": "ffffffff-0000-0000-0000-000000000000", "public_key": KEY})
 
     mint = AsyncMock(return_value=AUTH)
     vault: dict[str, str] = {}
@@ -135,6 +135,8 @@ async def test_enroll_link_and_reveal(client, station_name):
         row = await db.get(Server, uuid.UUID(server_id))
         assert row.remote_user == "darckware" and row.ip_address == "" and row.kind == "workstation"
         assert row.login_password_ref == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        assert row.ssh_key_ref == "ffffffff-0000-0000-0000-000000000000" and row.ssh_key_path is None
+        assert row.public_key == KEY and KEY in body["script"]
         password = next(iter(vault.values()))
         assert password in body["script"]
         audit = (await db.execute(select(AuditEvent).where(AuditEvent.entity_id == row.id))).scalar_one()

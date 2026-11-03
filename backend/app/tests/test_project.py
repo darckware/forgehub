@@ -406,10 +406,11 @@ async def test_files_require_working_directory(client: AsyncClient):
     assert "working_directory_path" in resp.json()["detail"]
 
 
-async def test_files_full_crud_flow(client: AsyncClient):
+async def test_files_full_crud_flow(client: AsyncClient, bind_host_bridge):
     """End-to-end against a real scratch directory on the host (via the
     real chat bridge, no mocking) -- list, create dir/file, write, read,
     rename, delete."""
+    bind_host_bridge(project_routes)
     working_dir = tempfile.mkdtemp(prefix="forgehub-test-project-")
     try:
         project_id = await _create_project(client, "Files CRUD Project")
@@ -486,10 +487,11 @@ async def test_files_full_crud_flow(client: AsyncClient):
         shutil.rmtree(working_dir, ignore_errors=True)
 
 
-async def test_files_sensitive_paths_are_hidden_and_blocked(client: AsyncClient):
+async def test_files_sensitive_paths_are_hidden_and_blocked(client: AsyncClient, bind_host_bridge):
     """A working directory containing a real .env must never expose it
     through this browser -- not in the listing, and not even if a caller
     requests/writes/deletes it by its exact path directly."""
+    bind_host_bridge(project_routes)
     working_dir = tempfile.mkdtemp(prefix="forgehub-test-project-secrets-")
     try:
         with open(f"{working_dir}/.env", "w") as f:

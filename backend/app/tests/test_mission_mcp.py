@@ -511,23 +511,25 @@ async def _receipts_table_exists() -> bool:
 
 @pytest.mark.asyncio
 async def test_migration_roundtrip_only_this_revision():
-    """Downgrade to the parent and back. Skipped when the shared test database
-    carries any other applied head (a sibling slice's revision), since a
-    downgrade there would unapply it too."""
+    """Downgrade to the parent and back to the same head; revisions above
+    this one move too. Skipped when the shared test database carries more
+    than one head (a sibling slice's revision would be unapplied)."""
     current = _alembic("current").stdout.split()
     heads = [token for token in current if len(token) == 12 and token.isalnum()]
-    if heads != [REVISION]:
-        pytest.skip(f"database at {heads}, not only {REVISION}")
-    down = _alembic("downgrade", f"{REVISION}@-1")
+    if len(heads) != 1:
+        pytest.skip(f"database at {heads}, more than one head")
+    head = heads[0]
+    assert _alembic("history", "-r", f"{REVISION}:{head}").stdout, f"{REVISION} is not below {head}"
+    down = _alembic("downgrade", "b9e4d2a7c615")
     assert down.returncode == 0, down.stderr
     try:
         assert not await _receipts_table_exists()
         assert "b9e4d2a7c615" in _alembic("current").stdout
     finally:
-        up = _alembic("upgrade", REVISION)
+        up = _alembic("upgrade", head)
         assert up.returncode == 0, up.stderr
     assert await _receipts_table_exists()
-    assert REVISION in _alembic("current").stdout
+    assert head in _alembic("current").stdout
 
 
 # ---------------------------------------------------------------------------

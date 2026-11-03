@@ -249,8 +249,13 @@ async def test_assign_to_agent_with_no_runtime_records_sync_error(
 
 
 async def test_assign_to_project_writes_real_mcp_json(
-    client: AsyncClient, cleanup_server_ids, tmp_path
+    client: AsyncClient, cleanup_server_ids, tmp_path, bind_host_bridge
 ):
+    # The assignment writes .mcp.json through project.py's bridge call; the
+    # real host-bridge route runs in process (the T.3 stub refuses it).
+    from app.api.routes import project as project_routes
+
+    bind_host_bridge(project_routes)
     server = await _create_server(client, cleanup_server_ids)
     project = await _make_test_project(client, tmp_path)
 

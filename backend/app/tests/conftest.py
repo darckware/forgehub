@@ -227,3 +227,67 @@ def bind_evidence_bridge(monkeypatch):
         )
 
     return bind
+
+
+_HOST_BRIDGE_APP = None
+
+
+def _host_bridge_app():
+    """host-bridge/app.py, loaded once by path under its own module name (its
+    file name would shadow the backend's `app` package). Importing it starts
+    nothing: its loops run only in an ASGI lifespan, which ASGITransport
+    doesn't send."""
+    global _HOST_BRIDGE_APP
+    if _HOST_BRIDGE_APP is None:
+        import importlib.util
+        import os
+        import sys
+        from pathlib import Path
+
+        from app.core.config import settings
+
+        bridge_dir = Path(__file__).resolve().parents[3] / "host-bridge"
+        if str(bridge_dir) not in sys.path:
+            sys.path.append(str(bridge_dir))  # its sibling modules; appended so nothing shadows the backend
+        os.environ.setdefault("FORGEHUB_BRIDGE_TOKEN", settings.CHAT_BRIDGE_TOKEN)
+        spec = importlib.util.spec_from_file_location("forgehub_host_bridge_app", bridge_dir / "app.py")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        # The test's own token, never whatever the shell exported.
+        module.BRIDGE_TOKEN = settings.CHAT_BRIDGE_TOKEN
+        _HOST_BRIDGE_APP = module.app
+    return _HOST_BRIDGE_APP
+
+
+@pytest.fixture
+def bind_host_bridge(monkeypatch):
+    """Routes a backend module's host-bridge calls for the given path
+    prefixes to the real host-bridge app in process, like
+    bind_evidence_bridge. The T.3 stub refuses /v1/fs/* and
+    /v1/project-mcp-servers* (no host file access in the test environment);
+    the tests that bind it work only on their own temporary folders. Every
+    other path still goes to the stub over the network, so nothing else
+    (agent runs, messages) reaches the real bridge code."""
+    import types
+
+    import httpx
+
+    def bind(module, prefixes=("/v1/fs/", "/v1/project-mcp-servers")) -> None:
+        bridge = httpx.ASGITransport(app=_host_bridge_app())
+        network = httpx.AsyncHTTPTransport()
+
+        class _Split(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request):
+                target = bridge if request.url.path.startswith(tuple(prefixes)) else network
+                return await target.handle_async_request(request)
+
+        def client(*args, **kwargs):
+            kwargs.setdefault("transport", _Split())
+            return httpx.AsyncClient(*args, **kwargs)
+
+        shim = types.SimpleNamespace(**{n: getattr(httpx, n) for n in dir(httpx) if not n.startswith("__")})
+        shim.AsyncClient = client
+        monkeypatch.setattr(module, "httpx", shim)
+
+    return bind

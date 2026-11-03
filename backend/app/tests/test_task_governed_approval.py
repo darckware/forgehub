@@ -29,6 +29,7 @@ from app.db.models.agent import Agent
 from app.db.models.backlog import PlanningItem
 from app.db.models.demand import AgentDemand
 from app.db.models.governance import ApprovalRequest, Policy, PolicyBinding, PolicyVersion
+from app.db.models.orchestration import ProjectAgentMembership, TaskExecutionReview
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import Project
 from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
@@ -155,6 +156,13 @@ async def world(tmp_path, bind_evidence_bridge):
             text("DELETE FROM company.agent_demands WHERE origin_id = :id"), {"id": ids["task_id"]}
         )
         await conn.execute(
+            text("DELETE FROM company.task_execution_reviews WHERE execution_id IN "
+                 "(SELECT id FROM company.task_executions WHERE task_id = :id)"), {"id": ids["task_id"]}
+        )
+        await conn.execute(
+            text("DELETE FROM company.project_agent_memberships WHERE project_id = :id"), {"id": ids["project_id"]}
+        )
+        await conn.execute(
             text("DELETE FROM company.task_executions WHERE task_id = :id"), {"id": ids["task_id"]}
         )
         await conn.execute(
@@ -227,6 +235,25 @@ async def _dispatch_and_verify(client, world, tmp_path, monkeypatch, *, filename
         ).scalar_one_or_none()
     assert request is not None, "expected a pending ApprovalRequest after verification"
     return request.id
+
+
+async def _independent_review(world) -> None:
+    """M0.6a: approving the governed request is not proof by itself; the
+    completion guard also needs an approved review of the latest execution by
+    an independent agent with an active can_review membership."""
+    async with AsyncSessionLocal() as db:
+        membership = ProjectAgentMembership(project_id=world["project_id"], agent_id=world["reviewer_id"],
+                                            role="reviewer", can_review=True)
+        db.add(membership)
+        await db.flush()
+        execution_id = (await db.execute(
+            select(TaskExecution.id).where(TaskExecution.task_id == world["task_id"])
+            .order_by(TaskExecution.attempt_number.desc()).limit(1)
+        )).scalar_one()
+        db.add(TaskExecutionReview(execution_id=execution_id, reviewer_membership_id=membership.id,
+                                   status="approved", feedback="looked at it",
+                                   decided_at=datetime.now(timezone.utc)))
+        await db.commit()
 
 
 async def _issue_agent_token(client, agent_id: uuid.UUID) -> str:
@@ -313,14 +340,14 @@ async def test_task_cannot_be_marked_done_while_approval_pending(client, admin_c
     assert "governed approval" in blocked.json()["detail"]
 
 
-async def test_executor_cannot_decide_its_own_execution(client, world, tmp_path, monkeypatch):
+async def test_executor_cannot_decide_its_own_execution(client, world, tmp_path, monkeypatch, admin_client):
     _mock_dispatch(monkeypatch)
     request_id = await _dispatch_and_verify(client, world, tmp_path, monkeypatch)
-    token = await _issue_agent_token(client, world["executor_id"])
+    token = await _issue_agent_token(admin_client, world["executor_id"])
     # Grant the executor decide-authority too, so the 403 below is proven to
     # come from deny_self_approval specifically -- not just "no delegation
     # at all" (a different, less interesting 403).
-    await _grant_decide_authority(client, world["executor_id"])
+    await _grant_decide_authority(admin_client, world["executor_id"])
 
     resp = await client.post(
         f"/api/v1/governed/approval-requests/{request_id}:decide",
@@ -331,11 +358,12 @@ async def test_executor_cannot_decide_its_own_execution(client, world, tmp_path,
     assert "separation_of_duties_violation" in resp.text
 
 
-async def test_reviewer_approves_and_task_becomes_done(client, world, tmp_path, monkeypatch):
+async def test_reviewer_approves_and_task_becomes_done(client, world, tmp_path, monkeypatch, admin_client):
     _mock_dispatch(monkeypatch)
     request_id = await _dispatch_and_verify(client, world, tmp_path, monkeypatch)
-    token = await _issue_agent_token(client, world["reviewer_id"])
-    await _grant_decide_authority(client, world["reviewer_id"])
+    token = await _issue_agent_token(admin_client, world["reviewer_id"])
+    await _grant_decide_authority(admin_client, world["reviewer_id"])
+    await _independent_review(world)
 
     resp = await client.post(
         f"/api/v1/governed/approval-requests/{request_id}:decide",
@@ -350,7 +378,7 @@ async def test_reviewer_approves_and_task_becomes_done(client, world, tmp_path, 
         assert task.completed_at is not None
 
 
-async def test_reviewer_requests_changes_and_task_redispatches(client, world, tmp_path, monkeypatch):
+async def test_reviewer_requests_changes_and_task_redispatches(client, world, tmp_path, monkeypatch, admin_client):
     from app.api.routes import demand as demand_routes
 
     dispatch_calls = []
@@ -364,8 +392,8 @@ async def test_reviewer_requests_changes_and_task_redispatches(client, world, tm
     request_id = await _dispatch_and_verify(client, world, tmp_path, monkeypatch)
     assert len(dispatch_calls) == 1  # the original dispatch
 
-    token = await _issue_agent_token(client, world["reviewer_id"])
-    await _grant_decide_authority(client, world["reviewer_id"])
+    token = await _issue_agent_token(admin_client, world["reviewer_id"])
+    await _grant_decide_authority(admin_client, world["reviewer_id"])
     resp = await client.post(
         f"/api/v1/governed/approval-requests/{request_id}:decide",
         json={"decision": "changes_requested", "comments": "faltou tratar o caso X"},
@@ -402,11 +430,11 @@ async def test_reviewer_requests_changes_and_task_redispatches(client, world, tm
         assert "faltou tratar o caso X" in new_demand.command_text
 
 
-async def test_reviewer_rejects_and_task_becomes_blocked(client, world, tmp_path, monkeypatch):
+async def test_reviewer_rejects_and_task_becomes_blocked(client, world, tmp_path, monkeypatch, admin_client):
     _mock_dispatch(monkeypatch)
     request_id = await _dispatch_and_verify(client, world, tmp_path, monkeypatch)
-    token = await _issue_agent_token(client, world["reviewer_id"])
-    await _grant_decide_authority(client, world["reviewer_id"])
+    token = await _issue_agent_token(admin_client, world["reviewer_id"])
+    await _grant_decide_authority(admin_client, world["reviewer_id"])
 
     resp = await client.post(
         f"/api/v1/governed/approval-requests/{request_id}:decide",
