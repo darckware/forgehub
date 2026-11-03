@@ -91,7 +91,7 @@
   "recommendation": "Recomendación",
   "answer": "Respuesta",
   "sendAnswer": "Enviar respuesta",
-  "cancelQuestion": "Cancelar pregunta",
+  "keepQuestion": "Mantener duda", "cancelQuestion": "Cancelar pregunta",
   "questionCancelled": "Pregunta cancelada.",
   "confirmAnswerTitle": "¿Enviar respuesta al agente?",
   "confirmAnswerDescription": "La respuesta se registrará y entregará como Task en Messages.",
