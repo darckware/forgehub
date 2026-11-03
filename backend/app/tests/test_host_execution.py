@@ -507,7 +507,8 @@ async def test_agent_request_creates_one_task_per_authorized_agent(client, machi
         assert task.origin_type == "task" and task.target_agent_id == task.from_agent_id == ids.mid
         async with AsyncSessionLocal() as db:
             stored = (await db.execute(select(AgentDemand).where(AgentDemand.subject == task.subject[:255],
-                                                                 AgentDemand.target_agent_id == ids.mid))).scalars().first()
+                                                                 AgentDemand.target_agent_id == ids.mid)
+                                       .order_by(AgentDemand.created_at.asc()))).scalars().first()
             assert f"Esta é a tarefa #{stored.number}" in stored.body  # the agent knows its message_number
             spec = (await db.execute(select(AuditEvent).where(AuditEvent.entity_type == "agent_maintenance_request",
                                                               AuditEvent.entity_id == stored.id))).scalar_one()
