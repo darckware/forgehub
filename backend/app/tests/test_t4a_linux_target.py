@@ -1,4 +1,5 @@
 """T.4a: real SSH execution through the isolated test stub."""
+import subprocess
 import uuid
 from unittest.mock import patch
 
@@ -12,10 +13,11 @@ from app.db.base import AsyncSessionLocal
 from app.db.models.governance import AuditEvent
 from app.db.models.host_execution import HostExecution
 from app.db.models.server import Server
-from app.tests.test_host_execution import _wait, machines  # noqa: F401, F811
+from app.tests.test_host_execution import _wait
+from app.scripts.seed_test_database import seed, seed_id
 
 @pytest.mark.asyncio
-async def test_t4a_agent_linux_execution(machines):  # noqa: F811
+async def test_t4a_agent_linux_execution():
     """Agents run library scripts with their own agt_ credential: deny by
     default, risk capped by the delegation, only on machines ForgeHub already
     has its login on, and the run is recorded as theirs with its reason --
@@ -32,17 +34,29 @@ async def test_t4a_agent_linux_execution(machines):  # noqa: F811
     from app.db.models.user import User
     from app.main import app
 
-    import socket
+    from app.core.config import settings
+
     try:
-        with socket.create_connection(("127.0.0.1", 2222), timeout=2):
-            pass
-    except OSError:
-        pytest.skip("test Linux target unavailable at 127.0.0.1:2222")
-    rows, created = machines
+        inspected = subprocess.run(
+            ["docker", "inspect", "-f", "{{.Config.Hostname}}", "forgehub_test_linux_target"],
+            capture_output=True, text=True, timeout=10, check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pytest.skip("Docker or the test Linux target is unavailable")
+    hostname = inspected.stdout.strip()
+    assert hostname
     async with AsyncSessionLocal() as db:
-        target = await db.get(Server, rows["linux"].id)
-        target.ip_address = "linux-target.test"
-        await db.commit()
+        target = await db.get(Server, seed_id("servers", "linux-target"))
+        outside = await db.get(Server, seed_id("servers", "srv-teste-01"))
+    if target is None or outside is None:
+        await seed(settings)
+        async with AsyncSessionLocal() as db:
+            target = await db.get(Server, seed_id("servers", "linux-target"))
+            outside = await db.get(Server, seed_id("servers", "srv-teste-01"))
+    assert target is not None and outside is not None
+    rows = {"linux": target, "linux2": outside}
+    original_ip = outside.ip_address
+    created = []
     tag = uuid.uuid4().hex[:8]
     token = f"agt_test_{tag}"
     async with AsyncSessionLocal() as db:
@@ -121,7 +135,8 @@ async def test_t4a_agent_linux_execution(machines):  # noqa: F811
                 assert got["trigger"] == "agent" and got["agent_name"] == f"maint-agent-{tag}"
                 assert got["reason"] == "Cliente relatou lentidão" and got["darckware_item_id"] == "T-42"
                 assert got["counts"]["succeeded"] == 1 and got["agent_demand_id"] == str(ids.task)
-                assert "darckware" in str(got) and "Linux" in str(got)
+                output_lines = got["results"][0]["stdout"].splitlines()
+                assert hostname in output_lines and "darckware" in output_lines and "Linux" in output_lines
                 assert "example_secret_12345" not in got["command"]
                 assert "example_secret_12345" not in str(got["results"])
                 # A separate requested machine is deliberately real-looking; the
@@ -145,7 +160,6 @@ async def test_t4a_agent_linux_execution(machines):  # noqa: F811
                 failed = (await ac.get(f"/api/v1/host-executions/agent/{failed_id}")).json()
                 assert failed["counts"]["failed"] == 1
                 assert "not a fictitious" in str(failed)
-                from app.core.config import settings
                 async with AsyncClient(base_url=settings.CHAT_BRIDGE_URL) as stub:
                     log = (await stub.get("/_stub/calls", params={"integration": "host-bridge"})).json()["calls"]
                 assert any(c["outcome"] == "executed" and c["destination"] == "linux-target.test" for c in log)
@@ -160,6 +174,8 @@ async def test_t4a_agent_linux_execution(machines):  # noqa: F811
         assert entry["kind"] == "execution" and entry["darckware_item_kind"] == "ticket"
     finally:
         async with AsyncSessionLocal() as db:
+            outside_row = await db.get(Server, rows["linux2"].id)
+            outside_row.ip_address = original_ip
             await db.execute(delete(AuditEvent).where(AuditEvent.entity_id.in_(created)))
             await db.execute(delete(HostExecution).where(HostExecution.id.in_(created)))
             created.clear()
