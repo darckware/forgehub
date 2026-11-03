@@ -48,3 +48,4 @@ dist/
 .worktrees/
 claude-yolo.sh
 test-env/.prod-secret-hashes
+/test-env/linux-target/id_ed25519*

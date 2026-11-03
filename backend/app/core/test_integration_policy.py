@@ -136,6 +136,15 @@ def is_fictitious_host(host: str | None) -> bool:
     return value == "test" or value.endswith(".test")
 
 
+def validate_linux_target(environment: str, host: str, key: str) -> None:
+    """Reject test target settings outside test and real target names everywhere."""
+    if environment.strip().lower() != "test":
+        if host or key:
+            raise ValueError("TEST_LINUX_TARGET settings require ENVIRONMENT=test")
+    elif host and (not is_fictitious_host(host) or any(c in host for c in "@:/")):
+        raise ValueError("TEST_LINUX_TARGET_HOST must be a fictitious hostname")
+
+
 # --- Credentials ---------------------------------------------------------------
 
 #: Test-only credentials and the value each one has when nobody set it.
