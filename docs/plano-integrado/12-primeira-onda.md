@@ -80,7 +80,7 @@ primeira missão, o aceite é de Marcelo. M.1n automatiza o que esse registro m�
 
 A [matriz JSON](onda1-tarefas.json) é canônica para a Onda 1. As tabelas de 07 e o resumo abaixo são projeções verificadas integralmente (ids, responsáveis, revisores, arestas e aceite); editar a matriz e atualizar as projeções na mesma mudança. Status inicial de tudo: planejado. Em 2026-11-03 a matriz passou a registrar o andamento (`planned`, `developed` = integrada na develop e ainda não publicada, `done`); ver `status_vocabulary`.
 
-> **Redistribuição em 03/11/2026 (decisão do Marcelo):** para o processo andar rápido, todo trabalho técnico restante (código, testes, infraestrutura, publicação `.R` e revisões que liberam tarefa) passa para Aramis (codex) e Dartan (agy), cada um revisando o outro. Os agentes Hermes, que rodam em LLMs gratuitas, ficam com documentação e atividades simples, sempre recebendo o texto final pronto e com conferência independente. Mudaram: T.4a, M0.1, M0.3 (revisão), M0.4, C.0, C.1 (revisão), B0, M0.R, A.R, C.2.R e C.2b.R. O coordenador da missão continua sendo o orquestrador (Athos). Quando o processo estiver totalmente finalizado, todos os agentes serão testados para decidir se vale a pena manter os Hermes em LLMs gratuitas.
+> **Redistribuição em 03/11/2026 (decisão do Marcelo):** para o processo andar rápido, todo trabalho técnico restante (código, testes, infraestrutura, publicação `.R` e revisões que liberam tarefa) passa para Aramis (codex) e Dartan (agy), cada um revisando o outro. Os agentes Hermes, que rodam em LLMs gratuitas, ficam com documentação e atividades simples, sempre recebendo o texto final pronto e com conferência independente. Mudaram: T.4a, M0.1, M0.3 (revisão), M0.4, C.0, C.1 (revisão), B0, M0.R, A.R, C.2.R e C.2b.R; e, no mesmo dia, C.2a para Dartan com revisão do Aramis (e C.2.R para Dartan, para o revisor da publicação não ser executor da dependência). O coordenador da missão continua sendo o orquestrador (Athos). Quando o processo estiver totalmente finalizado, todos os agentes serão testados para decidir se vale a pena manter os Hermes em LLMs gratuitas.
 
 | ID | Responsável | Verificador | Predecessores |
 |---|---|---|---|
@@ -117,8 +117,8 @@ A [matriz JSON](onda1-tarefas.json) é canônica para a Onda 1. As tabelas de 07
 | B0 | aramis | dartan | T.2, T.3 |
 | M0.R | aramis | dartan | M0.0b, M0.2c, M0.2d, M0.6a, M0.6b, M0.4, B0, V-a, M0.7, M0.8 |
 | A.R | aramis | dartan | A.1, A.2, B0 |
-| C.2a | porthus | dartan | M0.SPEC, T.2, T.3 |
-| C.2.R | aramis | dartan | C.2a |
+| C.2a | dartan | aramis | M0.SPEC, T.2, T.3 |
+| C.2.R | dartan | aramis | C.2a |
 | C.2b.R | aramis | dartan | C.2b |
 
 ## Especificações e passos por entrega

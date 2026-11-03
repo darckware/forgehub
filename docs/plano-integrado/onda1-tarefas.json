@@ -506,10 +506,10 @@
     {
       "id": "C.2a",
       "title": "Contenção mínima pré-política: negar KB de outros agentes e conteúdo pessoal/cliente fora do dono; patch do hook compartilhado, fixtures e modo observação sem texto nos logs",
-      "executor_agent_slug": "porthus",
-      "reviewer_agent_slug": "dartan",
-      "executor_label": "Porthus",
-      "reviewer_label": "Dartan (segundo revisor: Aegis)",
+      "executor_agent_slug": "dartan",
+      "reviewer_agent_slug": "aramis",
+      "executor_label": "Dartan",
+      "reviewer_label": "Aramis",
       "depends_on": [
         "M0.SPEC",
         "T.2",
@@ -522,10 +522,10 @@
     {
       "id": "C.2.R",
       "title": "Ativar contenção revisada por processo do Athos em shared-skills, com backup/restauração do arquivo efetivo, inventário dos consumidores e teste de canário no runtime real",
-      "executor_agent_slug": "aramis",
-      "reviewer_agent_slug": "dartan",
-      "executor_label": "Aramis",
-      "reviewer_label": "Dartan",
+      "executor_agent_slug": "dartan",
+      "reviewer_agent_slug": "aramis",
+      "executor_label": "Dartan",
+      "reviewer_label": "Aramis",
       "depends_on": [
         "C.2a"
       ],
