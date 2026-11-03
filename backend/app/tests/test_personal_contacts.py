@@ -202,6 +202,28 @@ async def test_plugin_records_messages_and_reads_context(client, maia, phones):
 
 
 @pytest.mark.asyncio
+async def test_foreign_eleven_digit_number_keeps_one_contact(client, maia, admin_headers, phones):
+    """A "+852 ..." number has 11 digits, like a Brazilian one without 55. The second message from it
+    used to look for "55" + digits, miss the row and fail on personal_contacts_phone_key (2026-11-03,
+    202 errors in production in one day)."""
+    digits = "852" + uuid.uuid4().int.__str__()[:8]
+    phones.append(digits)
+    for text in ("first", "second", "third"):
+        r = await client.post(f"{BASE}/whatsapp/messages", headers=maia, json={"phone": "+" + digits, "text": text})
+        assert r.status_code == 201, r.text
+    ctx = (await client.get(f"{BASE}/whatsapp/context/%2B{digits}", headers=maia)).json()
+    assert ctx["contact"]["phone"] == digits and "third" in ctx["context_text"]
+    # The stored digits typed back without "+" (a URL segment) still find it, never a "55" twin.
+    got = await client.get(f"{BASE}/contacts/{digits}", headers=admin_headers)
+    assert got.status_code == 200 and got.json()["phone"] == digits
+    upsert = await client.put(f"{BASE}/contacts/%2B{digits}", headers=admin_headers, json={"name": "Hong Kong"})
+    assert upsert.status_code in (200, 201), upsert.text
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(select(PersonalContact.phone).where(PersonalContact.phone.like(f"%{digits}")))).scalars().all()
+    assert rows == [digits]
+
+
+@pytest.mark.asyncio
 async def test_context_pass_and_suggestions(client, admin_headers, maia, phones, monkeypatch):
     phone, blocked = _phone(), _phone()
     phones.extend([phone, blocked])

@@ -73,9 +73,22 @@ async def _categories(db: AsyncSession) -> list[str]:
 
 
 async def _find(db: AsyncSession, phone: str) -> PersonalContact | None:
+    """Look up a phone as a caller typed or sent it (a leading "+" still marks the country code)."""
     normalized = rules.normalize_phone(phone)
     if not normalized:
         return None
+    found = await _find_normalized(db, normalized)
+    plain = rules.digits(phone)
+    if found is None and plain != normalized:
+        # A stored foreign number typed back without its "+" (e.g. a URL segment).
+        found = await _find_normalized(db, plain)
+    return found
+
+
+async def _find_normalized(db: AsyncSession, normalized: str) -> PersonalContact | None:
+    """Look up a phone that require_phone already normalized. Never normalize it again: the "+" is
+    gone by then, so a foreign 11-digit number (e.g. +852 4703 5259) would gain a Brazilian 55,
+    miss its own row and fail the insert on personal_contacts_phone_key (2026-11-03)."""
     return (await db.execute(select(PersonalContact).where(PersonalContact.phone == normalized))).scalars().first()
 
 
@@ -113,7 +126,7 @@ async def _upsert(db: AsyncSession, phone: str, payload: ContactUpsert, actor: s
             f"Categoria inválida. Use uma de: {', '.join(await _categories(db))}.",
         )
     birthday = _rule(rules.check_birthday, payload.birthday)
-    contact = await _find(db, normalized)
+    contact = await _find_normalized(db, normalized)
     if contact is None:
         contact = PersonalContact(phone=normalized, created_by=actor, other_data={})
         db.add(contact)
@@ -255,7 +268,7 @@ async def change_phone(phone: str, payload: PhoneIn, actor: str = Depends(person
     contact = await _get_or_404(db, phone)
     new = _rule(rules.require_phone, payload.phone)
     if new != contact.phone:
-        if await _find(db, new) is not None:
+        if await _find_normalized(db, new) is not None:
             raise HTTPException(status.HTTP_409_CONFLICT, "O novo telefone já pertence a outro contato.")
         contact.phone = new
         await db.commit()
@@ -410,7 +423,7 @@ async def whatsapp_message(payload: WhatsappMessageIn, actor: str = Depends(pers
     """One WhatsApp message as the plugin saw it. An unknown number becomes a contact to classify,
     exactly as the plugin did with the old files."""
     phone = _rule(rules.require_phone, payload.phone)
-    contact = await _find(db, phone)
+    contact = await _find_normalized(db, phone)
     if contact is None:
         contact = PersonalContact(phone=phone, category="a_classificar", created_by=actor, other_data={})
         db.add(contact)
