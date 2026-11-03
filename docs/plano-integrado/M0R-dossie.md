@@ -1,6 +1,6 @@
 # M0.R — dossiê de preparação, 03/11/2026
 
-**NÃO APTO PARA PUBLICAÇÃO:** revisão independente e aprovação de Marcelo pendentes; a sequência de parada e migrations requer decisão e revisão antes da ativação. Nenhuma publicação ou escrita em produção foi feita nesta preparação.
+**PUBLICADO EM 03/11/2026 12:35 -03** (aprovação do Marcelo, "Publicar agora"). A primeira tentativa (12:34) falhou antes de migrar por falta do `.env` na worktree; backend antigo religado (~30 s fora). Segunda tentativa: 8 migrations, backend/frontend `m0r-afef230`, bridge do pacote; 15 min de observação sem falhas. Detalhes em `/root/.forgehub/releases/m0r-afef230/release.json`.
 
 ## Conteúdo exato
 

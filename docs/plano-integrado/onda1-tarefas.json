@@ -177,7 +177,7 @@
         "T.3"
       ],
       "acceptance": "Migração ida/volta em fixture; tipos existentes intactos; projeto comum não recebe gate de missão indevidamente; etapas de planejamento com condições de saída testadas; falta de skill aparece na checagem automática",
-      "status": "developed",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -191,7 +191,7 @@
         "M0.0"
       ],
       "acceptance": "Uma missão de teste percorre P1→baseline só com registros reais; cada condição de saída recusa sem o registro e passa com ele; revisor do parecer ≠ planejador; item sem disposição ou sem decisão do Marcelo bloqueia; nenhuma condição passa por falta de dado",
-      "status": "developed",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -206,7 +206,7 @@
         "M0.R"
       ],
       "acceptance": "Repetir criação não duplica; ids reais, ambiente e vínculo documentados",
-      "status": "planned",
+      "status": "developed",
       "project_task_id": null
     },
     {
@@ -220,7 +220,7 @@
         "M0.0"
       ],
       "acceptance": "Contratos e escopo testados, repetição idempotente, não membro recusado",
-      "status": "developed",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -236,7 +236,7 @@
         "M0.0b"
       ],
       "acceptance": "Plano vira proposta, nunca autoaprovado; ciclo recusado; aprovação e hash por usuário autorizado",
-      "status": "developed",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -252,7 +252,7 @@
         "M0.6b"
       ],
       "acceptance": "Baseline/dependências/permissões guardadas; retry sem despacho duplicado; DONE só relato",
-      "status": "developed",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -266,7 +266,7 @@
         "M0.2a"
       ],
       "acceptance": "DocLink/artefato com escopo e versão; agente só vê seu papel/tarefas permitidas",
-      "status": "developed",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -280,7 +280,7 @@
         "M0.0"
       ],
       "acceptance": "Transições novas protegidas em todos os projetos; importação histórica cria execução e revisão com prova real, nunca PATCH direto nem run_id inventado; tarefa de missão com código só fica done com o commit integrado na mainline, inclusive pela aprovação de revisão",
-      "status": "developed",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -294,7 +294,7 @@
         "M0.0"
       ],
       "acceptance": "Edição/adição/CR invalida autorização anterior; nenhum bypass por MCP, Approval ou reconciliação",
-      "status": "developed",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -310,7 +310,7 @@
         "M0.6b"
       ],
       "acceptance": "Os 7 pontos da spec visíveis em fixture de teste a 390 e 1440 px; nenhuma ação contorna guard; estados de carregamento/vazio/parcial/erro",
-      "status": "developed",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -325,7 +325,7 @@
         "M0.6b"
       ],
       "acceptance": "Cada ação com limite de autonomia, registro e gate testados em ambiente isolado; reagendamento por cota comprovado; duas publicações simultâneas da produção recusadas; tarefa aprovada só termina integrada; missão ativa nunca fica parada sem motivo registrado; todo despacho registra a versão de contexto; skill faltante bloqueia a tarefa e gera proposta, nunca concessão; pergunta aberta bloqueia só as tarefas dependentes; padrão irreversível nunca aplicado sem resposta",
-      "status": "developed",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -355,7 +355,7 @@
         "M0.3"
       ],
       "acceptance": "Instruções versionadas; ensaio inclui contexto mínimo por allowlist e teste de vazamento com fixtures; sem recuperação automática ampla antes de C.2; nenhuma aprovação humana simulada em produção",
-      "status": "developed",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -461,7 +461,7 @@
         "T.3"
       ],
       "acceptance": "Snapshot identificável, integridade/restore e rollback aprovados; sem conexão de apps/agentes comuns aos dados restaurados; revalidar recência no gate",
-      "status": "planned",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -484,7 +484,7 @@
         "M0.8"
       ],
       "acceptance": "Artefatos revisados/implantados, migrations e smoke reais; uso real M0.1/M0.5 só após esta entrega",
-      "status": "planned",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -516,7 +516,7 @@
         "T.3"
       ],
       "acceptance": "Não depende de C.1; canários comprovam isolamento por perfil e nenhuma fuga de path; ativação ainda não realizada",
-      "status": "developed",
+      "status": "done",
       "project_task_id": null
     },
     {
@@ -530,7 +530,7 @@
         "C.2a"
       ],
       "acceptance": "Aprovação específica, ativação/versionamento/rollback e prova do hook efetivo em todos os perfis afetados; sem restart do gateway",
-      "status": "planned",
+      "status": "done",
       "project_task_id": null
     },
     {
