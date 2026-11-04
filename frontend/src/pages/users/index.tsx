@@ -131,7 +131,6 @@ export default function UsersPage() {
                         </div>
                       </td>
                     </tr>
-                    {connections === u.id && <tr><td colSpan={7} className="p-3"><UserConnections userId={u.id} /></td></tr>}
                     {editing === u.id && (
                       <tr key={`edit-${u.id}`}>
                         <td colSpan={7} className="px-4 py-3 bg-muted/10">
@@ -146,6 +145,7 @@ export default function UsersPage() {
           </CardContent>
         </Card>
       )}
+      {connections && <UserConnections userId={connections} />}
     </div>
   );
 }
