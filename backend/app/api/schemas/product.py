@@ -111,6 +111,7 @@ class ProductUpdate(BaseModel):
 class ProductOut(BaseModel):
     kind: str
     sellable: bool
+    offered_for_sale_at: datetime | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID

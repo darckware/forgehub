@@ -196,5 +196,19 @@
     "confirmTitle": "Deactivate line",
     "confirmDescription": "Deactivate {{name}}?",
     "deactivateError": "Could not deactivate; this line may have projects."
+  },
+  "sale": {
+    "title": "Sale",
+    "hint": "Sends this product to Darckware's software catalog. It arrives inactive, and the price is set in Darckware's admin.",
+    "offeredHint": "This product is in Darckware's software catalog. Price and modules are set there.",
+    "offered": "On offer",
+    "notOffered": "Not on offer",
+    "offer": "Offer for sale",
+    "withdraw": "Withdraw from sale",
+    "error": "Could not reach Darckware. Nothing was changed.",
+    "withdrawDialog": {
+      "title": "Withdraw this product from sale?",
+      "description": "The product will be deactivated in Darckware. Price, modules and contracts stay there."
+    }
   }
 }

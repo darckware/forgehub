@@ -196,5 +196,19 @@
     "confirmTitle": "Desativar linha",
     "confirmDescription": "Desativar {{name}}?",
     "deactivateError": "Não foi possível desativar; a linha pode ter projetos."
+  },
+  "sale": {
+    "title": "Venda",
+    "hint": "Envia este produto ao cadastro de software do Darckware. Ele chega inativo, e o preço é definido no admin do Darckware.",
+    "offeredHint": "Este produto está no cadastro de software do Darckware. Preço e módulos são definidos lá.",
+    "offered": "Disponibilizado",
+    "notOffered": "Não disponibilizado",
+    "offer": "Disponibilizar para venda",
+    "withdraw": "Retirar da venda",
+    "error": "Não foi possível falar com o Darckware. Nada foi alterado.",
+    "withdrawDialog": {
+      "title": "Retirar este produto da venda?",
+      "description": "O produto será desativado no Darckware. Preço, módulos e contratos continuam guardados lá."
+    }
   }
 }

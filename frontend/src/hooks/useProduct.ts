@@ -42,6 +42,7 @@ export const PRODUCT_KINDS = ["software", "service", "infrastructure", "client_i
 export const productSchema = z.object({
   kind: z.enum(PRODUCT_KINDS).default("software"),
   sellable: z.boolean().default(false),
+  offered_for_sale_at: z.string().nullable().optional(),
   id: z.string(),
   name: z.string(),
   description: z.string().nullable().optional(),
@@ -57,6 +58,8 @@ export const productSchema = z.object({
 });
 
 export type Product = z.infer<typeof productSchema>;
+
+export const PRODUCT_SALE_KEY = ["products"] as const;
 
 export const initialProductVersionSchema = z.object({
   version: z.string().optional().or(z.literal("")),

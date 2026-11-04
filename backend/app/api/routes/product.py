@@ -34,7 +34,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import delete, or_, select
 
+from app.core import darckware_client as dw
 from app.core.config import settings
+from app.db.models.governance import AuditEvent
 from app.db.models.product import PRODUCT_KINDS, PRODUCT_STATUSES as VALID_PRODUCT_STATUSES
 from app.api.schemas.product import (
     ProductCreate,
@@ -189,6 +191,12 @@ async def update_product(
         update_data.get("kind", product.kind), update_data.get("sellable", product.sellable),
         update_data.get("darckware_client_id", product.darckware_client_id),
     )
+    # Unmarking takes the product off sale first: if Darckware refuses, nothing changes here.
+    if product.offered_for_sale_at and update_data.get("sellable") is False:
+        await dw.withdraw_product_from_sale(product.id)
+        product.offered_for_sale_at = None
+        db.add(AuditEvent(entity_type="product", entity_id=product.id, event_type="product_withdrawn_from_sale",
+                          actor="product_update", payload={"reason": "sellable_unmarked"}))
     for field, value in update_data.items():
         setattr(product, field, value)
 

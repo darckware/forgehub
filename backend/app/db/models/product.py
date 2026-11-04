@@ -30,7 +30,9 @@ foundation convention.
 """
 import uuid
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, String, Text, UniqueConstraint, false
+from datetime import datetime
+
+from sqlalchemy import DateTime, Boolean, CheckConstraint, ForeignKey, String, Text, UniqueConstraint, false
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -78,6 +80,9 @@ class Product(Base, TimestampMixin):
     # client itself is always read from Darckware. NULL = internal product.
     darckware_client_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
     darckware_client_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # When the product went to Darckware's software catalog. Price, modules and
+    # contracts stay there; this only says the product is on offer.
+    offered_for_sale_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     modules: Mapped[list["ProductModule"]] = relationship(
         "ProductModule", back_populates="product", cascade="all, delete-orphan"
