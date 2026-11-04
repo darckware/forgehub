@@ -81,6 +81,7 @@ async def _build_action_permissions(user: User, db: AsyncSession) -> dict[str, b
 
 @router.post("/token", response_model=TokenOut)
 async def login_for_access_token(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     recaptcha_token: str | None = Form(default=None),
     db: AsyncSession = Depends(get_db),
@@ -111,7 +112,6 @@ async def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token = create_access_token(subject=form_data.username)
 
     if user is None:
         # Materialize the bootstrap identity so every later sensitive
@@ -146,6 +146,8 @@ async def login_for_access_token(
         permissions = await _build_permissions(user, db)
         actions = await _build_action_permissions(user, db)
 
+    from app.core.user_session import create_session
+    token = await create_session(db, user, request)
     return TokenOut(access_token=token, token_type="bearer", user=user_out, permissions=permissions, actions=actions)
 
 
@@ -189,8 +191,14 @@ async def open_agent_session(
     audit_access(db, EVENT_OPENED, agent.id, agent.profile_slug or agent.name,
                  credential_id=str(credential.id), user=SERVICE_USERNAME, **origin)
     await db.commit()
+    from app.core.user_session import create_session
+    from app.core.agent_session import AGENT_SESSION_MINUTES
+    agent_payload = decode_access_token(create_agent_session_token(agent, credential.id))
+    claims = {k: v for k, v in agent_payload.items() if k not in ("sub", "exp")}
+    token = await create_session(db, user, request, agent_name=agent.profile_slug or agent.name,
+                                 lifetime=timedelta(minutes=AGENT_SESSION_MINUTES), claims=claims)
     return TokenOut(
-        access_token=create_agent_session_token(agent, credential.id),
+        access_token=token,
         token_type="bearer",
         user=UserOut.model_validate(user),
         permissions=await _build_permissions(user, db),
@@ -213,9 +221,17 @@ async def get_me(
     *current* token to still be valid, so this can't resurrect an
     already-expired session, only extend one that hasn't expired yet."""
     # An agent session keeps its token: renewing it here would lift its limits.
-    token = raw_token if is_agent_session(decode_access_token(raw_token)) else create_access_token(
-        subject=current_user.username
-    )
+    payload = decode_access_token(raw_token)
+    if is_agent_session(payload):
+        token = raw_token
+    else:
+        from app.core.user_session import refresh_session
+        if payload.get("sid") and not await refresh_session(db, payload["sid"]):
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        token = create_access_token(
+            subject=current_user.username,
+            extra_claims={"sid": payload["sid"]} if "sid" in payload else None,
+        )
     permissions = await _build_permissions(current_user, db)
     actions = await _build_action_permissions(current_user, db)
     return TokenOut(

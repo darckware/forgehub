@@ -17,6 +17,7 @@ from app.db.base import AsyncSessionLocal
 from app.db.models.agent import Agent, AgentServiceCredential
 from app.db.models.governance import AuditEvent
 from app.db.models.user import User
+from app.db.models.user_session import UserSession
 from app.main import app
 
 SESSION = "/api/v1/auth/agent-session"
@@ -45,6 +46,7 @@ async def credential():
         await db.commit()
     yield {"raw": raw, "id": credential_id, "agent_id": agent_id}
     async with AsyncSessionLocal() as db:
+        await db.execute(delete(UserSession).where(UserSession.agent_name == f"sessao-{agent_id.hex[:8]}"))
         await db.execute(delete(AuditEvent).where(AuditEvent.entity_id == agent_id))
         await db.execute(delete(AgentServiceCredential).where(AgentServiceCredential.id == credential_id))
         await db.execute(delete(Agent).where(Agent.id == agent_id))
@@ -206,3 +208,22 @@ async def test_agent_access_screen_is_admin_only(client, credential):
     assert (await client.get("/api/v1/agent-access", headers=_bearer(token))).status_code == 403
     assert (await client.get("/api/v1/agent-access/audit", headers=_bearer(token))).status_code == 403
     assert (await client.get("/api/v1/agent-access")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_can_revoke_an_agent_screen_session(client, credential, admin_headers):
+    token = await _session(client, credential)
+    async with AsyncSessionLocal() as db:
+        user = (await db.execute(select(User).where(User.username == SERVICE_USERNAME))).scalar_one()
+        user_id = user.id
+    response = await client.get(f"/api/v1/users/{user_id}/sessions", headers=admin_headers)
+    assert response.status_code == 200
+    agent_name = decode_access_token(token)["agent"]
+    row = next(row for row in response.json() if row["agent_name"] == agent_name)
+    try:
+        assert (await client.delete(f"/api/v1/users/{user_id}/sessions/{row['id']}", headers=admin_headers)).status_code == 204
+        assert (await client.get("/api/v1/products", headers=_bearer(token))).status_code == 401
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(UserSession).where(UserSession.id == uuid.UUID(row["id"])))
+            await db.commit()

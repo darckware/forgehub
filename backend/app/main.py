@@ -395,6 +395,12 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
         payload = decode_access_token(token) if token else None
         if payload is None:
             return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+        if "sid" in payload:
+            from app.db.base import AsyncSessionLocal
+            from app.core.user_session import session_is_live
+            async with AsyncSessionLocal() as db:
+                if not await session_is_live(db, payload):
+                    return JSONResponse({"detail": "Not authenticated"}, status_code=401)
         if is_agent_session(payload):
             from app.db.base import AsyncSessionLocal
             agent_id = uuid.UUID(payload["agent_id"])

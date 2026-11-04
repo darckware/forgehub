@@ -135,3 +135,43 @@ async def delete_user(
         raise HTTPException(status_code=404, detail="User not found")
     await db.delete(user)
     await db.commit()
+
+
+@router.get("/{user_id}/sessions")
+async def list_user_sessions(user_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+                             current_user: User = Depends(get_current_user)):
+    from app.db.models.user_session import UserSession
+    if current_user.id != user_id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    rows = (await db.execute(select(UserSession).where(UserSession.user_id == user_id)
+                             .order_by(UserSession.created_at.desc()))).scalars().all()
+    return [{"id": str(row.id), "ip_address": row.ip_address, "user_agent": row.user_agent,
+             "device_summary": row.device_summary, "agent_name": row.agent_name,
+             "remember_me": row.remember_me, "is_active": row.is_active,
+             "created_at": row.created_at, "last_activity_at": row.last_activity_at,
+             "expires_at": row.expires_at} for row in rows]
+
+
+@router.delete("/{user_id}/sessions/{session_id}", status_code=204)
+async def revoke_user_session(user_id: uuid.UUID, session_id: uuid.UUID,
+                              db: AsyncSession = Depends(get_db),
+                              current_user: User = Depends(get_current_user)):
+    from app.db.models.user_session import UserSession
+    if current_user.id != user_id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    row = await db.get(UserSession, session_id)
+    if row is None or row.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    row.is_active = False
+    await db.commit()
+
+
+@router.delete("/{user_id}/sessions", status_code=204)
+async def revoke_user_sessions(user_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+                               current_user: User = Depends(get_current_user)):
+    from sqlalchemy import update
+    from app.db.models.user_session import UserSession
+    if current_user.id != user_id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    await db.execute(update(UserSession).where(UserSession.user_id == user_id).values(is_active=False))
+    await db.commit()

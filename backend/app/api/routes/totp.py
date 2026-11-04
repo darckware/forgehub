@@ -6,7 +6,7 @@ step when 2FA is active.
 """
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import Request, APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.user import (
@@ -18,7 +18,7 @@ from app.api.schemas.user import (
     UserOut,
 )
 from app.core.deps import get_current_user
-from app.core.security import create_access_token, decode_access_token, verify_password
+from app.core.security import decode_access_token, verify_password
 from app.core.totp import (
     generate_provisioning_uri,
     generate_qr_code_data_url,
@@ -110,6 +110,7 @@ async def totp_disable(
 @router.post("/verify", response_model=TokenOut)
 async def totp_verify(
     body: TotpVerifyRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> TokenOut:
     """Second step of the 2FA login flow.
@@ -158,7 +159,8 @@ async def totp_verify(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid TOTP code")
 
     # Issue the real access token.
-    token = create_access_token(subject=username)
+    from app.core.user_session import create_session
+    token = await create_session(db, user, request)
     permissions = await _build_permissions(user, db)
     actions = await _build_action_permissions(user, db)
     return TokenOut(

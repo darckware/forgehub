@@ -157,3 +157,5 @@ from app.db.models.mission_cycle import (  # noqa: F401
 from app.db.models.command_receipt import AgentCommandReceipt  # noqa: F401
 from app.db.models.terminal_metadata import TerminalMetadata  # noqa: F401
 from app.db.models.environment import EnvironmentRelease  # noqa: F401
+
+from app.db.models.user_session import UserSession  # noqa: F401
