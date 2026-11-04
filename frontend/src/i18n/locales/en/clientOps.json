@@ -111,7 +111,7 @@
     },
     "workHelp": {
       "log": "Records a period of work (start and end; it may run from one day into the next).",
-      "project": "Development demands only: opens the project in the Software Factory."
+      "project": "Development demands only: opens the project in the Service Factory."
     },
     "history": "Timeline",
     "event": {
@@ -349,7 +349,7 @@
   },
   "project": {
     "create": "Create project",
-    "title": "Open a Software Factory project",
+    "title": "Open a Service Factory project",
     "explain": "Creates the project (and the product, if new) linked to this client and this demand; the demand moves to in progress.",
     "existing": "Existing product",
     "new": "New product",
@@ -359,13 +359,13 @@
     "projectName": "Project name",
     "unlinkedHint": "Products with no client get linked to this client.",
     "noClient": "This demand has no client yet (it came from a lead). Convert the lead to a client to open a project.",
-    "linked": "Software Factory project",
+    "linked": "Service Factory project",
     "open": "Open project",
     "confirm": "Create project",
     "cancel": "Cancel"
   },
   "factory": {
-    "title": "Software Factory",
+    "title": "Service Factory",
     "products": "Products",
     "projects": "Projects",
     "none": "No products or projects for this client yet.",

@@ -111,7 +111,7 @@
     },
     "workHelp": {
       "log": "Registra um período de trabalho (início e fim, pode passar de um dia para outro).",
-      "project": "Só para demandas de desenvolvimento: abre o projeto na Software Factory."
+      "project": "Só para demandas de desenvolvimento: abre o projeto na Service Factory."
     },
     "history": "Linha do tempo",
     "event": {
@@ -349,7 +349,7 @@
   },
   "project": {
     "create": "Criar projeto",
-    "title": "Abrir projeto na Software Factory",
+    "title": "Abrir projeto na Service Factory",
     "explain": "Cria o projeto (e o produto, se for novo) vinculado a este cliente e a esta demanda; a demanda passa para em andamento.",
     "existing": "Produto existente",
     "new": "Novo produto",
@@ -359,13 +359,13 @@
     "projectName": "Nome do projeto",
     "unlinkedHint": "Produtos sem cliente ficam vinculados a este cliente.",
     "noClient": "Esta demanda ainda não tem cliente (veio de um lead). Converta o lead em cliente para abrir um projeto.",
-    "linked": "Projeto na Software Factory",
+    "linked": "Projeto na Service Factory",
     "open": "Abrir projeto",
     "confirm": "Criar projeto",
     "cancel": "Cancelar"
   },
   "factory": {
-    "title": "Software Factory",
+    "title": "Service Factory",
     "products": "Produtos",
     "projects": "Projetos",
     "none": "Nenhum produto ou projeto deste cliente ainda.",
