@@ -23,7 +23,9 @@ Patterns (version ``PATTERNS_VERSION``), with the outputs they come from:
   (run #41798, 2026-10-30) and ``... · resets 3:30am`` (2026-10-28); the older
   ``Claude AI usage limit reached|<epoch seconds>``.
 - Codex: ``You've hit your usage limit. ... try again in 2 hours 13 minutes.``
-  and ``... try again at 3:39 PM.`` (Codex CLI's message format).
+  and ``... try again at 3:39 PM.`` (Codex CLI's message format), and the dated
+  ``... try again at Nov 4th, 2026 6:30 AM.`` (run #41887, 2026-11-03).
+- agy: ``RESOURCE_EXHAUSTED ... quota reached ... Resets in 22h39m9s.`` (run #41903).
 """
 from __future__ import annotations
 
@@ -38,7 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.agent import Agent
 from app.db.models.mission_cycle import AgentAvailability
 
-PATTERNS_VERSION = "2026-10-30.1"
+PATTERNS_VERSION = "2026-11-04.1"
 HOST_TIMEZONE = "America/Sao_Paulo"
 # The cycle schedules an unavailable executor's work this long after the reset.
 RESCHEDULE_MARGIN = timedelta(minutes=5)
@@ -61,7 +63,13 @@ _CODEX_IN = re.compile(
 )
 _CODEX_AT = re.compile(
     r"you['’]ve hit your usage limit\b.{0,200}?try again at\s+"
+    r"(?:(?P<month>[A-Za-z]{3})[a-z]*\.?\s+(?P<day>\d{1,2})(?:st|nd|rd|th)?,?\s+(?:\d{4},?\s+)?)?"
     r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<ampm>am|pm)",
+    re.IGNORECASE | re.DOTALL,
+)
+_AGY_IN = re.compile(
+    r"(?:RESOURCE_EXHAUSTED|quota reached).{0,200}?resets in\s+"
+    r"(?:(?P<hours>\d+)h)?(?:(?P<minutes>\d+)m)?(?:(?P<seconds>\d+)s)?",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -69,7 +77,7 @@ _CODEX_AT = re.compile(
 _INFRA_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("usage_limit", re.compile(
         r"you['’]ve hit your [\w -]{0,40}?limit|usage limit reached|rate[ _-]?limit(?:ed| exceeded)|"
-        r"quota (?:exceeded|exhausted)|RESOURCE_EXHAUSTED", re.IGNORECASE)),
+        r"quota (?:exceeded|exhausted|reached)|RESOURCE_EXHAUSTED", re.IGNORECASE)),
     ("provider_error", re.compile(
         r"\bINVALID_ARGUMENT\b|\boverloaded_error\b|\bapi_error\b|\bAPI Error:\s*[45]\d\d\b|"
         r"\b(?:HTTP|status(?: code)?)[ :]*(?:429|5\d\d)\b|internal server error|service unavailable|"
@@ -141,9 +149,16 @@ def parse_usage_limit(runtime: str | None, text: str | None, now: datetime) -> d
         if match:
             hour = _hour24(int(match["hour"]), match["ampm"])
             minute = int(match["minute"] or 0)
-            if hour is None or minute > 59:
+            month = _MONTHS.get((match["month"] or "").lower()[:3]) if match["month"] else None
+            if hour is None or minute > 59 or (match["month"] and month is None):
                 return None
-            return _next_clock(now, _zone(None), hour, minute)
+            day = int(match["day"]) if match["day"] else None
+            return _next_clock(now, _zone(None), hour, minute, month, day)
+    if runtime in ("agy", "antigravity", ""):
+        match = _AGY_IN.search(text)
+        if match and any(match[g] for g in ("hours", "minutes", "seconds")):
+            return now + timedelta(hours=int(match["hours"] or 0), minutes=int(match["minutes"] or 0),
+                                   seconds=int(match["seconds"] or 0))
     return None
 
 

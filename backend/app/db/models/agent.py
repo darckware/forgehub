@@ -140,6 +140,11 @@ class Agent(Base, TimestampMixin):
     # --dangerously-skip-permissions; see host-bridge/app.py's
     # _agent_run_command); Hermes dispatch already runs with --yolo. "plan"
     # mode stays read-only regardless.
+    # Admin switch: may this agent open the screens with its credential?
+    # Off by default; see core/agent_session.py.
+    screen_access_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     autonomous_runs: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )

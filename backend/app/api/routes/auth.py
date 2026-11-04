@@ -9,19 +9,30 @@ short-lived ``totp_pending_token`` instead of a real access token — the
 frontend must call /auth/totp/verify with the 6-digit code to complete
 the login and receive the real JWT.
 """
-from datetime import timedelta
+import hashlib
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Form, HTTPException, status
+from fastapi import APIRouter, Depends, Form, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.user import PermissionMap, TokenOut, UserOut
 from app.core.config import settings
-from app.core.deps import get_current_user
+from app.core.agent_session import (
+    EVENT_OPENED,
+    EVENT_REFUSED,
+    SERVICE_USERNAME,
+    audit_access,
+    create_agent_session_token,
+    is_agent_session,
+    request_origin,
+)
+from app.core.deps import get_current_user, oauth2_scheme
 from app.core.recaptcha import verify_recaptcha
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
 from app.db.base import get_db
+from app.db.models.agent import Agent, AgentServiceCredential
 from app.db.models.profile import MODULES, SENSITIVE_ACTIONS, ProfileActionPermission, ProfilePermission
 from app.db.models.user import User
 
@@ -80,6 +91,12 @@ async def login_for_access_token(
             detail="reCAPTCHA verification failed",
         )
 
+    if form_data.username == SERVICE_USERNAME:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     result = await db.execute(select(User).where(User.username == form_data.username))
     user: User | None = result.scalar_one_or_none()
 
@@ -138,9 +155,59 @@ async def login_for_access_token(
     return TokenOut(access_token=token, token_type="bearer", user=user_out, permissions=permissions, actions=actions)
 
 
+@router.post("/agent-session", response_model=TokenOut)
+async def open_agent_session(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> TokenOut:
+    """Open the screens for an agent, with its own `agt_` credential and no login.
+
+    The session is `svc-agente`'s: read-only, 30 minutes, never renewed, and
+    limited by core/agent_session.py. Each agent is allowed in Settings, and
+    every attempt, allowed or refused, reaches the access audit.
+    """
+    origin = request_origin(request)
+
+    async def refuse(code: int, reason: str, agent: Agent | None = None) -> HTTPException:
+        name = (agent.profile_slug or agent.name) if agent else "desconhecido"
+        audit_access(db, EVENT_REFUSED, agent.id if agent else None, name, reason=reason, **origin)
+        await db.commit()
+        return HTTPException(code, reason)
+
+    token = authorization[7:] if authorization and authorization.lower().startswith("bearer ") else ""
+    credential = None
+    if token.startswith("agt_"):
+        credential = (await db.execute(select(AgentServiceCredential).where(
+            AgentServiceCredential.token_hash == hashlib.sha256(token.encode()).hexdigest(),
+            AgentServiceCredential.revoked_at.is_(None),
+        ))).scalar_one_or_none()
+    if credential is None or (credential.expires_at and credential.expires_at <= datetime.now(timezone.utc)):
+        raise await refuse(status.HTTP_401_UNAUTHORIZED, "Invalid or expired agent credential")
+    agent = await db.get(Agent, credential.agent_id)
+    if agent is None or not agent.is_active or agent.status != "active":
+        raise await refuse(status.HTTP_403_FORBIDDEN, "Agent principal is inactive", agent)
+    if not agent.screen_access_enabled:
+        raise await refuse(status.HTTP_403_FORBIDDEN, "Screen access is not enabled for this agent", agent)
+    user = (await db.execute(select(User).where(User.username == SERVICE_USERNAME))).scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise await refuse(status.HTTP_403_FORBIDDEN, "Agent access is disabled in this system", agent)
+    audit_access(db, EVENT_OPENED, agent.id, agent.profile_slug or agent.name,
+                 credential_id=str(credential.id), user=SERVICE_USERNAME, **origin)
+    await db.commit()
+    return TokenOut(
+        access_token=create_agent_session_token(agent, credential.id),
+        token_type="bearer",
+        user=UserOut.model_validate(user),
+        permissions=await _build_permissions(user, db),
+        actions=await _build_action_permissions(user, db),
+    )
+
+
 @router.get("/me", response_model=TokenOut)
 async def get_me(
     current_user: User = Depends(get_current_user),
+    raw_token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> TokenOut:
     """Sliding-session refresh: the frontend's activity tracker (see
@@ -151,7 +218,10 @@ async def get_me(
     lib/api.ts and gets logged out. get_current_user already requires the
     *current* token to still be valid, so this can't resurrect an
     already-expired session, only extend one that hasn't expired yet."""
-    token = create_access_token(subject=current_user.username)
+    # An agent session keeps its token: renewing it here would lift its limits.
+    token = raw_token if is_agent_session(decode_access_token(raw_token)) else create_access_token(
+        subject=current_user.username
+    )
     permissions = await _build_permissions(current_user, db)
     actions = await _build_action_permissions(current_user, db)
     return TokenOut(

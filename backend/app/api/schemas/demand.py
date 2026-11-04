@@ -94,6 +94,8 @@ class DemandSubmitIn(BaseModel):
 
     from_agent: str = Field(min_length=1, max_length=50)
     requires_approval: bool = False
+    # Keeps the agent when it runs out of quota; see core/agent_failover.py.
+    fixed_agent: bool = False
     context_area: str | None = Field(default=None, max_length=100)
     subject: str = Field(min_length=1, max_length=255)
     body: str = Field(min_length=1)
@@ -277,6 +279,7 @@ class DemandOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    fixed_agent: bool = False
     failure_check_source_id: uuid.UUID | None = None
     number: int
     from_agent: str

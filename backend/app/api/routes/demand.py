@@ -454,6 +454,7 @@ async def create_demand_and_notify(
         channel=channel,
         channel_ref=channel_ref,
         requires_response=payload.requires_response,
+        fixed_agent=payload.fixed_agent,
         scheduled_at=scheduled_at,
     )
     db.add(demand)
@@ -1916,6 +1917,7 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
     # breaks ties, then the message number preserves creation order for equal
     # scheduled times, so the contested agent goes to the higher priority.
     from app.core.agent_availability import unavailable_agents
+    from app.core.agent_failover import can_switch, substitute_for, switch_agent
     from app.core.mission_cycle import effective_priorities
 
     priorities = await effective_priorities(db, due)
@@ -1923,7 +1925,8 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
     slots = await _dispatch_slots(db)
     busy = await _agents_already_running(db)
     # An executor out of quota (§3.3) is skipped like a busy one.
-    busy |= set(await unavailable_agents(db))
+    unavailable = await unavailable_agents(db)
+    busy |= set(unavailable)
 
     # Two independent limits, both applied while picking: the global cap
     # (what the machine can take) and one run per agent (so an agent's
@@ -1936,6 +1939,11 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
         if len(selected) >= slots:
             deferred += len(due) - len(selected) - deferred
             break
+        if demand.target_agent_id in unavailable and can_switch(demand):
+            substitute = await substitute_for(db, demand, set(unavailable), busy)
+            if substitute is not None:
+                switch_agent(db, demand, substitute, unavailable[demand.target_agent_id])
+                await db.commit()
         if demand.target_agent_id in busy:
             deferred += 1
             continue
@@ -2184,7 +2192,23 @@ async def _finalize_dispatch(
         # M0.8 (cycle spec §3.3): a usage-limit message marks the executor
         # unavailable until its reset; no match writes nothing.
         from app.core.agent_availability import record_usage_limit
-        await record_usage_limit(db, locked, reply_body)
+        from app.core.agent_failover import can_switch
+        limit_until = await record_usage_limit(db, locked, reply_body)
+        attempts_left = (locked.dispatch_attempts or 0) < (locked.retry_limit or DISPATCH_MAX_ATTEMPTS)
+        if limit_until and not historical and can_switch(locked) and attempts_left:
+            # Not a failure of the work: back to the queue, where the scheduled
+            # pass moves it to a free agent, or it waits for the reset.
+            from app.core.demand_workflow import record_transition
+            record_transition(db, locked, "reprocess", actor="forgehub:usage-limit")
+            locked.dispatch_status = None
+            locked.agent_run_id = None
+            locked.dispatch_error = None
+            locked.dispatch_deadline_at = None
+            locked.scheduled_at = datetime.now(timezone.utc)
+            await db.commit()
+            from app.core.dispatch_signal import wake_scheduled_dispatch
+            wake_scheduled_dispatch()
+            return None
     # Reached a terminal state, so the deadline no longer applies -- leaving
     # it set would let the timeout sweep re-fail an already-finished run.
     locked.dispatch_deadline_at = None

@@ -106,5 +106,37 @@
       "reset": "Descartar",
       "save": "Salvar"
     }
+  },
+  "agentAccess": {
+    "title": "Acesso dos agentes às telas",
+    "description": "Escolha quais agentes podem abrir as telas com a própria credencial, sem login, para testar e fazer manuais. O acesso é somente leitura, dura 30 minutos e fica registrado abaixo.",
+    "loading": "Carregando",
+    "loadError": "Não foi possível carregar os acessos.",
+    "toggleError": "Não foi possível alterar o acesso. Nada mudou.",
+    "agent": "Agente",
+    "credential": "Credencial",
+    "lastSession": "Última sessão",
+    "status": "Situação",
+    "hasCredential": "Ativa",
+    "noCredential": "Sem credencial",
+    "enabled": "Liberado",
+    "disabled": "Bloqueado",
+    "allow": "Liberar",
+    "block": "Bloquear",
+    "auditTitle": "Auditoria de acesso",
+    "filter": "Filtrar por agente",
+    "allAgents": "Todos os agentes",
+    "noEvents": "Nenhum acesso registrado.",
+    "when": "Quando",
+    "event": "Evento",
+    "target": "Alvo ou motivo",
+    "origin": "Origem",
+    "events": {
+      "session_opened": "Sessão aberta",
+      "session_refused": "Sessão recusada",
+      "area_read": "Área aberta",
+      "request_denied": "Acesso negado",
+      "access_changed": "Acesso alterado"
+    }
   }
 }
