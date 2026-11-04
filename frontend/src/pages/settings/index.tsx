@@ -142,6 +142,20 @@ export default function SettingsPage() {
       </div>
 
       <Card>
+        <CardHeader><CardTitle className="text-xl">{t("settings.sessions.title")}</CardTitle></CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-3">
+          {(["session_timeout_minutes", "session_remember_days", "session_max_concurrent"] as const).map((field) => (
+            <div className="space-y-2" key={field}>
+              <Label htmlFor={field}>{t(`settings.sessions.${field}`)}</Label>
+              <Input id={field} type="number" min={field === "session_timeout_minutes" ? 10 : field === "session_remember_days" ? 1 : 0}
+                max={field === "session_timeout_minutes" ? 43200 : field === "session_remember_days" ? 365 : 100}
+                value={form[field]} onChange={(e) => setForm({ ...form, [field]: Number(e.target.value) })} />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardHeader>
           <CardTitle className="text-xl">{t("settings.tabs.forgeRouterModels")}</CardTitle>
           <CardDescription>

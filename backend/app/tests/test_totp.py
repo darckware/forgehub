@@ -16,6 +16,7 @@ from app.core.totp import (
 )
 from app.db.base import AsyncSessionLocal
 from app.db.models.user import User
+from app.db.models.governance import AuditEvent
 
 
 @pytest_asyncio.fixture
@@ -58,6 +59,7 @@ async def test_totp_setup_and_flow(client: AsyncClient, monkeypatch):
 
     # Ensure clean slate
     async with AsyncSessionLocal() as db:
+        await db.execute(delete(AuditEvent).where(AuditEvent.entity_type == "user_access", AuditEvent.actor == test_username))
         await db.execute(delete(User).where(User.username == test_username))
         user = User(
             username=test_username,
@@ -123,6 +125,8 @@ async def test_totp_setup_and_flow(client: AsyncClient, monkeypatch):
         assert login_res["requires_totp"] is True
         pending_token = login_res["totp_pending_token"]
         assert pending_token is not None
+        protected = await client.get("/api/v1/products", headers={"Authorization": f"Bearer {pending_token}"})
+        assert protected.status_code == 401
 
         # 5. Verify step with invalid code
         resp = await client.post(
@@ -156,8 +160,13 @@ async def test_totp_setup_and_flow(client: AsyncClient, monkeypatch):
             refreshed = (await db.execute(select(User).where(User.username == test_username))).scalar_one()
             assert refreshed.totp_enabled is False
             assert refreshed.totp_secret is None
+            events = (await db.execute(select(AuditEvent).where(
+                AuditEvent.entity_type == "user_access", AuditEvent.actor == test_username
+            ))).scalars().all()
+            assert {event.event_type for event in events} >= {"two_factor_enabled", "two_factor_disabled", "login_accepted"}
 
     finally:
         async with AsyncSessionLocal() as db:
+            await db.execute(delete(AuditEvent).where(AuditEvent.entity_type == "user_access", AuditEvent.actor == test_username))
             await db.execute(delete(User).where(User.username == test_username))
             await db.commit()

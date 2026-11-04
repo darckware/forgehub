@@ -105,6 +105,12 @@
       "saveError": "Falha ao salvar configurações",
       "reset": "Descartar",
       "save": "Salvar"
+    },
+    "sessions": {
+      "title": "Sessões",
+      "session_timeout_minutes": "Tempo de sessão (minutos)",
+      "session_remember_days": "Manter conectado (dias)",
+      "session_max_concurrent": "Máximo de sessões (0 = ilimitado)"
     }
   },
   "agentAccess": {

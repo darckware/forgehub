@@ -11,15 +11,17 @@ const MODULES = [
   "product", "projects", "pipeline", "backlog", "tasks", "agents",
   "artifacts", "governance", "forgerouter", "obsidian",
   "foundation", "crons", "deploy", "servers", "database", "users", "profiles",
+  "demands", "docs", "auditor", "system_control",
 ];
 
 const SENSITIVE_ACTIONS = [
   "planning.concept.view", "planning.concept.edit", "planning.concept.submit",
   "planning.concept.decide", "planning.blueprint.edit", "planning.blueprint.approve",
-  "planning.delivery.authorize", "planning.progress.view", "planning.progress.manage",
+  "planning.delivery.authorize", "planning.delivery.generate_artifacts", "planning.progress.view", "planning.progress.manage",
   "planning.stage.complete", "planning.execution.view", "planning.execution.manage",
   "planning.execution.release", "planning.execution.dispatch", "planning.execution.cancel",
   "governance.approval.view", "governance.approval.decide", "governance.delegation.manage",
+  "channel.member.role.assign", "channel.member.manage", "channel.manage",
 ] as const;
 
 type PermOp = "can_view" | "can_query" | "can_write" | "can_delete";
@@ -32,7 +34,7 @@ function defaultPerms(): Record<string, PermRow> {
 }
 
 function profileToPerms(profile: Profile): Record<string, PermRow> {
-  const base = defaultPerms();
+  const base = Object.fromEntries(MODULES.map((m) => [m, { can_view: false, can_query: false, can_write: false, can_delete: false }]));
   for (const p of profile.permissions) {
     base[p.module] = { can_view: p.can_view, can_query: p.can_query, can_write: p.can_write, can_delete: p.can_delete };
   }
@@ -52,7 +54,8 @@ export default function ProfileForm({ profile, onClose }: Props) {
     profile ? profileToPerms(profile) : defaultPerms()
   );
   const [actions, setActions] = useState<Record<string, boolean>>(() => Object.fromEntries(
-    SENSITIVE_ACTIONS.map((key) => [key, profile?.action_permissions?.find((item) => item.action_key === key)?.allowed ?? false])
+    [...SENSITIVE_ACTIONS.map((key) => [key, false] as const),
+      ...(profile?.action_permissions ?? []).map((item) => [item.action_key, item.allowed] as const)]
   ));
 
   const createMut = useCreateProfile();
@@ -78,7 +81,7 @@ export default function ProfileForm({ profile, onClose }: Props) {
   };
 
   const toPayload = (): ProfilePermission[] =>
-    MODULES.map((m) => ({ module: m, ...perms[m] }));
+    Object.entries(perms).map(([module, permission]) => ({ module, ...permission }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -255,7 +255,7 @@ export default function LoginPage() {
     if (RECAPTCHA_SITE_KEY && !recaptchaToken) return;
     try {
       setRememberMe(rememberMe);
-      const result = await login.mutateAsync({ username, password, recaptchaToken });
+      const result = await login.mutateAsync({ username, password, recaptchaToken, rememberMe });
       if (result.requires_totp && result.totp_pending_token) {
         setTotpPendingToken(result.totp_pending_token);
         setTotpStep(true);

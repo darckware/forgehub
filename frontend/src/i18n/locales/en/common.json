@@ -32,7 +32,7 @@
     "clientAccounts": "Clients and contracts",
     "docs": "Documents",
     "projectScope": "Project Scope",
-    "products": "Products",
+    "products": "Applications & Systems",
     "projects": "Projects",
     "pipelines": "Pipelines",
     "templates": "Templates",
@@ -64,7 +64,6 @@
     "users": "Users",
     "accessProfiles": "Access Profiles",
     "cockpit": "0. Execution Cockpit",
-    "products": "Applications & Systems",
     "missions": "Missions",
     "conception": "1. Conception & Context",
     "systemMap": "System Map",
@@ -157,7 +156,10 @@
     "twoFactorBack": "Back",
     "twoFactorEnable": "Enable 2FA",
     "twoFactorDisableWarning": "Enter your password and a TOTP code to disable two-factor authentication.",
-    "twoFactorDisableError": "Could not disable 2FA. Check your password and code."
+    "twoFactorDisableError": "Could not disable 2FA. Check your password and code.",
+    "phone": "Phone",
+    "jobTitle": "Job title",
+    "department": "Department"
   },
   "auth": {
     "tagline": "AI delivery control plane",

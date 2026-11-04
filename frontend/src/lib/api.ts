@@ -47,7 +47,8 @@ function buildUrl(path: string, params?: RequestOptions["params"]) {
 
 export function getToken(): string | null {
   try {
-    const raw = localStorage.getItem("forgehub-auth");
+    const storage = localStorage.getItem("forgehub-remember-me") === "false" ? sessionStorage : localStorage;
+    const raw = storage.getItem("forgehub-auth");
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return parsed?.state?.token ?? null;
@@ -75,15 +76,10 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (res.status === 401) {
     // Token expired or invalid — clear stored auth and redirect to login
     try {
-      const raw = localStorage.getItem("forgehub-auth");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        parsed.state.token = null;
-        parsed.state.user = null;
-        localStorage.setItem("forgehub-auth", JSON.stringify(parsed));
-      }
+      localStorage.removeItem("forgehub-auth");
+      sessionStorage.removeItem("forgehub-auth");
     } catch {
-      // ignore
+      // Ignore storage errors and continue to the login page.
     }
     window.location.href = "/login";
   }

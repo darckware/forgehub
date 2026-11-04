@@ -7,6 +7,8 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useUsers, useDeleteUser, useProfiles } from "@/hooks/useAuth";
 import { useAuthStore } from "@/store/authStore";
 import UserForm from "./UserForm";
+import UserAudit from "./UserAudit";
+import UserConnections from "./UserConnections";
 import { useTranslation } from "react-i18next";
 
 export default function UsersPage() {
@@ -18,6 +20,7 @@ export default function UsersPage() {
   const currentUser = useAuthStore((s) => s.user);
   const [editing, setEditing] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [connections, setConnections] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<{ id: string; username: string } | null>(null);
 
   return (
@@ -40,6 +43,8 @@ export default function UsersPage() {
           <Plus className="h-4 w-4" /> {t("users.list.create")}
         </Button>
       </div>
+
+      {currentUser?.is_admin && <UserAudit />}
 
       {creating && (
         <UserForm onClose={() => setCreating(false)} />
@@ -106,20 +111,21 @@ export default function UsersPage() {
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-1 justify-end">
                           <Button
-                            size="icon" variant="ghost" className="h-7 w-7"
+                            size="sm" variant="ghost" className="h-7 gap-1"
                             onClick={() => setEditing(editing === u.id ? null : u.id)}
                             title={t("users.action.edit")}
                           >
-                            <Pencil className="h-3.5 w-3.5" />
+                            <Pencil className="h-3.5 w-3.5" /> {t("users.action.edit")}
                           </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setConnections(connections === u.id ? null : u.id)}>{t("users.connections.title")}</Button>
                           {u.id !== currentUser?.id && (
                             <Button
-                              size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive"
+                              size="sm" variant="ghost" className="h-7 gap-1 text-destructive hover:text-destructive"
                               onClick={() => setDeleting({ id: u.id, username: u.username })}
                               disabled={deleteMut.isPending}
                               title={t("users.action.delete")}
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
+                              <Trash2 className="h-3.5 w-3.5" /> {t("users.action.delete")}
                             </Button>
                           )}
                         </div>
@@ -139,6 +145,7 @@ export default function UsersPage() {
           </CardContent>
         </Card>
       )}
+      {connections && <UserConnections userId={connections} />}
     </div>
   );
 }

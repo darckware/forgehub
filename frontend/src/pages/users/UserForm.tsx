@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { Loader2, Save, Eye, EyeOff } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,204 +10,62 @@ import type { AuthUser } from "@/store/authStore";
 import { useCreateUser, useUpdateUser, useProfiles } from "@/hooks/useAuth";
 import { useTranslation } from "react-i18next";
 
-interface Props {
-  user?: AuthUser;
-  onClose: () => void;
-}
+const schema = z.object({
+  username: z.string().trim().min(1).max(100), password: z.string(), confirm: z.string(),
+  email: z.union([z.literal(""), z.string().email()]), full_name: z.string(), phone: z.string().max(255),
+  job_title: z.string().max(255), department: z.string().max(255), profile_id: z.string(),
+  is_admin: z.boolean(), is_active: z.boolean(),
+}).refine(v => v.password === v.confirm, { path: ["confirm"] });
+type Values = z.infer<typeof schema>;
 
-function PasswordInput({
-  value,
-  onChange,
-  required,
-  placeholder,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  required?: boolean;
-  placeholder?: string;
-}) {
-  const [show, setShow] = useState(false);
-  return (
-    <div className="relative">
-      <Input
-        type={show ? "text" : "password"}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        required={required}
-        placeholder={placeholder}
-        className="pr-9"
-      />
-      <button
-        type="button"
-        onClick={() => setShow((s) => !s)}
-        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-        tabIndex={-1}
-      >
-        {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-      </button>
-    </div>
-  );
-}
-
-export default function UserForm({ user, onClose }: Props) {
+export default function UserForm({ user, onClose }: { user?: AuthUser; onClose: () => void }) {
   const { t } = useTranslation("users");
-  const [username, setUsername] = useState(user?.username ?? "");
-  const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [email, setEmail] = useState(user?.email ?? "");
-  const [fullName, setFullName] = useState(user?.full_name ?? "");
-  const [isAdmin, setIsAdmin] = useState(user?.is_admin ?? false);
-  const [isActive, setIsActive] = useState(user?.is_active ?? true);
-  const [profileId, setProfileId] = useState(user?.profile_id ?? "");
-
   const { data: profiles } = useProfiles();
-  const createMut = useCreateUser();
-  const updateMut = useUpdateUser();
-  const isPending = createMut.isPending || updateMut.isPending;
-  const error = createMut.error ?? updateMut.error;
-
-  const passwordRequired = !user;
-  const passwordFilled = password.length > 0;
-  const confirmMismatch = passwordFilled && confirm !== password;
-  const canSubmit = !isPending && (!passwordFilled || !confirmMismatch);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (confirmMismatch) return;
+  const create = useCreateUser();
+  const update = useUpdateUser();
+  const [avatar, setAvatar] = useState<string | null>(user?.avatar_data_url ?? null);
+  const { register, handleSubmit, watch, formState: { errors } } = useForm<Values>({
+    resolver: zodResolver(schema), defaultValues: {
+      username: user?.username ?? "", password: "", confirm: "", email: user?.email ?? "",
+      full_name: user?.full_name ?? "", phone: user?.phone ?? "", job_title: user?.job_title ?? "",
+      department: user?.department ?? "", profile_id: user?.profile_id ?? "",
+      is_admin: user?.is_admin ?? false, is_active: user?.is_active ?? true,
+    },
+  });
+  const [missingPassword, setMissingPassword] = useState(false);
+  const pending = create.isPending || update.isPending;
+  const onSubmit = handleSubmit(async values => {
+    if (!user && !values.password) { setMissingPassword(true); return; }
+    const { confirm: _confirm, password, profile_id, ...rest } = values;
     try {
-      if (user) {
-        await updateMut.mutateAsync({
-          id: user.id,
-          body: {
-            ...(passwordFilled ? { password } : {}),
-            email: email || undefined,
-            full_name: fullName || undefined,
-            is_admin: isAdmin,
-            is_active: isActive,
-            profile_id: profileId || null,
-          },
-        });
-      } else {
-        await createMut.mutateAsync({
-          username,
-          password,
-          email: email || undefined,
-          full_name: fullName || undefined,
-          is_admin: isAdmin,
-          profile_id: profileId || undefined,
-        });
-      }
+      if (user) await update.mutateAsync({ id: user.id, body: { ...rest, password: password || undefined, profile_id: values.is_admin ? null : profile_id || null, avatar_data_url: avatar } });
+      else await create.mutateAsync({ ...rest, password, profile_id: values.is_admin ? undefined : profile_id || undefined, avatar_data_url: avatar });
       onClose();
-    } catch {
-      // shown below
-    }
-  };
-
-  return (
-    <form noValidate onSubmit={handleSubmit} className="grid grid-cols-2 gap-3">
-      {!user && (
-        <div className="flex flex-col gap-1">
-          <Label>{t("users.form.usernameLabel")}</Label>
-          <Input
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
-            placeholder={t("users.form.usernamePlaceholder")}
-          />
-        </div>
-      )}
-
-      <div className="flex flex-col gap-1">
-        <Label>{user ? t("users.form.newPassword") : t("users.form.passwordLabel")}</Label>
-        <PasswordInput
-          value={password}
-          onChange={setPassword}
-          required={passwordRequired}
-          placeholder={user ? t("users.form.leaveBlank") : t("users.form.passwordPlaceholder")}
-        />
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <Label>
-          {t("users.form.confirmLabel")}
-          {!passwordRequired && !passwordFilled && (
-            <span className="ml-1 text-muted-foreground font-normal text-xs">({t("users.form.optional")})</span>
-          )}
-        </Label>
-        <PasswordInput
-          value={confirm}
-          onChange={setConfirm}
-          required={passwordRequired || passwordFilled}
-          placeholder={t("users.form.confirmPlaceholder")}
-        />
-        {confirmMismatch && (
-          <p className="text-xs text-destructive">{t("users.form.passwordsMismatch")}</p>
-        )}
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <Label>{t("users.form.fullNameLabel")}</Label>
-        <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder={t("users.form.fullNamePlaceholder")} />
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <Label>{t("users.form.emailLabel")}</Label>
-        <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("users.form.emailPlaceholder")} />
-      </div>
-
-      <div className="flex items-center gap-4 col-span-2">
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={isAdmin}
-            onChange={(e) => {
-              setIsAdmin(e.target.checked);
-              if (e.target.checked) setProfileId("");
-            }}
-            className="h-4 w-4 rounded border-border"
-          />
-          <span className="text-sm font-medium">{t("users.form.superAdminLabel")}</span>
-        </label>
-        <span className="text-xs text-muted-foreground">{t("users.form.superAdminDesc")}</span>
-        {user && (
-          <label className="flex items-center gap-2 cursor-pointer select-none ml-4">
-            <input
-              type="checkbox"
-              checked={isActive}
-              onChange={(e) => setIsActive(e.target.checked)}
-              className="h-4 w-4 rounded border-border"
-            />
-            <span className="text-sm">{t("users.form.activeLabel")}</span>
-          </label>
-        )}
-      </div>
-
-      {!isAdmin && (
-        <div className="flex flex-col gap-1 col-span-2">
-          <Label>{t("users.form.profileLabel")}</Label>
-          <select
-            value={profileId}
-            onChange={(e) => setProfileId(e.target.value)}
-            className="flex h-9 w-full rounded-md border border-input px-3 py-1 text-sm shadow-sm text-foreground"
-            style={{ backgroundColor: "hsl(var(--background))" }}
-          >
-            <option value="">{t("users.form.profilePlaceholder")}</option>
-            {profiles?.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {error && <p className="col-span-2 text-xs text-destructive">{error.message}</p>}
-
-      <div className="col-span-2 flex gap-2 justify-end">
-        <Button type="button" variant="ghost" size="sm" onClick={onClose}>{t("users.form.cancel")}</Button>
-        <Button type="submit" size="sm" disabled={!canSubmit} className="gap-1.5">
-          {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-          {t("users.form.save")}
-        </Button>
-      </div>
-    </form>
-  );
+    } catch { /* mutation error is shown below */ }
+  });
+  return <form onSubmit={onSubmit} noValidate className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <div className="flex flex-col gap-1"><Label htmlFor="user-photo">{t("users.form.photo")}</Label>
+      {avatar && <img src={avatar} alt="" className="h-16 w-16 rounded-full object-cover" />}
+      <Input id="user-photo" type="file" accept="image/*" onChange={e => { const file = e.target.files?.[0]; if (file) { const reader = new FileReader(); reader.onload = () => setAvatar(String(reader.result)); reader.readAsDataURL(file); } }} />
+    </div>
+    {(["username", "full_name", "email", "phone", "job_title", "department"] as const).map(field => <div className="flex flex-col gap-1" key={field}>
+      <Label htmlFor={`user-${field}`}>{t(`users.form.fields.${field}`)}</Label>
+      <Input id={`user-${field}`} type={field === "email" ? "email" : "text"} {...register(field)} />
+      {errors[field] && <span className="text-xs text-destructive">{t("users.form.invalid")}</span>}
+    </div>)}
+    {(["password", "confirm"] as const).map(field => <div className="flex flex-col gap-1" key={field}>
+      <Label htmlFor={`user-${field}`}>{field === "password" ? (user ? t("users.form.newPassword") : t("users.form.passwordLabel")) : t("users.form.confirmLabel")}</Label>
+      <Input id={`user-${field}`} type="password" {...register(field)} />
+      {(errors[field] || (field === "password" && missingPassword)) && <span className="text-xs text-destructive">{t(field === "confirm" ? "users.form.passwordsMismatch" : "users.form.invalid")}</span>}
+    </div>)}
+    <label className="flex items-center gap-2"><input type="checkbox" {...register("is_admin")} />{t("users.form.superAdminLabel")}</label>
+    <label className="flex items-center gap-2"><input type="checkbox" {...register("is_active")} />{t("users.form.activeLabel")}</label>
+    {!watch("is_admin") && <div className="flex flex-col gap-1"><Label htmlFor="user-profile">{t("users.form.profileLabel")}</Label>
+      <select id="user-profile" {...register("profile_id")} className="h-9 rounded-md border bg-background px-3 text-sm"><option value="">{t("users.form.profilePlaceholder")}</option>{profiles?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+    </div>}
+    {user && <div className="text-sm">{t("users.form.twoFactor")}: {t(user.totp_enabled ? "users.status.active" : "users.status.inactive")}</div>}
+    {(create.error || update.error) && <p role="alert" className="text-xs text-destructive sm:col-span-2">{(create.error || update.error)?.message}</p>}
+    <div className="flex justify-end gap-2 sm:col-span-2"><Button type="button" variant="ghost" onClick={onClose}>{t("users.form.cancel")}</Button>
+      <Button type="submit" disabled={pending}>{pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} {t("users.form.save")}</Button></div>
+  </form>;
 }

@@ -17,6 +17,9 @@ export interface AppConfig {
   cleanup_prune_paths: string[];
   cleanup_prune_names: string[];
   timezone: string;
+  session_timeout_minutes: number;
+  session_remember_days: number;
+  session_max_concurrent: number;
   /** Language the in-app AI chat (Workspace tabs + Assistant drawer)
    * answers in -- "pt-BR", "en" or "es" for new selections. The backend appends the matching hidden
    * instruction to each outgoing agent call; nothing visible changes in

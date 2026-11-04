@@ -12,6 +12,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useUpdateMe, useChangeMyPassword, useClearQueryCacheOnLogout } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { TwoFactorModal } from "./TwoFactorModal";
+import UserConnections from "@/pages/users/UserConnections";
 
 const THEME_OPTIONS = [
   { value: "light" as const, labelKey: "themeLight", icon: Sun },
@@ -41,7 +42,7 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
       }}
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div ref={panelRef} className="relative z-10 w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-2xl">
+      <div ref={panelRef} className="relative z-10 max-h-[90vh] overflow-y-auto w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-2xl">
         <h2 id={titleId} className="mb-4 text-base font-semibold">{title}</h2>
         {children}
       </div>
@@ -118,6 +119,9 @@ function AccountModal({ onClose }: { onClose: () => void }) {
   const updateMe = useUpdateMe();
   const [fullName, setFullName] = useState(user?.full_name ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
+  const [phone, setPhone] = useState(user?.phone ?? "");
+  const [jobTitle, setJobTitle] = useState(user?.job_title ?? "");
+  const [department, setDepartment] = useState(user?.department ?? "");
   const [avatarPreview, setAvatarPreview] = useState<string | null>(user?.avatar_data_url ?? null);
   // Staged like fullName/email above -- previously this field applied
   // (i18n.changeLanguage) and persisted (mutate) directly in its onChange,
@@ -140,6 +144,7 @@ function AccountModal({ onClose }: { onClose: () => void }) {
       {
         full_name: fullName.trim() || undefined,
         email: email.trim() || undefined,
+        phone: phone.trim(), job_title: jobTitle.trim(), department: department.trim(),
         avatar_data_url: avatarPreview,
         ui_language: uiLanguage,
       },
@@ -154,6 +159,9 @@ function AccountModal({ onClose }: { onClose: () => void }) {
   return (
     <ModalShell title={t("userMenu.account")} onClose={onClose}>
       <div className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          {([["phone", phone, setPhone], ["jobTitle", jobTitle, setJobTitle], ["department", department, setDepartment]] as const).map(([key, value, set]) => <label key={key} className="text-sm space-y-1"><span>{t(`userMenu.${key}`)}</span><input className="flex h-9 w-full rounded-md border bg-background px-3" value={value} onChange={e => set(e.target.value)} /></label>)}
+        </div>
         <div className="flex justify-center">
           <button
             type="button"
@@ -222,6 +230,7 @@ function AccountModal({ onClose }: { onClose: () => void }) {
           </Button>
         </div>
       </div>
+      {user && <UserConnections userId={user.id} />}
     </ModalShell>
   );
 }
@@ -340,8 +349,9 @@ export function UserSettingsMenu({
   const clearAuth = useAuthStore((s) => s.clearAuth);
   const clearQueryCache = useClearQueryCacheOnLogout();
 
-  function handleLogout() {
+  async function handleLogout() {
     setOpen(false);
+    try { await apiClient.post("/api/v1/auth/logout"); } catch { /* Local logout remains available offline. */ }
     clearQueryCache();
     clearAuth();
     navigate("/login", { replace: true });

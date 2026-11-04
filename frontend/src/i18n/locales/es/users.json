@@ -55,7 +55,51 @@
       "profileLabel": "Perfil de acceso",
       "profilePlaceholder": "— sin perfil —",
       "cancel": "Cancelar",
-      "save": "Guardar"
+      "save": "Guardar",
+      "photo": "Foto",
+      "invalid": "Dato inválido",
+      "twoFactor": "2FA",
+      "fields": {
+        "username": "Usuario",
+        "full_name": "Nombre",
+        "email": "Correo",
+        "phone": "Teléfono",
+        "job_title": "Cargo",
+        "department": "Departamento"
+      }
+    },
+    "audit": {
+      "title": "Auditoría de acceso",
+      "actor": "Usuario",
+      "event": "Evento",
+      "all": "Todos los eventos",
+      "loading": "Cargando…",
+      "error": "No se pudo cargar la auditoría.",
+      "events": {
+        "login_accepted": "Inicio aceptado",
+        "login_refused": "Inicio rechazado",
+        "logout": "Salida",
+        "session_revoked": "Sesión cerrada",
+        "sessions_revoked": "Todas las sesiones cerradas",
+        "profile_changed": "Perfil modificado",
+        "password_changed": "Contraseña modificada",
+        "two_factor_enabled": "2FA activado",
+        "two_factor_disabled": "2FA desactivado"
+      }
+    },
+    "connections": {
+      "title": "Conexiones",
+      "endAll": "Cerrar todas",
+      "loading": "Cargando…",
+      "error": "No se pudieron cargar las conexiones.",
+      "empty": "No hay conexiones activas.",
+      "unknown": "Dispositivo desconocido",
+      "current": "Esta sesión",
+      "lastActivity": "Última actividad",
+      "expires": "Caduca",
+      "end": "Cerrar",
+      "confirmAll": "¿Cerrar todas las conexiones?",
+      "confirmOne": "¿Cerrar esta conexión?"
     }
   }
 }
