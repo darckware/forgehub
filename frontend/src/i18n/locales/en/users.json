@@ -86,6 +86,20 @@
         "two_factor_enabled": "Two-factor enabled",
         "two_factor_disabled": "Two-factor disabled"
       }
+    },
+    "connections": {
+      "title": "Connections",
+      "endAll": "End all",
+      "loading": "Loading…",
+      "error": "Could not load connections.",
+      "empty": "No active connections.",
+      "unknown": "Unknown device",
+      "current": "This session",
+      "lastActivity": "Last activity",
+      "expires": "Expires",
+      "end": "End",
+      "confirmAll": "End all connections?",
+      "confirmOne": "End this connection?"
     }
   }
 }

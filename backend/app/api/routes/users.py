@@ -17,7 +17,7 @@ from app.api.schemas.user import (
     UserUpdate,
 )
 from app.core.config import settings
-from app.core.deps import get_current_admin, get_current_user
+from app.core.deps import get_current_admin, get_current_user, oauth2_scheme
 from app.core.security import hash_password, verify_password
 from app.db.base import get_db
 from app.db.models.user import User
@@ -152,15 +152,19 @@ async def delete_user(
 
 @router.get("/{user_id}/sessions")
 async def list_user_sessions(user_id: uuid.UUID, db: AsyncSession = Depends(get_db),
-                             current_user: User = Depends(get_current_user)):
+                             current_user: User = Depends(get_current_user), token: str = Depends(oauth2_scheme)):
     from app.db.models.user_session import UserSession
+    from app.core.security import decode_access_token
+    from app.core.user_session import session_hash
+    payload = decode_access_token(token) or {}
+    current_hash = session_hash(payload["sid"]) if payload.get("sid") else None
     if current_user.id != user_id and not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     rows = (await db.execute(select(UserSession).where(UserSession.user_id == user_id)
                              .order_by(UserSession.created_at.desc()))).scalars().all()
     return [{"id": str(row.id), "ip_address": row.ip_address, "user_agent": row.user_agent,
              "device_summary": row.device_summary, "agent_name": row.agent_name,
-             "remember_me": row.remember_me, "is_active": row.is_active,
+             "remember_me": row.remember_me, "is_active": row.is_active, "is_current": row.token_hash == current_hash,
              "created_at": row.created_at, "last_activity_at": row.last_activity_at,
              "expires_at": row.expires_at} for row in rows]
 

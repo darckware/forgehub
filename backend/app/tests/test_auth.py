@@ -88,6 +88,7 @@ async def test_login_session_can_be_revoked(client, monkeypatch, login_user):
     assert response.status_code == 200
     sessions = response.json()
     assert len(sessions) == 1
+    assert sessions[0]["is_current"] is True
     response = await client.delete(f"/api/v1/users/{user_id}/sessions/{sessions[0]['id']}", headers=headers)
     assert response.status_code in (200, 204)
     assert (await client.get("/api/v1/auth/me", headers=headers)).status_code == 401

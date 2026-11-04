@@ -86,6 +86,20 @@
         "two_factor_enabled": "2FA activado",
         "two_factor_disabled": "2FA desactivado"
       }
+    },
+    "connections": {
+      "title": "Conexiones",
+      "endAll": "Cerrar todas",
+      "loading": "Cargando…",
+      "error": "No se pudieron cargar las conexiones.",
+      "empty": "No hay conexiones activas.",
+      "unknown": "Dispositivo desconocido",
+      "current": "Esta sesión",
+      "lastActivity": "Última actividad",
+      "expires": "Caduca",
+      "end": "Cerrar",
+      "confirmAll": "¿Cerrar todas las conexiones?",
+      "confirmOne": "¿Cerrar esta conexión?"
     }
   }
 }

@@ -12,6 +12,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useUpdateMe, useChangeMyPassword, useClearQueryCacheOnLogout } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { TwoFactorModal } from "./TwoFactorModal";
+import UserConnections from "@/pages/users/UserConnections";
 
 const THEME_OPTIONS = [
   { value: "light" as const, labelKey: "themeLight", icon: Sun },
@@ -41,7 +42,7 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
       }}
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div ref={panelRef} className="relative z-10 w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-2xl">
+      <div ref={panelRef} className="relative z-10 max-h-[90vh] overflow-y-auto w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-2xl">
         <h2 id={titleId} className="mb-4 text-base font-semibold">{title}</h2>
         {children}
       </div>
@@ -229,6 +230,7 @@ function AccountModal({ onClose }: { onClose: () => void }) {
           </Button>
         </div>
       </div>
+      {user && <UserConnections userId={user.id} />}
     </ModalShell>
   );
 }

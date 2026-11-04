@@ -8,6 +8,7 @@ import { useUsers, useDeleteUser, useProfiles } from "@/hooks/useAuth";
 import { useAuthStore } from "@/store/authStore";
 import UserForm from "./UserForm";
 import UserAudit from "./UserAudit";
+import UserConnections from "./UserConnections";
 import { useTranslation } from "react-i18next";
 
 export default function UsersPage() {
@@ -19,6 +20,7 @@ export default function UsersPage() {
   const currentUser = useAuthStore((s) => s.user);
   const [editing, setEditing] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [connections, setConnections] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<{ id: string; username: string } | null>(null);
 
   return (
@@ -115,6 +117,7 @@ export default function UsersPage() {
                           >
                             <Pencil className="h-3.5 w-3.5" /> {t("users.action.edit")}
                           </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setConnections(connections === u.id ? null : u.id)}>{t("users.connections.title")}</Button>
                           {u.id !== currentUser?.id && (
                             <Button
                               size="sm" variant="ghost" className="h-7 gap-1 text-destructive hover:text-destructive"
@@ -128,6 +131,7 @@ export default function UsersPage() {
                         </div>
                       </td>
                     </tr>
+                    {connections === u.id && <tr><td colSpan={7} className="p-3"><UserConnections userId={u.id} /></td></tr>}
                     {editing === u.id && (
                       <tr key={`edit-${u.id}`}>
                         <td colSpan={7} className="px-4 py-3 bg-muted/10">
