@@ -125,6 +125,7 @@ docker compose -f test-env/docker-compose.yml run --rm tools pytest
 - There is no transaction rollback between tests. Each test creates its own rows (usually with a UUID-suffixed unique name) and explicitly deletes them in a `finally`/cleanup helper.
 - Tests require migrations on the test database first (`./dev.sh` or `test-env/reset.sh` apply them), and `forgehub_test_gateway` up (it carries 127.0.0.1:5439).
 - `test_seed_test_database.py` leaves the seed rows in place on purpose: they are the database's baseline.
+- **One user at a time:** `app/scripts/test_db_lock.py` holds a Postgres advisory lock for the whole run, and `reset_test_database.py` takes it too. A second run stops with exit 4, a reset refuses. Never run `docker compose -f test-env/docker-compose.yml up` from a worktree: the containers then mount that worktree's `test-env/`, and the stub loses the SSH key of the Linux target.
 
 **Frontend, local dev:**
 ```bash

@@ -85,6 +85,20 @@ def main(argv: list[str] | None = None) -> None:
     if unknown:
         _refuse(f"unknown argument(s): {' '.join(unknown)} (only --seed)")
     settings = _load_settings()
+    from app.scripts.test_db_lock import TestDatabaseBusy, TestDatabaseLock
+
+    lock = TestDatabaseLock(settings.DATABASE_URL)
+    try:
+        lock.acquire()
+    except TestDatabaseBusy as exc:
+        _refuse(str(exc))
+    try:
+        _reset(settings, args)
+    finally:
+        lock.release()
+
+
+def _reset(settings, args: list[str]) -> None:
     asyncio.run(_wipe_schema(settings))
     print(f"schemas {settings.POSTGRES_SCHEMA!r} and 'public' recreated on forgehub_test; migrating to head")
 

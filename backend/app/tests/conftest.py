@@ -50,6 +50,21 @@ from app.db.models.agent import Agent  # noqa: E402
 from app.db.models.user import User  # noqa: E402
 from app.tests.fixtures.demand_cleanup import cleanup_agent_demands  # noqa: E402
 
+
+@pytest.fixture(scope="session", autouse=True)
+def _exclusive_test_database():
+    """A second run or a reset now stops with a message instead of breaking this one."""
+    from app.core.config import settings
+    from app.scripts.test_db_lock import TestDatabaseBusy, TestDatabaseLock
+
+    lock = TestDatabaseLock(settings.DATABASE_URL)
+    try:
+        lock.acquire()
+    except TestDatabaseBusy as exc:
+        pytest.exit(str(exc), returncode=4)
+    yield
+    lock.release()
+
 # The free-text `from_agent` most demand tests post with. create_demand
 # auto-resolves it to a real Agent row by profile_slug (_find_agent_by_slug),
 # which is what gives those messages an owner.
