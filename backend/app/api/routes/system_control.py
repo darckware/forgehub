@@ -882,6 +882,9 @@ DEFAULT_FORGEROUTER_SERVICE_NAME={default_forgerouter_service_name}
 # Note the effective ceiling is also bounded by one run per agent, so it can
 # never exceed the number of registered agents however high this is set.
 MAX_CONCURRENT_DISPATCHES={max_concurrent_dispatches}
+SESSION_TIMEOUT_MINUTES={session_timeout_minutes}
+SESSION_REMEMBER_DAYS={session_remember_days}
+SESSION_MAX_CONCURRENT={session_max_concurrent}
 """
 
 
@@ -900,6 +903,9 @@ def _settings_to_config_out(s) -> dict[str, Any]:
         "agent_runtime_paths": dict(s.AGENT_RUNTIME_PATHS),
         "default_forgerouter_service_name": s.DEFAULT_FORGEROUTER_SERVICE_NAME,
         "max_concurrent_dispatches": s.MAX_CONCURRENT_DISPATCHES,
+        "session_timeout_minutes": s.SESSION_TIMEOUT_MINUTES,
+        "session_remember_days": s.SESSION_REMEMBER_DAYS,
+        "session_max_concurrent": s.SESSION_MAX_CONCURRENT,
         # Read-only: the hard bound the value above is clamped to.
         "max_concurrent_dispatches_ceiling": s.MAX_CONCURRENT_DISPATCHES_CEILING,
     }
@@ -922,6 +928,9 @@ class AppConfigUpdate(BaseModel):
     # the form is clearer than silently clamping it and showing the operator
     # a number that isn't what takes effect.
     max_concurrent_dispatches: int = Field(default=5, ge=1, le=20)
+    session_timeout_minutes: int = Field(default=480, ge=10, le=43200)
+    session_remember_days: int = Field(default=30, ge=1, le=365)
+    session_max_concurrent: int = Field(default=0, ge=0, le=100)
 
 
 @router.get("/config")
@@ -993,6 +1002,9 @@ async def update_app_config(
     settings.AGENT_RUNTIME_PATHS = payload.agent_runtime_paths
     settings.DEFAULT_FORGEROUTER_SERVICE_NAME = payload.default_forgerouter_service_name
     settings.MAX_CONCURRENT_DISPATCHES = payload.max_concurrent_dispatches
+    settings.SESSION_TIMEOUT_MINUTES = payload.session_timeout_minutes
+    settings.SESSION_REMEMBER_DAYS = payload.session_remember_days
+    settings.SESSION_MAX_CONCURRENT = payload.session_max_concurrent
 
     _APP_CONFIG_FILE.write_text(
         _APP_CONFIG_TEMPLATE.format(
@@ -1009,6 +1021,9 @@ async def update_app_config(
             agent_runtime_paths=json.dumps(settings.AGENT_RUNTIME_PATHS),
             default_forgerouter_service_name=settings.DEFAULT_FORGEROUTER_SERVICE_NAME,
             max_concurrent_dispatches=settings.MAX_CONCURRENT_DISPATCHES,
+            session_timeout_minutes=settings.SESSION_TIMEOUT_MINUTES,
+            session_remember_days=settings.SESSION_REMEMBER_DAYS,
+            session_max_concurrent=settings.SESSION_MAX_CONCURRENT,
         )
     )
 

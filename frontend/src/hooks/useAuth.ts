@@ -18,16 +18,18 @@ interface LoginPayload {
   username: string;
   password: string;
   recaptchaToken?: string | null;
+  rememberMe?: boolean;
 }
 
 export function useLogin() {
   const setAuth = useAuthStore((s) => s.setAuth);
 
   return useMutation<TokenOut, Error, LoginPayload>({
-    mutationFn: async ({ username, password, recaptchaToken }) => {
+    mutationFn: async ({ username, password, recaptchaToken, rememberMe }) => {
       const form = new URLSearchParams();
       form.append("username", username);
       form.append("password", password);
+      form.append("remember_me", String(Boolean(rememberMe)));
       if (recaptchaToken) form.append("recaptcha_token", recaptchaToken);
       const base = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin;
       const res = await fetch(`${base}/api/v1/auth/token`, {

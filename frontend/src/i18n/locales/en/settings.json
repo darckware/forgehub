@@ -105,6 +105,12 @@
       "saveError": "Failed to save settings",
       "reset": "Reset",
       "save": "Save"
+    },
+    "sessions": {
+      "title": "Sessions",
+      "session_timeout_minutes": "Session timeout (minutes)",
+      "session_remember_days": "Remember me (days)",
+      "session_max_concurrent": "Maximum sessions (0 = unlimited)"
     }
   },
   "agentAccess": {

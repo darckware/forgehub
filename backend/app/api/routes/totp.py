@@ -160,7 +160,7 @@ async def totp_verify(
 
     # Issue the real access token.
     from app.core.user_session import create_session
-    token = await create_session(db, user, request)
+    token = await create_session(db, user, request, remember_me=bool(payload.get("remember_me")))
     permissions = await _build_permissions(user, db)
     actions = await _build_action_permissions(user, db)
     return TokenOut(

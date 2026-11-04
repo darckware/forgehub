@@ -111,3 +111,28 @@ async def test_sessions_are_private_and_all_can_be_revoked(client, monkeypatch, 
     assert (await client.get("/api/v1/auth/me", headers=second_headers)).status_code == 401
     legacy_headers = {"Authorization": f"Bearer {create_access_token(username)}"}
     assert (await client.get("/api/v1/auth/me", headers=legacy_headers)).status_code == 200
+
+
+async def test_session_limit_and_remember_me(client, monkeypatch, login_user):
+    from app.core.config import settings
+    from app.db.models.user_session import UserSession
+    from sqlalchemy import select
+
+    async def accepted_captcha(token):
+        return True
+
+    monkeypatch.setattr("app.api.routes.auth.verify_recaptcha", accepted_captcha)
+    monkeypatch.setattr(settings, "SESSION_MAX_CONCURRENT", 1)
+    monkeypatch.setattr(settings, "SESSION_REMEMBER_DAYS", 14)
+    username, password = login_user
+    first = (await client.post("/api/v1/auth/token", data={"username": username, "password": password})).json()
+    second = (await client.post("/api/v1/auth/token", data={"username": username, "password": password, "remember_me": "true"})).json()
+    assert (await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {first['access_token']}"})).status_code == 401
+    token = second["access_token"]
+    assert (await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})).status_code == 200
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(select(UserSession).where(UserSession.user_id == uuid.UUID(second["user"]["id"])))).scalars().all()
+        assert sum(row.is_active for row in rows) == 1
+        active = next(row for row in rows if row.is_active)
+        assert active.remember_me
+        assert (active.expires_at - active.created_at).days >= 13

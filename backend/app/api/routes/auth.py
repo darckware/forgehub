@@ -84,6 +84,7 @@ async def login_for_access_token(
     request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     recaptcha_token: str | None = Form(default=None),
+    remember_me: bool = Form(default=False),
     db: AsyncSession = Depends(get_db),
 ) -> TokenOut:
     if not await verify_recaptcha(recaptcha_token):
@@ -134,7 +135,7 @@ async def login_for_access_token(
             pending_token = create_access_token(
                 subject=form_data.username,
                 expires_delta=timedelta(minutes=5),
-                extra_claims={"purpose": "totp_pending"},
+                extra_claims={"purpose": "totp_pending", "remember_me": remember_me},
             )
             return TokenOut(
                 access_token="",
@@ -147,7 +148,7 @@ async def login_for_access_token(
         actions = await _build_action_permissions(user, db)
 
     from app.core.user_session import create_session
-    token = await create_session(db, user, request)
+    token = await create_session(db, user, request, remember_me=remember_me)
     return TokenOut(access_token=token, token_type="bearer", user=user_out, permissions=permissions, actions=actions)
 
 
@@ -226,10 +227,11 @@ async def get_me(
         token = raw_token
     else:
         from app.core.user_session import refresh_session
-        if payload.get("sid") and not await refresh_session(db, payload["sid"]):
+        lifetime = await refresh_session(db, payload["sid"]) if payload.get("sid") else None
+        if payload.get("sid") and lifetime is None:
             raise HTTPException(status_code=401, detail="Not authenticated")
         token = create_access_token(
-            subject=current_user.username,
+            subject=current_user.username, expires_delta=lifetime,
             extra_claims={"sid": payload["sid"]} if "sid" in payload else None,
         )
     permissions = await _build_permissions(current_user, db)

@@ -168,6 +168,9 @@ class Settings(BaseSettings):
     # workday does not require a fresh login; active sessions still refresh
     # through /auth/me while the token remains valid.
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 8 * 60
+    SESSION_TIMEOUT_MINUTES: int = 480
+    SESSION_REMEMBER_DAYS: int = 30
+    SESSION_MAX_CONCURRENT: int = 0
 
     # Deployment environment label -- controls whether FastAPI's own
     # auto-generated docs (/docs, /redoc, /openapi.json) are served (see
