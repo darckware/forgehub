@@ -36,6 +36,8 @@ async def login_user():
         await db.commit()
     yield username, password
     async with AsyncSessionLocal() as db:
+        from app.db.models.governance import AuditEvent
+        await db.execute(delete(AuditEvent).where(AuditEvent.entity_type == "user_access", AuditEvent.actor == username))
         await db.execute(delete(User).where(User.username == username))
         await db.commit()
 
@@ -136,3 +138,34 @@ async def test_session_limit_and_remember_me(client, monkeypatch, login_user):
         active = next(row for row in rows if row.is_active)
         assert active.remember_me
         assert (active.expires_at - active.created_at).days >= 13
+
+
+async def test_login_audit_does_not_record_secrets(client, monkeypatch, login_user, admin_headers):
+    from sqlalchemy import select
+    from app.db.models.governance import AuditEvent
+
+    async def accepted_captcha(token):
+        return True
+
+    monkeypatch.setattr("app.api.routes.auth.verify_recaptcha", accepted_captcha)
+    username, password = login_user
+    try:
+        await client.post("/api/v1/auth/token", data={"username": username, "password": "wrong-password"}, headers={"User-Agent": "audit-test"})
+        response = await client.post("/api/v1/auth/token", data={"username": username, "password": password}, headers={"User-Agent": "audit-test"})
+        token = response.json()["access_token"]
+        user_headers = {"Authorization": f"Bearer {token}"}
+        assert (await client.get("/api/v1/users/audit/events", headers=user_headers)).status_code == 403
+        audit = await client.get("/api/v1/users/audit/events", params={"actor": username, "event": "login_refused"}, headers=admin_headers)
+        assert audit.status_code == 200 and all(row["event"] == "login_refused" for row in audit.json())
+        assert audit.json()
+        await client.post("/api/v1/auth/logout", headers={"Authorization": f"Bearer {token}", "User-Agent": "audit-test"})
+        async with AsyncSessionLocal() as db:
+            rows = (await db.execute(select(AuditEvent).where(AuditEvent.entity_type == "user_access", AuditEvent.actor == username))).scalars().all()
+            assert {row.event_type for row in rows} >= {"login_accepted", "login_refused", "logout"}
+            assert all(row.payload["user_agent"] == "audit-test" for row in rows)
+            assert password not in str([row.payload for row in rows])
+            assert token not in str([row.payload for row in rows])
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(AuditEvent).where(AuditEvent.entity_type == "user_access", AuditEvent.actor == username))
+            await db.commit()

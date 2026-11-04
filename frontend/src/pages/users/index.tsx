@@ -7,6 +7,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useUsers, useDeleteUser, useProfiles } from "@/hooks/useAuth";
 import { useAuthStore } from "@/store/authStore";
 import UserForm from "./UserForm";
+import UserAudit from "./UserAudit";
 import { useTranslation } from "react-i18next";
 
 export default function UsersPage() {
@@ -40,6 +41,8 @@ export default function UsersPage() {
           <Plus className="h-4 w-4" /> {t("users.list.create")}
         </Button>
       </div>
+
+      {currentUser?.is_admin && <UserAudit />}
 
       {creating && (
         <UserForm onClose={() => setCreating(false)} />

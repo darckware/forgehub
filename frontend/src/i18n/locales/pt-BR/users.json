@@ -56,6 +56,25 @@
       "profilePlaceholder": "— sem perfil —",
       "cancel": "Cancelar",
       "save": "Salvar"
+    },
+    "audit": {
+      "title": "Auditoria de acesso",
+      "actor": "Usuário",
+      "event": "Evento",
+      "all": "Todos os eventos",
+      "loading": "Carregando…",
+      "error": "Não foi possível carregar a auditoria.",
+      "events": {
+        "login_accepted": "Login aceito",
+        "login_refused": "Login recusado",
+        "logout": "Saída",
+        "session_revoked": "Conexão encerrada",
+        "sessions_revoked": "Todas as conexões encerradas",
+        "profile_changed": "Perfil alterado",
+        "password_changed": "Senha alterada",
+        "two_factor_enabled": "2FA ativado",
+        "two_factor_disabled": "2FA desativado"
+      }
     }
   }
 }

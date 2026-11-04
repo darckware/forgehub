@@ -27,6 +27,8 @@ async def create_session(db, user, request, *, agent_name=None, lifetime=None, c
         ).order_by(UserSession.created_at, UserSession.id))).scalars().all()
         for old in active[:max(0, len(active) - settings.SESSION_MAX_CONCURRENT + 1)]:
             old.is_active = False
+            from app.core.user_audit import record_user_event
+            record_user_event(db, "session_revoked", user.username, user.id, request, session_id=str(old.id))
     origin = request_origin(request)
     db.add(UserSession(user_id=user.id, token_hash=session_hash(identifier),
                        ip_address=origin["ip_address"], user_agent=origin["user_agent"],

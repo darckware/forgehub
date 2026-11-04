@@ -107,6 +107,9 @@ async def login_for_access_token(
         authenticated = True
 
     if not authenticated:
+        from app.core.user_audit import record_user_event
+        record_user_event(db, "login_refused", form_data.username, user.id if user else None, request)
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -148,6 +151,8 @@ async def login_for_access_token(
         actions = await _build_action_permissions(user, db)
 
     from app.core.user_session import create_session
+    from app.core.user_audit import record_user_event
+    record_user_event(db, "login_accepted", user.username, user.id, request)
     token = await create_session(db, user, request, remember_me=remember_me)
     return TokenOut(access_token=token, token_type="bearer", user=user_out, permissions=permissions, actions=actions)
 
@@ -243,3 +248,18 @@ async def get_me(
         permissions=permissions,
         actions=actions,
     )
+
+
+@router.post("/logout", status_code=204)
+async def logout(request: Request, current_user: User = Depends(get_current_user),
+                 token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import update
+    from app.core.user_audit import record_user_event
+    from app.core.user_session import session_hash
+    from app.db.models.user_session import UserSession
+    payload = decode_access_token(token)
+    if payload.get("sid"):
+        await db.execute(update(UserSession).where(UserSession.token_hash == session_hash(payload["sid"]),
+                                                   UserSession.user_id == current_user.id).values(is_active=False))
+    record_user_event(db, "logout", current_user.username, current_user.id, request)
+    await db.commit()

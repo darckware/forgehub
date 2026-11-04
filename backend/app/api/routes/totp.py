@@ -58,6 +58,7 @@ async def totp_setup(
 @router.post("/enable", status_code=status.HTTP_200_OK)
 async def totp_enable(
     body: TotpEnableRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, bool]:
@@ -78,6 +79,8 @@ async def totp_enable(
     current_user.totp_secret = body.secret
     current_user.totp_enabled = True
     current_user.totp_recovery_codes = json.dumps(hashed)
+    from app.core.user_audit import record_user_event
+    record_user_event(db, "two_factor_enabled", current_user.username, current_user.id, request)
     await db.commit()
 
     return {"enabled": True}
@@ -86,6 +89,7 @@ async def totp_enable(
 @router.post("/disable", status_code=status.HTTP_200_OK)
 async def totp_disable(
     body: TotpDisableRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, bool]:
@@ -102,6 +106,8 @@ async def totp_disable(
     current_user.totp_secret = None
     current_user.totp_enabled = False
     current_user.totp_recovery_codes = None
+    from app.core.user_audit import record_user_event
+    record_user_event(db, "two_factor_disabled", current_user.username, current_user.id, request)
     await db.commit()
 
     return {"enabled": False}
@@ -156,10 +162,15 @@ async def totp_verify(
             code_valid = True
 
     if not code_valid:
+        from app.core.user_audit import record_user_event
+        record_user_event(db, "login_refused", user.username, user.id, request)
+        await db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid TOTP code")
 
     # Issue the real access token.
     from app.core.user_session import create_session
+    from app.core.user_audit import record_user_event
+    record_user_event(db, "login_accepted", user.username, user.id, request)
     token = await create_session(db, user, request, remember_me=bool(payload.get("remember_me")))
     permissions = await _build_permissions(user, db)
     actions = await _build_action_permissions(user, db)

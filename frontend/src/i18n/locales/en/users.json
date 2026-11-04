@@ -56,6 +56,25 @@
       "profilePlaceholder": "— no profile —",
       "cancel": "Cancel",
       "save": "Save"
+    },
+    "audit": {
+      "title": "User access audit",
+      "actor": "User",
+      "event": "Event",
+      "all": "All events",
+      "loading": "Loading…",
+      "error": "Could not load audit events.",
+      "events": {
+        "login_accepted": "Login accepted",
+        "login_refused": "Login refused",
+        "logout": "Logout",
+        "session_revoked": "Session ended",
+        "sessions_revoked": "All sessions ended",
+        "profile_changed": "Profile changed",
+        "password_changed": "Password changed",
+        "two_factor_enabled": "Two-factor enabled",
+        "two_factor_disabled": "Two-factor disabled"
+      }
     }
   }
 }

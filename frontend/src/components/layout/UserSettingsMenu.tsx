@@ -340,8 +340,9 @@ export function UserSettingsMenu({
   const clearAuth = useAuthStore((s) => s.clearAuth);
   const clearQueryCache = useClearQueryCacheOnLogout();
 
-  function handleLogout() {
+  async function handleLogout() {
     setOpen(false);
+    try { await apiClient.post("/api/v1/auth/logout"); } catch { /* Local logout remains available offline. */ }
     clearQueryCache();
     clearAuth();
     navigate("/login", { replace: true });
