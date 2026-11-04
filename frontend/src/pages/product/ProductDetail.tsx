@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ArrowLeft, Loader2, Plus, Tag } from "lucide-react";
+import { ProductSaleCard } from "./ProductSaleCard";
 import i18n from "@/i18n";
 import { Button } from "@/components/ui/button";
 import {
@@ -249,7 +250,9 @@ export default function ProductDetail() {
         </CardContent>
       </Card>
 
-      {/* Card de ofertas comerciais (Darckware) ocultado temporariamente: todo produto nasce no ForgeHub e o card será redesenhado. */}
+      {product?.sellable && !product.darckware_client_id && (
+        <ProductSaleCard productId={product.id} offeredForSaleAt={product.offered_for_sale_at} />
+      )}
 
       <EntityDocsCard entityType="product" entityId={product?.id} />
     </div>

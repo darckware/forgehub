@@ -488,6 +488,29 @@ async def darckware(credential: str, path: str, request: Request):
         return _reply(integration, request, 200, snapshot, operation=f"email.{action or request.method.lower()}",
                       outcome="stubbed", destination=snapshot["to_email"], auth=auth)
 
+    if len(segments) >= 2 and segments[:2] == ["software-products", "from-forgehub"]:
+        if len(segments) == 2 and request.method == "POST":
+            product_id = str(body.get("forgehub_product_id"))
+            with _lock:
+                entry = next((p for p in _software_products.values() if p.get("forgehub_product_id") == product_id), None)
+                created = entry is None
+                if created:
+                    entry_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"forgehub-sale:{product_id}"))
+                    entry = {"id": entry_id, "name": body.get("name"), "slug": entry_id[:8], "category": "Software SaaS",
+                             "description": body.get("description"), "is_active": False, "base_monthly_price": 0.0,
+                             "available_modules": [], "forgehub_product_id": product_id}
+                    _software_products[entry_id] = entry
+                snapshot = dict(entry)
+            return _reply(integration, request, 201 if created else 200, snapshot, operation="software_product.offer",
+                          outcome="stubbed", destination=snapshot["name"], auth=auth)
+        if len(segments) == 4 and segments[3] == "withdraw" and request.method == "POST":
+            with _lock:
+                entries = [p for p in _software_products.values() if p.get("forgehub_product_id") == segments[2]]
+                for entry in entries:
+                    entry["is_active"] = False
+            return _reply(integration, request, 200, {"withdrawn": len(entries)}, operation="software_product.withdraw",
+                          outcome="stubbed", auth=auth)
+
     if segments and segments[0] == "software-products":
         if len(segments) == 1 and request.method == "GET":
             with _lock:

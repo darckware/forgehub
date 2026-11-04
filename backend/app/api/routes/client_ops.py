@@ -1108,6 +1108,47 @@ async def list_software_products(
     return items
 
 
+@router.post("/products/{product_id}:offer-for-sale")
+async def offer_product_for_sale(
+    product_id: uuid.UUID,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Send a product marked as sellable to Darckware's software catalog."""
+    product = await db.get(Product, product_id)
+    if product is None:
+        raise dw.client_ops_error(status.HTTP_404_NOT_FOUND, "product_not_found", "Product not found")
+    if not product.sellable or product.darckware_client_id is not None:
+        raise dw.client_ops_error(
+            status.HTTP_409_CONFLICT, "product_not_sellable",
+            "Only a product without a client, marked as available for sale, can be offered",
+        )
+    entry = await dw.offer_product_for_sale(product.id, product.name, product.description)
+    product.offered_for_sale_at = product.offered_for_sale_at or datetime.now(timezone.utc)
+    db.add(AuditEvent(entity_type="product", entity_id=product.id, event_type="product_offered_for_sale",
+                      actor=admin.username, payload={"software_product_id": str(entry.get("id"))}))
+    await db.commit()
+    return {"offered_for_sale_at": product.offered_for_sale_at, "software_product": entry}
+
+
+@router.post("/products/{product_id}:withdraw-from-sale")
+async def withdraw_product_from_sale(
+    product_id: uuid.UUID,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Deactivate the product in Darckware; its price and contracts stay there."""
+    product = await db.get(Product, product_id)
+    if product is None:
+        raise dw.client_ops_error(status.HTTP_404_NOT_FOUND, "product_not_found", "Product not found")
+    result = await dw.withdraw_product_from_sale(product.id)
+    product.offered_for_sale_at = None
+    db.add(AuditEvent(entity_type="product", entity_id=product.id, event_type="product_withdrawn_from_sale",
+                      actor=admin.username, payload=result))
+    await db.commit()
+    return result
+
+
 @router.put("/software-products/{id}/forgehub-link")
 async def link_software_product(
     id: uuid.UUID,

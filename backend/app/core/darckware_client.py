@@ -126,6 +126,25 @@ async def list_software_products() -> list[dict[str, Any]]:
     return await request("GET", "/software-products", credential="agent")
 
 
+async def offer_product_for_sale(
+    forgehub_product_id: str | uuid.UUID, name: str, description: str | None
+) -> dict[str, Any]:
+    """Put a ForgeHub product in Darckware's software catalog; repeating is safe."""
+    return await request(
+        "POST",
+        "/software-products/from-forgehub",
+        credential="approver",
+        json={"forgehub_product_id": str(forgehub_product_id), "name": name, "description": description},
+    )
+
+
+async def withdraw_product_from_sale(forgehub_product_id: str | uuid.UUID) -> dict[str, Any]:
+    """Deactivate a product's catalog entries in Darckware, keeping their data."""
+    return await request(
+        "POST", f"/software-products/from-forgehub/{forgehub_product_id}/withdraw", credential="approver"
+    )
+
+
 async def link_software_product(
     product_id: str | uuid.UUID,
     forgehub_product_id: str | uuid.UUID | None,
