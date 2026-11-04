@@ -51,7 +51,11 @@
         "servers": "Servidores",
         "database": "Banco de Dados",
         "users": "Usuários",
-        "profiles": "Perfis"
+        "profiles": "Perfis",
+        "demands": "Demandas",
+        "docs": "Documentos",
+        "auditor": "Auditoria",
+        "system_control": "Controle do sistema"
       },
       "actions": {
         "planning_concept_view": "Ver detalhes do conceito",
