@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import logging
 import hashlib
+import uuid
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +19,16 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.core.config import is_test_environment, settings
+from app.core.agent_session import (
+    EVENT_AREA_READ,
+    EVENT_REQUEST_DENIED,
+    agent_session_is_live,
+    agent_session_refusal,
+    audit_access,
+    first_read_of_area,
+    is_agent_session,
+    request_origin,
+)
 from app.core.security import decode_access_token
 
 from app.api.routes import (
@@ -67,6 +78,7 @@ from app.api.routes import (
     prompt_commands,
     prompt_techniques,
     product,
+    agent_access,
     service_line,
     profiles,
     project,
@@ -165,6 +177,8 @@ app = FastAPI(
 _PUBLIC_API_PATHS = {
     "/api/v1/auth/token",
     "/api/v1/auth/totp/verify",
+    # Checks the agent's own agt_ credential in the route.
+    "/api/v1/auth/agent-session",
     "/api/v1/audit/run-internal",
     # Monthly client report trigger (Athos cron); self-guards with the bridge token.
     "/api/v1/client-ops/reports/run-internal",
@@ -378,8 +392,27 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             bridge_token = request.headers.get("x-bridge-token")
             if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
                 return await call_next(request)
-        if not token or decode_access_token(token) is None:
+        payload = decode_access_token(token) if token else None
+        if payload is None:
             return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+        if is_agent_session(payload):
+            from app.db.base import AsyncSessionLocal
+            agent_id = uuid.UUID(payload["agent_id"])
+            actor = payload.get("agent") or "agent"
+            origin = request_origin(request)
+            async with AsyncSessionLocal() as db:
+                if not await agent_session_is_live(db, payload):
+                    return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+                refusal = agent_session_refusal(request.method, path)
+                if refusal:
+                    audit_access(db, EVENT_REQUEST_DENIED, agent_id, actor, method=request.method,
+                                 path=path, reason=refusal, **origin)
+                    await db.commit()
+                    return JSONResponse({"detail": refusal}, status_code=403)
+                area = first_read_of_area(payload.get("session_id") or "", path)
+                if area:
+                    audit_access(db, EVENT_AREA_READ, agent_id, actor, area=area, path=path, **origin)
+                    await db.commit()
         return await call_next(request)
 
 
@@ -413,6 +446,7 @@ app.include_router(totp.router)
 # ---------------------------------------------------------------------------
 app.include_router(product.router)
 app.include_router(service_line.router)
+app.include_router(agent_access.router)
 app.include_router(project.router)
 app.include_router(pipeline.router)
 app.include_router(progress.router)

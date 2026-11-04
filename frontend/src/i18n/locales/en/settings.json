@@ -106,5 +106,37 @@
       "reset": "Reset",
       "save": "Save"
     }
+  },
+  "agentAccess": {
+    "title": "Agent access to screens",
+    "description": "Choose which agents may open the screens with their own credential, without login, to test them and write manuals. Access is read-only, lasts 30 minutes and is recorded below.",
+    "loading": "Loading",
+    "loadError": "Could not load agent access.",
+    "toggleError": "Could not change access. Nothing changed.",
+    "agent": "Agent",
+    "credential": "Credential",
+    "lastSession": "Last session",
+    "status": "Status",
+    "hasCredential": "Active",
+    "noCredential": "No credential",
+    "enabled": "Allowed",
+    "disabled": "Blocked",
+    "allow": "Allow",
+    "block": "Block",
+    "auditTitle": "Access audit",
+    "filter": "Filter by agent",
+    "allAgents": "All agents",
+    "noEvents": "No access recorded.",
+    "when": "When",
+    "event": "Event",
+    "target": "Target or reason",
+    "origin": "Origin",
+    "events": {
+      "session_opened": "Session opened",
+      "session_refused": "Session refused",
+      "area_read": "Area opened",
+      "request_denied": "Access denied",
+      "access_changed": "Access changed"
+    }
   }
 }

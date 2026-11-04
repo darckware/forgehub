@@ -106,5 +106,37 @@
       "reset": "Descartar",
       "save": "Guardar"
     }
+  },
+  "agentAccess": {
+    "title": "Acceso de los agentes a las pantallas",
+    "description": "Elija qué agentes pueden abrir las pantallas con su propia credencial, sin inicio de sesión, para probarlas y hacer manuales. El acceso es de solo lectura, dura 30 minutos y queda registrado abajo.",
+    "loading": "Cargando",
+    "loadError": "No se pudieron cargar los accesos.",
+    "toggleError": "No se pudo cambiar el acceso. No cambió nada.",
+    "agent": "Agente",
+    "credential": "Credencial",
+    "lastSession": "Última sesión",
+    "status": "Estado",
+    "hasCredential": "Activa",
+    "noCredential": "Sin credencial",
+    "enabled": "Permitido",
+    "disabled": "Bloqueado",
+    "allow": "Permitir",
+    "block": "Bloquear",
+    "auditTitle": "Auditoría de acceso",
+    "filter": "Filtrar por agente",
+    "allAgents": "Todos los agentes",
+    "noEvents": "Ningún acceso registrado.",
+    "when": "Cuándo",
+    "event": "Evento",
+    "target": "Objetivo o motivo",
+    "origin": "Origen",
+    "events": {
+      "session_opened": "Sesión abierta",
+      "session_refused": "Sesión rechazada",
+      "area_read": "Área abierta",
+      "request_denied": "Acceso denegado",
+      "access_changed": "Acceso cambiado"
+    }
   }
 }

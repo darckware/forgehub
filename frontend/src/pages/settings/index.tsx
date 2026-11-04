@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { AgentAccessCard } from "./AgentAccessCard";
 import { ServiceLinesCard } from "./ServiceLinesCard";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, Check, Loader2, Save, Settings2 } from "lucide-react";
@@ -394,6 +395,7 @@ export default function SettingsPage() {
       </Card>
 
       <ServiceLinesCard />
+      <AgentAccessCard />
 
       {updateConfig.isError && (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
