@@ -26,7 +26,9 @@ A regra da credencial é a da Foundation: `36_governance/APPLICATION_AGENT_ACCES
 - Somente leitura por padrão. Escrita exige aprovação do Marcelo para aquele sistema.
 - O limite é aplicado **no backend**. Não basta esconder botão, e não basta o perfil se as rotas não conferem permissão.
 - Recusar por padrão: lista explícita de áreas abertas. Área nova começa fechada.
-- Sempre fechados: dados pessoais, conversas, terminal, arquivos do servidor, segredos, cadastro de usuários e administração.
+- Sempre fechados: dados pessoais, conversas, mensagens entre agentes, memórias, arquivos, documentos, scripts, terminal, segredos, cadastro de usuários e administração.
+- Antes de abrir uma área, leia cada `GET` dela: procure `GET` que grava dados ou que devolve conteúdo privado. A revisão do ForgeHub (#41917) achou os dois casos e reprovou a primeira versão, que abria áreas inteiras.
+- A conta `svc-agente` é recusada explicitamente no login comum.
 - Controle por agente, em uma tela do sistema, só para administrador: liberar, bloquear, ver a última sessão.
 - Bloquear o agente, desativar `svc-agente` ou revogar a chave encerra a sessão aberta na requisição seguinte.
 - Testes que gravam dados acontecem no ambiente de teste do sistema, nunca em produção.
@@ -42,7 +44,7 @@ Campos: agente, evento, alvo ou motivo, IP, navegador, data e hora. Eventos mín
 | `request_denied` | Tentativa de gravar ou de abrir área fechada |
 | `access_changed` | Administrador liberou ou bloqueou um agente |
 
-Nunca gravar a chave, o corpo da requisição nem parâmetros de busca. Mostrar a auditoria em tela, com filtro por agente.
+Nunca gravar a chave, o corpo da requisição nem parâmetros de busca. Caminho, navegador e IP vêm do cliente: limpe o que parecer chave, valide o IP e registre tentativas repetidas uma só vez. Mostrar a auditoria em tela, com filtro por agente.
 
 ### 5. Checklist de pronto
 - [ ] Conta `svc-agente` e chave criadas; hash no banco, valor só no ForgeVault
@@ -64,6 +66,7 @@ Nunca gravar a chave, o corpo da requisição nem parâmetros de busca. Mostrar 
 | Controle por agente e auditoria | `/api/v1/agent-access`, em `api/routes/agent_access.py` |
 | Tela | Configurações, `frontend/src/pages/settings/AgentAccessCard.tsx` |
 | Conta e perfil | Migration `d5e93a7b2c18`: usuário `svc-agente`, perfil `Agente leitura` |
+| Áreas abertas | Produtos, Projetos, Tarefas, Missões, Planejamento, Pipelines, Cockpit, Linhas de serviço e a lista de agentes. Mensagens, Canais, Documentos, Foundation, Auditoria e Atividade dos agentes ficam fechados |
 | Testes | `backend/app/tests/test_agent_screen_session.py` |
 
 No ForgeHub a chave é a credencial `agt_` de cada agente, que já identifica quem acessa. Por isso o controle é por agente, e a sessão roda como `svc-agente`.

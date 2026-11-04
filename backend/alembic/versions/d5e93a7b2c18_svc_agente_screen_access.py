@@ -18,12 +18,13 @@ depends_on = None
 
 PROFILE = "Agente leitura"
 USERNAME = "svc-agente"
-MODULES = ("product", "projects", "pipeline", "backlog", "tasks", "agents", "artifacts", "governance",
-           "foundation", "crons", "deploy", "demands", "docs", "auditor")
+MODULES = ("product", "projects", "pipeline", "backlog", "tasks", "agents")
 
 
 def upgrade() -> None:
     bind = op.get_bind()
+    if bind.execute(sa.text("SELECT 1 FROM company.users WHERE username = :u"), {"u": USERNAME}).first():
+        raise RuntimeError("A user named svc-agente already exists; review it before migrating")
     op.add_column("agents", sa.Column("screen_access_enabled", sa.Boolean(), nullable=False,
                                       server_default=sa.false()), schema="company")
     profile_id = uuid.uuid4()
@@ -35,10 +36,6 @@ def upgrade() -> None:
             "INSERT INTO company.profile_permissions (id, profile_id, module, can_view, can_query, can_write, can_delete) "
             "VALUES (:id, :profile_id, :module, true, true, false, false)"
         ), {"id": uuid.uuid4(), "profile_id": profile_id, "module": module})
-    bind.execute(sa.text(
-        "INSERT INTO company.profile_action_permissions (id, profile_id, action_key, allowed) "
-        "VALUES (:id, :profile_id, 'demands.view', true)"
-    ), {"id": uuid.uuid4(), "profile_id": profile_id})
     # Nobody knows this password: the account only opens through agent sessions.
     bind.execute(sa.text(
         "INSERT INTO company.users (id, username, hashed_password, full_name, is_active, is_admin, profile_id) "

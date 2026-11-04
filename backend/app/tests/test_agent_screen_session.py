@@ -11,7 +11,13 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
 
-from app.core.agent_session import AGENT_SESSION_MINUTES, SERVICE_USERNAME, agent_session_refusal
+from app.core.agent_session import (
+    AGENT_SESSION_MINUTES,
+    SERVICE_USERNAME,
+    agent_session_refusal,
+    audit_path,
+    first_time,
+)
 from app.core.security import create_access_token, decode_access_token
 from app.db.base import AsyncSessionLocal
 from app.db.models.agent import Agent, AgentServiceCredential
@@ -100,15 +106,58 @@ async def test_session_reads_but_never_writes(client, credential):
         assert response.status_code == 403, (method, path, response.text)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("path", [
     "/api/v1/personal/tasks", "/api/v1/chat/sessions", "/api/v1/users", "/api/v1/database/tables",
     "/api/v1/file-explorer/list", "/api/v1/vault/secrets", "/api/v1/servers", "/api/v1/terminal/sessions",
     "/api/v1/client-ops/clients", "/api/v1/host-executions", "/api/v1/forgerouter/status",
+    "/api/v1/channels", "/api/v1/demands", "/api/v1/docs/file", "/api/v1/foundation/crons",
+    "/api/v1/foundation-docs/doc", "/api/v1/tools", "/api/v1/audit/runs", "/api/v1/governance/audit-events",
+    "/api/v1/agent-activity", "/api/v1/agent-activity/stream", "/api/v1/notifications",
+    f"/api/v1/agents/{uuid.uuid4()}/telegram/messages", f"/api/v1/agents/{uuid.uuid4()}/profile-files",
+    f"/api/v1/projects/{uuid.uuid4()}/files", f"/api/v1/projects/{uuid.uuid4()}/files/content",
+    f"/api/v1/projects/{uuid.uuid4()}/forgerouter",
+    f"/api/v1/projects/{uuid.uuid4()}/mcp-servers", f"/api/v1/projects/{uuid.uuid4()}/mcp-servers/live",
+    f"/api/v1/products/{uuid.uuid4()}/backup", "/api/v1//personal/tasks", "/api/v1/personal/",
 ])
+@pytest.mark.asyncio
 async def test_private_areas_are_closed(client, credential, path):
     token = await _session(client, credential)
     assert (await client.get(path, headers=_bearer(token))).status_code == 403
+
+
+def test_only_the_roster_of_agents_is_open():
+    agent_id = uuid.uuid4()
+    assert agent_session_refusal("GET", "/api/v1/agents") is None
+    assert agent_session_refusal("GET", f"/api/v1/agents/{agent_id}") is None
+    assert agent_session_refusal("GET", f"/api/v1/agents/{agent_id}/skills") is not None
+
+
+def test_audit_never_keeps_a_key_placed_in_client_text():
+    secret = "agt_" + "x" * 43
+    assert secret not in audit_path(f"/api/v1/personal/{secret}")
+    assert "[oculto]" in audit_path(f"/api/v1/personal/{secret}")
+
+
+def test_repeated_denied_request_is_audited_once():
+    session = uuid.uuid4().hex
+    assert first_time(session, "denied:GET:/x") is True
+    assert first_time(session, "denied:GET:/x") is False
+
+
+@pytest.mark.asyncio
+async def test_password_login_is_closed_for_the_service_account(client):
+    response = await client.post("/api/v1/auth/token", data={"username": SERVICE_USERNAME, "password": "qualquer"})
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_retired_agent_loses_an_open_session(client, credential):
+    token = await _session(client, credential)
+    async with AsyncSessionLocal() as db:
+        agent = await db.get(Agent, credential["agent_id"])
+        agent.status = "retired"
+        await db.commit()
+    assert (await client.get("/api/v1/products", headers=_bearer(token))).status_code == 401
 
 
 def test_unknown_area_is_refused_by_default():
@@ -177,6 +226,7 @@ async def test_audit_shows_opened_read_denied_and_refused(client, credential, ad
     await client.get("/api/v1/products", headers=_bearer(token))
     await client.get("/api/v1/products", headers=_bearer(token))
     await client.get("/api/v1/personal/tasks", headers=_bearer(token))
+    await client.get("/api/v1/personal/tasks", headers=_bearer(token))
     await client.post("/api/v1/products", headers=_bearer(token), json={})
     await client.put(f"/api/v1/agent-access/{credential['agent_id']}", headers=admin_headers, json={"enabled": False})
     await client.post(SESSION, headers=_bearer(credential["raw"]))
@@ -195,7 +245,7 @@ async def test_audit_shows_opened_read_denied_and_refused(client, credential, ad
 
 @pytest.mark.asyncio
 async def test_unknown_credential_attempt_is_audited(client, admin_headers):
-    marker = f"navegador-{uuid.uuid4().hex}"
+    marker = f"navegador-{uuid.uuid4().hex[:12]}"
     await client.post(SESSION, headers={**_bearer("agt_inexistente"), "User-Agent": marker})
     rows = (await client.get("/api/v1/agent-access/audit", headers=admin_headers,
                              params={"event": "session_refused", "limit": 50})).json()
