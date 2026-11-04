@@ -390,6 +390,9 @@ class AgentDemand(Base, TimestampMixin):
     # by hand. Left set after the fact as a historical record -- dispatch_status
     # moving off NULL is what stops the loop from re-dispatching it.
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Keeps the agent when it runs out of quota (a review's reviewer, for one);
+    # see core/agent_failover.py.
+    fixed_agent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
     # Set when the recipient agent itself pulls this item via
     # GET /demands/pending (bridge-token, see that route's docstring) --
     # distinct from both `status` (Marcelo's own read/unread) and
