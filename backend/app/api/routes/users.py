@@ -47,7 +47,8 @@ async def create_user(
         username=body.username,
         hashed_password=hash_password(body.password),
         email=body.email,
-        full_name=body.full_name,
+        full_name=body.full_name, phone=body.phone, job_title=body.job_title, department=body.department,
+        avatar_data_url=body.avatar_data_url, is_active=body.is_active, profile_id=body.profile_id,
         is_admin=body.is_admin,
         ui_language=settings.DEFAULT_UI_LANGUAGE,
     )
@@ -117,6 +118,10 @@ async def update_user(
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     data = body.model_dump(exclude_unset=True)
+    if data.get("username") and data["username"] != user.username:
+        existing = (await db.execute(select(User).where(User.username == data["username"]))).scalar_one_or_none()
+        if existing is not None:
+            raise HTTPException(status_code=400, detail="Username already taken")
     from app.core.user_audit import record_user_event
     if "profile_id" in data and data["profile_id"] != user.profile_id:
         record_user_event(db, "profile_changed", _admin.username, user.id, request)

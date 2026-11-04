@@ -12,11 +12,21 @@ class UserCreate(BaseModel):
     password: str
     email: str | None = None
     full_name: str | None = None
+    phone: str | None = Field(default=None, max_length=255)
+    job_title: str | None = Field(default=None, max_length=255)
+    department: str | None = Field(default=None, max_length=255)
+    avatar_data_url: str | None = None
+    is_active: bool = True
     is_admin: bool = False
     profile_id: uuid.UUID | None = None
 
 
 class UserUpdate(BaseModel):
+    username: str | None = Field(default=None, min_length=1, max_length=100)
+    phone: str | None = Field(default=None, max_length=255)
+    job_title: str | None = Field(default=None, max_length=255)
+    department: str | None = Field(default=None, max_length=255)
+    avatar_data_url: str | None = None
     email: str | None = None
     full_name: str | None = None
     is_active: bool | None = None
@@ -30,6 +40,9 @@ class UserOut(BaseModel):
     username: str
     email: str | None
     full_name: str | None
+    phone: str | None
+    job_title: str | None
+    department: str | None
     avatar_data_url: str | None
     totp_enabled: bool
     is_active: bool
@@ -49,6 +62,9 @@ class SelfUserUpdate(BaseModel):
 
     email: str | None = None
     full_name: str | None = None
+    phone: str | None = Field(default=None, max_length=255)
+    job_title: str | None = Field(default=None, max_length=255)
+    department: str | None = Field(default=None, max_length=255)
     avatar_data_url: str | None = None
     ui_language: str | None = None
 

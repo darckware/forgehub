@@ -75,7 +75,11 @@
         "planning_execution_cancel": "Cancelar y conciliar ejecuciones de CLI",
         "governance_approval_view": "Ver aprobaciones gobernadas",
         "governance_approval_decide": "Decidir sobre aprobaciones gobernadas",
-        "governance_delegation_manage": "Gestionar delegaciones de Athos"
+        "governance_delegation_manage": "Gestionar delegaciones de Athos",
+        "planning_delivery_generate_artifacts": "Generar artefactos de entrega",
+        "channel_member_role_assign": "Asignar funciones de miembros del canal",
+        "channel_member_manage": "Administrar miembros del canal",
+        "channel_manage": "Administrar canales"
       }
     }
   }

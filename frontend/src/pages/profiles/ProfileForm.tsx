@@ -17,10 +17,11 @@ const MODULES = [
 const SENSITIVE_ACTIONS = [
   "planning.concept.view", "planning.concept.edit", "planning.concept.submit",
   "planning.concept.decide", "planning.blueprint.edit", "planning.blueprint.approve",
-  "planning.delivery.authorize", "planning.progress.view", "planning.progress.manage",
+  "planning.delivery.authorize", "planning.delivery.generate_artifacts", "planning.progress.view", "planning.progress.manage",
   "planning.stage.complete", "planning.execution.view", "planning.execution.manage",
   "planning.execution.release", "planning.execution.dispatch", "planning.execution.cancel",
   "governance.approval.view", "governance.approval.decide", "governance.delegation.manage",
+  "channel.member.role.assign", "channel.member.manage", "channel.manage",
 ] as const;
 
 type PermOp = "can_view" | "can_query" | "can_write" | "can_delete";

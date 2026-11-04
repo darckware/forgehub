@@ -32,7 +32,7 @@
     "clientAccounts": "Clientes e contratos",
     "docs": "Documentos",
     "projectScope": "Escopo do Projeto",
-    "products": "Produtos",
+    "products": "Aplicações & Sistemas",
     "projects": "Projetos",
     "pipelines": "Pipelines",
     "templates": "Modelos",
@@ -64,7 +64,6 @@
     "users": "Usuários",
     "accessProfiles": "Perfis de Acesso",
     "cockpit": "0. Cockpit de Execução",
-    "products": "Aplicações & Sistemas",
     "missions": "Missões",
     "conception": "1. Concepção & Contexto",
     "systemMap": "Mapa do Sistema",
@@ -157,7 +156,10 @@
     "twoFactorBack": "Voltar",
     "twoFactorEnable": "Ativar 2FA",
     "twoFactorDisableWarning": "Insira sua senha e um código TOTP para desativar a autenticação de dois fatores.",
-    "twoFactorDisableError": "Não foi possível desativar o 2FA. Verifique sua senha e código."
+    "twoFactorDisableError": "Não foi possível desativar o 2FA. Verifique sua senha e código.",
+    "phone": "Telefone",
+    "jobTitle": "Cargo",
+    "department": "Departamento"
   },
   "auth": {
     "tagline": "Plataforma de controle de entrega com IA",

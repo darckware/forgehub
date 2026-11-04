@@ -20,6 +20,9 @@ class User(Base, TimestampMixin):
     email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    job_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    department: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Self-uploaded profile photo, stored as a "data:image/...;base64,..."
     # URI directly in the row -- no static-file mount exists for user
     # content yet, and avatars are small enough that this is simpler than

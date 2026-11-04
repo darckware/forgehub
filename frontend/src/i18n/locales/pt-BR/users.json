@@ -55,7 +55,18 @@
       "profileLabel": "Perfil de acesso",
       "profilePlaceholder": "— sem perfil —",
       "cancel": "Cancelar",
-      "save": "Salvar"
+      "save": "Salvar",
+      "photo": "Foto",
+      "invalid": "Dado inválido",
+      "twoFactor": "2FA",
+      "fields": {
+        "username": "Login",
+        "full_name": "Nome",
+        "email": "E-mail",
+        "phone": "Telefone",
+        "job_title": "Cargo",
+        "department": "Departamento"
+      }
     },
     "audit": {
       "title": "Auditoria de acesso",

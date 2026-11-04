@@ -118,6 +118,9 @@ function AccountModal({ onClose }: { onClose: () => void }) {
   const updateMe = useUpdateMe();
   const [fullName, setFullName] = useState(user?.full_name ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
+  const [phone, setPhone] = useState(user?.phone ?? "");
+  const [jobTitle, setJobTitle] = useState(user?.job_title ?? "");
+  const [department, setDepartment] = useState(user?.department ?? "");
   const [avatarPreview, setAvatarPreview] = useState<string | null>(user?.avatar_data_url ?? null);
   // Staged like fullName/email above -- previously this field applied
   // (i18n.changeLanguage) and persisted (mutate) directly in its onChange,
@@ -140,6 +143,7 @@ function AccountModal({ onClose }: { onClose: () => void }) {
       {
         full_name: fullName.trim() || undefined,
         email: email.trim() || undefined,
+        phone: phone.trim(), job_title: jobTitle.trim(), department: department.trim(),
         avatar_data_url: avatarPreview,
         ui_language: uiLanguage,
       },
@@ -154,6 +158,9 @@ function AccountModal({ onClose }: { onClose: () => void }) {
   return (
     <ModalShell title={t("userMenu.account")} onClose={onClose}>
       <div className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          {([["phone", phone, setPhone], ["jobTitle", jobTitle, setJobTitle], ["department", department, setDepartment]] as const).map(([key, value, set]) => <label key={key} className="text-sm space-y-1"><span>{t(`userMenu.${key}`)}</span><input className="flex h-9 w-full rounded-md border bg-background px-3" value={value} onChange={e => set(e.target.value)} /></label>)}
+        </div>
         <div className="flex justify-center">
           <button
             type="button"

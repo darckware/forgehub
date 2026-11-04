@@ -45,6 +45,9 @@ export interface AuthUser {
   username: string;
   email: string | null;
   full_name: string | null;
+  phone?: string | null;
+  job_title?: string | null;
+  department?: string | null;
   avatar_data_url: string | null;
   totp_enabled: boolean;
   is_active: boolean;

@@ -188,7 +188,7 @@ export function useUsers() {
 
 export function useCreateUser() {
   const qc = useQueryClient();
-  return useMutation<AuthUser, Error, { username: string; password: string; email?: string; full_name?: string; is_admin?: boolean; profile_id?: string }>({
+  return useMutation<AuthUser, Error, { username: string; password: string; email?: string; full_name?: string; is_admin?: boolean; profile_id?: string; phone?: string; job_title?: string; department?: string; avatar_data_url?: string | null; is_active?: boolean }>({
     mutationFn: (body) => apiClient.post("/api/v1/users", body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["users"] }),
   });
@@ -196,7 +196,7 @@ export function useCreateUser() {
 
 export function useUpdateUser() {
   const qc = useQueryClient();
-  return useMutation<AuthUser, Error, { id: string; body: Partial<{ email: string; full_name: string; is_active: boolean; is_admin: boolean; password: string; profile_id: string | null }> }>({
+  return useMutation<AuthUser, Error, { id: string; body: Partial<{ username: string; email: string | null; full_name: string | null; phone: string | null; job_title: string | null; department: string | null; avatar_data_url: string | null; is_active: boolean; is_admin: boolean; password: string; profile_id: string | null }> }>({
     mutationFn: ({ id, body }) => apiClient.patch(`/api/v1/users/${id}`, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["users"] }),
   });
@@ -217,7 +217,7 @@ export function useDeleteUser() {
  * password/is_admin/is_active/profile_id (see backend's SelfUserUpdate). */
 export function useUpdateMe() {
   const updateUser = useAuthStore((s) => s.updateUser);
-  return useMutation<AuthUser, Error, Partial<{ email: string; full_name: string; avatar_data_url: string | null; ui_language: UiLanguage }>>({
+  return useMutation<AuthUser, Error, Partial<{ email: string; full_name: string; phone: string; job_title: string; department: string; avatar_data_url: string | null; ui_language: UiLanguage }>>({
     mutationFn: (body) => apiClient.patch("/api/v1/users/me", body),
     onSuccess: (user) => updateUser(user),
   });

@@ -55,7 +55,18 @@
       "profileLabel": "Access Profile",
       "profilePlaceholder": "— no profile —",
       "cancel": "Cancel",
-      "save": "Save"
+      "save": "Save",
+      "photo": "Photo",
+      "invalid": "Invalid value",
+      "twoFactor": "Two-factor",
+      "fields": {
+        "username": "Login",
+        "full_name": "Name",
+        "email": "Email",
+        "phone": "Phone",
+        "job_title": "Job title",
+        "department": "Department"
+      }
     },
     "audit": {
       "title": "User access audit",
