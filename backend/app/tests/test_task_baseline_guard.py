@@ -519,6 +519,38 @@ async def test_revoked_delegation_refused(world, runner):
 # Target serialization (§4.3, D-M0-2)
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
+async def test_scheduled_equal_due_messages_keep_creation_order(world, runner, monkeypatch):
+    from app.core.demand_workflow import WorkflowBlocked
+
+    refusals = {}
+    reserve = demand_routes.reserve_dispatch
+
+    async def record_reservation(db, demand, agent_id, command):
+        try:
+            return await reserve(db, demand, agent_id, command)
+        except WorkflowBlocked as exc:
+            refusals[demand.id] = str(exc)
+            raise
+
+    monkeypatch.setattr(demand_routes, "reserve_dispatch", record_reservation)
+    mission = await _mission(world)
+    first_task = await mission.task("first")
+    second_task = await mission.task("second", executor=await world.agent("exec-b"))
+    for task in (first_task, second_task):
+        await _target(task.id, "branch", "/srv/forgehub-test/repo#queue-order")
+    await mission.baseline([first_task.id, second_task.id])
+    first = await _queued_demand(first_task, await _assignee(first_task.id), "/srv/forgehub-test/wt-first")
+    second = await _queued_demand(second_task, await _assignee(second_task.id), "/srv/forgehub-test/wt-second")
+    # Updating the older row moves its physical tuple, exposing a query that
+    # relies on the database's incidental order for equal scheduled_at values.
+    await _update(AgentDemand, first, subject="updated first")
+    await _scheduled_pass(monkeypatch)
+    assert (await _demand(first)).dispatch_status == "dispatched"
+    assert (await _demand(second)).dispatch_status is None
+    assert "TARGET_BUSY: branch:" in refusals[second]
+
+
+@pytest.mark.asyncio
 async def test_target_serialization(world, runner, monkeypatch):
     # Mission: the working_path is an implicit worktree target.
     mission = await _mission(world)

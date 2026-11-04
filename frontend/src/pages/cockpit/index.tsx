@@ -957,7 +957,7 @@ export default function CockpitPage() {
         open={Boolean(pendingDeleteProject)}
         onCancel={() => setPendingDeleteProject(null)}
         title={`Excluir Sistema "${pendingDeleteProject?.name ?? ""}"`}
-        description="Tem certeza que deseja remover este sistema/projeto? Esta ação removerá o projeto da esteira da Software Factory."
+        description="Tem certeza que deseja remover este sistema/projeto? Esta ação removerá o projeto da esteira da Service Factory."
         confirmLabel="Excluir Projeto"
         variant="destructive"
         onConfirm={async () => {
