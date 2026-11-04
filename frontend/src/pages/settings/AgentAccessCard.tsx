@@ -36,6 +36,11 @@ export function AgentAccessCard() {
             {t("agentAccess.toggleError")}
           </p>
         )}
+        {vm.endFailed && (
+          <p role="alert" className="text-sm text-destructive">
+            {t("agentAccess.endError")}
+          </p>
+        )}
         {vm.status === "ready" && (
           <>
             <Table>
@@ -44,6 +49,7 @@ export function AgentAccessCard() {
                   <TableHead>{t("agentAccess.agent")}</TableHead>
                   <TableHead>{t("agentAccess.credential")}</TableHead>
                   <TableHead>{t("agentAccess.lastSession")}</TableHead>
+                  <TableHead>{t("agentAccess.openSessions")}</TableHead>
                   <TableHead>{t("agentAccess.status")}</TableHead>
                   <TableHead />
                 </TableRow>
@@ -54,12 +60,24 @@ export function AgentAccessCard() {
                     <TableCell className="font-medium">{agent.name}</TableCell>
                     <TableCell>{t(agent.has_credential ? "agentAccess.hasCredential" : "agentAccess.noCredential")}</TableCell>
                     <TableCell>{when(agent.last_session_at, i18n.language)}</TableCell>
+                    <TableCell>{agent.open_sessions}</TableCell>
                     <TableCell>
                       <Badge variant={agent.enabled ? "default" : "secondary"}>
                         {t(agent.enabled ? "agentAccess.enabled" : "agentAccess.disabled")}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="space-x-2 whitespace-nowrap text-right">
+                      {agent.open_sessions > 0 && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={vm.endingId === agent.id}
+                          onClick={() => vm.endSessions(agent)}
+                        >
+                          {vm.endingId === agent.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          {t("agentAccess.endSessions")}
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"

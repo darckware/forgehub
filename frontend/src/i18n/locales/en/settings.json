@@ -142,7 +142,11 @@
       "session_refused": "Session refused",
       "area_read": "Area opened",
       "request_denied": "Access denied",
-      "access_changed": "Access changed"
-    }
+      "access_changed": "Access changed",
+      "sessions_ended": "Connections ended"
+    },
+    "openSessions": "Open connections",
+    "endSessions": "End connections",
+    "endError": "Could not end the connections."
   }
 }

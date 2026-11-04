@@ -9,6 +9,7 @@ export interface AgentAccessRow {
   enabled: boolean;
   has_credential: boolean;
   last_session_at: string | null;
+  open_sessions: number;
 }
 
 export interface AccessEvent {
@@ -30,6 +31,9 @@ export interface AgentAccessViewModel {
   togglingId: string | null;
   toggleFailed: boolean;
   toggle: (agent: AgentAccessRow) => void;
+  endingId: string | null;
+  endFailed: boolean;
+  endSessions: (agent: AgentAccessRow) => void;
 }
 
 /** Which agents may open the screens, and the audit of what they did. */
@@ -53,6 +57,11 @@ export function useAgentAccessViewModel(): AgentAccessViewModel {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["agent-access"] }),
   });
 
+  const ending = useMutation({
+    mutationFn: (agent: AgentAccessRow) => apiClient.delete(`/api/v1/agent-access/${agent.id}/sessions`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["agent-access"] }),
+  });
+
   let status: AgentAccessStatus = "ready";
   if (agents.isLoading || events.isLoading) status = "loading";
   else if (agents.isError || events.isError) status = "error";
@@ -66,5 +75,8 @@ export function useAgentAccessViewModel(): AgentAccessViewModel {
     togglingId: mutation.isPending ? (mutation.variables?.id ?? null) : null,
     toggleFailed: mutation.isError,
     toggle: (agent) => mutation.mutate(agent),
+    endingId: ending.isPending ? (ending.variables?.id ?? null) : null,
+    endFailed: ending.isError,
+    endSessions: (agent) => ending.mutate(agent),
   };
 }

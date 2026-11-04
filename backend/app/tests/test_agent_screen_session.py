@@ -13,15 +13,17 @@ from sqlalchemy import delete, select
 
 from app.core.agent_session import (
     AGENT_SESSION_MINUTES,
-    SERVICE_USERNAME,
+    AGENT_PROFILE,
     agent_session_refusal,
     audit_path,
     first_time,
 )
 from app.core.security import create_access_token, decode_access_token
+from app.core.user_session import purge_old_sessions
 from app.db.base import AsyncSessionLocal
 from app.db.models.agent import Agent, AgentServiceCredential
 from app.db.models.governance import AuditEvent
+from app.db.models.profile import Profile
 from app.db.models.user import User
 from app.db.models.user_session import UserSession
 from app.main import app
@@ -52,7 +54,7 @@ async def credential():
         await db.commit()
     yield {"raw": raw, "id": credential_id, "agent_id": agent_id}
     async with AsyncSessionLocal() as db:
-        await db.execute(delete(UserSession).where(UserSession.agent_name == f"sessao-{agent_id.hex[:8]}"))
+        await db.execute(delete(UserSession).where(UserSession.agent_id == agent_id))
         await db.execute(delete(AuditEvent).where(AuditEvent.entity_id == agent_id))
         await db.execute(delete(AgentServiceCredential).where(AgentServiceCredential.id == credential_id))
         await db.execute(delete(Agent).where(Agent.id == agent_id))
@@ -66,11 +68,12 @@ async def _session(client, credential) -> str:
 
 
 @pytest.mark.asyncio
-async def test_credential_opens_a_short_audited_session_as_svc_agente(client, credential):
+async def test_credential_opens_a_short_audited_session_as_the_agent_itself(client, credential):
     response = await client.post(SESSION, headers=_bearer(credential["raw"]))
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["user"]["username"] == SERVICE_USERNAME
+    assert body["user"]["username"].startswith("agent:")
+    assert body["user"]["id"] == str(credential["agent_id"])
     assert body["user"]["is_admin"] is False
     assert body["permissions"]["tasks"]["can_view"] is True
     assert body["permissions"]["tasks"]["can_write"] is False
@@ -145,9 +148,9 @@ def test_repeated_denied_request_is_audited_once():
 
 
 @pytest.mark.asyncio
-async def test_password_login_is_closed_for_the_service_account(client):
-    response = await client.post("/api/v1/auth/token", data={"username": SERVICE_USERNAME, "password": "qualquer"})
-    assert response.status_code == 401
+async def test_no_shared_service_user_exists():
+    async with AsyncSessionLocal() as db:
+        assert await db.scalar(select(User.id).where(User.username == "svc-agente")) is None
 
 
 @pytest.mark.asyncio
@@ -185,19 +188,20 @@ async def test_revoking_the_credential_ends_an_open_session(client, credential):
 
 
 @pytest.mark.asyncio
-async def test_disabling_svc_agente_closes_the_door(client, credential):
+async def test_removing_the_agent_profile_closes_the_door(client, credential):
     token = await _session(client, credential)
     async with AsyncSessionLocal() as db:
-        user = (await db.execute(select(User).where(User.username == SERVICE_USERNAME))).scalar_one()
-        user.is_active = False
+        profile = (await db.execute(select(Profile).where(Profile.name == AGENT_PROFILE))).scalar_one()
+        original = profile.name
+        profile.name = f"fora-{uuid.uuid4().hex[:8]}"
+        renamed = profile.id
         await db.commit()
     try:
         assert (await client.post(SESSION, headers=_bearer(credential["raw"]))).status_code == 403
         assert (await client.get("/api/v1/products", headers=_bearer(token))).status_code == 401
     finally:
         async with AsyncSessionLocal() as db:
-            user = (await db.execute(select(User).where(User.username == SERVICE_USERNAME))).scalar_one()
-            user.is_active = True
+            (await db.get(Profile, renamed)).name = original
             await db.commit()
 
 
@@ -261,19 +265,38 @@ async def test_agent_access_screen_is_admin_only(client, credential):
 
 
 @pytest.mark.asyncio
-async def test_admin_can_revoke_an_agent_screen_session(client, credential, admin_headers):
+async def test_admin_ends_an_agent_session_and_the_agent_can_enter_again(client, credential, admin_headers):
     token = await _session(client, credential)
+    agent_id = credential["agent_id"]
+    rows = (await client.get("/api/v1/agent-access", headers=admin_headers)).json()
+    assert next(row for row in rows if row["id"] == str(agent_id))["open_sessions"] == 1
+    assert (await client.delete(f"/api/v1/agent-access/{agent_id}/sessions", headers=admin_headers)).status_code == 204
+    assert (await client.get("/api/v1/products", headers=_bearer(token))).status_code == 401
     async with AsyncSessionLocal() as db:
-        user = (await db.execute(select(User).where(User.username == SERVICE_USERNAME))).scalar_one()
-        user_id = user.id
-    response = await client.get(f"/api/v1/users/{user_id}/sessions", headers=admin_headers)
-    assert response.status_code == 200
-    agent_name = decode_access_token(token)["agent"]
-    row = next(row for row in response.json() if row["agent_name"] == agent_name)
-    try:
-        assert (await client.delete(f"/api/v1/users/{user_id}/sessions/{row['id']}", headers=admin_headers)).status_code == 204
-        assert (await client.get("/api/v1/products", headers=_bearer(token))).status_code == 401
-    finally:
-        async with AsyncSessionLocal() as db:
-            await db.execute(delete(UserSession).where(UserSession.id == uuid.UUID(row["id"])))
-            await db.commit()
+        events = (await db.execute(select(AuditEvent.event_type).where(AuditEvent.entity_id == agent_id))).scalars().all()
+    assert "sessions_ended" in events
+    assert (await client.get("/api/v1/products", headers=_bearer(await _session(client, credential)))).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_a_session_of_one_agent_is_not_valid_for_another(client, credential):
+    token = await _session(client, credential)
+    payload = decode_access_token(token)
+    forged = create_access_token(
+        subject=payload["sub"],
+        extra_claims={**{k: v for k, v in payload.items() if k not in ("sub", "exp")}, "agent_id": str(uuid.uuid4())},
+    )
+    assert (await client.get("/api/v1/products", headers=_bearer(forged))).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_old_sessions_are_purged_and_recent_ones_stay(client, credential):
+    await _session(client, credential)
+    agent_id = credential["agent_id"]
+    async with AsyncSessionLocal() as db:
+        db.add(UserSession(agent_id=agent_id, token_hash=uuid.uuid4().hex, is_active=False,
+                           expires_at=datetime.now(timezone.utc) - timedelta(days=91)))
+        await db.commit()
+        assert await purge_old_sessions(db) >= 1
+        rows = (await db.execute(select(UserSession).where(UserSession.agent_id == agent_id))).scalars().all()
+    assert len(rows) == 1

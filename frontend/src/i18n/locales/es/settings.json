@@ -142,7 +142,11 @@
       "session_refused": "Sesión rechazada",
       "area_read": "Área abierta",
       "request_denied": "Acceso denegado",
-      "access_changed": "Acceso cambiado"
-    }
+      "access_changed": "Acceso cambiado",
+      "sessions_ended": "Conexiones cerradas"
+    },
+    "openSessions": "Conexiones abiertas",
+    "endSessions": "Cerrar conexiones",
+    "endError": "No se pudieron cerrar las conexiones."
   }
 }

@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.agent_session import AUDIT_ENTITY, EVENT_OPENED
@@ -16,6 +16,7 @@ from app.db.base import get_db
 from app.db.models.agent import Agent, AgentServiceCredential
 from app.db.models.governance import AuditEvent
 from app.db.models.user import User
+from app.db.models.user_session import UserSession
 
 router = APIRouter(prefix="/api/v1/agent-access", tags=["agent-access"])
 
@@ -27,6 +28,7 @@ class AgentAccessRow(BaseModel):
     enabled: bool
     has_credential: bool
     last_session_at: datetime | None
+    open_sessions: int
 
 
 class AgentAccessUpdate(BaseModel):
@@ -56,8 +58,15 @@ async def list_agent_access(
         .where(AuditEvent.entity_type == AUDIT_ENTITY, AuditEvent.event_type == EVENT_OPENED)
         .group_by(AuditEvent.entity_id)
     )).all())
+    open_sessions = dict((await db.execute(
+        select(UserSession.agent_id, func.count())
+        .where(UserSession.agent_id.is_not(None), UserSession.is_active.is_(True),
+               UserSession.expires_at > datetime.now(timezone.utc))
+        .group_by(UserSession.agent_id)
+    )).all())
     return [AgentAccessRow(id=a.id, name=a.name, slug=a.profile_slug, enabled=a.screen_access_enabled,
-                           has_credential=a.id in with_credential, last_session_at=last_sessions.get(a.id))
+                           has_credential=a.id in with_credential, last_session_at=last_sessions.get(a.id),
+                           open_sessions=open_sessions.get(a.id, 0))
             for a in agents]
 
 
@@ -76,6 +85,21 @@ async def update_agent_access(
     await db.commit()
     rows = await list_agent_access(admin, db)
     return next(row for row in rows if row.id == agent_id)
+
+
+@router.delete("/{agent_id}/sessions", status_code=204)
+async def end_agent_sessions(
+    agent_id: uuid.UUID, admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Ends what is open now; the agent may enter again unless it is also blocked."""
+    agent = await db.get(Agent, agent_id)
+    if agent is None:
+        raise HTTPException(404, "Agent not found")
+    await db.execute(update(UserSession).where(UserSession.agent_id == agent_id).values(is_active=False))
+    db.add(AuditEvent(entity_type=AUDIT_ENTITY, entity_id=agent.id, event_type="sessions_ended",
+                      actor=admin.username, payload={}))
+    await db.commit()
+    return Response(status_code=204)
 
 
 @router.get("/audit", response_model=list[AccessEvent])

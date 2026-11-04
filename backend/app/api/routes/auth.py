@@ -22,7 +22,7 @@ from app.core.config import settings
 from app.core.agent_session import (
     EVENT_OPENED,
     EVENT_REFUSED,
-    SERVICE_USERNAME,
+    agent_as_user,
     audit_access,
     create_agent_session_token,
     is_agent_session,
@@ -93,12 +93,6 @@ async def login_for_access_token(
             detail="reCAPTCHA verification failed",
         )
 
-    if form_data.username == SERVICE_USERNAME:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
     result = await db.execute(select(User).where(User.username == form_data.username))
     user: User | None = result.scalar_one_or_none()
 
@@ -171,7 +165,7 @@ async def open_agent_session(
 ) -> TokenOut:
     """Open the screens for an agent, with its own `agt_` credential and no login.
 
-    The session is `svc-agente`'s: read-only, 30 minutes, never renewed, and
+    The session is the agent's own: read-only, 30 minutes, never renewed, and
     limited by core/agent_session.py. Each agent is allowed in Settings, and
     every attempt, allowed or refused, reaches the access audit.
     """
@@ -197,17 +191,17 @@ async def open_agent_session(
         raise await refuse(status.HTTP_403_FORBIDDEN, "Agent principal is inactive", agent)
     if not agent.screen_access_enabled:
         raise await refuse(status.HTTP_403_FORBIDDEN, "Screen access is not enabled for this agent", agent)
-    user = (await db.execute(select(User).where(User.username == SERVICE_USERNAME))).scalar_one_or_none()
-    if user is None or not user.is_active:
+    user = await agent_as_user(db, agent.id)
+    if user is None:
         raise await refuse(status.HTTP_403_FORBIDDEN, "Agent access is disabled in this system", agent)
     audit_access(db, EVENT_OPENED, agent.id, agent.profile_slug or agent.name,
-                 credential_id=str(credential.id), user=SERVICE_USERNAME, **origin)
+                 credential_id=str(credential.id), **origin)
     await db.commit()
     from app.core.user_session import create_session
     from app.core.agent_session import AGENT_SESSION_MINUTES
     agent_payload = decode_access_token(create_agent_session_token(agent, credential.id))
     claims = {k: v for k, v in agent_payload.items() if k not in ("sub", "exp")}
-    token = await create_session(db, user, request, agent_name=agent.profile_slug or agent.name,
+    token = await create_session(db, user, request, agent_id=agent.id, agent_name=agent.profile_slug or agent.name,
                                  lifetime=timedelta(minutes=AGENT_SESSION_MINUTES), claims=claims)
     return TokenOut(
         access_token=token,

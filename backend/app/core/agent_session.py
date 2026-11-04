@@ -1,8 +1,9 @@
 """A browser session for an agent, opened with its own `agt_` credential.
 
 Agents need the screens, to test them and to write manuals, without a person's
-login. The credential comes from ForgeVault; what the session may see is the
-`svc-agente` user's profile, so access is controlled in Users and Profiles.
+login. The credential comes from ForgeVault and the agent itself is who holds
+the session: there is no shared service user. What it may see is the profile
+`AGENT_PROFILE`, so modules are controlled in Profiles and each agent in Settings.
 
 Most routes here only check that a token is valid, so a read-only profile alone
 would not stop writes. `agent_session_refusal` is the real boundary: read
@@ -24,11 +25,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import create_access_token
 from app.db.models.agent import Agent, AgentServiceCredential
 from app.db.models.governance import AuditEvent
+from app.db.models.profile import Profile
 from app.db.models.user import User
 
 AGENT_SESSION_PURPOSE = "agent_session"
 AGENT_SESSION_MINUTES = 30
-SERVICE_USERNAME = "svc-agente"
+AGENT_PROFILE = "Agente leitura"
 
 # Access audit, one entity type so the admin screen reads it with one query.
 AUDIT_ENTITY = "agent_screen_access"
@@ -61,9 +63,32 @@ def is_agent_session(payload: dict[str, Any] | None) -> bool:
     return bool(payload) and payload.get("purpose") == AGENT_SESSION_PURPOSE
 
 
+def agent_username(agent: Agent) -> str:
+    """How an agent reads as a session subject; `purpose`, not this text, marks the session."""
+    return f"agent:{agent.profile_slug or agent.name}"
+
+
+async def agent_as_user(db: AsyncSession, agent_id: Any) -> User | None:
+    """The agent in the shape routes expect from a user. Never added to the database.
+
+    None when the agent is gone or the profile was removed, which closes the door
+    for every agent at once.
+    """
+    try:
+        agent = await db.get(Agent, uuid.UUID(str(agent_id)))
+    except ValueError:
+        return None
+    profile_id = await db.scalar(select(Profile.id).where(Profile.name == AGENT_PROFILE))
+    if agent is None or profile_id is None:
+        return None
+    return User(id=agent.id, username=agent_username(agent), full_name=agent.name, is_active=True,
+                is_admin=False, totp_enabled=False, ui_language="pt-BR", profile_id=profile_id,
+                created_at=agent.created_at, updated_at=agent.updated_at)
+
+
 def create_agent_session_token(agent: Agent, credential_id: uuid.UUID) -> str:
     return create_access_token(
-        subject=SERVICE_USERNAME,
+        subject=agent_username(agent),
         expires_delta=timedelta(minutes=AGENT_SESSION_MINUTES),
         extra_claims={"purpose": AGENT_SESSION_PURPOSE, "agent": agent.profile_slug or agent.name,
                       "agent_id": str(agent.id), "credential_id": str(credential_id),
@@ -133,7 +158,7 @@ def agent_session_refusal(method: str, path: str) -> str | None:
 
 
 async def agent_session_is_live(db: AsyncSession, payload: dict[str, Any]) -> bool:
-    """Revoking the credential, turning the agent off or disabling `svc-agente` ends it at once."""
+    """Revoking the credential, turning the agent off or removing the profile ends it at once."""
     try:
         credential_id = uuid.UUID(str(payload.get("credential_id")))
     except ValueError:
@@ -146,5 +171,4 @@ async def agent_session_is_live(db: AsyncSession, payload: dict[str, Any]) -> bo
     agent = await db.get(Agent, credential.agent_id)
     if agent is None or not agent.is_active or agent.status != "active" or not agent.screen_access_enabled:
         return False
-    user = (await db.execute(select(User).where(User.username == SERVICE_USERNAME))).scalar_one_or_none()
-    return user is not None and user.is_active
+    return await db.scalar(select(Profile.id).where(Profile.name == AGENT_PROFILE)) is not None

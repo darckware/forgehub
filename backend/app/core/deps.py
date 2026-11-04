@@ -9,6 +9,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2Pas
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.agent_session import agent_as_user, is_agent_session
 from app.core.security import decode_access_token
 from app.db.base import get_db
 from app.db.models.user import User
@@ -130,6 +131,11 @@ async def get_current_user(
     username: str | None = payload.get("sub")
     if not username:
         raise credentials_exc
+    if is_agent_session(payload):
+        agent_user = await agent_as_user(db, payload.get("agent_id"))
+        if agent_user is None:
+            raise credentials_exc
+        return agent_user
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalar_one_or_none()
     if user is None or not user.is_active:

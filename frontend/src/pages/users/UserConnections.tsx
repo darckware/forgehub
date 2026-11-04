@@ -16,7 +16,7 @@ export default function UserConnections({ userId }: { userId: string }) {
     {query.isError && <p role="alert">{t("users.connections.error")}</p>}
     {query.data && active.length === 0 && <p className="text-sm text-muted-foreground">{t("users.connections.empty")}</p>}
     {active.map(row => <div key={row.id} className="rounded border p-3 text-sm space-y-1 break-words">
-      <div className="font-medium">{row.agent_name ? `svc-agente · ${row.agent_name}` : row.device_summary || t("users.connections.unknown")}{row.is_current && ` · ${t("users.connections.current")}`}</div>
+      <div className="font-medium">{row.agent_name || row.device_summary || t("users.connections.unknown")}{row.is_current && ` · ${t("users.connections.current")}`}</div>
       <div>{row.ip_address || "—"} · {row.user_agent || "—"}</div>
       <div>{t("users.connections.lastActivity")}: {new Date(row.last_activity_at).toLocaleString()}</div>
       <div>{t("users.connections.expires")}: {new Date(row.expires_at).toLocaleString()}</div>

@@ -5,12 +5,12 @@ import { apiClient } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import { AgentAccessCard } from "./AgentAccessCard";
 
-vi.mock("@/lib/api", () => ({ apiClient: { get: vi.fn(), put: vi.fn() } }));
+vi.mock("@/lib/api", () => ({ apiClient: { get: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: "pt-BR" } }),
 }));
 
-const agent = { id: "a1", name: "Scriba", slug: "scriba", enabled: false, has_credential: true, last_session_at: null };
+const agent = { id: "a1", name: "Scriba", slug: "scriba", enabled: false, has_credential: true, last_session_at: null, open_sessions: 0 };
 const denied = {
   id: "e1", agent: "scriba", event: "request_denied", occurred_at: "2026-11-04T00:00:00Z",
   details: { path: "/api/v1/personal/tasks", ip_address: "127.0.0.1" },
@@ -41,6 +41,16 @@ describe("AgentAccessCard", () => {
     fireEvent.click(await screen.findByRole("button", { name: "agentAccess.allow" }));
     await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith("/api/v1/agent-access/a1", { enabled: true }));
     expect(screen.getByText("/api/v1/personal/tasks")).toBeInTheDocument();
+  });
+
+  it("ends the open connections of an agent", async () => {
+    vi.mocked(apiClient.get).mockImplementation((url: string) =>
+      Promise.resolve(url.includes("audit") ? [] : [{ ...agent, enabled: true, open_sessions: 2 }]) as never,
+    );
+    vi.mocked(apiClient.delete).mockResolvedValue({} as never);
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "agentAccess.endSessions" }));
+    await waitFor(() => expect(apiClient.delete).toHaveBeenCalledWith("/api/v1/agent-access/a1/sessions"));
   });
 
   it("is hidden from non-admins", () => {
