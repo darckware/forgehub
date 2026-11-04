@@ -159,5 +159,42 @@
         "confirm": "Unlink offer"
       }
     }
+  },
+  "classification": {
+    "kind": "Type",
+    "sellable": "Available for sale",
+    "clientHint": "Client products cannot be made available for sale.",
+    "kinds": {
+      "software": "Software",
+      "service": "Service",
+      "infrastructure": "Infrastructure",
+      "client_it": "Client IT"
+    }
+  },
+  "serviceLines": {
+    "title": "Service lines",
+    "loadError": "Could not load service lines.",
+    "inactive": "Inactive",
+    "edit": "Edit",
+    "deactivate": "Deactivate",
+    "add": "New line",
+    "slug": "Slug",
+    "name": "Name",
+    "description": "Description",
+    "stages": "Stages",
+    "required_documents": "Required documents",
+    "evidence_types": "Evidence types",
+    "default_agents": "Default agents (profile slug)",
+    "sla_hours": "SLA in hours",
+    "darckware_contract_type": "Darckware contract type",
+    "client_visible": "Visible to clients",
+    "onePerLine": "One item per line.",
+    "invalid": "Invalid value.",
+    "saveError": "Could not save.",
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirmTitle": "Deactivate line",
+    "confirmDescription": "Deactivate {{name}}?",
+    "deactivateError": "Could not deactivate; this line may have projects."
   }
 }

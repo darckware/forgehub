@@ -256,3 +256,5 @@ The Cockpit (`/cockpit`) is grouped by that same tree and **carries the registra
 ## UI library governance
 
 Canonical UI stack is shadcn/ui + Radix + Tailwind (+ Framer Motion when justified). Any other UI library is "complementary": adopting one requires checking license, accessibility, bundle impact, maintenance, and security, and an ADR is required if it replaces the canonical stack, introduces a parallel design system, or is premium/commercial in production. Full policy: `docs/SPEC.md` §7.
+
+Service Factory: `service_lines` is the catalog of service workflows, evidence and default agents; each project references a service line while preserving its legacy `project_type`. Products carry a `kind` (`software`, `service`, `infrastructure`, or `client_it`) and a `sellable` marker; client-linked products cannot be marked sellable.

@@ -1,3 +1,4 @@
+from app.db.models.service_line import ServiceLine  # noqa: F401
 # domain model modules are imported here by the wiring step
 from app.db.models.product import Product, ProductModule, ProductVersion, Release  # noqa: F401
 from app.db.models.project import (  # noqa: F401

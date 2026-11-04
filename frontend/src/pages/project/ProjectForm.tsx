@@ -41,6 +41,7 @@ export function ProjectForm({
     watch,
     formState: { errors },
     products,
+    serviceLines,
     isLoadingProducts,
     selectedProductId,
     handleProductChange,
@@ -52,7 +53,7 @@ export function ProjectForm({
   } = useProjectFormViewModel(defaultValues);
 
   return (
-    <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form noValidate onSubmit={handleSubmit((values) => onSubmit({ ...values, service_line_id: values.service_line_id || undefined }))} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="name">{t("form.nameLabel")}</Label>
         <Input id="name" placeholder={t("form.namePlaceholder")} {...register("name")} />
@@ -69,6 +70,14 @@ export function ProjectForm({
         {errors.description && (
           <p className="text-sm text-destructive">{errors.description.message}</p>
         )}
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="service_line_id">{t("form.serviceLine")}</Label>
+        <Select id="service_line_id" {...register("service_line_id")}>
+          <option value="">{t("form.defaultServiceLine")}</option>
+          {serviceLines?.filter((line) => line.is_active).map((line) => <option key={line.id} value={line.id}>{line.name}</option>)}
+        </Select>
       </div>
 
       <div className="grid grid-cols-2 gap-4">

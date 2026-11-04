@@ -1017,6 +1017,11 @@ async def client_factory(
 
 
 async def _link_product(db: AsyncSession, product: Product, client_id: uuid.UUID, company_name: str | None) -> None:
+    if product.sellable:
+        raise dw.client_ops_error(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "sellable_product",
+            "A sellable product cannot be linked to a client",
+        )
     if product.darckware_client_id not in (None, client_id):
         raise dw.client_ops_error(
             status.HTTP_409_CONFLICT,

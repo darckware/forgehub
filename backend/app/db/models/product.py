@@ -30,7 +30,7 @@ foundation convention.
 """
 import uuid
 
-from sqlalchemy import CheckConstraint, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, String, Text, UniqueConstraint, false
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -44,6 +44,8 @@ PRODUCT_VERSION_STATUSES = ("planned", "in_development", "in_test", "published",
 # Allowed values for Release.status.
 RELEASE_STATUSES = ("draft", "ready", "released", "cancelled")
 
+PRODUCT_KINDS = ("software", "service", "infrastructure", "client_it")
+
 # Allowed values for Product.status.
 PRODUCT_STATUSES = ("concept", "active", "inactive", "archived")
 
@@ -52,9 +54,12 @@ class Product(Base, TimestampMixin):
     __tablename__ = "products"
     __table_args__ = (
         CheckConstraint(f"status IN {PRODUCT_STATUSES!r}", name="ck_products_status"),
+        CheckConstraint(f"kind IN {PRODUCT_KINDS!r}", name="ck_products_kind"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False, default="software", server_default="software")
+    sellable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="active", server_default="active")

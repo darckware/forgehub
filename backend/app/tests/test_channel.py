@@ -65,8 +65,8 @@ async def db_schema():
 
         result = await session.execute(
             text(
-                "INSERT INTO company.projects (id, name, product_version_id, status) "
-                "VALUES (gen_random_uuid(), :name, :product_version_id, 'planned') RETURNING id"
+                "INSERT INTO company.projects (id, name, product_version_id, status, service_line_id) "
+                "VALUES (gen_random_uuid(), :name, :product_version_id, 'planned', (SELECT id FROM company.service_lines WHERE slug = 'software')) RETURNING id"
             ),
             {"name": f"Channel Test Project {uuid.uuid4()}", "product_version_id": _STUB_PRODUCT_VERSION_ID},
         )

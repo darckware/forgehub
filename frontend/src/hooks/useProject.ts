@@ -212,6 +212,8 @@ export const changeRequestUpdateSchema = z.object({
 export type ChangeRequestUpdateInput = z.infer<typeof changeRequestUpdateSchema>;
 
 export const projectSchema = z.object({
+  service_line_id: z.string().optional(),
+  service_line_name: z.string().optional(),
   id: z.string(),
   name: z.string().min(1, "Name is required"),
   description: z.string().nullable().optional(),
@@ -239,6 +241,7 @@ export type Project = z.infer<typeof projectSchema>;
 
 // Payload schemas (what the create/edit form submits).
 export const projectCreateSchema = z.object({
+  service_line_id: z.string().optional(),
   name: z.string().min(1, "Name is required").max(200, "Name is too long"),
   description: z.string().max(2000, "Description is too long").optional().or(z.literal("")),
   product_version_id: z.string().min(1, "Product version is required"),

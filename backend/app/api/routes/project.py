@@ -45,6 +45,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models.service_line import ServiceLine
 from app.db.models.backlog import PlanningItem
 from app.db.models.product import Product, ProductVersion
 from app.db.models.task import ProjectTask, TaskExecution
@@ -144,7 +145,7 @@ def _assert_node_not_locked(node: ProjectStructureNode) -> None:
 async def create_project(payload: ProjectCreate, db: AsyncSession = Depends(get_db)) -> Project:
     project = await build_project(db, payload)
     await db.commit()
-    await db.refresh(project)
+    await db.refresh(project, attribute_names=["service_line"])
     return project
 
 
@@ -156,7 +157,12 @@ async def build_project(db: AsyncSession, payload: ProjectCreate, project_type: 
     'mission' (missions have their own route)."""
     if project_type == "mission":
         raise ValueError("missions are created by POST /api/v1/missions")
-    project = Project(**payload.model_dump())
+    values = payload.model_dump(exclude_none=True)
+    if values.get("service_line_id") is not None:
+        line = await db.get(ServiceLine, values["service_line_id"])
+        if line is None or not line.is_active:
+            raise HTTPException(422, "Service line not found or inactive")
+    project = Project(**values)
     if project_type is not None:
         project.project_type = project_type
     if project.darckware_client_id is None:
@@ -191,6 +197,10 @@ async def update_project(
 ) -> Project:
     project = await _get_project_or_404(db, project_id)
     data = payload.model_dump(exclude_unset=True)
+    if "service_line_id" in data:
+        line = await db.get(ServiceLine, data["service_line_id"]) if data["service_line_id"] else None
+        if line is None or not line.is_active:
+            raise HTTPException(422, "Service line not found or inactive")
     # project_type is never patchable: ignored for a common project (as
     # before it was in the schema), refused for a mission, whose status is a
     # projection of its state machine (M0.0, mission spec §3 rule 2).

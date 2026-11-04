@@ -67,6 +67,7 @@ from app.api.routes import (
     prompt_commands,
     prompt_techniques,
     product,
+    service_line,
     profiles,
     project,
     remote_access,
@@ -411,6 +412,7 @@ app.include_router(totp.router)
 # DOMAIN ROUTERS -- added by wiring step
 # ---------------------------------------------------------------------------
 app.include_router(product.router)
+app.include_router(service_line.router)
 app.include_router(project.router)
 app.include_router(pipeline.router)
 app.include_router(progress.router)

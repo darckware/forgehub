@@ -35,7 +35,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy import delete, or_, select
 
 from app.core.config import settings
-from app.db.models.product import PRODUCT_STATUSES as VALID_PRODUCT_STATUSES
+from app.db.models.product import PRODUCT_KINDS, PRODUCT_STATUSES as VALID_PRODUCT_STATUSES
 from app.api.schemas.product import (
     ProductCreate,
     ProductModuleCreate,
@@ -101,6 +101,13 @@ async def _get_version_or_404(db: AsyncSession, version_id: uuid.UUID) -> Produc
 # ---------------------------------------------------------------------------
 
 
+def _validate_product_classification(kind, sellable, client_id):
+    if kind not in PRODUCT_KINDS or sellable is None:
+        raise HTTPException(status_code=422, detail="Invalid product kind or sellable value")
+    if sellable and client_id is not None:
+        raise HTTPException(status_code=422, detail="A client product cannot be sellable")
+
+
 @router.post("", response_model=ProductWithVersionsOut, status_code=status.HTTP_201_CREATED)
 async def create_product(payload: ProductCreate, db: AsyncSession = Depends(get_db)) -> Product:
     if payload.status not in VALID_PRODUCT_STATUSES:
@@ -108,7 +115,9 @@ async def create_product(payload: ProductCreate, db: AsyncSession = Depends(get_
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid product status '{payload.status}'",
         )
+    _validate_product_classification(payload.kind, payload.sellable, payload.darckware_client_id)
     product = Product(
+        kind=payload.kind, sellable=payload.sellable,
         name=payload.name,
         description=payload.description,
         status=payload.status,
@@ -176,6 +185,10 @@ async def update_product(
     product = await _get_product_or_404(db, product_id)
 
     update_data = payload.model_dump(exclude_unset=True)
+    _validate_product_classification(
+        update_data.get("kind", product.kind), update_data.get("sellable", product.sellable),
+        update_data.get("darckware_client_id", product.darckware_client_id),
+    )
     for field, value in update_data.items():
         setattr(product, field, value)
 

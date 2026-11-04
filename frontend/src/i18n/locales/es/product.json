@@ -159,5 +159,42 @@
         "confirm": "Desvincular oferta"
       }
     }
+  },
+  "classification": {
+    "kind": "Tipo",
+    "sellable": "Disponible para la venta",
+    "clientHint": "Los productos de clientes no pueden ponerse a la venta.",
+    "kinds": {
+      "software": "Software",
+      "service": "Servicio",
+      "infrastructure": "Infraestructura",
+      "client_it": "TI del cliente"
+    }
+  },
+  "serviceLines": {
+    "title": "Líneas de servicio",
+    "loadError": "No se pudieron cargar las líneas.",
+    "inactive": "Inactiva",
+    "edit": "Editar",
+    "deactivate": "Desactivar",
+    "add": "Nueva línea",
+    "slug": "Slug",
+    "name": "Nombre",
+    "description": "Descripción",
+    "stages": "Etapas",
+    "required_documents": "Documentos obligatorios",
+    "evidence_types": "Tipos de evidencia",
+    "default_agents": "Agentes predeterminados (profile slug)",
+    "sla_hours": "SLA en horas",
+    "darckware_contract_type": "Tipo de contrato Darckware",
+    "client_visible": "Visible para clientes",
+    "onePerLine": "Un elemento por línea.",
+    "invalid": "Valor no válido.",
+    "saveError": "No se pudo guardar.",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "confirmTitle": "Desactivar línea",
+    "confirmDescription": "¿Desactivar {{name}}?",
+    "deactivateError": "No se pudo desactivar; la línea puede tener proyectos."
   }
 }

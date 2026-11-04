@@ -31,6 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AgentTelemetryPanel } from "@/components/AgentTelemetryPanel";
 import { useProducts } from "@/hooks/useProduct";
+import { useServiceLines } from "@/hooks/useServiceLines";
 import { useProjects, useDeleteProject, type Project } from "@/hooks/useProject";
 import { useDarckwareClients } from "@/hooks/useClientOps";
 import { usePlanningItems } from "@/hooks/useBacklog";
@@ -303,7 +304,7 @@ function ProjectProgressList({ cockpit }: { cockpit: Cockpit | undefined }) {
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        v{project.version_number} · {project.version_status}
+                        {project.service_line_name && <>{project.service_line_name} · </>}v{project.version_number} · {project.version_status}
                         {project.pipeline_name && (
                           <> · {t("project.pipeline")}: {project.pipeline_name}{project.pipeline_template_name && ` (${project.pipeline_template_name})`}</>
                         )}
@@ -355,6 +356,8 @@ export default function CockpitPage() {
   const { data: tasks } = useTasks();
   const { data: agentTelemetry } = useAgentTelemetry();
   const { data: cockpit } = useCockpit();
+  const { data: serviceLines } = useServiceLines();
+  const softwareLineId = serviceLines?.find((line) => line.slug === "software")?.id;
   const { data: clientsData } = useDarckwareClients();
   const clientList = clientsData?.items ?? [];
   const deleteProject = useDeleteProject();
@@ -443,12 +446,12 @@ export default function CockpitPage() {
     const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
     productProjects.forEach((proj) => {
       const evo = projectEvolutionMap.get(proj.id);
-      if (evo && evo.currentPhaseId in counts) {
+      if ((!proj.service_line_id || proj.service_line_id === softwareLineId) && evo && evo.currentPhaseId in counts) {
         counts[evo.currentPhaseId]++;
       }
     });
     return counts;
-  }, [productProjects, projectEvolutionMap]);
+  }, [productProjects, projectEvolutionMap, softwareLineId]);
 
   // Filter projects by active phase
   const selectedPhase = FACTORY_PHASES.find((p) => p.id === selectedPhaseId);
@@ -457,9 +460,9 @@ export default function CockpitPage() {
     if (!selectedPhaseId) return productProjects;
     return productProjects.filter((proj) => {
       const evo = projectEvolutionMap.get(proj.id);
-      return evo?.currentPhaseId === selectedPhaseId;
+      return (!proj.service_line_id || proj.service_line_id === softwareLineId) && evo?.currentPhaseId === selectedPhaseId;
     });
-  }, [productProjects, selectedPhaseId, projectEvolutionMap]);
+  }, [productProjects, selectedPhaseId, projectEvolutionMap, softwareLineId]);
 
   return (
     <div className="space-y-6 md:p-6">
@@ -730,7 +733,7 @@ export default function CockpitPage() {
                                 )}
                               </div>
                               <p className="text-[11px] text-muted-foreground mt-0.5">
-                                {proj.solution_type ? t(`conception:projectPlanning.solutionTypes.${proj.solution_type}`, proj.solution_type) : t("project.application")}
+                                {proj.service_line_name && <>{proj.service_line_name} · </>}{proj.solution_type ? t(`conception:projectPlanning.solutionTypes.${proj.solution_type}`, proj.solution_type) : t("project.application")}
                               </p>
                               {proj.project_type === "mission" && (
                                 <Link
@@ -773,12 +776,12 @@ export default function CockpitPage() {
                           </div>
 
                           {/* Fase Atual Automática da Esteira */}
-                          <div className="flex items-center justify-between text-[11px] bg-muted/40 px-2 py-1 rounded">
+                          {(!proj.service_line_id || proj.service_line_id === softwareLineId) && <div className="flex items-center justify-between text-[11px] bg-muted/40 px-2 py-1 rounded">
                             <span className="text-muted-foreground">{t("project.currentPhase")}</span>
                             <span className="font-semibold text-primary">
                               {t(`phases.${phaseConfig.key}.name`)}
                             </span>
-                          </div>
+                          </div>}
 
                           {/* Data/Hora de Inicialização */}
                           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground pt-1 border-t">

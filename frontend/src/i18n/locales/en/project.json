@@ -164,6 +164,8 @@
     "openChannel": "Open channel"
   },
   "form": {
+    "serviceLine": "Service line",
+    "defaultServiceLine": "Default for project type",
     "nameLabel": "Name",
     "namePlaceholder": "ForgeHub — Foundation MVP",
     "descriptionLabel": "Description",

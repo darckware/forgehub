@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ServiceLinesCard } from "./ServiceLinesCard";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, Check, Loader2, Save, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -391,6 +392,8 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <ServiceLinesCard />
 
       {updateConfig.isError && (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">

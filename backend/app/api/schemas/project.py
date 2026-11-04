@@ -51,10 +51,11 @@ class ProjectBase(BaseModel):
 
 
 class ProjectCreate(ProjectBase):
-    pass
+    service_line_id: uuid.UUID | None = None
 
 
 class ProjectUpdate(BaseModel):
+    service_line_id: uuid.UUID | None = None
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
     owner: str | None = None
@@ -81,6 +82,8 @@ class ProjectUpdate(BaseModel):
 
 
 class ProjectOut(ProjectBase):
+    service_line_id: uuid.UUID
+    service_line_name: str
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
