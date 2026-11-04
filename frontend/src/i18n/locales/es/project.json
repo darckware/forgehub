@@ -164,6 +164,8 @@
     "openChannel": "Abrir canal"
   },
   "form": {
+    "serviceLine": "Línea de servicio",
+    "defaultServiceLine": "Predeterminada para el tipo de proyecto",
     "nameLabel": "Nombre",
     "namePlaceholder": "ForgeHub — Fundación MVP",
     "descriptionLabel": "Descripción",

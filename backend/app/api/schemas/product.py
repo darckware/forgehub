@@ -77,6 +77,8 @@ class ProductVersionOut(BaseModel):
 
 
 class ProductCreate(BaseModel):
+    kind: str = "software"
+    sellable: bool = False
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     status: str = Field(default="active")
@@ -95,6 +97,8 @@ class ProductCreate(BaseModel):
 
 
 class ProductUpdate(BaseModel):
+    kind: str | None = None
+    sellable: bool | None = None
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     status: str | None = None
@@ -105,6 +109,8 @@ class ProductUpdate(BaseModel):
 
 
 class ProductOut(BaseModel):
+    kind: str
+    sellable: bool
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID

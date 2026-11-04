@@ -316,3 +316,34 @@ async def test_publish_version_blocks_on_unfinished_tasks(client: AsyncClient):
             await db.execute(delete(Project).where(Project.id.in_([project_id, sibling_id])))
             await db.commit()
         await _cleanup_product(product_id)
+
+
+@pytest.mark.asyncio
+async def test_product_kind_and_sellable_client_invariant(client: AsyncClient):
+    client_id = str(uuid.uuid4())
+    response = await client.post('/api/v1/products', json={
+        'name': f'Sellable {uuid.uuid4()}', 'kind': 'service', 'sellable': True,
+    })
+    assert response.status_code == 201, response.text
+    product_id = uuid.UUID(response.json()['id'])
+    try:
+        assert response.json()['kind'] == 'service'
+        assert response.json()['sellable'] is True
+        assert (await client.put(f'/api/v1/products/{product_id}', json={
+            'darckware_client_id': client_id,
+        })).status_code == 422
+        assert (await client.put(f'/api/v1/products/{product_id}', json={
+            'sellable': False, 'darckware_client_id': client_id,
+        })).status_code == 200
+        assert (await client.put(f'/api/v1/products/{product_id}', json={
+            'sellable': True,
+        })).status_code == 422
+        assert (await client.put(f'/api/v1/products/{product_id}', json={
+            'kind': 'invalid',
+        })).status_code == 422
+        assert (await client.post('/api/v1/products', json={
+            'name': f'Invalid {uuid.uuid4()}', 'sellable': True,
+            'darckware_client_id': client_id,
+        })).status_code == 422
+    finally:
+        await _cleanup_product(product_id)

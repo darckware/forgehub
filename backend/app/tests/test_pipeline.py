@@ -123,8 +123,8 @@ async def project_id():
     async with engine.begin() as conn:
         await conn.execute(
             text(
-                "INSERT INTO company.projects (id, name, product_version_id, status) "
-                "VALUES (:id, :name, :product_version_id, 'planned')"
+                "INSERT INTO company.projects (id, name, product_version_id, status, service_line_id) "
+                "VALUES (:id, :name, :product_version_id, 'planned', (SELECT id FROM company.service_lines WHERE slug = 'software'))"
             ),
             {"id": new_id, "name": f"pipeline-test-{new_id}", "product_version_id": version_id},
         )

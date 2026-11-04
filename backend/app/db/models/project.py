@@ -37,7 +37,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
 
@@ -90,6 +90,16 @@ STRUCTURE_NODE_TYPES = (
 )
 
 
+def _default_service_line(context):
+    """Resolve the legacy project type for direct ORM callers as well as routes."""
+    from sqlalchemy import text
+    project_type = context.get_current_parameters().get("project_type")
+    slug = {"maintenance": "sustentacao", "mission": "missoes"}.get(project_type, "software")
+    return context.connection.execute(
+        text("SELECT id FROM company.service_lines WHERE slug = :slug"), {"slug": slug}
+    ).scalar_one()
+
+
 class Project(Base, TimestampMixin):
     """A bounded initiative associated with a product version.
 
@@ -113,6 +123,15 @@ class Project(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+
+    service_line_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.service_lines.id"), nullable=False, default=_default_service_line
+    )
+    service_line = relationship("ServiceLine", lazy="selectin")
+
+    @property
+    def service_line_name(self) -> str:
+        return self.service_line.name
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)

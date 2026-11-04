@@ -40,6 +40,8 @@ export const phaseStatusSchema = z.object({
 export type PhaseStatus = z.infer<typeof phaseStatusSchema>;
 
 export const projectCockpitRowSchema = z.object({
+  service_line_id: z.string().optional(),
+  service_line_name: z.string().optional(),
   project_id: z.string(),
   project_name: z.string(),
   project_status: z.string(),

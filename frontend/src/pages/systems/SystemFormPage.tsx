@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
+import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
   Building2,
@@ -26,6 +27,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { WorkingDirPicker } from "@/components/WorkingDirPicker";
 import { useDarckwareClients } from "@/hooks/useClientOps";
 import {
+  PRODUCT_KINDS,
   useProducts,
   useCreateProduct,
   useUpdateProduct,
@@ -45,6 +47,8 @@ import { useQueryClient } from "@tanstack/react-query";
 export interface SystemFormData {
   name: string;
   description: string;
+  kind: typeof PRODUCT_KINDS[number];
+  sellable: boolean;
   solution_type: ProjectSolutionType;
   darckware_client_id: string;
   working_directory_path: string;
@@ -57,6 +61,7 @@ export interface SystemFormData {
 }
 
 export default function SystemFormPage() {
+  const { t } = useTranslation("product");
   const { id } = useParams<{ id?: string }>();
   const isEdit = Boolean(id);
   const navigate = useNavigate();
@@ -102,6 +107,8 @@ export default function SystemFormPage() {
     defaultValues: {
       name: "",
       description: "",
+      kind: "software",
+      sellable: false,
       solution_type: "web_app",
       darckware_client_id: "",
       working_directory_path: "",
@@ -122,6 +129,8 @@ export default function SystemFormPage() {
     if (isEdit && (editingProject || associatedProduct)) {
       reset({
         name: editingProject?.name ?? associatedProduct?.name ?? "",
+        kind: associatedProduct?.kind ?? "software",
+        sellable: associatedProduct?.sellable ?? false,
         description:
           editingProject?.description ?? associatedProduct?.description ?? "",
         solution_type:
@@ -168,6 +177,8 @@ export default function SystemFormPage() {
             id: associatedProduct.id,
             payload: {
               name: values.name,
+              kind: values.kind,
+              sellable: clientId ? false : values.sellable,
               description: values.description,
               application_url: values.application_url || null,
               application_url_dev: values.application_url_dev || null,
@@ -181,6 +192,8 @@ export default function SystemFormPage() {
         const initialVersionStr = values.initial_version?.trim();
 
         const productPayload: ProductInput = {
+          kind: values.kind,
+          sellable: clientId ? false : values.sellable,
           name: values.name,
           description: values.description,
           status: "active",
@@ -414,6 +427,18 @@ export default function SystemFormPage() {
                   ))}
                 </Select>
               </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="product-kind">{t("classification.kind")}</Label>
+                <Select id="product-kind" {...register("kind")}>
+                  {PRODUCT_KINDS.map((kind) => <option key={kind} value={kind}>{t(`classification.kinds.${kind}`)}</option>)}
+                </Select>
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" {...register("sellable")} disabled={Boolean(selectedClientId)} />
+                {t("classification.sellable")}
+              </label>
+              {selectedClientId && <p className="text-xs text-muted-foreground">{t("classification.clientHint")}</p>}
 
               <div className="flex items-center gap-2 rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
                 {selectedClientId ? (

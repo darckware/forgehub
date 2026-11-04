@@ -37,7 +37,11 @@ export const releaseSchema = z.object({
 
 export type Release = z.infer<typeof releaseSchema>;
 
+export const PRODUCT_KINDS = ["software", "service", "infrastructure", "client_it"] as const;
+
 export const productSchema = z.object({
+  kind: z.enum(PRODUCT_KINDS).default("software"),
+  sellable: z.boolean().default(false),
   id: z.string(),
   name: z.string(),
   description: z.string().nullable().optional(),
@@ -63,6 +67,8 @@ export type InitialProductVersion = z.infer<typeof initialProductVersionSchema>;
 
 /** Payload shape for create/update -- server assigns id and timestamps. */
 export const productInputSchema = z.object({
+  kind: z.enum(PRODUCT_KINDS).optional(),
+  sellable: z.boolean().optional(),
   name: z.string().min(1, "Name is required").max(200),
   description: z.string().max(2000).optional().or(z.literal("")),
   status: z.enum(["active", "inactive", "archived"]).default("active"),

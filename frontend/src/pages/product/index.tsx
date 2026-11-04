@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { useForm } from "react-hook-form";
+import { useForm, type UseFormRegister } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, Plus, Loader2, PackageSearch, Trash2, Pencil, Download, Upload, Database, FolderOpen, Building2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { PageHeader } from "@/components/PageHeader";
 import { cn } from "@/lib/utils";
 import {
+  PRODUCT_KINDS,
   useProducts,
   useCreateProduct,
   useDeleteProduct,
@@ -41,6 +42,25 @@ import {
 import { useDarckwareClients, type DarckwareClient } from "@/hooks/useClientOps";
 import { apiClient } from "@/lib/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+
+export function ProductClassification({ register, clientId, prefix }: {
+  register: UseFormRegister<ProductInput>; clientId?: string | null; prefix: string;
+}) {
+  const { t } = useTranslation("product");
+  return <div className="space-y-3">
+    <div className="space-y-2">
+      <Label htmlFor={`${prefix}-kind`}>{t("classification.kind")}</Label>
+      <Select id={`${prefix}-kind`} {...register("kind")}>
+        {PRODUCT_KINDS.map((kind) => <option key={kind} value={kind}>{t(`classification.kinds.${kind}`)}</option>)}
+      </Select>
+    </div>
+    <label className="flex items-center gap-2 text-sm">
+      <input type="checkbox" {...register("sellable")} disabled={Boolean(clientId)} />
+      {t("classification.sellable")}
+    </label>
+    {clientId && <p className="text-xs text-muted-foreground">{t("classification.clientHint")}</p>}
+  </div>;
+}
 
 const statusBadgeVariant: Record<string, "success" | "secondary" | "outline"> = {
   concept: "secondary",
@@ -72,9 +92,11 @@ function EditProductForm({ product, clients, onClose }: EditFormProps) {
     },
   });
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<ProductInput>({
+  const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<ProductInput>({
     resolver: zodResolver(productInputSchema),
     defaultValues: {
+      kind: product.kind ?? "software",
+      sellable: product.sellable ?? false,
       name: product.name,
       description: product.description ?? "",
       status: (product.status as "active" | "inactive" | "archived") ?? "active",
@@ -92,6 +114,7 @@ function EditProductForm({ product, clients, onClose }: EditFormProps) {
           const selectedClient = clients?.find((c) => c.id === v.darckware_client_id);
           update.mutate({
             ...v,
+            sellable: v.darckware_client_id ? false : v.sellable,
             // "" limpa a URL: o backend precisa de null, não de string vazia
             // (o pattern ^https?:// rejeitaria "").
             application_url: v.application_url || null,
@@ -127,6 +150,7 @@ function EditProductForm({ product, clients, onClose }: EditFormProps) {
             </Select>
             <p className="text-xs text-muted-foreground">{t("editRow.clientHint")}</p>
           </div>
+          <ProductClassification register={register} clientId={watch("darckware_client_id")} prefix="edit" />
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="edit-url-dev">{t("editRow.urlDevLabel")}</Label>
@@ -261,11 +285,13 @@ export default function ProductPage() {
   const pendingDeleteProduct = products?.find((p) => p.id === pendingDeleteId);
   const editingProduct = products?.find((p) => p.id === editingId);
 
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<ProductInput>({
+  const { register, handleSubmit, reset, watch, formState: { errors, isSubmitting } } = useForm<ProductInput>({
     resolver: zodResolver(productInputSchema),
     defaultValues: {
       name: "",
       description: "",
+      kind: "software",
+      sellable: false,
       status: "active",
       application_url: "",
       application_url_dev: "",
@@ -284,6 +310,7 @@ export default function ProductPage() {
 
     const payload: ProductInput = {
       ...values,
+      sellable: values.darckware_client_id ? false : values.sellable,
       application_url: values.application_url || undefined,
       application_url_dev: values.application_url_dev || undefined,
       darckware_client_id: values.darckware_client_id || undefined,
@@ -449,6 +476,8 @@ export default function ProductPage() {
                   </Select>
                   <p className="text-xs text-muted-foreground">{t("list.createForm.clientHint")}</p>
                 </div>
+
+                <ProductClassification register={register} clientId={watch("darckware_client_id")} prefix="create" />
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { projectCreateSchema, type ProjectCreateInput } from "@/hooks/useProject";
+import { useServiceLines } from "@/hooks/useServiceLines";
 import { useProducts, useProductVersion, useProductVersions } from "@/hooks/useProduct";
 
 /** ViewModel Hook for ProjectForm.tsx -- Wave 5 of `docs/architecture/
@@ -15,6 +16,7 @@ import { useProducts, useProductVersion, useProductVersions } from "@/hooks/useP
  * backup-location slug preview. The View renders this hook's fields and
  * owns no state of its own. */
 export function useProjectFormViewModel(defaultValues?: Partial<ProjectCreateInput>) {
+  const { data: serviceLines } = useServiceLines();
   const { data: products, isLoading: isLoadingProducts } = useProducts();
   const form = useForm<ProjectCreateInput>({
     resolver: zodResolver(projectCreateSchema),
@@ -66,6 +68,7 @@ export function useProjectFormViewModel(defaultValues?: Partial<ProjectCreateInp
   return {
     ...form,
     products,
+    serviceLines,
     isLoadingProducts,
     selectedProductId,
     handleProductChange,
