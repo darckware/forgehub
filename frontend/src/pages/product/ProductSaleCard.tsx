@@ -25,7 +25,7 @@ export function ProductSaleCard({ productId, offeredForSaleAt }: ProductSaleCard
           <CardTitle>{t("sale.title")}</CardTitle>
           <CardDescription>{t(offered ? "sale.offeredHint" : "sale.hint")}</CardDescription>
         </div>
-        <Badge variant={offered ? "default" : "secondary"}>{t(offered ? "sale.offered" : "sale.notOffered")}</Badge>
+        <Badge className="max-sm:self-start" variant={offered ? "default" : "secondary"}>{t(offered ? "sale.offered" : "sale.notOffered")}</Badge>
       </CardHeader>
       <CardContent className="space-y-3">
         <Button
