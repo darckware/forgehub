@@ -24,8 +24,10 @@ from app.core.agent_session import (
     EVENT_REQUEST_DENIED,
     agent_session_is_live,
     agent_session_refusal,
+    area_of,
     audit_access,
-    first_read_of_area,
+    audit_path,
+    first_time,
     is_agent_session,
     request_origin,
 )
@@ -404,14 +406,16 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
                 if not await agent_session_is_live(db, payload):
                     return JSONResponse({"detail": "Not authenticated"}, status_code=401)
                 refusal = agent_session_refusal(request.method, path)
+                session_id = payload.get("session_id") or ""
                 if refusal:
-                    audit_access(db, EVENT_REQUEST_DENIED, agent_id, actor, method=request.method,
-                                 path=path, reason=refusal, **origin)
-                    await db.commit()
+                    if first_time(session_id, f"denied:{request.method}:{path}"):
+                        audit_access(db, EVENT_REQUEST_DENIED, agent_id, actor, method=request.method,
+                                     path=audit_path(path), reason=refusal, **origin)
+                        await db.commit()
                     return JSONResponse({"detail": refusal}, status_code=403)
-                area = first_read_of_area(payload.get("session_id") or "", path)
-                if area:
-                    audit_access(db, EVENT_AREA_READ, agent_id, actor, area=area, path=path, **origin)
+                area = area_of(path)
+                if first_time(session_id, f"area:{area}"):
+                    audit_access(db, EVENT_AREA_READ, agent_id, actor, area=area, path=audit_path(path), **origin)
                     await db.commit()
         return await call_next(request)
 

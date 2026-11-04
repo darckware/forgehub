@@ -91,6 +91,12 @@ async def login_for_access_token(
             detail="reCAPTCHA verification failed",
         )
 
+    if form_data.username == SERVICE_USERNAME:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     result = await db.execute(select(User).where(User.username == form_data.username))
     user: User | None = result.scalar_one_or_none()
 
