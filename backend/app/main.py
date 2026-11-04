@@ -393,7 +393,7 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
                 return await call_next(request)
         payload = decode_access_token(token) if token else None
-        if payload is None:
+        if payload is None or payload.get("purpose") == "totp_pending":
             return JSONResponse({"detail": "Not authenticated"}, status_code=401)
         if "sid" in payload:
             from app.db.base import AsyncSessionLocal

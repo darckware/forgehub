@@ -125,6 +125,8 @@ async def test_totp_setup_and_flow(client: AsyncClient, monkeypatch):
         assert login_res["requires_totp"] is True
         pending_token = login_res["totp_pending_token"]
         assert pending_token is not None
+        protected = await client.get("/api/v1/products", headers={"Authorization": f"Bearer {pending_token}"})
+        assert protected.status_code == 401
 
         # 5. Verify step with invalid code
         resp = await client.post(
