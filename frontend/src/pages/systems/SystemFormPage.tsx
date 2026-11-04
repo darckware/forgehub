@@ -241,7 +241,7 @@ export default function SystemFormPage() {
           <p>
             {isEdit
               ? "Atualize as configurações de engenharia, ciclo de vida e vínculos comerciais deste sistema."
-              : "Defina a identidade, arquitetura, diretório no host e cliente associado para o novo sistema na Software Factory."}
+              : "Defina a identidade, arquitetura, diretório no host e cliente associado para o novo sistema na Service Factory."}
           </p>
         }
         actions={

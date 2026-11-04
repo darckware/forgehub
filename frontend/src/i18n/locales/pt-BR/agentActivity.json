@@ -65,7 +65,7 @@
     "noTask": "Sem tarefa atual",
     "messageRecords": "Registros de Messages",
     "openMessage": "Abrir mensagem de {{from}} para {{to}}: {{subject}}",
-    "openFactoryContext": "Abrir contexto da Software Factory: {{context}}",
+    "openFactoryContext": "Abrir contexto da Service Factory: {{context}}",
     "conception": "Concepção",
     "project": "Projeto",
     "unknownAgent": "Agente desconhecido",
