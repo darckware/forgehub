@@ -113,6 +113,9 @@ async def test_session_reads_but_never_writes(client, credential):
     "/api/v1/agent-activity", "/api/v1/agent-activity/stream", "/api/v1/notifications",
     f"/api/v1/agents/{uuid.uuid4()}/telegram/messages", f"/api/v1/agents/{uuid.uuid4()}/profile-files",
     f"/api/v1/projects/{uuid.uuid4()}/files", f"/api/v1/projects/{uuid.uuid4()}/files/content",
+    f"/api/v1/projects/{uuid.uuid4()}/forgerouter",
+    f"/api/v1/projects/{uuid.uuid4()}/mcp-servers", f"/api/v1/projects/{uuid.uuid4()}/mcp-servers/live",
+    f"/api/v1/products/{uuid.uuid4()}/backup", "/api/v1//personal/tasks", "/api/v1/personal/",
 ])
 @pytest.mark.asyncio
 async def test_private_areas_are_closed(client, credential, path):

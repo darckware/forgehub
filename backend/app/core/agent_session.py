@@ -49,7 +49,8 @@ _ALLOWED_AREAS = frozenset({
     "triage-decisions", "version-scope-items",
 })
 _CLOSED_SEGMENTS = frozenset({
-    "attachments", "content", "download", "file", "files", "memory", "messages", "stream",
+    "attachments", "backup", "content", "download", "file", "files", "forgerouter", "mcp-servers", "memory",
+    "messages", "stream",
 })
 _AGENT_ROSTER = re.compile(r"^agents(/[0-9a-f-]{36})?$")
 _SECRET_LOOKING = re.compile(r"agt_[A-Za-z0-9_-]+|[A-Za-z0-9_-]{40,}")
