@@ -2394,6 +2394,8 @@ class MessageSendRequest(BaseModel):
     # -- otherwise the reply arrives from the wrong sender (2026-08-13).
     # Omitted, the global install's bot is used, exactly as before.
     profile: str | None = None
+    # Only files under the messaging cache may attach, never a path a text happens to name.
+    strict_media: bool = False
 
 
 @app.get("/v1/telegram/{profile}/messages")
@@ -2487,6 +2489,7 @@ async def send_message(
             capture_output=True,
             text=True,
             timeout=60,
+            env={**os.environ, "HERMES_MEDIA_DELIVERY_STRICT": "1"} if req.strict_media else None,
         )
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="Message send timed out") from None

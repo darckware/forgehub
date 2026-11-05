@@ -162,6 +162,23 @@ def test_a_restricted_hermes_run_gets_only_those_tools_and_no_memory(monkeypatch
     assert "--ignore-rules" not in bridge_app._agent_run_command(plain, tmp_path)[0]
 
 
+def test_strict_media_reaches_hermes_send(monkeypatch) -> None:
+    monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "test-token")
+    bridge_app = importlib.import_module("app")
+    seen = {}
+
+    def fake_run(cmd, **kwargs):
+        seen["env"] = kwargs.get("env")
+        return bridge_app.subprocess.CompletedProcess(cmd, 0, stdout="{}", stderr="")
+    monkeypatch.setattr(bridge_app.subprocess, "run", fake_run)
+    monkeypatch.setattr(bridge_app, "_check_token", lambda *_: None)
+    req = bridge_app.MessageSendRequest(target="whatsapp:x@g.us", message="oi", strict_media=True)
+    asyncio.run(bridge_app.send_message(req, "t"))
+    assert seen["env"]["HERMES_MEDIA_DELIVERY_STRICT"] == "1"
+    asyncio.run(bridge_app.send_message(req.model_copy(update={"strict_media": False}), "t"))
+    assert seen["env"] is None
+
+
 def test_restricted_tools_are_refused_for_other_runtimes(monkeypatch, tmp_path) -> None:
     from fastapi import HTTPException
     with pytest.raises(HTTPException):
