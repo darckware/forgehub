@@ -1358,7 +1358,8 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
         ]
         if req.max_budget_usd is not None:
             command.extend(["--max-budget-usd", str(req.max_budget_usd)])
-        command.append(req.prompt)
+        # --mcp-config takes many values: without "--" it swallows the prompt as a config path.
+        command.extend(["--", req.prompt])
         return command, env
 
     if req.runtime_type == "codex":

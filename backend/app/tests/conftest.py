@@ -124,6 +124,30 @@ async def clean_stale_agent_fixtures():
     await _cleanup_stale_agent_fixtures()
 
 
+# Subjects the suite signs tokens for. RequireAuthMiddleware accepts a token
+# only for an active user, so each one is a real row, never just a name.
+SUITE_TOKEN_SUBJECTS = (
+    "test-attachments", "test-backlog", "test-contingency", "test-demand", "test-demand-dispatch",
+    "test-deploy", "test-factory-cockpit", "test-foundation-script", "test-incubation",
+    "test-notifications", "test-suite", "test-task-target", "test-tools", "test-toolversions",
+)
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def suite_token_users():
+    async with AsyncSessionLocal() as db:
+        existing = set((await db.scalars(
+            select(User.username).where(User.username.in_(SUITE_TOKEN_SUBJECTS))
+        )).all())
+        created = [name for name in SUITE_TOKEN_SUBJECTS if name not in existing]
+        db.add_all(User(username=name, hashed_password=hash_password(uuid.uuid4().hex)) for name in created)
+        await db.commit()
+    yield
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(User).where(User.username.in_(created)))
+        await db.commit()
+
+
 @pytest.fixture
 def auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {create_access_token('test-suite')}"}

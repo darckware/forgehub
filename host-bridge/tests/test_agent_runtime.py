@@ -148,6 +148,12 @@ def test_without_autonomy_runs_keep_their_guards(monkeypatch, tmp_path, runtime)
     assert env.get("IS_SANDBOX") == os.environ.get("IS_SANDBOX")
 
 
+def test_claude_prompt_is_not_read_as_an_mcp_config(monkeypatch, tmp_path) -> None:
+    """--mcp-config takes many values: every Porthus run died on ENAMETOOLONG without the separator."""
+    command, _ = _command_for(monkeypatch, tmp_path, "claude", autonomous=True)
+    assert command[-2:] == ["--", "do it"]
+
+
 @pytest.mark.parametrize("runtime", ["claude", "codex", "agy"])
 def test_plan_mode_stays_read_only_even_when_autonomous(monkeypatch, tmp_path, runtime) -> None:
     command, _env = _command_for(monkeypatch, tmp_path, runtime, autonomous=True, mode="plan")

@@ -53,7 +53,7 @@ _ALLOWED_AREAS = frozenset({
 # Which profile module answers for each open area, so Profiles limits the backend too.
 _AREA_MODULES = {
     "agents": "agents", "bug-reports": "backlog", "environments": "projects", "factory": "projects",
-    "feature-requests": "backlog", "missions": "projects", "pipelines": "pipeline", "planning-items": "backlog",
+    "feature-requests": "backlog", "missions": "product", "pipelines": "pipeline", "planning-items": "backlog",
     "products": "product", "projects": "projects", "responsibility-areas": "projects", "service-lines": "product",
     "tasks": "tasks", "triage-decisions": "backlog", "version-scope-items": "backlog",
 }
