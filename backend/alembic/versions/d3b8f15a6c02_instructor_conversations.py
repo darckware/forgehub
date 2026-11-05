@@ -20,7 +20,6 @@ def upgrade() -> None:
         sa.Column("phone", sa.String(20), nullable=False, unique=True),
         sa.Column("turns", JSONB, nullable=False, server_default="[]"),
         sa.Column("off_topic_count", sa.Integer, nullable=False, server_default="0"),
-        sa.Column("last_demand_id", UUID(as_uuid=True), nullable=True),
         sa.Column("last_reply_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("closed_until", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),

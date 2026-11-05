@@ -893,6 +893,7 @@ async def _demand_retention_poll_loop() -> None:
     database.
     """
     from app.api.routes.demand import run_demand_retention_sweep
+    from app.core.instructor_group import purge_conversations
     from app.core.user_session import purge_old_sessions
     from app.db.base import AsyncSessionLocal
 
@@ -901,6 +902,7 @@ async def _demand_retention_poll_loop() -> None:
             async with AsyncSessionLocal() as db:
                 await run_demand_retention_sweep(db)
                 await purge_old_sessions(db)
+                await purge_conversations(db)
         except Exception:
             logger.exception("Demand retention sweep failed")
         await asyncio.sleep(DEMAND_RETENTION_POLL_INTERVAL_SECONDS)

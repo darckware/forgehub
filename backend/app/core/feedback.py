@@ -330,10 +330,11 @@ async def deliver_feedback(db: AsyncSession, demand: AgentDemand) -> bool:
                 )
                 return False
         elif demand.channel == GROUP_CHANNEL:
-            if failed:
-                await _deliver_notification(db, demand, title=title)
             reply = group_reply(demand.dispatch_result, failed=failed, approved_run=demand.requires_approval)
-            await send_to_group(demand.channel_ref, await record_reply(db, demand, reply, demand.dispatch_result))
+            reply = await record_reply(db, demand, reply, demand.dispatch_result, failed=failed)
+            if failed and reply:
+                await _deliver_notification(db, demand, title=title)
+            await send_to_group(demand.channel_ref, reply)
         elif demand.channel in ("assistant", "factory"):
             if failed:
                 await _deliver_notification(db, demand, title=title)
