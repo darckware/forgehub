@@ -198,15 +198,8 @@ async def claim_status(payload: StatusIn, principal: ActorPrincipal = Depends(ge
         raise HTTPException(409, "Authorization unavailable")
     if agent_id not in (link.executor_id, link.source_agent_id):
         raise HTTPException(403, "Executor does not match")
-    answer = {"state": link.state, "outcome": link.outcome, "expired": link.expires_at <= datetime.now(timezone.utc)}
-    if link.state == "claimed" and agent_id == link.executor_id:
-        # An interrupted run: the executor needs the call to check it in Moodle.
-        try:
-            proposal = _source(link.source_agent_id, link.request_id)
-            answer |= {"wsfunction": proposal["wsfunction"], "params": proposal["params"]}
-        except HTTPException:
-            pass
-    return answer
+    return {"state": link.state, "outcome": link.outcome, "params_hash": link.params_hash,
+            "expired": link.expires_at <= datetime.now(timezone.utc)}
 
 
 @router.post("/claim")
