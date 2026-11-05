@@ -39,7 +39,7 @@ from app.api.schemas.demand import (
     DemandBulkIn,
 )
 from app.core import conversions
-from app.core.instructor_group import GROUP_CHANNEL, RESTRICTED_TOOLSETS
+from app.core.instructor_group import GROUP_CHANNEL, run_toolsets
 from app.core.agent_runs import AgentRunDispatchError, dispatch_agent_run, poll_agent_run
 from app.core.config import settings
 from app.core.deps import get_current_admin
@@ -542,6 +542,8 @@ async def list_pending_for_agent(
             AgentDemand.agent_processed_at.is_(None),
             AgentDemand.status != "archived",
             ~select(MoodleApproval.id).where(MoodleApproval.message_id == AgentDemand.id).exists(),
+            # A participant's text never reaches an agent's own inbox, which has every tool.
+            AgentDemand.channel.is_distinct_from(GROUP_CHANNEL),
             or_(
                 (AgentDemand.origin_type == "incubation") & (AgentDemand.incubation_state == "decision_pending"),
                 (AgentDemand.reply_to_id.isnot(None)) & (AgentDemand.dispatch_status == "completed"),
@@ -1526,7 +1528,7 @@ async def _execute_dispatch(
     demand.target_agent_id = target_agent_id
     demand.command_text = command_text
     try:
-        restriction = {"restricted_toolsets": RESTRICTED_TOOLSETS} if demand.channel == GROUP_CHANNEL else {}
+        restriction = {"restricted_toolsets": run_toolsets(demand.requires_approval)} if demand.channel == GROUP_CHANNEL else {}
         run = await dispatch_agent_run(run_id, agent, with_completion_contract(prompt), project_path, **restriction)
     except AgentRunDispatchError as exc:
         demand.agent_run_id = None
@@ -1555,7 +1557,8 @@ async def _execute_dispatch(
             execution.started_at = execution.started_at or demand.dispatched_at
 
     if independent and not demand.notice_sent:
-        await _send_notice(f"*Disparo para {agent.name}*\n\n{prompt}")
+        if demand.channel != GROUP_CHANNEL:  # The prompt carries a participant's text.
+            await _send_notice(f"*Disparo para {agent.name}*\n\n{prompt}")
         demand.notice_sent = True
 
     return demand

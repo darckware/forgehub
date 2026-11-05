@@ -90,12 +90,19 @@ async def register(payload: RegisterIn, principal: ActorPrincipal = Depends(get_
         message = await db.get(AgentDemand, existing.message_id)
         return {"request_id": str(existing.request_id), "message_id": str(message.id), "number": message.number}
     proposal = _source(source_id, payload.request_id)
-    origin = None
-    if payload.origin_number is not None:
-        # Only the run really in flight for this agent: the number comes from the model.
-        origin = await db.scalar(select(AgentDemand).where(
-            AgentDemand.number == payload.origin_number, AgentDemand.channel == GROUP_CHANNEL,
-            AgentDemand.target_agent_id == source_id, AgentDemand.dispatch_status.in_(("dispatched", "running"))))
+    # A group capture in flight owns what is registered now: forgetting the number must not
+    # leave a proposal that would run with every tool. Fails closed for a parallel Telegram turn.
+    origin = await db.scalar(select(AgentDemand).where(
+        AgentDemand.channel == GROUP_CHANNEL, AgentDemand.requires_approval.is_(False), AgentDemand.target_agent_id == source_id,
+        AgentDemand.dispatch_status.in_(("dispatched", "running"))))
+    if payload.origin_number is not None and (origin is None or origin.number != payload.origin_number):
+        raise HTTPException(409, "origin_number is not the capture in flight")
+    if origin is not None:
+        if payload.origin_number is None:
+            raise HTTPException(409, "A group capture is running: origin_number is required")
+        created = datetime.fromisoformat(proposal["created_at"].replace("Z", "+00:00"))
+        if origin.dispatched_at is None or created < origin.dispatched_at:
+            raise HTTPException(409, "This proposal is older than the capture")
     demand = AgentDemand(from_agent=source.profile_slug or source.name, from_agent_id=source_id,
         target_agent_id=source_id, subject="Moodle: solicitação de aprovação", body="Proposta Moodle aguardando confirmação.",
         origin_type="task", status="new", requires_approval=True, approval_status="pending", scheduled_at=None,

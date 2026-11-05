@@ -27,5 +27,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Without the channel a waiting capture would run with every tool.
+    op.execute(f"UPDATE {SCHEMA}.{TABLE} SET status = 'archived', scheduled_at = NULL "
+               "WHERE channel = 'whatsapp_group' AND dispatch_status IS NULL")
     op.execute(f"UPDATE {SCHEMA}.{TABLE} SET channel = NULL, channel_ref = NULL WHERE channel = 'whatsapp_group'")
     _check(BEFORE)

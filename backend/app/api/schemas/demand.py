@@ -85,6 +85,8 @@ def _check_status_value(v: str | None) -> str | None:
 def _check_channel_value(v: str | None) -> str | None:
     if v is not None and v not in DEMAND_CHANNELS:
         raise ValueError(f"channel must be one of {DEMAND_CHANNELS}")
+    if v == "whatsapp_group":
+        raise ValueError("whatsapp_group is set only by the group capture")
     return v
 
 

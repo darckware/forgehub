@@ -11,7 +11,7 @@ from app.api.schemas.personal_contacts import GroupCaptureCreate, SuggestionOut,
 from app.core import personal_captures as capture
 from app.core.config import settings
 from app.core.dispatch_signal import wake_scheduled_dispatch
-from app.core.instructor_group import GROUP_CHANNEL, HOURLY_LIMIT, capture_body
+from app.core.instructor_group import AUTHOR_HOURLY_LIMIT, GROUP_CHANNEL, HOURLY_LIMIT, capture_body, clean_author
 from app.db.base import get_db
 from app.db.models.agent import Agent
 from app.db.models.demand import AgentDemand
@@ -71,13 +71,16 @@ async def capture_instructor_request(payload: InstructorRequestIn, actor: str = 
     since = datetime.now(timezone.utc) - timedelta(hours=1)
     recent = await db.scalar(select(func.count()).select_from(AgentDemand).where(
         AgentDemand.channel == GROUP_CHANNEL, AgentDemand.requires_approval.is_(False), AgentDemand.created_at >= since))
-    if recent >= HOURLY_LIMIT:
+    subject = f'Grupo CI Instrutor: pedido de {clean_author(payload.author)}'[:255]
+    own = await db.scalar(select(func.count()).select_from(AgentDemand).where(
+        AgentDemand.channel == GROUP_CHANNEL, AgentDemand.subject == subject, AgentDemand.created_at >= since))
+    if recent >= HOURLY_LIMIT or own >= AUTHOR_HOURLY_LIMIT:
         raise HTTPException(429, 'Too many requests from the group in the last hour')
     maia = await db.scalar(select(Agent).where(Agent.profile_slug == 'maia'))
     if maia is None or not settings.MOODLE_APPROVAL_WORKING_PATH:
         raise HTTPException(503, 'Maia is not available')
     demand = AgentDemand(from_agent='maia', from_agent_id=maia.id, target_agent_id=maia.id,
-                         subject=f'Grupo CI Instrutor: pedido de {payload.author}'[:255], body='Captura do grupo.',
+                         subject=subject, body='Captura do grupo.',
                          origin_type='task', status='new', fixed_agent=True, channel=GROUP_CHANNEL, channel_ref=group,
                          requires_response=False, working_path=settings.MOODLE_APPROVAL_WORKING_PATH,
                          scheduled_at=datetime.now(timezone.utc))
