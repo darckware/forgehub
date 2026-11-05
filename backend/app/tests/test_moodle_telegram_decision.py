@@ -1,16 +1,19 @@
 """The owner decides a Moodle request with the Maia's Telegram buttons."""
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
 
 from app.api.routes import moodle_approval
+from app.api.schemas.moodle_approval import ApprovalItem, AuthorizeIn, RejectIn
 from app.core.config import settings
 from app.core.demand_workflow import approval_fingerprint
 from app.core.feedback import wants_telegram_reply
@@ -143,3 +146,52 @@ async def test_an_expired_request_is_not_approved_but_can_be_rejected(client, re
 async def test_an_unknown_request_is_a_404(client, request_row):
     body = {**_body(request_row), "message_id": str(uuid.uuid4())}
     assert (await client.post(URL, json=body, headers=HEADERS)).status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("decide", ["authorize", "reject"])
+async def test_a_decision_checks_the_row_it_locked_not_what_it_had_loaded(request_row, decide):
+    """Review #42086: the lock returned the objects already in the session, so the check compared stale data."""
+    async with AsyncSessionLocal() as stale:
+        link = await stale.scalar(select(MoodleApproval).where(MoodleApproval.message_id == request_row["message_id"]))
+        demand = await stale.get(AgentDemand, request_row["message_id"])
+        item = ApprovalItem(request_id=link.request_id, message_id=demand.id, params_hash=link.params_hash,
+                            message_updated_at=demand.updated_at)
+        owner = await stale.get(User, request_row["owner_id"])
+        async with AsyncSessionLocal() as other:
+            fresh = await other.scalar(select(MoodleApproval).where(MoodleApproval.message_id == request_row["message_id"]))
+            fresh.state = "rejected"
+            await other.commit()
+        call = (moodle_approval.authorize(AuthorizeIn(executor_agent_id=request_row["agent_id"], instruction="", items=[item]), owner, stale)
+                if decide == "authorize" else moodle_approval.reject(RejectIn(reason=None, items=[item]), owner, stale))
+        with pytest.raises(HTTPException) as exc:
+            await call
+        assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_two_taps_at_once_end_in_one_consistent_decision(client, request_row):
+    first, second = await asyncio.gather(client.post(URL, json=_body(request_row), headers=HEADERS),
+                                         client.post(URL, json=_body(request_row, "reject"), headers=HEADERS))
+    results = {r.json().get("result") for r in (first, second)}
+    link, demand = await _state(request_row["message_id"])
+    assert len(results & {"approved", "rejected"}) == 1, results
+    if "approved" in results:
+        assert link.state == "approved" and demand.status == "new"
+        assert approval_fingerprint(demand) == link.message_hash
+    else:
+        assert link.state == "rejected" and demand.status == "archived" and demand.channel is None
+
+
+@pytest.mark.asyncio
+async def test_a_refused_approval_leaves_no_channel_behind(client, request_row, monkeypatch):
+    monkeypatch.setattr(moodle_approval, "_source", lambda *_: (_ for _ in ()).throw(HTTPException(409, "Proposal unavailable")))
+    assert (await client.post(URL, json=_body(request_row), headers=HEADERS)).status_code == 409
+    link, demand = await _state(request_row["message_id"])
+    assert link.state == "pending" and demand.channel is None
+
+
+@pytest.mark.asyncio
+async def test_a_non_ascii_secret_is_refused_not_a_crash(client, request_row):
+    headers = {"X-Decision-Secret": "é".encode("latin-1")}
+    assert (await client.post(URL, json=_body(request_row), headers=headers)).status_code == 401

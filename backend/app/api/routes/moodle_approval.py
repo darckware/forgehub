@@ -131,7 +131,7 @@ async def authorize(payload: AuthorizeIn, user: User = Depends(get_current_user)
         raise HTTPException(409, "Executor unavailable")
     rows = (await db.execute(select(MoodleApproval, AgentDemand).join(AgentDemand, MoodleApproval.message_id == AgentDemand.id)
         .where(MoodleApproval.message_id.in_([x.message_id for x in payload.items])).order_by(MoodleApproval.message_id)
-        .with_for_update(of=(MoodleApproval, AgentDemand)))).all()
+        .with_for_update(of=(MoodleApproval, AgentDemand)).execution_options(populate_existing=True))).all()
     if len(rows) != len(payload.items):
         raise HTTPException(409, "Batch changed; review again")
     items = {x.message_id: x for x in payload.items}
@@ -169,7 +169,7 @@ async def reject(payload: RejectIn, user: User = Depends(get_current_user), db: 
     _owner(user)
     rows = (await db.execute(select(MoodleApproval, AgentDemand).join(AgentDemand, MoodleApproval.message_id == AgentDemand.id)
         .where(MoodleApproval.message_id.in_([x.message_id for x in payload.items])).order_by(MoodleApproval.message_id)
-        .with_for_update(of=(MoodleApproval, AgentDemand)))).all()
+        .with_for_update(of=(MoodleApproval, AgentDemand)).execution_options(populate_existing=True))).all()
     if len(rows) != len(payload.items):
         raise HTTPException(409, "Batch changed; review again")
     items = {x.message_id: x for x in payload.items}
@@ -196,7 +196,7 @@ async def telegram_decision(payload: TelegramDecisionIn, x_decision_secret: str 
     """A tap on the Maia's Telegram buttons. The plugin vouches for the tap with a secret the agent
     cannot read, and authorize/reject below stay the only code that decides."""
     secret = settings.MOODLE_TELEGRAM_DECISION_SECRET
-    if not secret or not x_decision_secret or not hmac.compare_digest(secret, x_decision_secret):
+    if not secret or not x_decision_secret or not hmac.compare_digest(secret.encode(), x_decision_secret.encode()):
         raise HTTPException(401, "Not authenticated")
     owner, _ = _config()
     chat = settings.MOODLE_APPROVAL_TELEGRAM_CHAT_ID
@@ -206,8 +206,10 @@ async def telegram_decision(payload: TelegramDecisionIn, x_decision_secret: str 
     if user is None:
         raise HTTPException(403, "Only the configured owner may authorize")
     _owner(user)
+    # Locked and read fresh: a decision on the screen at the same moment waits or is seen here.
     row = (await db.execute(select(MoodleApproval, AgentDemand).join(AgentDemand, MoodleApproval.message_id == AgentDemand.id)
-        .where(MoodleApproval.message_id == payload.message_id))).one_or_none()
+        .where(MoodleApproval.message_id == payload.message_id)
+        .with_for_update(of=(MoodleApproval, AgentDemand)).execution_options(populate_existing=True))).one_or_none()
     if not row:
         raise HTTPException(404, "Request not found")
     link, demand = row
@@ -219,14 +221,18 @@ async def telegram_decision(payload: TelegramDecisionIn, x_decision_secret: str 
     if payload.action == "approve":
         # He asked on Telegram, so the result goes back there. Part of what the approval freezes.
         demand.channel, demand.channel_ref = "telegram", chat
-        await db.commit()
+        await db.flush()
         await db.refresh(demand)
     item = ApprovalItem(request_id=link.request_id, message_id=demand.id, params_hash=link.params_hash,
                         message_updated_at=demand.updated_at)
-    if payload.action == "approve":
-        await authorize(AuthorizeIn(executor_agent_id=link.source_agent_id, instruction="Retorno pelo Telegram.", items=[item]), user, db)
-    else:
-        await reject(RejectIn(reason="Recusada pelo Telegram", items=[item]), user, db)
+    try:
+        if payload.action == "approve":
+            await authorize(AuthorizeIn(executor_agent_id=link.source_agent_id, instruction="Retorno pelo Telegram.", items=[item]), user, db)
+        else:
+            await reject(RejectIn(reason="Recusada pelo Telegram", items=[item]), user, db)
+    except HTTPException:
+        await db.rollback()  # A refused approval leaves no channel behind.
+        raise
     record_transition(db, demand, "moodle_telegram_decision", actor=str(user.id),
                       extra={"request_id": str(link.request_id), "action": payload.action})
     await db.commit()
