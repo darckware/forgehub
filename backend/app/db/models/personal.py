@@ -330,3 +330,19 @@ class PersonalDailySummary(Base, TimestampMixin):
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     #: The actor that saved it ("maia" or "marcelo").
     created_by: Mapped[str] = mapped_column(String(50), nullable=False)
+
+
+class InstructorConversation(TimestampMixin, Base):
+    """The Maia's running conversation with one instructor of the WhatsApp group, by phone, so a
+    question keeps its context. Only about the demand: off-topic insistence closes it for a while."""
+
+    __tablename__ = "instructor_conversations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    phone: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    turns: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    off_topic_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    last_demand_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    last_reply_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+

@@ -11,11 +11,13 @@ from app.api.schemas.personal_contacts import GroupCaptureCreate, SuggestionOut,
 from app.core import personal_captures as capture
 from app.core.config import settings
 from app.core.dispatch_signal import wake_scheduled_dispatch
-from app.core.instructor_group import AUTHOR_HOURLY_LIMIT, GROUP_CHANNEL, HOURLY_LIMIT, capture_body, clean_author
+from app.core.instructor_group import (
+    AUTHOR_HOURLY_LIMIT, GROUP_CHANNEL, HOURLY_LIMIT, OPEN_MINUTES, add_turn, capture_body, clean_author,
+)
 from app.db.base import get_db
 from app.db.models.agent import Agent
 from app.db.models.demand import AgentDemand
-from app.db.models.personal import PersonalCaptureSuggestion, PersonalContact, PersonalWhatsAppGroup
+from app.db.models.personal import InstructorConversation, PersonalCaptureSuggestion, PersonalContact, PersonalWhatsAppGroup
 from app.mcp import personal_group_sources as sources
 
 router = APIRouter(prefix='/api/v1/personal', tags=['personal'])
@@ -27,6 +29,8 @@ class InstructorRequestIn(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
     answering: str | None = Field(default=None, max_length=2000)
     author_phone: str | None = Field(default=None, max_length=20)
+    # Said her name or quoted her. Anything else only continues an open conversation.
+    called: bool = True
 
 
 @router.get('/groups', response_model=list[WhatsAppGroupOut])
@@ -68,7 +72,17 @@ async def capture_instructor_request(payload: InstructorRequestIn, actor: str = 
         raise HTTPException(503, 'Instructor group is not configured')
     if payload.group_id != group:
         raise HTTPException(403, 'This group is not served')
-    since = datetime.now(timezone.utc) - timedelta(hours=1)
+    now = datetime.now(timezone.utc)
+    conversation = None
+    if payload.author_phone:
+        conversation = await db.scalar(select(InstructorConversation).where(InstructorConversation.phone == payload.author_phone))
+    if conversation is not None and conversation.closed_until and conversation.closed_until > now:
+        return {'ignored': 'closed'}
+    open_now = bool(conversation and conversation.last_reply_at
+                    and conversation.last_reply_at > now - timedelta(minutes=OPEN_MINUTES))
+    if not payload.called and not open_now:
+        return {'ignored': 'not_called'}
+    since = now - timedelta(hours=1)
     recent = await db.scalar(select(func.count()).select_from(AgentDemand).where(
         AgentDemand.channel == GROUP_CHANNEL, AgentDemand.requires_approval.is_(False), AgentDemand.created_at >= since))
     subject = f'Grupo CI Instrutor: pedido de {clean_author(payload.author)}'[:255]
@@ -91,7 +105,15 @@ async def capture_instructor_request(payload: InstructorRequestIn, actor: str = 
     if payload.author_phone:
         contact = await db.scalar(select(PersonalContact).where(PersonalContact.phone == payload.author_phone))
     unit = (contact.other_data or {}).get('casa_inovacao') if contact else None
-    demand.body = capture_body(demand.number, payload.author, payload.text, payload.answering, unit if isinstance(unit, str) else None)
+    history = conversation.turns if conversation is not None else []
+    demand.body = capture_body(demand.number, payload.author, payload.text, payload.answering,
+                               unit if isinstance(unit, str) else None, history)
+    if payload.author_phone:
+        if conversation is None:
+            conversation = InstructorConversation(phone=payload.author_phone, turns=[])
+            db.add(conversation)
+        conversation.turns = add_turn(conversation.turns, 'Instrutor', payload.text)
+        conversation.last_demand_id = demand.id
     await db.commit()
     wake_scheduled_dispatch()
     return {'number': demand.number}
