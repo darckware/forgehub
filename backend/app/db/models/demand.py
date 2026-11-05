@@ -129,7 +129,7 @@ DEMAND_RETENTION_DAYS = 60
 #                  requires_response/reply_to_id.
 #   "telegram"  -> the answer goes back to the Telegram chat that asked,
 #                  not to the configured home channel.
-DEMAND_CHANNELS = ("workspace", "assistant", "factory", "agent", "telegram")
+DEMAND_CHANNELS = ("workspace", "assistant", "factory", "agent", "telegram", "whatsapp_group")
 
 # Feedback is only ever sent on a terminal outcome (2026-08-13, Marcelo: "o
 # feedback só é enviado quando for concluido ou erro da task"). Kept as its

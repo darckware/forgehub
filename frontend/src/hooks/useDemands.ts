@@ -152,7 +152,7 @@ export const demandSchema = z.object({
   // Return routing and incubation are first-class server state. Keeping
   // them in the parsed client model prevents Zod from silently discarding
   // the fields the operator needs to audit ownership and owed feedback.
-  channel: z.enum(["workspace", "assistant", "factory", "agent", "telegram"]).nullable().default(null),
+  channel: z.enum(["workspace", "assistant", "factory", "agent", "telegram", "whatsapp_group"]).nullable().default(null),
   channel_ref: z.string().nullable().default(null),
   feedback_sent_at: z.string().nullable().default(null),
   incubation_owner_id: z.string().nullable().default(null),

@@ -221,6 +221,8 @@ class Settings(BaseSettings):
     MOODLE_APPROVAL_TELEGRAM_CHAT_ID: str = ""
     # Held only by the Maia's Telegram buttons plugin. Empty closes that path.
     MOODLE_TELEGRAM_DECISION_SECRET: str = ""
+    # WhatsApp id of the instructors' group the Maia captures from. Empty closes it.
+    MAIA_INSTRUCTOR_GROUP_ID: str = ""
     MOODLE_APPROVAL_FORM_URL: str = ""
 
     # HMAC secret the agent runtimes sign their activity webhooks with

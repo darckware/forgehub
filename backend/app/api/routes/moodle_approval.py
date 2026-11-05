@@ -1,10 +1,12 @@
 """Staging-only Moodle approval protocol. Disabled unless explicitly configured."""
 import hmac
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +18,7 @@ from app.core.config import settings
 from app.core.deps import ActorPrincipal, get_actor_principal, get_current_user
 from app.core.demand_workflow import approval_fingerprint, record_transition
 from app.core.dispatch_signal import wake_scheduled_dispatch
+from app.core.instructor_group import GROUP_CHANNEL, REJECTED_REPLY, RESULT_NOTE, send_to_group
 from app.core.moodle_proposal_verification import ProposalInvalid, validate_proposal
 from app.db.base import get_db
 from app.db.models.agent import Agent
@@ -23,6 +26,7 @@ from app.db.models.demand import AgentDemand
 from app.db.models.moodle_approval import MoodleApproval
 from app.db.models.user import User
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/personal/moodle-approvals", tags=["moodle-approval"])
 
 
@@ -86,9 +90,16 @@ async def register(payload: RegisterIn, principal: ActorPrincipal = Depends(get_
         message = await db.get(AgentDemand, existing.message_id)
         return {"request_id": str(existing.request_id), "message_id": str(message.id), "number": message.number}
     proposal = _source(source_id, payload.request_id)
+    origin = None
+    if payload.origin_number is not None:
+        # Only the run really in flight for this agent: the number comes from the model.
+        origin = await db.scalar(select(AgentDemand).where(
+            AgentDemand.number == payload.origin_number, AgentDemand.channel == GROUP_CHANNEL,
+            AgentDemand.target_agent_id == source_id, AgentDemand.dispatch_status.in_(("dispatched", "running"))))
     demand = AgentDemand(from_agent=source.profile_slug or source.name, from_agent_id=source_id,
         target_agent_id=source_id, subject="Moodle: solicitação de aprovação", body="Proposta Moodle aguardando confirmação.",
         origin_type="task", status="new", requires_approval=True, approval_status="pending", scheduled_at=None,
+        channel=origin.channel if origin else None, channel_ref=origin.channel_ref if origin else None,
         working_path=settings.MOODLE_APPROVAL_WORKING_PATH, requires_response=False)
     db.add(demand)
     await db.flush()
@@ -147,6 +158,8 @@ async def authorize(payload: AuthorizeIn, user: User = Depends(get_current_user)
         demand.body = (f"Chame moodle_execute_approved com request_id={link.request_id}, message_id={demand.id} "
                        f"e params_hash={link.params_hash}. Não altere os parâmetros nem repita a chamada.\n\n"
                        f"{payload.instruction}")
+        if demand.channel == GROUP_CHANNEL:
+            demand.body += f"\n\n{RESULT_NOTE}"
         demand.command_text = None
         demand.requires_approval = True
         demand.approval_status = "approved"
@@ -187,6 +200,12 @@ async def reject(payload: RejectIn, user: User = Depends(get_current_user), db: 
         record_transition(db, demand, "moodle_rejected", actor=str(user.id),
                           extra={"request_id": str(link.request_id), "reason": payload.reason})
     await db.commit()
+    for _, demand in rows:
+        if demand.channel == GROUP_CHANNEL:
+            try:
+                await send_to_group(demand.channel_ref, REJECTED_REPLY)
+            except httpx.HTTPError:
+                logger.warning("Could not tell the group about rejected #%s", demand.number)
     return {"rejected": [d.number for _, d in rows]}
 
 
@@ -220,7 +239,8 @@ async def telegram_decision(payload: TelegramDecisionIn, x_decision_secret: str 
         return {"result": "expired", "number": number}
     if payload.action == "approve":
         # He asked on Telegram, so the result goes back there. Part of what the approval freezes.
-        demand.channel, demand.channel_ref = "telegram", chat
+        if demand.channel != GROUP_CHANNEL:
+            demand.channel, demand.channel_ref = "telegram", chat
         await db.flush()
         await db.refresh(demand)
     item = ApprovalItem(request_id=link.request_id, message_id=demand.id, params_hash=link.params_hash,

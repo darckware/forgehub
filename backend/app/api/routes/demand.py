@@ -39,6 +39,7 @@ from app.api.schemas.demand import (
     DemandBulkIn,
 )
 from app.core import conversions
+from app.core.instructor_group import GROUP_CHANNEL, RESTRICTED_TOOLSETS
 from app.core.agent_runs import AgentRunDispatchError, dispatch_agent_run, poll_agent_run
 from app.core.config import settings
 from app.core.deps import get_current_admin
@@ -1525,7 +1526,10 @@ async def _execute_dispatch(
     demand.target_agent_id = target_agent_id
     demand.command_text = command_text
     try:
-        run = await dispatch_agent_run(run_id, agent, with_completion_contract(prompt), project_path)
+        run = await dispatch_agent_run(
+            run_id, agent, with_completion_contract(prompt), project_path,
+            restricted_toolsets=RESTRICTED_TOOLSETS if demand.channel == GROUP_CHANNEL else None,
+        )
     except AgentRunDispatchError as exc:
         demand.agent_run_id = None
         demand.dispatch_attempts = (demand.dispatch_attempts or 0) + 1

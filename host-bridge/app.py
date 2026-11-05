@@ -1279,6 +1279,8 @@ class AgentRunRequest(BaseModel):
     # external CLI without permission prompts. Headless runs have nobody to
     # approve a tool, so a prompt is an automatic denial. Plan mode ignores it.
     autonomous: bool = False
+    # Hermes only, through /v1/agent-runs/restricted: just these toolsets, and no memory or profile.
+    restricted_toolsets: str | None = None
 
 
 def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[str], dict[str, str]]:
@@ -1291,6 +1293,8 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
     if len(req.prompt) > 100_000:
         raise HTTPException(status_code=400, detail="prompt is too large")
 
+    if req.restricted_toolsets and req.runtime_type != "hermes":
+        raise HTTPException(status_code=400, detail="restricted_toolsets is only for hermes")
     if req.runtime_type == "hermes":
         # Classic Hermes-profile agents (Athos, Aegis, ...) already have
         # their own model/provider configured per-profile (config.yaml) --
@@ -1307,6 +1311,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
             raise HTTPException(status_code=400, detail=f"unknown hermes profile: {req.hermes_profile}")
         hermes_env = os.environ.copy()
         hermes_env["HERMES_HOME"] = str(profile_home)
+        restriction = ["-t", req.restricted_toolsets, "--ignore-rules"] if req.restricted_toolsets else []
         return (
             [
                 "/usr/local/bin/hermes",
@@ -1315,6 +1320,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
                 req.prompt,
                 "-Q",
                 "--yolo",
+                *restriction,
             ],
             hermes_env,
         )
@@ -1492,6 +1498,16 @@ def _monitor_agent_run(run_id: str, proc: subprocess.Popen, max_seconds: int) ->
         )
         run.pop("process", None)
         _persist_agent_run(run_id)
+
+
+@app.post("/v1/agent-runs/restricted", status_code=202)
+async def start_restricted_agent_run(
+    req: AgentRunRequest, x_bridge_token: str | None = Header(default=None)
+) -> dict:
+    """Its own path so a caller can tell: an older bridge answers 404 instead of running with every tool."""
+    if not re.fullmatch(r"[a-z_]+(,[a-z_]+)*", req.restricted_toolsets or ""):
+        raise HTTPException(status_code=400, detail="restricted_toolsets is required")
+    return await start_agent_run(req, x_bridge_token)
 
 
 @app.post("/v1/agent-runs", status_code=202)

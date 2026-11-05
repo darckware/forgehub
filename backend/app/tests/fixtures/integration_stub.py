@@ -285,7 +285,7 @@ async def host_bridge(path: str, request: Request):
                       operation=path, outcome="unauthorized", auth=auth)
     body = await _json(request) if request.method in ("POST", "PUT", "PATCH") else {}
 
-    if path == "agent-runs" and request.method == "POST":
+    if path in ("agent-runs", "agent-runs/restricted") and request.method == "POST":
         run_id = str(body.get("run_id") or "")
         runtime = body.get("runtime_type") or "?"
         destination = f"{runtime}:{body.get('hermes_profile') or ''}".rstrip(":")

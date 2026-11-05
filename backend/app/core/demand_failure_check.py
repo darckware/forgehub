@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.instructor_group import GROUP_CHANNEL
 from app.core.demand_workflow import record_transition, requires_reconciliation
 from app.db.models.agent import Agent
 from app.db.models.demand import AgentDemand, DemandAttachment
@@ -51,6 +52,9 @@ async def _is_mission_task(db: AsyncSession, source: AgentDemand) -> bool:
 
 async def failure_check_eligible(db: AsyncSession, source: AgentDemand) -> bool:
     """Whether this failed attempt can receive an automatic diagnostic."""
+    # A diagnostic runs with every tool and would carry what a group participant wrote.
+    if source.channel == GROUP_CHANNEL:
+        return False
     if (source.failure_check_source_id is not None or source.status == "archived"
             or source.consolidated_into_id is not None or source.origin_type != "task"
             or source.dispatch_status != "failed" or requires_reconciliation(source)

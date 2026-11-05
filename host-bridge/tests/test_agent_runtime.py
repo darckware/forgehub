@@ -148,6 +148,26 @@ def test_without_autonomy_runs_keep_their_guards(monkeypatch, tmp_path, runtime)
     assert env.get("IS_SANDBOX") == os.environ.get("IS_SANDBOX")
 
 
+def test_a_restricted_hermes_run_gets_only_those_tools_and_no_memory(monkeypatch, tmp_path) -> None:
+    home = tmp_path / "maia"
+    home.mkdir()
+    bridge_app = importlib.import_module("app")
+    monkeypatch.setattr(bridge_app, "Path", lambda p: tmp_path / Path(p).name if str(p).startswith("/root/.hermes") else Path(p))
+    req = bridge_app.AgentRunRequest(run_id="00000000-0000-0000-0000-000000000001", runtime_type="hermes", project_path=str(tmp_path),
+                                     prompt="do it", hermes_profile="profiles", restricted_toolsets="moodle")
+    (tmp_path / "profiles" / "profiles").mkdir(parents=True)
+    command, _ = bridge_app._agent_run_command(req, tmp_path)
+    assert command[-3:] == ["-t", "moodle", "--ignore-rules"]
+    plain = req.model_copy(update={"restricted_toolsets": None})
+    assert "--ignore-rules" not in bridge_app._agent_run_command(plain, tmp_path)[0]
+
+
+def test_restricted_tools_are_refused_for_other_runtimes(monkeypatch, tmp_path) -> None:
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException):
+        _command_for(monkeypatch, tmp_path, "claude", restricted_toolsets="moodle")
+
+
 def test_claude_prompt_is_not_read_as_an_mcp_config(monkeypatch, tmp_path) -> None:
     """--mcp-config takes many values: every Porthus run died on ENAMETOOLONG without the separator."""
     command, _ = _command_for(monkeypatch, tmp_path, "claude", autonomous=True)

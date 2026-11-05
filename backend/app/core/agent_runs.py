@@ -33,6 +33,7 @@ async def dispatch_agent_run(
     routing_group: str = "auto",
     max_seconds: int = 1800,
     max_budget_usd: float | None = None,
+    restricted_toolsets: str | None = None,
 ) -> dict:
     """POST /v1/agent-runs for `agent`. Raises AgentRunDispatchError if the
     agent can't be dispatched at all (no runtime_type/profile_slug); raises
@@ -67,9 +68,16 @@ async def dispatch_agent_run(
         "hermes_profile": agent.profile_slug if agent.runtime_type == "hermes" else None,
         "autonomous": bool(agent.autonomous_runs),
     }
+    # Its own route: a bridge that doesn't know it answers 404 instead of running unrestricted.
+    path = "/v1/agent-runs"
+    if restricted_toolsets:
+        if agent.runtime_type != "hermes":
+            raise AgentRunDispatchError(f"Agent '{agent.name}' cannot run with restricted tools")
+        body["restricted_toolsets"] = restricted_toolsets
+        path = "/v1/agent-runs/restricted"
     async with httpx.AsyncClient(timeout=15) as client:
         response = await client.post(
-            f"{settings.CHAT_BRIDGE_URL}/v1/agent-runs",
+            f"{settings.CHAT_BRIDGE_URL}{path}",
             json=body,
             headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
         )

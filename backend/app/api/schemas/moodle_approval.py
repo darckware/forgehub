@@ -34,6 +34,8 @@ class RejectIn(DecisionBatch):
 
 class RegisterIn(BaseModel):
     request_id: uuid.UUID
+    # The group capture this proposal came from, so its result goes back there.
+    origin_number: int | None = None
 
 
 class ClaimIn(BaseModel):
