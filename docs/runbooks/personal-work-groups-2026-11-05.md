@@ -40,3 +40,15 @@ Nenhuma proposta foi reaprovada, nenhum claim foi consumido e nenhuma operação
 Implementação preparada nas branches `feat/personal-work-groups` (ForgeHub) e `fix/authoritative-approval-status` (Moodle). Publicação e sincronização da skill instalada não foram executadas. Implantar backend compatível antes do frontend. A nova ferramenta exige atualização do MCP e skill canônica; ativação do perfil deve seguir o procedimento operacional do Hermes, sem reinício implícito do gateway compartilhado.
 
 As tarefas antigas continuam intactas: o conjunto autorizado para arquivamento ainda precisa ser identificado. Arquivar uma tarefa não responde nem cancela uma pergunta bloqueante. Evitar reativar propostas antigas ou corrigir estados por SQL; consultar evidências e estado Moodle antes de qualquer novo pedido autorizado.
+
+## Atualização: publicação autorizada e concluída em 05/11/2026
+
+Marcelo autorizou deploy, commit e push após revisar a entrega. A seção anterior registra o estado antes dessa autorização.
+
+- ForgeHub: implementação `4f32e20` integrada por fast-forward em `develop` e enviada ao GitHub. Deploy pelo `scripts/deploy.sh`, com metadados de versão/commit e recriação dos containers backend/frontend. Backend saudável, `/health` HTTP 200 e frontend HTTP 200; o backend informa commit `4f32e20`.
+- Moodle: correção integrada às alterações posteriores sem removê-las, commit `164e001` em `main`, enviado ao GitHub. A suíte da versão combinada teve 151 aprovações, nenhuma falha e um teste condicionado a harness ignorado.
+- Maia: backup em `/root/backups/moodle/approval-status-164e001/`; skill técnica sincronizada com a fonte canônica. Somente o MCP Moodle da Maia foi temporariamente desabilitado e reabilitado pelo reconciliador nativo, com aceitação no config guard e invalidação apenas do cache de schemas Moodle desse perfil. Logs confirmam remoção e reconexão; catálogo atualizado com 40 ferramentas, incluindo `moodle_get_approval_status`.
+- A configuração final da Maia é idêntica ao backup original. O gateway manteve PID `2930096`, estado `running`, e Telegram/WhatsApp da Maia conectados. Nenhum reinício compartilhado foi executado.
+- Validação pós-deploy somente de leitura: tarefas e incubações consultadas pelo código publicado, com 14 e 4 itens precisando de atenção respectivamente no instante da consulta. Arquivos efetivamente servidos pelo frontend contêm os três grupos, promoção e arquivamento. Essas contagens são um retrato do momento e podem mudar.
+- Imagens anteriores preservadas como `forgehub-backend:rollback-personal-groups-20261105` e `forgehub-frontend:rollback-personal-groups-20261105`; IDs registrados em `/root/backups/forgehub/personal-groups-20261105/images.json`.
+- Alterações locais de outro trabalho em `ops/` e seu runbook foram preservadas e não incluídas nos commits desta entrega. Nenhuma operação Moodle foi repetida e nenhum registro antigo foi arquivado neste deploy.

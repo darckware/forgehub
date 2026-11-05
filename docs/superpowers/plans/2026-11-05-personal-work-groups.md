@@ -192,3 +192,5 @@ Registrar versão anterior e nova; implantar backend compatível antes da interf
 ## Estado deste planejamento
 
 Implementação autorizada por Marcelo após a análise de aprovação em lote. Código e testes preparados nas branches isoladas, com revisão independente e verificação em navegador. Evidências e decisões: `2026-11-05-personal-work-groups-execution.md` e `../../runbooks/personal-work-groups-2026-11-05.md`. Implantação, sincronização da skill instalada e arquivamento do passivo não executados. O conjunto exato das tarefas antigas permanece indefinido.
+
+Atualização posterior: Marcelo autorizou deploy, commit e push. ForgeHub `4f32e20` publicado em produção e enviado em `develop`; Moodle `164e001` enviado em `main`, skill técnica sincronizada e MCP da Maia recarregado sem reiniciar o gateway. Detalhes e verificações na seção de publicação do runbook citado. Somente a triagem/definição do conjunto de tarefas antigas continua pendente.
