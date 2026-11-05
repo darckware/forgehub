@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.schemas.moodle_approval import AuthorizeIn, ClaimIn, FinishIn, RegisterIn, RejectIn
+from app.api.schemas.moodle_approval import AuthorizeIn, ClaimIn, FinishIn, RegisterIn, RejectIn, StatusIn
 from app.core.config import settings
 from app.core.deps import ActorPrincipal, get_actor_principal, get_current_user
 from app.core.demand_workflow import approval_fingerprint, record_transition
@@ -185,6 +185,28 @@ async def reject(payload: RejectIn, user: User = Depends(get_current_user), db: 
                           extra={"request_id": str(link.request_id), "reason": payload.reason})
     await db.commit()
     return {"rejected": [d.number for _, d in rows]}
+
+
+@router.post("/status")
+async def claim_status(payload: StatusIn, principal: ActorPrincipal = Depends(get_actor_principal), db: AsyncSession = Depends(get_db)):
+    """Tells the MCP whether this was already done. Reads only: /claim stays the one step that prevents a second run."""
+    _config()
+    agent_id = _agent(principal)
+    link = await db.scalar(select(MoodleApproval).where(MoodleApproval.message_id == payload.message_id,
+        MoodleApproval.request_id == payload.request_id))
+    if not link:
+        raise HTTPException(409, "Authorization unavailable")
+    if agent_id not in (link.executor_id, link.source_agent_id):
+        raise HTTPException(403, "Executor does not match")
+    answer = {"state": link.state, "outcome": link.outcome, "expired": link.expires_at <= datetime.now(timezone.utc)}
+    if link.state == "claimed" and agent_id == link.executor_id:
+        # An interrupted run: the executor needs the call to check it in Moodle.
+        try:
+            proposal = _source(link.source_agent_id, link.request_id)
+            answer |= {"wsfunction": proposal["wsfunction"], "params": proposal["params"]}
+        except HTTPException:
+            pass
+    return answer
 
 
 @router.post("/claim")

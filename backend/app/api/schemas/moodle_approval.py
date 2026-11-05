@@ -42,6 +42,11 @@ class ClaimIn(BaseModel):
     params_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class StatusIn(BaseModel):
+    request_id: uuid.UUID
+    message_id: uuid.UUID
+
+
 class FinishIn(BaseModel):
     request_id: uuid.UUID
     message_id: uuid.UUID

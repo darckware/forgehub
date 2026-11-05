@@ -7,7 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.routes import moodle_approval
-from app.api.schemas.moodle_approval import ClaimIn
+from app.api.schemas.moodle_approval import ClaimIn, StatusIn
 from app.core.demand_workflow import approval_fingerprint
 from app.core.deps import ActorPrincipal
 
@@ -42,3 +42,49 @@ async def test_claim_is_single_use_and_bound_to_authenticated_executor(monkeypat
     with pytest.raises(HTTPException) as exc:
         await moodle_approval.claim(payload, principal, db)
     assert exc.value.status_code == 409
+
+
+def _status_db(link):
+    return SimpleNamespace(scalar=AsyncMock(return_value=link))
+
+
+@pytest.mark.asyncio
+async def test_status_reports_without_changing_anything(monkeypatch):
+    executor, source, request, message = (uuid.uuid4() for _ in range(4))
+    link = SimpleNamespace(executor_id=executor, source_agent_id=source, request_id=request, state="approved", outcome=None,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=1))
+    monkeypatch.setattr(moodle_approval, "_config", lambda: None)
+    payload = StatusIn(request_id=request, message_id=message)
+    principal = ActorPrincipal("agent", executor, "executor")
+    assert await moodle_approval.claim_status(payload, principal, _status_db(link)) == {
+        "state": "approved", "outcome": None, "expired": False}
+    assert link.state == "approved"
+    link.state, link.outcome = "finished", "completed"
+    assert (await moodle_approval.claim_status(payload, principal, _status_db(link)))["outcome"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_status_of_a_pending_proposal_answers_its_creator_and_nobody_else(monkeypatch):
+    source, request, message = (uuid.uuid4() for _ in range(3))
+    link = SimpleNamespace(executor_id=None, source_agent_id=source, request_id=request, state="pending", outcome=None,
+        expires_at=datetime.now(timezone.utc) - timedelta(minutes=1))
+    monkeypatch.setattr(moodle_approval, "_config", lambda: None)
+    payload = StatusIn(request_id=request, message_id=message)
+    answer = await moodle_approval.claim_status(payload, ActorPrincipal("agent", source, "creator"), _status_db(link))
+    assert answer["state"] == "pending" and answer["expired"] is True
+    with pytest.raises(HTTPException) as exc:
+        await moodle_approval.claim_status(payload, ActorPrincipal("agent", uuid.uuid4(), "outsider"), _status_db(link))
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_status_gives_the_interrupted_call_only_to_its_executor(monkeypatch):
+    executor, source, request, message = (uuid.uuid4() for _ in range(4))
+    link = SimpleNamespace(executor_id=executor, source_agent_id=source, request_id=request, state="claimed", outcome=None,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=1))
+    monkeypatch.setattr(moodle_approval, "_config", lambda: None)
+    monkeypatch.setattr(moodle_approval, "_source", lambda *_: {"wsfunction": "enrol_manual_enrol_users", "params": {"x": 1}})
+    payload = StatusIn(request_id=request, message_id=message)
+    answer = await moodle_approval.claim_status(payload, ActorPrincipal("agent", executor, "executor"), _status_db(link))
+    assert answer["wsfunction"] == "enrol_manual_enrol_users" and answer["params"] == {"x": 1}
+    assert "params" not in await moodle_approval.claim_status(payload, ActorPrincipal("agent", source, "creator"), _status_db(link))
