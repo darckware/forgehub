@@ -96,7 +96,7 @@ async def capture_instructor_request(payload: InstructorRequestIn, actor: str = 
     recent = await db.scalar(select(func.count()).select_from(AgentDemand).where(
         AgentDemand.channel == GROUP_CHANNEL, AgentDemand.requires_approval.is_(False), AgentDemand.created_at >= since))
     subject = f'Grupo CI Instrutor: pedido de {clean_author(payload.author)}'[:255]
-    sender = AgentDemand.context_area.like(f'instructor:{phone}:%') if phone else AgentDemand.subject == subject
+    sender = AgentDemand.context_area.like(f'instructor:{conversation.id}:%') if conversation is not None else AgentDemand.subject == subject
     own = await db.scalar(select(func.count()).select_from(AgentDemand).where(
         AgentDemand.channel == GROUP_CHANNEL, sender, AgentDemand.created_at >= since))
     if recent >= HOURLY_LIMIT or own >= AUTHOR_HOURLY_LIMIT:
@@ -105,7 +105,7 @@ async def capture_instructor_request(payload: InstructorRequestIn, actor: str = 
     if maia is None or not settings.MOODLE_APPROVAL_WORKING_PATH:
         raise HTTPException(503, 'Maia is not available')
     demand = AgentDemand(from_agent='maia', from_agent_id=maia.id, target_agent_id=maia.id,
-                         subject=subject, body='Captura do grupo.', context_area=conversation_key(phone, payload.called),
+                         subject=subject, body='Captura do grupo.', context_area=conversation_key(conversation.id if conversation is not None else None, payload.called),
                          origin_type='task', status='new', fixed_agent=True, channel=GROUP_CHANNEL, channel_ref=group,
                          requires_response=False, working_path=settings.MOODLE_APPROVAL_WORKING_PATH,
                          scheduled_at=datetime.now(timezone.utc))

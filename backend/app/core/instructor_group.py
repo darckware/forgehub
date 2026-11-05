@@ -130,9 +130,10 @@ def add_turn(turns: list | None, who: str, text: str, number: int | None = None)
     return [*(turns or []), turn][-HISTORY_TURNS:]
 
 
-def conversation_key(phone: str | None, called: bool) -> str | None:
-    """Kept on each task, so two quick messages never fight over one pointer."""
-    return f"instructor:{phone}:{'called' if called else 'open'}" if phone else None
+def conversation_key(conversation_id, called: bool) -> str | None:
+    """Kept on each task, so two quick messages never fight over one pointer. The conversation's
+    id and not the phone: `context_area` shows up in the screen filters."""
+    return f"instructor:{conversation_id}:{'called' if called else 'open'}" if conversation_id else None
 
 
 def _key_parts(demand) -> tuple[str | None, bool]:
@@ -146,12 +147,12 @@ async def record_reply(db, demand, reply: str, result: str | None, *, failed: bo
     """Her answer joins that phone's conversation; insisting off topic closes it. Returns what the
     group should read, empty for nothing. Caller commits."""
     from app.db.models.personal import InstructorConversation
-    phone, called = _key_parts(demand)
+    conversation_id, called = _key_parts(demand)
     if not called and (failed or not REPLY_BLOCK.search(result or "")):
         return ""  # Chatter that was never for her: no reply, and the window is left alone.
-    if phone is None:
+    if conversation_id is None:
         return reply
-    conversation = await db.scalar(select(InstructorConversation).where(InstructorConversation.phone == phone).with_for_update())
+    conversation = await db.scalar(select(InstructorConversation).where(InstructorConversation.id == conversation_id).with_for_update())
     if conversation is None:
         return reply
     for turn in conversation.turns or []:
