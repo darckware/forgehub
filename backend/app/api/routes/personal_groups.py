@@ -15,7 +15,7 @@ from app.core.instructor_group import GROUP_CHANNEL, HOURLY_LIMIT, capture_body
 from app.db.base import get_db
 from app.db.models.agent import Agent
 from app.db.models.demand import AgentDemand
-from app.db.models.personal import PersonalCaptureSuggestion, PersonalWhatsAppGroup
+from app.db.models.personal import PersonalCaptureSuggestion, PersonalContact, PersonalWhatsAppGroup
 from app.mcp import personal_group_sources as sources
 
 router = APIRouter(prefix='/api/v1/personal', tags=['personal'])
@@ -25,6 +25,8 @@ class InstructorRequestIn(BaseModel):
     group_id: str = Field(min_length=1, max_length=100)
     author: str = Field(min_length=1, max_length=120)
     text: str = Field(min_length=1, max_length=4000)
+    answering: str | None = Field(default=None, max_length=2000)
+    author_phone: str | None = Field(default=None, max_length=20)
 
 
 @router.get('/groups', response_model=list[WhatsAppGroupOut])
@@ -82,7 +84,11 @@ async def capture_instructor_request(payload: InstructorRequestIn, actor: str = 
     db.add(demand)
     await db.flush()
     await db.refresh(demand)
-    demand.body = capture_body(demand.number, payload.author, payload.text)
+    contact = None
+    if payload.author_phone:
+        contact = await db.scalar(select(PersonalContact).where(PersonalContact.phone == payload.author_phone))
+    unit = (contact.other_data or {}).get('casa_inovacao') if contact else None
+    demand.body = capture_body(demand.number, payload.author, payload.text, payload.answering, unit if isinstance(unit, str) else None)
     await db.commit()
     wake_scheduled_dispatch()
     return {'number': demand.number}

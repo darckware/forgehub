@@ -1526,10 +1526,8 @@ async def _execute_dispatch(
     demand.target_agent_id = target_agent_id
     demand.command_text = command_text
     try:
-        run = await dispatch_agent_run(
-            run_id, agent, with_completion_contract(prompt), project_path,
-            restricted_toolsets=RESTRICTED_TOOLSETS if demand.channel == GROUP_CHANNEL else None,
-        )
+        restriction = {"restricted_toolsets": RESTRICTED_TOOLSETS} if demand.channel == GROUP_CHANNEL else {}
+        run = await dispatch_agent_run(run_id, agent, with_completion_contract(prompt), project_path, **restriction)
     except AgentRunDispatchError as exc:
         demand.agent_run_id = None
         demand.dispatch_attempts = (demand.dispatch_attempts or 0) + 1
