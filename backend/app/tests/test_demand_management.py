@@ -54,6 +54,69 @@ async def test_agent_work_paginates_and_counts_using_the_same_filters(client, co
     assert narrowed["counts"]["attention"] == 2
 
 
+async def test_work_groups_are_disjoint_before_pagination_and_ignore_subject(client, consolidation_db, test_suite_agent):
+    from app.db.models.moodle_approval import MoodleApproval
+    db, failed, incubated = consolidation_db
+    label = f"group-test-{uuid.uuid4().hex}"
+    failed.subject = label + " Moodle task without approval link"
+    incubated.subject = label + " pending idea"
+    incubated.requires_approval = True
+    incubated.approval_status = "pending"
+    await db.flush()
+    link = MoodleApproval(message_id=failed.id, request_id=uuid.uuid4(), source_agent_id=test_suite_agent,
+        params_hash="a" * 64, expires_at=datetime.now(timezone.utc) + timedelta(days=1), state="finished", outcome="completed")
+    db.add(link)
+    await db.commit()
+    try:
+        params = {"search": label, "page_size": 1, "view": "attention"}
+        tasks = (await client.get("/api/v1/demands/agent-work", params={**params, "group": "tasks"})).json()
+        ideas = (await client.get("/api/v1/demands/agent-work", params={**params, "group": "incubation"})).json()
+        assert tasks["total"] == 0
+        assert tasks["counts"]["attention"] == 0
+        assert ideas["total"] == 1
+        assert ideas["items"][0]["id"] == str(incubated.id)
+        # Archived incubations remain in their own group and can be restored.
+        incubated.status = "archived"
+        await db.commit()
+        archived = (await client.get("/api/v1/demands/agent-work", params={**params, "group": "incubation", "view": "archived"})).json()
+        assert archived["total"] == 1
+        combined = (await client.get("/api/v1/demands/agent-work", params=params)).json()
+        assert combined["total"] == 1  # legacy default still includes linked Moodle
+        linked = combined["items"][0]
+        assert linked["moodle_approval"]["state"] == "finished"
+        assert linked["moodle_approval"]["outcome"] == "completed"
+        assert "approve" not in linked["allowed_actions"]
+        from app.api.routes import moodle_approval
+        # Owner enforcement is tested in the dedicated approval tests. Here
+        # exercise the read-only presentation using this disposable fixture.
+        from unittest.mock import patch
+        with patch.object(moodle_approval, "_owner"):
+            panel = await moodle_approval.list_approvals(user=None, db=db)
+        assert any(x["number"] == failed.number and x["outcome"] == "completed" for x in panel["activity"])
+        await db.delete(link)
+        await db.commit()
+        tasks = (await client.get("/api/v1/demands/agent-work", params={**params, "group": "tasks"})).json()
+        assert tasks["total"] == 1  # title alone never classifies Moodle
+    finally:
+        await db.execute(delete(MoodleApproval).where(MoodleApproval.message_id == failed.id))
+        await db.commit()
+
+
+async def test_unknown_work_group_is_rejected(client):
+    assert (await client.get("/api/v1/demands/agent-work", params={"group": "arbitrary"})).status_code == 422
+
+
+async def test_uncertain_work_cannot_be_archived_by_single_or_bulk_decision(client, consolidation_db):
+    db, failed, _ = consolidation_db
+    await db.commit()
+    await db.refresh(failed)
+    response = await client.post(f"/api/v1/demands/{failed.id}/decision", json={"action": "archive"})
+    assert response.status_code == 409
+    response = await client.post("/api/v1/demands/agent-work/bulk", json={"action": "archive", "items": [
+        {"id": str(failed.id), "updated_at": failed.updated_at.isoformat()}]})
+    assert response.json()["results"][0]["status"] == "blocked"
+
+
 async def test_agent_work_exposes_uncertainty_and_blocks_retry_and_delete(client, consolidation_db):
     db, failed, _ = consolidation_db
     await db.commit()

@@ -63,6 +63,11 @@ Permissions, deletion/retention, billing, and legal policy remain owned by their
 
 ## Dataset navigation
 
+- Personal agent work uses persisted source links to separate Moodle authorization from incubations and tasks before pagination and counting. Titles never determine the workflow. Incubation promotion authorizes queuing; completion review accepts results. Use different action labels for those decisions.
+- Task rows expose Archive and confirmation; bulk archive names only selected items on the current page. Active/reserved and uncertain executions remain blocked by the server. Restore preserves evidence and does not execute. Archive is neither cancellation nor completion.
+- Incubation promotion links to the stable message identity, since dispatch may already have advanced its lifecycle. Updating one item clears its selection so later batch actions cannot reuse stale versions.
+- The Moodle group displays recorded operation outcomes independently of Messages runner/report status. An unavailable proposal or failed source lookup cannot be shown as an empty confirmed queue.
+
 - Messages groups are mutually exclusive lifecycle stages. Incubation is
   excluded from Incoming and Outgoing; dispatched/running rows leave both
   queues. Archived rows leave all active stages. List and badge predicates

@@ -11,6 +11,7 @@ import { useOperationsViewModel } from "./useOperationsViewModel";
 
 export const WORK_VIEWS = ["attention", "approval", "incubation", "failed", "queued", "running", "completed", "archived"] as const;
 export type WorkView = typeof WORK_VIEWS[number];
+export type WorkGroup = "tasks" | "incubation" | "moodle";
 export type WorkAction = "approve" | "reject" | "postpone" | "drop" | "archive" | "restore" | "delete" | "reconcile" | "retry" | "authorize_retry" | "record_investigation" | "confirm_inactive";
 type HistoryEvent = { id: string; action: string; actor: string; created_at: string; payload: Record<string, unknown> | null };
 type BulkResult = { id: string; status: "success" | "blocked" | "missing" | "stale"; detail: string | null; number?: number; subject?: string };
@@ -33,16 +34,21 @@ function failureText(error: Error | null): string | null {
 
 export function useAgentTasksViewModel() {
   const [params, setParams] = useSearchParams();
-  const rawView = params.get("workView");
-  const view: WorkView = WORK_VIEWS.includes(rawView as WorkView) ? rawView as WorkView : "attention";
-  const search = params.get("workSearch") ?? "", context = params.get("workContext") ?? "all";
-  const agent = params.get("workAgent") ?? "all", from = params.get("workFrom") ?? "", to = params.get("workTo") ?? "";
-  const requestedPage = Math.max(1, Number(params.get("workPage")) || 1);
-  const [composing, setComposing] = useState(false), [debouncedSearch, setDebouncedSearch] = useState(search);
-  useEffect(() => { if (composing) return; const timer = setTimeout(() => setDebouncedSearch(search), search ? 300 : 0); return () => clearTimeout(timer); }, [search, composing]);
+  const group: WorkGroup = ["tasks", "incubation", "moodle"].includes(params.get("workGroup") ?? "") ? params.get("workGroup") as WorkGroup : params.get("workView") === "incubation" ? "incubation" : "tasks";
+  const paramKey = (key: string) => group === "incubation" ? key.replace(/^work/, "incubation") : key;
+  const value = (key: string) => params.get(paramKey(key));
+  const rawView = value("workView");
+  const views = WORK_VIEWS.filter(view => group === "incubation" ? ["attention", "approval", "incubation", "archived"].includes(view) : view !== "incubation");
+  const view: WorkView = views.includes(rawView as WorkView) ? rawView as WorkView : "attention";
+  const search = value("workSearch") ?? "", context = value("workContext") ?? "all";
+  const agent = value("workAgent") ?? "all", from = value("workFrom") ?? "", to = value("workTo") ?? "";
+  const requestedPage = Math.max(1, Number(value("workPage")) || 1);
+  const [composing, setComposing] = useState(false), [searchTerm, setSearchTerm] = useState({ group, search });
+  const debouncedSearch = searchTerm.group === group ? searchTerm.search : search;
+  useEffect(() => { if (composing) return; const timer = setTimeout(() => setSearchTerm({ group, search }), search ? 300 : 0); return () => clearTimeout(timer); }, [group, search, composing]);
   const day = (value: string, end: boolean) => { const date = new Date(`${value}T${end ? "23:59:59.999" : "00:00:00"}`); return value && Number.isFinite(date.getTime()) ? date.toISOString() : undefined; };
-  const query = useAgentWork({ view, search: debouncedSearch, context, agent_id: agent === "all" ? undefined : agent,
-    created_from: day(from, false), created_to: day(to, true), page: requestedPage, page_size: 25 });
+  const query = useAgentWork({ group: group === "moodle" ? "tasks" : group, view, search: debouncedSearch, context, agent_id: agent === "all" ? undefined : agent,
+    created_from: day(from, false), created_to: day(to, true), page: requestedPage, page_size: 25 }, group !== "moodle");
   const agents = useAgents(), projects = useProjects(), tasks = useTasks();
   const approvals = useGovernedApprovalRequests("pending"), decideApproval = useDecideGovernedApproval();
   const operations = useOperationsViewModel("questions");
@@ -54,13 +60,14 @@ export function useAgentTasksViewModel() {
   const [reason, setReason] = useState(""), [evidence, setEvidence] = useState(""), [postponeAt, setPostponeAt] = useState("");
   const [runConfirmation, setRunConfirmation] = useState("");
   const [notice, setNotice] = useState(false);
+  const [promotedTask, setPromotedTask] = useState<{ id: string; number: number } | null>(null);
   const client = useQueryClient(), items = query.data?.items ?? [], page = query.data?.page ?? requestedPage;
   const selected = items.find(row => row.id === selectedId) ?? null;
-  const filterKey = `${view}:${context}:${agent}:${from}:${to}:${debouncedSearch}:${requestedPage}`;
+  const filterKey = `${group}:${view}:${context}:${agent}:${from}:${to}:${debouncedSearch}:${requestedPage}`;
   useEffect(() => { setSelectedId(null); setSelectedIds([]); }, [filterKey]);
-  const resultFilterKey = `${view}:${context}:${agent}:${from}:${to}:${debouncedSearch}`;
+  const resultFilterKey = `${group}:${view}:${context}:${agent}:${from}:${to}:${debouncedSearch}`;
   useEffect(() => { setBulkResults([]); }, [resultFilterKey]);
-  useEffect(() => { if (query.data && query.data.page !== requestedPage) setParams(prev => { const next = new URLSearchParams(prev); next.set("workPage", String(query.data.page)); return next; }, { replace: true }); }, [query.data?.page, requestedPage, setParams]);
+  useEffect(() => { if (group !== "moodle" && query.data && query.data.page !== requestedPage) setParams(prev => { const next = new URLSearchParams(prev); next.set(paramKey("workPage"), String(query.data.page)); return next; }, { replace: true }); }, [group, query.data?.page, requestedPage, setParams]);
   const history = useQuery({ queryKey: [...demandKeys.all, "history", selectedId], queryFn: ({ signal }) => apiClient.get<HistoryEvent[]>(`/api/v1/demands/${selectedId}/history`, { signal }), enabled: Boolean(selectedId) });
   const sources = useQuery({ queryKey: [...demandKeys.all, "sources", selectedId], queryFn: ({ signal }) => apiClient.get<Demand[]>(`/api/v1/demands/${selectedId}/sources`, { signal }), enabled: Boolean(selectedId) });
   const dependencies = useTaskDependencies(selected?.origin_id ?? "");
@@ -73,7 +80,13 @@ export function useAgentTasksViewModel() {
       if (action === "reconcile") return apiClient.post(`${url}/reconcile`, {});
       return apiClient.post(`${url}/decision`, { action, reason: reason.trim() || null, evidence_ref: evidence.trim() || null,
         expected_updated_at: item.updated_at, confirmation: action === "confirm_inactive" ? runConfirmation.trim() : null, matures_at: action === "postpone" ? new Date(postponeAt).toISOString() : null });
-    }, onSuccess: async () => { setConfirmation(null); setNotice(true); await invalidate(); },
+    }, onSuccess: async (_, { item, action }) => {
+      setConfirmation(null); setNotice(true);
+      setSelectedIds(ids => ids.filter(id => id !== item.id));
+      setSelectedId(current => current === item.id ? null : current);
+      if (action === "approve" && item.origin_type === "incubation") setPromotedTask({ id: item.id, number: item.number });
+      await invalidate();
+    },
   });
   const bulk = useMutation({
     mutationFn: ({ action, items: selectedItems }: { action: "archive" | "restore"; items: AgentWorkItem[] }) => apiClient.post<{ results: BulkResult[] }>("/api/v1/demands/agent-work/bulk", { action, items: selectedItems.map(item => ({ id: item.id, updated_at: item.updated_at })) }),
@@ -83,13 +96,14 @@ export function useAgentTasksViewModel() {
       setBulkConfirmation(null); setSelectedIds([]); await invalidate();
     },
   });
-  const setFilter = (key: string, value: string) => setParams(prev => { const next = new URLSearchParams(prev); next.set("tab", "agent-work"); if (value && value !== "all") next.set(key, value); else next.delete(key); if (key !== "workPage") next.delete("workPage"); return next; }, { replace: true });
+  const setFilter = (key: string, value: string) => setParams(prev => { const next = new URLSearchParams(prev); next.set("tab", "agent-work"); if (value && value !== "all") next.set(paramKey(key), value); else next.delete(paramKey(key)); if (key !== "workPage") next.delete(paramKey("workPage")); return next; }, { replace: true });
   const agentName = (item: Demand) => agents.data?.find(row => row.id === (item.incubation_owner_id ?? item.target_agent_id))?.name ?? item.from_agent;
   const contextName = (item: Demand) => projects.data?.find(row => row.id === item.project_id)?.name ?? item.context_area;
   return {
+    group, views, promotedTask, setGroup: (nextGroup: WorkGroup) => { setSelectedId(null); setSelectedIds([]); setBulkResults([]); setNotice(false); setPromotedTask(null); setConfirmation(null); setParams(prev => { const next = new URLSearchParams(prev); next.set("tab", "agent-work"); next.set("workGroup", nextGroup); return next; }); },
     query, items, filtered: items, view, search, context, agent, from, to, page, total: query.data?.total ?? 0, counts: query.data?.counts ?? {},
     agents: agents.data ?? [], selected, setSelectedId, contextName, agentName, state: workState, setComposing, notice,
-    questions, questionsError: operations.questions.isError, answerQuestion: operations.answerQuestion,
+    questions, questionsError: operations.questions.isError, questionsLoading: operations.questions.isLoading, answerQuestion: operations.answerQuestion,
     setView: (value: string) => setFilter("workView", value), setSearch: (value: string) => setFilter("workSearch", value), setContext: (value: string) => setFilter("workContext", value),
     setAgent: (value: string) => setFilter("workAgent", value), setFrom: (value: string) => setFilter("workFrom", value), setTo: (value: string) => setFilter("workTo", value), setPage: (value: number) => setFilter("workPage", String(value)),
     contexts: (query.data?.contexts ?? []).map(row => ({ key: row.project_id ? `project:${row.project_id}` : row.area ? `area:${row.area}` : "unclassified", label: projects.data?.find(project => project.id === row.project_id)?.name ?? row.area })),

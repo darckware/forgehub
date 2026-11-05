@@ -856,14 +856,16 @@ async def list_demands(
 @router.get("/agent-work")
 async def agent_work(view: str = "attention", search: str = "", agent_id: uuid.UUID | None = None,
     context: str | None = None, created_from: datetime | None = None, created_to: datetime | None = None,
-    page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), db: AsyncSession = Depends(get_db)):
-    from app.core.demand_management import WORK_VIEWS, list_agent_work
+    page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), group: str = "all", db: AsyncSession = Depends(get_db)):
+    from app.core.demand_management import WORK_GROUPS, WORK_VIEWS, list_agent_work
     if view not in WORK_VIEWS:
         raise HTTPException(422, "Unknown work view")
+    if group not in WORK_GROUPS:
+        raise HTTPException(422, "Unknown work group")
     if any(value and value.tzinfo is None for value in (created_from, created_to)):
         raise HTTPException(422, "Dates must include a timezone")
     return await list_agent_work(db, view=view, search=search, agent_id=agent_id, context=context,
-        created_from=created_from, created_to=created_to, page=page, page_size=page_size)
+        created_from=created_from, created_to=created_to, page=page, page_size=page_size, group=group)
 
 
 @router.post("/agent-work/bulk")

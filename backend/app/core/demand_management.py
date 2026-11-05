@@ -4,9 +4,11 @@ from sqlalchemy import and_, case, exists, func, or_, select
 from app.api.schemas.demand import DemandOut
 from app.db.models.demand import AgentDemand
 from app.db.models.operations import AgentQuestion
+from app.db.models.moodle_approval import MoodleApproval
 from app.core.demand_workflow import requires_reconciliation as uncertain
 
 WORK_VIEWS = ("attention", "approval", "incubation", "failed", "queued", "running", "completed", "archived")
+WORK_GROUPS = ("all", "tasks", "incubation")
 
 
 def failure_category(demand):
@@ -35,14 +37,15 @@ def work_state_sql():
             and_(AgentDemand.dispatch_status.is_(None), AgentDemand.agent_run_id.isnot(None))), "running"),
         (AgentDemand.dispatch_status == "completed", "completed"),
         (and_(AgentDemand.requires_approval.is_(True), AgentDemand.approval_status == "rejected"), "rejected"),
-        (or_(blocked, and_(AgentDemand.requires_approval.is_(True), or_(AgentDemand.approval_status.is_(None), AgentDemand.approval_status != "approved"))), "approval"),
+        (blocked, "question"),
+        (and_(AgentDemand.requires_approval.is_(True), or_(AgentDemand.approval_status.is_(None), AgentDemand.approval_status != "approved")), "approval"),
         (and_(AgentDemand.origin_type == "incubation", AgentDemand.incubation_state == "decision_pending"), "overdue"),
         (AgentDemand.origin_type == "incubation", "incubation"), else_="queued")
 
 
 def view_filter(view, state):
     if view == "attention":
-        return state.in_(("approval", "rejected", "uncertain", "failed", "overdue", "incubation"))
+        return state.in_(("approval", "question", "rejected", "uncertain", "failed", "overdue", "incubation"))
     if view == "approval":
         return state.in_(("approval", "rejected"))
     if view == "failed":
@@ -57,11 +60,19 @@ async def work_item(db, demand, state):
     linked_history = bool(await db.scalar(select(AgentDemand.id).where(AgentDemand.consolidated_into_id == demand.id).limit(1)))
     blocked_question = bool(await db.scalar(select(AgentQuestion.id).where(AgentQuestion.origin_demand_id == demand.id,
         AgentQuestion.status == "pending", AgentQuestion.blocking.is_(True)).limit(1)))
+    moodle = await db.scalar(select(MoodleApproval).where(MoodleApproval.message_id == demand.id))
+    direct_moodle = moodle is not None
+    if moodle is None and demand.failure_check_source_id:
+        moodle = await db.scalar(select(MoodleApproval).where(MoodleApproval.message_id == demand.failure_check_source_id))
     actions, blocked = [], {}
     for action in ("approve", "reject", "postpone", "drop", "archive", "restore", "delete", "reconcile", "retry", "authorize_retry", "request_approval",
                    "record_investigation", "confirm_inactive"):
         reason = None
-        if action in ("record_investigation", "confirm_inactive"):
+        if direct_moodle:
+            reason = "moodle_flow_required"
+        elif action == "archive" and uncertain(demand):
+            reason = "reconciliation_required"
+        elif action in ("record_investigation", "confirm_inactive"):
             if not uncertain(demand):
                 reason = "no_uncertain_outcome"
             elif demand.consolidated_into_id:
@@ -110,13 +121,18 @@ async def work_item(db, demand, state):
     return {**DemandOut.model_validate(demand).model_dump(mode="json"), "work_state": state,
         "failure_category": category, "recovery_state": "reconciliation_required" if uncertain(demand) else
         "failed" if demand.dispatch_status == "failed" else "none",
-        "allowed_actions": actions, "blocked_actions": blocked}
+        "allowed_actions": actions, "blocked_actions": blocked,
+        "moodle_approval": {"request_id": str(moodle.request_id), "message_id": str(moodle.message_id),
+            "state": moodle.state, "outcome": moodle.outcome, "direct": direct_moodle} if moodle else None}
 
 
 async def list_agent_work(db, *, view="attention", search="", agent_id=None, context=None,
-                          created_from=None, created_to=None, page=1, page_size=25):
+                          created_from=None, created_to=None, page=1, page_size=25, group="all"):
     state = work_state_sql()
     filters = []
+    if group != "all":
+        filters.append(~exists(select(MoodleApproval.id).where(MoodleApproval.message_id == AgentDemand.id)))
+        filters.append(AgentDemand.origin_type == "incubation" if group == "incubation" else AgentDemand.origin_type == "task")
     if search.strip():
         term = search.strip().removeprefix("#")
         # Match literal wildcard characters; an operator's search is not SQL syntax.
@@ -147,7 +163,7 @@ async def list_agent_work(db, *, view="attention", search="", agent_id=None, con
     page = min(page, max(1, (total + page_size - 1) // page_size))
     rows = (await db.execute(select(AgentDemand, state.label("work_state")).where(*filters, view_filter(view, state))
         .order_by(AgentDemand.created_at.desc(), AgentDemand.id).offset((page - 1) * page_size).limit(page_size))).all()
-    contexts = (await db.execute(select(AgentDemand.project_id, AgentDemand.context_area).distinct())).all()
+    contexts = (await db.execute(select(AgentDemand.project_id, AgentDemand.context_area).where(*filters).distinct())).all()
     return {"items": [await work_item(db, demand, work_state) for demand, work_state in rows],
         "total": total, "counts": counts, "page": page, "page_size": page_size,
         "contexts": [{"project_id": str(project) if project else None, "area": area} for project, area in contexts]}

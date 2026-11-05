@@ -3,7 +3,7 @@ import { MoodleApprovalPanel } from "./MoodleApprovalPanel";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, Loader2 } from "lucide-react";
-import { WORK_VIEWS, useAgentTasksViewModel, workState } from "@/hooks/useAgentTasksViewModel";
+import { useAgentTasksViewModel, workState } from "@/hooks/useAgentTasksViewModel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -26,14 +26,23 @@ export function AgentTasksTab() {
   const evidenceRequired = action === "authorize_retry" || action === "record_investigation" || action === "confirm_inactive";
   const reasonRequired = action === "reject" || action === "postpone" || action === "drop" || evidenceRequired;
   const date = (value: string | null) => value ? new Intl.DateTimeFormat(i18n.language, { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "—";
+  const actionLabel = (name: string) => name === "approve" && (vm.confirmation?.item ?? selected)?.origin_type === "incubation"
+    ? t("agentTasks.promote") : t(`agentTasks.actions.${name}`);
+  const groups = <div role="tablist" aria-label={t("agentTasks.groupLabel")} className="flex flex-wrap gap-2">
+    {(["moodle", "incubation", "tasks"] as const).map(group => <Button key={group} role="tab" aria-selected={vm.group === group}
+      variant={vm.group === group ? "default" : "outline"} onClick={() => vm.setGroup(group)}>{t(`agentTasks.groups.${group}`)}</Button>)}
+  </div>;
+
+  if (vm.group === "moodle") return <div className="space-y-4 pt-4">{groups}<MoodleApprovalPanel /></div>;
 
   return <div className="space-y-4 pt-4">
-    <p className="text-sm text-muted-foreground">{t("agentTasks.description")}</p>
-    <MoodleApprovalPanel />
+    {groups}
+    <p className="text-sm text-muted-foreground">{t(`agentTasks.groupDescriptions.${vm.group}`)}</p>
     {vm.notice && <p role="status" className="text-sm">{t("agentTasks.saved")}</p>}
+    {vm.promotedTask && <Link className="text-sm underline" to={`/demands?message=${vm.promotedTask.id}`}>{t("agentTasks.viewPromotedTask", { number: vm.promotedTask.number })}</Link>}
     <div className="flex flex-wrap gap-2">
       <Select aria-label={t("agentTasks.view")} value={vm.view} onChange={e => vm.setView(e.target.value)} className="w-full sm:w-56">
-        {WORK_VIEWS.map(view => <option key={view} value={view}>{t(`agentTasks.views.${view}`)}{vm.counts[view] !== undefined ? ` (${vm.counts[view]})` : ""}</option>)}
+        {vm.views.map(view => <option key={view} value={view}>{t(`agentTasks.views.${view}`)}{vm.counts[view] !== undefined ? ` (${vm.counts[view]})` : ""}</option>)}
       </Select>
       <Select aria-label={t("agentTasks.context")} value={vm.context} onChange={e => vm.setContext(e.target.value)} className="w-full sm:w-56">
         <option value="all">{t("agentTasks.allContexts")}</option>
@@ -60,17 +69,21 @@ export function AgentTasksTab() {
           <Table><TableHeader><TableRow>
             <TableHead><input ref={element => { if (element) element.indeterminate = vm.selectedIds.length > 0 && vm.selectedIds.length < shown.length; }} type="checkbox" aria-label={t("agentTasks.selectPage")} checked={shown.length > 0 && vm.selectedIds.length === shown.length} disabled={!shown.length} onChange={vm.togglePage} /></TableHead>
             <TableHead>{t("agentTasks.task")}</TableHead><TableHead>{t("agentTasks.owner")}</TableHead>
-            <TableHead>{t("agentTasks.context")}</TableHead><TableHead>{t("agentTasks.state")}</TableHead><TableHead>{t("agentTasks.deadline")}</TableHead>
+            <TableHead>{t("agentTasks.context")}</TableHead><TableHead>{t("agentTasks.state")}</TableHead><TableHead>{t("agentTasks.deadline")}</TableHead><TableHead>{t("agentTasks.rowActions")}</TableHead>
           </TableRow></TableHeader><TableBody>
-            {!shown.length && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">{t("agentTasks.empty")}</TableCell></TableRow>}
+            {!shown.length && <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">{t("agentTasks.empty")}</TableCell></TableRow>}
             {shown.map(item => <TableRow key={item.id} data-state={selected?.id === item.id ? "selected" : undefined}>
               <TableCell><input type="checkbox" aria-label={t("agentTasks.selectItem", { number: item.number })} checked={vm.selectedIds.includes(item.id)} onChange={() => vm.toggle(item.id)} /></TableCell>
               <TableCell className="min-w-56 max-w-lg"><button type="button" className="text-left font-medium hover:underline focus-visible:outline focus-visible:outline-2" onClick={() => vm.setSelectedId(item.id)}>
                 <span className="mr-2 font-mono text-muted-foreground">#{item.number}</span>{item.subject}
-              </button></TableCell>
+              </button><button type="button" className="mt-1 block text-xs text-primary underline" onClick={() => vm.setSelectedId(item.id)}>{t("agentTasks.viewDetails")}</button></TableCell>
               <TableCell>{vm.agentName(item)}</TableCell><TableCell>{vm.contextName(item) ?? t("agentTasks.unclassified")}</TableCell>
               <TableCell><Badge variant={["uncertain", "failed", "overdue"].includes(vm.state(item)) ? "warning" : "outline"}>{t(`agentTasks.states.${vm.state(item)}`)}</Badge></TableCell>
               <TableCell className="whitespace-nowrap">{date(item.matures_at)}</TableCell>
+              <TableCell><Button size="sm" variant="outline" disabled={!vm.allowed(item, item.status === "archived" ? "restore" : "archive")}
+                aria-label={t(item.status === "archived" ? "agentTasks.restoreItem" : "agentTasks.archiveItem", { number: item.number })}
+                title={item.blocked_actions?.archive ? t(`agentTasks.blocked.${item.blocked_actions.archive}`) : undefined}
+                onClick={() => vm.ask(item, item.status === "archived" ? "restore" : "archive")}>{t(item.status === "archived" ? "agentTasks.actions.restore" : "agentTasks.actions.archive")}</Button></TableCell>
             </TableRow>)}
           </TableBody></Table>
         </div>
@@ -85,10 +98,12 @@ export function AgentTasksTab() {
       <p className="text-sm text-muted-foreground">{vm.agentName(selected)} · {t("agentTasks.attempts", { count: selected.dispatch_attempts })}</p>
       {selected.dispatch_error && <p className="break-words text-sm text-destructive"><AlertCircle className="mr-1 inline h-4 w-4" />{selected.dispatch_error}</p>}
       {workState(selected) === "uncertain" && <p className="text-sm">{t("agentTasks.uncertainHint")}</p>}
+      {selected.moodle_approval && <p className="text-sm rounded border p-3">{t("agentTasks.moodleRelated")} · {t(`agentTasks.moodleStates.${selected.moodle_approval.outcome === "completed" ? "completed" : selected.moodle_approval.state}`)}
+        <Link className="ml-2 underline" to="/personal?tab=agent-work&workGroup=moodle">{t("agentTasks.groups.moodle")}</Link></p>}
       {selected.requires_approval && <p className="text-sm">{t("agentTasks.approvalHint")}</p>}
       {selected.decision_reason && <p className="whitespace-pre-wrap text-sm">{t("agentTasks.reason")}: {selected.decision_reason}</p>}
       <div className="flex flex-wrap gap-2">
-        {(["approve", "reject", "postpone", "drop", "restore", "reconcile", "record_investigation", "confirm_inactive", "retry", "authorize_retry", "archive", "delete"] as const).filter(action => vm.allowed(selected, action)).map(action => <Button key={action} size="sm" variant={action === "delete" ? "destructive" : action === "approve" ? "default" : "outline"} onClick={() => vm.ask(selected, action)}>{t(`agentTasks.actions.${action}`)}</Button>)}
+        {(["approve", "reject", "postpone", "drop", "restore", "reconcile", "record_investigation", "confirm_inactive", "retry", "authorize_retry", "archive", "delete"] as const).filter(action => vm.allowed(selected, action)).map(action => <Button key={action} size="sm" variant={action === "delete" ? "destructive" : action === "approve" ? "default" : "outline"} onClick={() => vm.ask(selected, action)}>{actionLabel(action)}</Button>)}
         <Link className="self-center text-sm text-primary underline" to={`/demands?message=${selected.id}`}>{t("agentTasks.openMessages")}</Link>
       </div>
       {selected.blocked_actions?.approve && selected.dispatch_status === null && <p className="text-sm text-muted-foreground">{t(`agentTasks.blocked.${selected.blocked_actions.approve}`)}</p>}
@@ -115,23 +130,27 @@ export function AgentTasksTab() {
         </li>)}</ol>}
       </details>
     </section>}
-    {vm.approvals.isError && <p role="alert">{t("agentTasks.governedError")}</p>}
-    {["attention", "approval"].includes(vm.view) && (vm.approvals.data ?? []).filter(request => request.target_type === "project_task").map(request => <section key={request.id} className="space-y-2 rounded-md border p-4">
+    {vm.group === "tasks" && ["attention", "approval"].includes(vm.view) && <h3 className="font-semibold">{vm.approvals.isError || vm.approvals.isLoading ? t("agentTasks.reviewsTitle") : t("agentTasks.reviewsHeading", { count: (vm.approvals.data ?? []).filter(request => request.target_type === "project_task").length })}</h3>}
+    {vm.group === "tasks" && vm.approvals.isError && <p role="alert">{t("agentTasks.governedError")}</p>}
+    {vm.group === "tasks" && ["attention", "approval"].includes(vm.view) && (vm.approvals.data ?? []).filter(request => request.target_type === "project_task").map(request => <section key={request.id} className="space-y-2 rounded-md border p-4">
       <h3 className="font-medium">{t("agentTasks.governedTitle")}: {vm.taskName(request.target_id)}</h3>
       <p className="text-sm text-muted-foreground">{request.requested_by_name} · {date(request.created_at)}</p>
-      <div className="flex gap-2"><Button size="sm" onClick={() => { setGoverned({ id: request.id, decision: "approved" }); setComments(""); vm.decideApproval.reset(); }}>{t("agentTasks.actions.approve")}</Button>
-        <Button size="sm" variant="outline" onClick={() => { setGoverned({ id: request.id, decision: "rejected" }); setComments(""); vm.decideApproval.reset(); }}>{t("agentTasks.actions.reject")}</Button></div>
+      <div className="flex gap-2"><Button size="sm" onClick={() => { setGoverned({ id: request.id, decision: "approved" }); setComments(""); vm.decideApproval.reset(); }}>{t("agentTasks.approveCompletion")}</Button>
+        <Button size="sm" variant="outline" onClick={() => { setGoverned({ id: request.id, decision: "rejected" }); setComments(""); vm.decideApproval.reset(); }}>{t("agentTasks.requestRevision")}</Button></div>
     </section>)}
-    {vm.questionsError && <p role="alert">{t("agentTasks.questionsError")}</p>}
-    {["attention", "approval"].includes(vm.view) && vm.questions.map(item => <section key={item.id} className="space-y-2 rounded-md border p-4">
+    {vm.group === "tasks" && ["attention", "approval"].includes(vm.view) && <h3 className="font-semibold">{vm.questionsError || vm.questionsLoading ? t("agentTasks.questionsTitle") : t("agentTasks.questionsHeading", { count: vm.questions.length })}</h3>}
+    {vm.group === "tasks" && vm.questionsError && <p role="alert">{t("agentTasks.questionsError")}</p>}
+    {vm.group === "tasks" && ["attention", "approval"].includes(vm.view) && vm.questions.map(item => <section key={item.id} className="space-y-2 rounded-md border p-4">
       <h3 className="font-medium">{t("agentTasks.questionTitle")} #{item.number} · {item.agent_name}</h3>
+      {item.origin_demand_id ? <Link className="text-sm underline" to={`/demands?message=${item.origin_demand_id}`}>{t("agentTasks.questionTask")}</Link> : <p className="text-sm text-muted-foreground">{t("agentTasks.questionUnlinked")}</p>}
+      <p className="text-xs text-muted-foreground">{date(item.created_at)}</p>
       <p className="whitespace-pre-wrap text-sm">{item.question}</p>
       {item.context && <p className="whitespace-pre-wrap text-sm text-muted-foreground">{item.context}</p>}
       <Button size="sm" onClick={() => { setQuestion({ id: item.id, text: item.question }); setAnswer(""); vm.answerQuestion.reset(); }}>{t("agentTasks.answer")}</Button>
     </section>)}
-    <ConfirmDialog open={Boolean(vm.confirmation)} title={action ? t(`agentTasks.actions.${action}`) : ""}
+    <ConfirmDialog open={Boolean(vm.confirmation)} title={action ? actionLabel(action) : ""}
       description={vm.confirmation ? `#${vm.confirmation.item.number} · ${vm.confirmation.item.subject}` : undefined}
-      confirmLabel={action ? t(`agentTasks.actions.${action}`) : undefined} variant={action === "delete" ? "destructive" : "default"}
+      confirmLabel={action ? actionLabel(action) : undefined} variant={action === "delete" ? "destructive" : "default"}
       loading={vm.mutation.isPending} error={vm.mutationError} onConfirm={vm.confirm} onCancel={vm.cancel}
       confirmDisabled={(reasonRequired && !vm.reason.trim()) || (evidenceRequired && !vm.evidence.trim()) || (action === "confirm_inactive" && vm.confirmation !== null && vm.runConfirmation.trim() !== vm.runIdentifier(vm.confirmation.item)) || (action === "postpone" && (!vm.postponeAt || new Date(vm.postponeAt).getTime() <= Date.now()))}>
       {action === "approve" && <p className="text-sm">{t("agentTasks.approveHint")}</p>}
@@ -151,7 +170,7 @@ export function AgentTasksTab() {
       <p className="text-sm">{t("agentTasks.bulkHint")}</p><ul className="mt-2 max-h-64 overflow-auto text-sm">{vm.bulkConfirmation?.items.map(item => <li key={item.id}>#{item.number} · {item.subject}</li>)}</ul>
     </ConfirmDialog>
     <ConfirmDialog open={Boolean(governed)} title={t("agentTasks.governedTitle")} variant="default"
-      confirmLabel={t(governed?.decision === "approved" ? "agentTasks.actions.approve" : "agentTasks.actions.reject")}
+      confirmLabel={t(governed?.decision === "approved" ? "agentTasks.approveCompletion" : "agentTasks.requestRevision")}
       loading={vm.decideApproval.isPending} error={vm.decideApproval.error?.message} confirmDisabled={governed?.decision === "rejected" && !comments.trim()}
       onCancel={() => { if (!vm.decideApproval.isPending) setGoverned(null); }}
       onConfirm={() => { if (governed) vm.decideApproval.mutate({ requestId: governed.id, decision: governed.decision, comments }, { onSuccess: () => setGoverned(null) }); }}>
