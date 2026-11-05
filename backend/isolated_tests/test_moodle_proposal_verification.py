@@ -72,3 +72,11 @@ def test_rejects_extended_ttl():
     p["expires_at"] = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
     with pytest.raises(ProposalInvalid):
         validate_proposal(p, p["request_id"])
+
+
+def test_a_create_proposal_cannot_carry_a_password():
+    from app.core.moodle_proposal_verification import ProposalInvalid, validate_proposal
+    proposal = {"request_id": "r", "wsfunction": "core_user_create_users", "destructive": False, "status": "pending",
+                "params": {"users": [{"username": "a", "password": "x"}]}}
+    with pytest.raises(ProposalInvalid, match="password"):
+        validate_proposal(proposal, "r")

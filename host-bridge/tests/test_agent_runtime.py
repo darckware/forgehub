@@ -175,6 +175,7 @@ def test_strict_media_reaches_hermes_send(monkeypatch) -> None:
     req = bridge_app.MessageSendRequest(target="whatsapp:x@g.us", message="oi", strict_media=True)
     asyncio.run(bridge_app.send_message(req, "t"))
     assert seen["env"]["HERMES_MEDIA_DELIVERY_STRICT"] == "1"
+    assert seen["env"]["HERMES_MEDIA_TRUST_RECENT_FILES"] == "0"
     asyncio.run(bridge_app.send_message(req.model_copy(update={"strict_media": False}), "t"))
     assert seen["env"] is None
 

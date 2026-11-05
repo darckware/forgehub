@@ -71,6 +71,11 @@ def validate_proposal(proposal, request_id):
             raise ProposalInvalid("Invalid birth date") from exc
     if proposal.get("status") != "pending" or not isinstance(proposal.get("params"), dict):
         raise ProposalInvalid("Proposal is not pending")
+    if function == "core_user_create_users":
+        # A password in a proposal would rest in a file; the MCP derives it after the claim.
+        users = proposal["params"].get("users")
+        if not isinstance(users, list) or any(not isinstance(u, dict) or "password" in u for u in users):
+            raise ProposalInvalid("A create proposal cannot carry a password")
     if not all(isinstance(proposal.get(k), str) and proposal[k] for k in ("host", "environment", "params_hash", "created_at", "expires_at")):
         raise ProposalInvalid("Proposal is incomplete")
     if re.fullmatch(r"[0-9a-f]{64}", proposal["params_hash"]) is None:

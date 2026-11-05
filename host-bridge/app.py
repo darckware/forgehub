@@ -2489,7 +2489,8 @@ async def send_message(
             capture_output=True,
             text=True,
             timeout=60,
-            env={**os.environ, "HERMES_MEDIA_DELIVERY_STRICT": "1"} if req.strict_media else None,
+            env={**os.environ, "HERMES_MEDIA_DELIVERY_STRICT": "1", "HERMES_MEDIA_TRUST_RECENT_FILES": "0"}
+            if req.strict_media else None,
         )
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="Message send timed out") from None

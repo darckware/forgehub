@@ -216,10 +216,19 @@ def test_cleaning_is_stable():
 
 
 def test_a_reply_that_still_names_it_is_dropped():
-    assert ig.clean_reply("veja a Media da turma") == ig.FALLBACK_REPLY
+    assert ig.clean_reply("a media : x") == ig.FALLBACK_REPLY
 
 
-@pytest.mark.parametrize("secret", ["01-02-2000", "1/2/2000", "a @ b.com", "123 456 789 09", "(21) 99848-1032", "bit.ly/x"])
+def test_an_ordinary_word_is_not_mistaken_for_it():
+    assert "imediatamente" in ig.clean_reply("Responda imediatamente, por favor.")
+
+
+def test_a_huge_reply_stays_cheap():
+    assert len(ig.clean_reply("a" * 200000)) <= ig.REPLY_LIMIT
+
+
+@pytest.mark.parametrize("secret", ["01-02-2000", "1/2/2000", "a @ b.com", "123 456 789 09", "(21) 99848-1032", "bit.ly/x",
+                                    "alunoteste01012015", "01012015", "1 de janeiro de 2015", "5592991234567", "senha: Abc@123"])
 def test_the_masks_cover_the_common_variations(secret):
     assert secret not in ig.clean_reply(f"dado {secret} fim")
 
@@ -234,6 +243,14 @@ def test_the_participant_cannot_leave_the_fence_or_write_her_block(payload):
     assert body.count("MENSAGEM>>>") == 1 and body.count("<<<MENSAGEM") == 1
     fenced = body.split("<<<MENSAGEM")[1].split("MENSAGEM>>>")[0]
     assert "<<<" not in fenced and ">>>" not in fenced and "[GRUPO]" not in fenced.upper()
+
+
+def test_the_task_carries_the_student_rule_and_its_exception():
+    body = ig.capture_body(1, "Ana", "Maia, oi")
+    assert "nome completo, data de nascimento e turma" in body
+    assert "NOVA ERA (PRACA) e KM32 (GUANDU)" in body and "não têm turma" in body
+    assert "AUSTIN (FRANKLIN) - T402M/26 IBC" in body
+    assert "username@gmail.com" in body and "informe sempre date_of_birth" in body
 
 
 def test_a_quoted_question_is_not_presented_as_hers():
