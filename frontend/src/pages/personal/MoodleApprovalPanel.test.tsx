@@ -9,33 +9,41 @@ vi.mock('@/hooks/useAgent', () => ({ useAgents: () => ({ data: [{ id: 'maia', na
 vi.mock('@/components/chat/ImprovePromptDialog', () => ({ ImprovePromptDialog: ({ initialDraft, onApply, onClose }: { initialDraft: string; onApply: (s: string) => void; onClose: () => void }) => <div role='dialog'><span>{initialDraft}</span><button onClick={() => onApply('Sugestão')}>Aplicar sugestão</button><button onClick={onClose}>Fechar melhoria</button></div> }));
 const items = [{ request_id: 'r1', message_id: 'm1', number: 7, summary: 'Excluir curso X', operation: 'delete', environment: 'production', host: 'moodle.example', params: { courseid: 42 }, destructive: true, params_hash: 'hash', message_updated_at: '2026-01-01', expires_at: '2027-01-01' }];
 const post = vi.spyOn(apiClient, 'post');
-beforeEach(async () => { await i18n.changeLanguage('pt-BR'); vi.spyOn(apiClient, 'get').mockResolvedValue({ items }); post.mockReset(); localStorage.clear(); window.history.replaceState(null, '', '/personal#telegram_challenge=test-challenge'); });
+beforeEach(async () => { await i18n.changeLanguage('pt-BR'); vi.spyOn(apiClient, 'get').mockResolvedValue({ items }); post.mockReset(); localStorage.clear(); });
 function open() { return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MoodleApprovalPanel /></QueryClientProvider>); }
-async function prepare() {
-  open(); await screen.findByText(/.Excluir curso X/);
-  fireEvent.click(screen.getByRole('checkbox', { name: /Selecionar #7/ }));
-  expect(screen.getByRole('option', { name: 'Sender' })).toBeInTheDocument();
+const batch = [{ request_id: 'r1', message_id: 'm1', params_hash: 'hash', message_updated_at: '2026-01-01' }];
+it('approves with one button after showing what will run, with no password or link', async () => {
+  post.mockResolvedValue({ approved: [7] }); open(); await screen.findByText(/.Excluir curso X/);
   expect(screen.getByLabelText('Agente executor')).toHaveValue('maia');
   fireEvent.change(screen.getByLabelText('Instrução para o executor'), { target: { value: 'Verifique primeiro' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Revisar autorização' }));
-  fireEvent.change(screen.getByLabelText('Senha'), { target: { value: 'secret123' } });
-}
-it('confirms the selected batch with instruction and clears the password', async () => {
-  post.mockResolvedValue({ approved: [7] }); await prepare();
-  const dialog = screen.getByRole('dialog'); expect(within(dialog).getByText(/production/)).toBeInTheDocument(); expect(within(dialog).getByText(/moodle.example/)).toBeInTheDocument(); expect(within(dialog).getByText(/courseid/)).toHaveTextContent('42');
-  expect(post).not.toHaveBeenCalled(); fireEvent.click(within(dialog).getByRole('button', { name: 'Autorizar selecionadas' }));
-  await waitFor(() => expect(post).toHaveBeenCalledWith('/api/v1/personal/moodle-approvals/authorize', { password: 'secret123', telegram_challenge: 'test-challenge', executor_agent_id: 'maia', instruction: 'Verifique primeiro', items: [{ request_id: 'r1', message_id: 'm1', params_hash: 'hash', message_updated_at: '2026-01-01' }] }));
-  expect(screen.queryByLabelText('Senha')).not.toBeInTheDocument(); expect(JSON.stringify(localStorage)).not.toContain('secret123');
+  fireEvent.click(screen.getByRole('button', { name: 'Aprovar #7' }));
+  const dialog = screen.getByRole('dialog'); expect(within(dialog).getByText(/moodle.example/)).toBeInTheDocument(); expect(within(dialog).getByText(/courseid/)).toHaveTextContent('42');
+  expect(within(dialog).queryByLabelText(/senha/i)).not.toBeInTheDocument(); expect(post).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Aprovar' }));
+  await waitFor(() => expect(post).toHaveBeenCalledWith('/api/v1/personal/moodle-approvals/authorize', { executor_agent_id: 'maia', instruction: 'Verifique primeiro', items: batch }));
+  await screen.findByText('Solicitações aprovadas.');
 });
-it('clears the password on failure while retaining the selection', async () => {
-  post.mockRejectedValue(new Error('secret123')); await prepare(); fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Autorizar selecionadas' }));
-  await screen.findByText('Não foi possível autorizar. Confira os itens e tente novamente.');
-  expect(screen.queryByLabelText('Senha')).not.toBeInTheDocument(); expect(screen.getByRole('checkbox', { name: /Selecionar #7/ })).toBeChecked(); expect(screen.queryByText('secret123')).not.toBeInTheDocument();
+it('rejects with an optional reason', async () => {
+  post.mockResolvedValue({ rejected: [7] }); open(); await screen.findByText(/.Excluir curso X/);
+  fireEvent.click(screen.getByRole('button', { name: 'Recusar #7' }));
+  const dialog = screen.getByRole('dialog');
+  fireEvent.change(within(dialog).getByLabelText('Motivo (opcional)'), { target: { value: 'Pedido errado' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Recusar' }));
+  await waitFor(() => expect(post).toHaveBeenCalledWith('/api/v1/personal/moodle-approvals/reject', { reason: 'Pedido errado', items: batch }));
+  await screen.findByText('Solicitações recusadas.');
 });
-it('clears the password when review is cancelled', async () => {
-  await prepare();
+it('reports a failure and keeps the selection', async () => {
+  post.mockRejectedValue(new Error('falhou')); open(); await screen.findByText(/.Excluir curso X/);
+  fireEvent.click(screen.getByRole('checkbox', { name: /Selecionar #7/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Aprovar #7' }));
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Aprovar' }));
+  await screen.findByText('Não foi possível concluir. Atualize a lista e tente novamente.');
+  expect(screen.getByRole('checkbox', { name: /Selecionar #7/ })).toBeChecked();
+});
+it('does nothing when the confirmation is cancelled', async () => {
+  open(); await screen.findByText(/.Excluir curso X/);
+  fireEvent.click(screen.getByRole('button', { name: 'Recusar #7' }));
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancelar' }));
-  expect(screen.queryByLabelText('Senha')).not.toBeInTheDocument();
   expect(post).not.toHaveBeenCalled();
 });
 
@@ -52,12 +60,6 @@ it('keeps instruction until the Athos suggestion is applied', async () => {
   expect(field).toHaveValue('Sugestão');
 });
 
-it('removes the challenge from the URL and requests a new link explicitly', async () => {
-  post.mockResolvedValue({ sent: true }); open(); await screen.findByText(/.Excluir curso X/);
-  await waitFor(() => expect(window.location.hash).toBe(''));
-  fireEvent.click(screen.getByRole('button', { name: 'Solicitar link no Telegram' }));
-  await waitFor(() => expect(post).toHaveBeenCalledWith('/api/v1/personal/moodle-approvals/telegram-challenge'));
-});
 
 it('keeps the approvals panel hidden while the server feature flag is off', async () => {
   vi.spyOn(apiClient, 'get').mockRejectedValue(new ApiError('disabled', 503, {}));

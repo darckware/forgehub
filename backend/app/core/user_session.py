@@ -44,7 +44,9 @@ async def create_session(db, user, request, *, agent_id=None, agent_name=None, l
 async def session_is_live(db, payload):
     identifier = payload.get("sid")
     if identifier is None:
-        return True  # JWTs issued before sessions were introduced.
+        # A JWT from before sessions has no row to revoke; /auth/me moves it to one.
+        from app.db.models.user import User
+        return await db.scalar(select(User.is_active).where(User.username == payload.get("sub"))) is True
     if not isinstance(identifier, str) or len(identifier) > 128:
         return False
     from app.db.models.user import User

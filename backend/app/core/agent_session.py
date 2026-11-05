@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import create_access_token
 from app.db.models.agent import Agent, AgentServiceCredential
 from app.db.models.governance import AuditEvent
-from app.db.models.profile import Profile
+from app.db.models.profile import Profile, ProfilePermission
 from app.db.models.user import User
 
 AGENT_SESSION_PURPOSE = "agent_session"
@@ -50,6 +50,13 @@ _ALLOWED_AREAS = frozenset({
     "planning-items", "products", "projects", "responsibility-areas", "service-lines", "tasks",
     "triage-decisions", "version-scope-items",
 })
+# Which profile module answers for each open area, so Profiles limits the backend too.
+_AREA_MODULES = {
+    "agents": "agents", "bug-reports": "backlog", "environments": "projects", "factory": "projects",
+    "feature-requests": "backlog", "missions": "projects", "pipelines": "pipeline", "planning-items": "backlog",
+    "products": "product", "projects": "projects", "responsibility-areas": "projects", "service-lines": "product",
+    "tasks": "tasks", "triage-decisions": "backlog", "version-scope-items": "backlog",
+}
 _CLOSED_SEGMENTS = frozenset({
     "attachments", "backup", "content", "download", "file", "files", "forgerouter", "mcp-servers", "memory",
     "messages", "stream",
@@ -155,6 +162,19 @@ def agent_session_refusal(method: str, path: str) -> str | None:
     if parts[0] not in _ALLOWED_AREAS or _CLOSED_SEGMENTS.intersection(parts):
         return "This area is not open to agent sessions"
     return None
+
+
+async def agent_profile_refusal(db: AsyncSession, path: str) -> str | None:
+    """Why the agents' profile refuses this area, or None. An area with no module is refused."""
+    target = path.removeprefix("/api/v1/").rstrip("/")
+    if target == "auth/me":
+        return None
+    allowed = await db.scalar(
+        select(ProfilePermission.can_view)
+        .join(Profile, Profile.id == ProfilePermission.profile_id)
+        .where(Profile.name == AGENT_PROFILE, ProfilePermission.module == _AREA_MODULES.get(area_of(path)))
+    )
+    return None if allowed else "The agents' profile does not allow this area"
 
 
 async def agent_session_is_live(db: AsyncSession, payload: dict[str, Any]) -> bool:

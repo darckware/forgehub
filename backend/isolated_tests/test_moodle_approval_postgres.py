@@ -46,14 +46,12 @@ async def test_registration_authorization_and_claim_races(tmp_path, monkeypatch)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     owner_id, source_id, executor_id, other_id = (uuid.uuid4() for _ in range(4))
     source_token, executor_token, other_token = ("agt_" + uuid.uuid4().hex for _ in range(3))
-    password, secret = "isolated-password", "isolated-challenge"
+    password = "isolated-password"
     async with sessions() as db:
         db.add(User(id=owner_id, username="test-owner", hashed_password=hash_password(password), is_admin=True, is_active=True))
         for aid, name, token in ((source_id, "source", source_token), (executor_id, "executor", executor_token), (other_id, "other", other_token)):
             db.add(Agent(id=aid, name=name, agent_type="executor", status="active", is_active=True, profile_slug=name, runtime_type="hermes"))
             db.add(AgentServiceCredential(id=uuid.uuid4(), agent_id=aid, label="test", token_hash=hashlib.sha256(token.encode()).hexdigest()))
-        db.add(MoodleChallenge(owner_id=owner_id, secret_hash=hashlib.sha256(secret.encode()).hexdigest(),
-            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5), attempts=0))
         await db.commit()
     p = proposal()
     store = tmp_path / "proposals.json"
@@ -79,17 +77,14 @@ async def test_registration_authorization_and_claim_races(tmp_path, monkeypatch)
         listed = await client.get("/api/v1/personal/moodle-approvals", headers=owner)
         assert listed.status_code == 200 and len(listed.json()["items"]) == 1
         item = listed.json()["items"][0]
-        payload = {"password": password, "telegram_challenge": secret, "executor_agent_id": str(executor_id), "instruction": "test",
+        payload = {"executor_agent_id": str(executor_id), "instruction": "test",
             "items": [{k: item[k] for k in ("request_id", "message_id", "params_hash", "message_updated_at")}]}
-        async with sessions() as db:
-            db.add(MoodleChallenge(owner_id=owner_id, secret_hash=hashlib.sha256(b"expired-link").hexdigest(),
-                expires_at=datetime.now(timezone.utc) - timedelta(seconds=1), attempts=0))
-            await db.commit()
-        expired = await client.post("/api/v1/personal/moodle-approvals/authorize", headers=owner,
-            json={**payload, "telegram_challenge": "expired-link"})
-        assert expired.status_code == 403
+        outsider = await client.post("/api/v1/personal/moodle-approvals/authorize", headers=headers(create_access_token("test-other")), json=payload)
+        assert outsider.status_code in (401, 403)
         decisions = await asyncio.gather(*(client.post("/api/v1/personal/moodle-approvals/authorize", headers=owner, json=payload) for _ in range(2)))
-        assert sorted(r.status_code for r in decisions) == [200, 403]
+        assert sorted(r.status_code for r in decisions) == [200, 409]
+        too_late = await client.post("/api/v1/personal/moodle-approvals/reject", headers=owner, json={"reason": "tarde", "items": payload["items"]})
+        assert too_late.status_code == 409
         async with sessions() as db:
             demand = await db.get(AgentDemand, uuid.UUID(mid))
             demand.agent_run_id = "isolated-run"

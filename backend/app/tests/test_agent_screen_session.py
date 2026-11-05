@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
+from fastapi.security import HTTPAuthorizationCredentials
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
 
@@ -18,12 +19,13 @@ from app.core.agent_session import (
     audit_path,
     first_time,
 )
+from app.core.deps import get_actor_principal
 from app.core.security import create_access_token, decode_access_token
 from app.core.user_session import purge_old_sessions
 from app.db.base import AsyncSessionLocal
 from app.db.models.agent import Agent, AgentServiceCredential
 from app.db.models.governance import AuditEvent
-from app.db.models.profile import Profile
+from app.db.models.profile import Profile, ProfilePermission
 from app.db.models.user import User
 from app.db.models.user_session import UserSession
 from app.main import app
@@ -300,3 +302,78 @@ async def test_old_sessions_are_purged_and_recent_ones_stay(client, credential):
         assert await purge_old_sessions(db) >= 1
         rows = (await db.execute(select(UserSession).where(UserSession.agent_id == agent_id))).scalars().all()
     assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_expired_credential_or_retired_agent_cannot_read_directly(client, credential):
+    async with AsyncSessionLocal() as db:
+        (await db.get(AgentServiceCredential, credential["id"])).expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        await db.commit()
+    assert (await client.get("/api/v1/tasks", headers=_bearer(credential["raw"]))).status_code == 401
+    async with AsyncSessionLocal() as db:
+        (await db.get(AgentServiceCredential, credential["id"])).expires_at = None
+        (await db.get(Agent, credential["agent_id"])).is_active = False
+        await db.commit()
+    assert (await client.get("/api/v1/tasks", headers=_bearer(credential["raw"]))).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_old_person_token_stops_when_the_person_is_disabled_and_moves_to_a_session(client):
+    username = f"antigo-{uuid.uuid4().hex[:8]}"
+    async with AsyncSessionLocal() as db:
+        user = User(username=username, hashed_password="x", is_active=True, is_admin=False)
+        db.add(user)
+        await db.commit()
+        user_id = user.id
+    old = create_access_token(subject=username)
+    try:
+        response = await client.get("/api/v1/auth/me", headers=_bearer(old))
+        assert response.status_code == 200
+        assert "sid" in decode_access_token(response.json()["access_token"])
+        async with AsyncSessionLocal() as db:
+            (await db.get(User, user_id)).is_active = False
+            await db.commit()
+        assert (await client.get("/api/v1/products", headers=_bearer(old))).status_code == 401
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(User).where(User.id == user_id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_agent_session_never_resolves_to_a_person_with_the_same_name(client, credential):
+    token = await _session(client, credential)
+    subject = decode_access_token(token)["sub"]
+    async with AsyncSessionLocal() as db:
+        twin = User(username=subject, hashed_password="x", is_active=True, is_admin=True)
+        db.add(twin)
+        await db.commit()
+        twin_id = twin.id
+    try:
+        me = (await client.get("/api/v1/auth/me", headers=_bearer(token))).json()["user"]
+        assert me["is_admin"] is False and me["id"] == str(credential["agent_id"])
+        async with AsyncSessionLocal() as db:
+            principal = await get_actor_principal(HTTPAuthorizationCredentials(scheme="Bearer", credentials=token), db)
+        assert principal.principal_type == "agent" and principal.principal_id == credential["agent_id"]
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(User).where(User.id == twin_id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_the_profile_limits_the_backend_too(client, credential):
+    token = await _session(client, credential)
+    async with AsyncSessionLocal() as db:
+        row = (await db.execute(select(ProfilePermission).join(Profile).where(
+            Profile.name == AGENT_PROFILE, ProfilePermission.module == "product"))).scalar_one()
+        row.can_view = False
+        row_id = row.id
+        await db.commit()
+    try:
+        assert (await client.get("/api/v1/products", headers=_bearer(token))).status_code == 403
+        assert (await client.get("/api/v1/tasks", headers=_bearer(token))).status_code == 200
+    finally:
+        async with AsyncSessionLocal() as db:
+            (await db.get(ProfilePermission, row_id)).can_view = True
+            await db.commit()

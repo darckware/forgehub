@@ -11,11 +11,7 @@ class ApprovalItem(BaseModel):
     message_updated_at: datetime
 
 
-class AuthorizeIn(BaseModel):
-    password: str = Field(min_length=1, max_length=1024, repr=False)
-    telegram_challenge: str = Field(min_length=1, max_length=200, repr=False)
-    executor_agent_id: uuid.UUID
-    instruction: str = Field(max_length=4000)
+class DecisionBatch(BaseModel):
     items: list[ApprovalItem] = Field(min_length=1, max_length=100)
 
     @model_validator(mode="after")
@@ -25,6 +21,15 @@ class AuthorizeIn(BaseModel):
         if any(x.message_updated_at.tzinfo is None for x in self.items):
             raise ValueError("Message timestamps require timezone")
         return self
+
+
+class AuthorizeIn(DecisionBatch):
+    executor_agent_id: uuid.UUID
+    instruction: str = Field(max_length=4000)
+
+
+class RejectIn(DecisionBatch):
+    reason: str | None = Field(default=None, max_length=1000)
 
 
 class RegisterIn(BaseModel):

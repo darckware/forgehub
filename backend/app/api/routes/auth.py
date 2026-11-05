@@ -214,6 +214,7 @@ async def open_agent_session(
 
 @router.get("/me", response_model=TokenOut)
 async def get_me(
+    request: Request,
     current_user: User = Depends(get_current_user),
     raw_token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
@@ -230,14 +231,17 @@ async def get_me(
     payload = decode_access_token(raw_token)
     if is_agent_session(payload):
         token = raw_token
+    elif "sid" not in payload:
+        # Moves a JWT from before sessions to a session that can be ended.
+        from app.core.user_session import create_session
+        token = await create_session(db, current_user, request)
     else:
         from app.core.user_session import refresh_session
-        lifetime = await refresh_session(db, payload["sid"]) if payload.get("sid") else None
-        if payload.get("sid") and lifetime is None:
+        lifetime = await refresh_session(db, payload["sid"])
+        if lifetime is None:
             raise HTTPException(status_code=401, detail="Not authenticated")
         token = create_access_token(
-            subject=current_user.username, expires_delta=lifetime,
-            extra_claims={"sid": payload["sid"]} if "sid" in payload else None,
+            subject=current_user.username, expires_delta=lifetime, extra_claims={"sid": payload["sid"]},
         )
     permissions = await _build_permissions(current_user, db)
     actions = await _build_action_permissions(current_user, db)

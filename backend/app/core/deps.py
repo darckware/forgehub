@@ -51,6 +51,12 @@ async def get_actor_principal(
     username = payload.get("sub") if payload else None
     if not username:
         raise HTTPException(401, "Could not validate credentials")
+    if is_agent_session(payload):
+        # Never by `sub`: a person could hold a username of that shape.
+        agent_user = await agent_as_user(db, payload.get("agent_id"))
+        if agent_user is None:
+            raise HTTPException(401, "Could not validate credentials")
+        return ActorPrincipal("agent", agent_user.id, agent_user.full_name or agent_user.username)
     user = (await db.execute(select(User).where(User.username == username))).scalar_one_or_none()
     if user is None or not user.is_active:
         raise HTTPException(401, "Could not validate credentials")

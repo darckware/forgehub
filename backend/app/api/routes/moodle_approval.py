@@ -1,30 +1,23 @@
 """Staging-only Moodle approval protocol. Disabled unless explicitly configured."""
-import hashlib
 import json
-import secrets
 import uuid
-import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.schemas.moodle_approval import AuthorizeIn, ClaimIn, FinishIn, RegisterIn
+from app.api.schemas.moodle_approval import AuthorizeIn, ClaimIn, FinishIn, RegisterIn, RejectIn
 from app.core.config import settings
 from app.core.deps import ActorPrincipal, get_actor_principal, get_current_user
 from app.core.demand_workflow import approval_fingerprint, record_transition
 from app.core.dispatch_signal import wake_scheduled_dispatch
 from app.core.moodle_proposal_verification import ProposalInvalid, validate_proposal
-from app.core.security import verify_password
 from app.db.base import get_db
 from app.db.models.agent import Agent
 from app.db.models.demand import AgentDemand
-from app.db.models.moodle_approval import MoodleApproval, MoodleChallenge
-from app.db.models.governance import AuditEvent
+from app.db.models.moodle_approval import MoodleApproval
 from app.db.models.user import User
 
 router = APIRouter(prefix="/api/v1/personal/moodle-approvals", tags=["moodle-approval"])
@@ -77,21 +70,6 @@ def _agent(principal: ActorPrincipal):
     return principal.principal_id
 
 
-def _send_telegram(message: str):
-    # The fixed Maia profile sends to the configured owner private chat.
-    # The bot credential stays with the gateway and the challenge never enters argv.
-    chat_id = settings.MOODLE_APPROVAL_TELEGRAM_CHAT_ID
-    if not chat_id.isascii() or not chat_id.isdigit() or int(chat_id) <= 0:
-        raise ValueError("Telegram destination is not a private user chat")
-    request = Request(f"{settings.CHAT_BRIDGE_URL.rstrip('/')}/v1/messages/send", method="POST",
-        data=json.dumps({"profile": "maia", "target": f"telegram:{chat_id}", "message": message}).encode(),
-        headers={"Content-Type": "application/json", "X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN})
-    with urlopen(request, timeout=70) as response:
-        result = json.load(response)
-        if response.status != 200 or not isinstance(result, dict) or result.get("success") is not True or result.get("skipped"):
-            raise ValueError("Telegram delivery failed")
-
-
 @router.post("/register", status_code=201)
 async def register(payload: RegisterIn, principal: ActorPrincipal = Depends(get_actor_principal), db: AsyncSession = Depends(get_db)):
     _config()
@@ -141,63 +119,17 @@ async def list_approvals(user: User = Depends(get_current_user), db: AsyncSessio
     return {"items": items}
 
 
-@router.post("/telegram-challenge")
-async def telegram_challenge(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    _owner(user)
-    url = settings.MOODLE_APPROVAL_FORM_URL
-    if urlsplit(url).scheme != "https" or not urlsplit(url).netloc or urlsplit(url).fragment:
-        raise HTTPException(503, "Telegram approval link is not configured")
-    chat_id = settings.MOODLE_APPROVAL_TELEGRAM_CHAT_ID
-    if (not settings.CHAT_BRIDGE_URL or not settings.CHAT_BRIDGE_TOKEN or not chat_id.isascii()
-            or not chat_id.isdigit() or int(chat_id) <= 0):
-        raise HTTPException(503, "Telegram destination is not configured")
-    # Lock the owner to serialize creation and prevent unlimited challenge refresh.
-    await db.execute(select(User.id).where(User.id == user.id).with_for_update())
-    recent = await db.scalar(select(func.count()).select_from(MoodleChallenge).where(
-        MoodleChallenge.owner_id == user.id, MoodleChallenge.created_at >= datetime.now(timezone.utc) - timedelta(hours=1)))
-    if recent >= 3:
-        raise HTTPException(429, "Too many approval links")
-    secret = secrets.token_urlsafe(32)
-    challenge = MoodleChallenge(owner_id=user.id, secret_hash=hashlib.sha256(secret.encode()).hexdigest(),
-        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5), attempts=0)
-    db.add(challenge)
-    await db.flush()
-    db.add(AuditEvent(entity_type="moodle_challenge", entity_id=challenge.id,
-        event_type="moodle_challenge_requested", actor=str(user.id), payload={}))
-    await db.commit()
-    try:
-        await asyncio.to_thread(_send_telegram,
-            f"Abra o ForgeHub para revisar as propostas Moodle: {url}#telegram_challenge={secret}")
-    except Exception:
-        challenge.consumed_at = datetime.now(timezone.utc)
-        await db.commit()
-        raise HTTPException(502, "Telegram delivery failed") from None
-    return {"sent": True}
-
-
 @router.post("/authorize")
 async def authorize(payload: AuthorizeIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     _owner(user)
     now = datetime.now(timezone.utc)
-    digest = hashlib.sha256(payload.telegram_challenge.encode()).hexdigest()
-    challenge = await db.scalar(select(MoodleChallenge).where(MoodleChallenge.secret_hash == digest).with_for_update())
-    if not challenge or challenge.owner_id != user.id or challenge.consumed_at or challenge.expires_at <= now or challenge.attempts >= 5:
-        raise HTTPException(403, "Invalid or expired approval link")
-    challenge.attempts += 1
-    if not verify_password(payload.password, user.hashed_password):
-        db.add(AuditEvent(entity_type="moodle_challenge", entity_id=challenge.id,
-            event_type="moodle_confirmation_failed", actor=str(user.id), payload={"attempt": challenge.attempts}))
-        await db.commit()
-        raise HTTPException(403, "Invalid confirmation")
     executor = await db.get(Agent, payload.executor_agent_id)
     if not executor or not executor.is_active or executor.status != "active":
-        await db.commit()
         raise HTTPException(409, "Executor unavailable")
     rows = (await db.execute(select(MoodleApproval, AgentDemand).join(AgentDemand, MoodleApproval.message_id == AgentDemand.id)
         .where(MoodleApproval.message_id.in_([x.message_id for x in payload.items])).order_by(MoodleApproval.message_id)
         .with_for_update(of=(MoodleApproval, AgentDemand)))).all()
     if len(rows) != len(payload.items):
-        await db.commit()
         raise HTTPException(409, "Batch changed; review again")
     items = {x.message_id: x for x in payload.items}
     for link, demand in rows:
@@ -206,7 +138,6 @@ async def authorize(payload: AuthorizeIn, user: User = Depends(get_current_user)
         if (link.state != "pending" or link.expires_at <= now or link.request_id != item.request_id or
             link.params_hash != item.params_hash or proposal["params_hash"] != link.params_hash or
             demand.updated_at != item.message_updated_at or demand.dispatch_status is not None or demand.agent_run_id is not None):
-            await db.commit()
             raise HTTPException(409, "Batch changed; review again")
     for link, demand in rows:
         demand.target_agent_id = executor.id
@@ -224,10 +155,36 @@ async def authorize(payload: AuthorizeIn, user: User = Depends(get_current_user)
         link.executor_id = executor.id
         link.message_hash = demand.approved_content_hash
         record_transition(db, demand, "moodle_authorized", actor=str(user.id), extra={"request_id": str(link.request_id)})
-    challenge.consumed_at = now
     await db.commit()
     wake_scheduled_dispatch()
     return {"approved": [d.number for _, d in rows]}
+
+
+@router.post("/reject")
+async def reject(payload: RejectIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Nothing runs, so this works even for a proposal whose source file is gone or expired."""
+    _owner(user)
+    rows = (await db.execute(select(MoodleApproval, AgentDemand).join(AgentDemand, MoodleApproval.message_id == AgentDemand.id)
+        .where(MoodleApproval.message_id.in_([x.message_id for x in payload.items])).order_by(MoodleApproval.message_id)
+        .with_for_update(of=(MoodleApproval, AgentDemand)))).all()
+    if len(rows) != len(payload.items):
+        raise HTTPException(409, "Batch changed; review again")
+    items = {x.message_id: x for x in payload.items}
+    for link, demand in rows:
+        item = items[demand.id]
+        if (link.state != "pending" or link.request_id != item.request_id or demand.updated_at != item.message_updated_at
+                or demand.dispatch_status is not None or demand.agent_run_id is not None):
+            raise HTTPException(409, "Batch changed; review again")
+    for link, demand in rows:
+        link.state = "rejected"
+        demand.approval_status = "rejected"
+        demand.status = "archived"
+        demand.scheduled_at = None
+        demand.decision_reason = payload.reason
+        record_transition(db, demand, "moodle_rejected", actor=str(user.id),
+                          extra={"request_id": str(link.request_id), "reason": payload.reason})
+    await db.commit()
+    return {"rejected": [d.number for _, d in rows]}
 
 
 @router.post("/claim")

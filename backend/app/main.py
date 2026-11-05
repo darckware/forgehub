@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import logging
 import hashlib
+from datetime import datetime, timezone
 import uuid
 
 from fastapi import FastAPI
@@ -23,6 +24,7 @@ from app.core.agent_session import (
     EVENT_AREA_READ,
     EVENT_REQUEST_DENIED,
     agent_session_is_live,
+    agent_profile_refusal,
     agent_session_refusal,
     area_of,
     audit_access,
@@ -295,13 +297,22 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
         if token and token.startswith("agt_") and agent_command_path:
             from sqlalchemy import select
             from app.db.base import AsyncSessionLocal
-            from app.db.models.agent import AgentServiceCredential
+            from sqlalchemy import or_
+            from app.db.models.agent import Agent, AgentServiceCredential
             async with AsyncSessionLocal() as db:
                 token_hash = hashlib.sha256(token.encode()).hexdigest()
-                credential = (await db.execute(select(AgentServiceCredential.id).where(
-                    AgentServiceCredential.token_hash == token_hash,
-                    AgentServiceCredential.revoked_at.is_(None),
-                ))).scalar_one_or_none()
+                # Most GETs behind this path read no principal, so it is checked here.
+                credential = (await db.execute(
+                    select(AgentServiceCredential.id)
+                    .join(Agent, Agent.id == AgentServiceCredential.agent_id)
+                    .where(
+                        AgentServiceCredential.token_hash == token_hash,
+                        AgentServiceCredential.revoked_at.is_(None),
+                        or_(AgentServiceCredential.expires_at.is_(None),
+                            AgentServiceCredential.expires_at > datetime.now(timezone.utc)),
+                        Agent.is_active.is_(True), Agent.status == "active",
+                    )
+                )).scalar_one_or_none()
             if credential is not None:
                 return await call_next(request)
         # Same shared-bridge-token trust boundary as /api/v1/demands/submit
@@ -397,7 +408,7 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
         payload = decode_access_token(token) if token else None
         if payload is None or payload.get("purpose") == "totp_pending":
             return JSONResponse({"detail": "Not authenticated"}, status_code=401)
-        if "sid" in payload:
+        if "sid" in payload or not is_agent_session(payload):
             from app.db.base import AsyncSessionLocal
             from app.core.user_session import session_is_live
             async with AsyncSessionLocal() as db:
@@ -411,7 +422,7 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             async with AsyncSessionLocal() as db:
                 if not await agent_session_is_live(db, payload):
                     return JSONResponse({"detail": "Not authenticated"}, status_code=401)
-                refusal = agent_session_refusal(request.method, path)
+                refusal = agent_session_refusal(request.method, path) or await agent_profile_refusal(db, path)
                 session_id = payload.get("session_id") or ""
                 if refusal:
                     if first_time(session_id, f"denied:{request.method}:{path}"):
