@@ -219,6 +219,8 @@ class Settings(BaseSettings):
     MOODLE_APPROVAL_SOURCE_FILES: str = "{}"
     MOODLE_APPROVAL_WORKING_PATH: str = ""
     MOODLE_APPROVAL_TELEGRAM_CHAT_ID: str = ""
+    # Held only by the Maia's Telegram buttons plugin. Empty closes that path.
+    MOODLE_TELEGRAM_DECISION_SECRET: str = ""
     MOODLE_APPROVAL_FORM_URL: str = ""
 
     # HMAC secret the agent runtimes sign their activity webhooks with

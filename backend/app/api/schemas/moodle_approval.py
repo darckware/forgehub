@@ -47,6 +47,12 @@ class StatusIn(BaseModel):
     message_id: uuid.UUID
 
 
+class TelegramDecisionIn(BaseModel):
+    message_id: uuid.UUID
+    action: Literal["approve", "reject"]
+    telegram_user_id: int
+
+
 class FinishIn(BaseModel):
     request_id: uuid.UUID
     message_id: uuid.UUID

@@ -180,6 +180,8 @@ app = FastAPI(
 # /audit/run-internal self-guards with the shared bridge token (see audit.py).
 _PUBLIC_API_PATHS = {
     "/api/v1/auth/token",
+    # Checks its own secret in the route: the plugin behind it has no user session.
+    "/api/v1/personal/moodle-approvals/telegram-decision",
     "/api/v1/auth/totp/verify",
     # Checks the agent's own agt_ credential in the route.
     "/api/v1/auth/agent-session",

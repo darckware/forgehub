@@ -1,14 +1,17 @@
 """Staging-only Moodle approval protocol. Disabled unless explicitly configured."""
+import hmac
 import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.schemas.moodle_approval import AuthorizeIn, ClaimIn, FinishIn, RegisterIn, RejectIn, StatusIn
+from app.api.schemas.moodle_approval import (
+    ApprovalItem, AuthorizeIn, ClaimIn, FinishIn, RegisterIn, RejectIn, StatusIn, TelegramDecisionIn,
+)
 from app.core.config import settings
 from app.core.deps import ActorPrincipal, get_actor_principal, get_current_user
 from app.core.demand_workflow import approval_fingerprint, record_transition
@@ -185,6 +188,49 @@ async def reject(payload: RejectIn, user: User = Depends(get_current_user), db: 
                           extra={"request_id": str(link.request_id), "reason": payload.reason})
     await db.commit()
     return {"rejected": [d.number for _, d in rows]}
+
+
+@router.post("/telegram-decision")
+async def telegram_decision(payload: TelegramDecisionIn, x_decision_secret: str | None = Header(default=None),
+                            db: AsyncSession = Depends(get_db)):
+    """A tap on the Maia's Telegram buttons. The plugin vouches for the tap with a secret the agent
+    cannot read, and authorize/reject below stay the only code that decides."""
+    secret = settings.MOODLE_TELEGRAM_DECISION_SECRET
+    if not secret or not x_decision_secret or not hmac.compare_digest(secret, x_decision_secret):
+        raise HTTPException(401, "Not authenticated")
+    owner, _ = _config()
+    chat = settings.MOODLE_APPROVAL_TELEGRAM_CHAT_ID
+    if not chat or str(payload.telegram_user_id) != chat:
+        raise HTTPException(403, "Only the configured owner may authorize")
+    user = await db.get(User, owner)
+    if user is None:
+        raise HTTPException(403, "Only the configured owner may authorize")
+    _owner(user)
+    row = (await db.execute(select(MoodleApproval, AgentDemand).join(AgentDemand, MoodleApproval.message_id == AgentDemand.id)
+        .where(MoodleApproval.message_id == payload.message_id))).one_or_none()
+    if not row:
+        raise HTTPException(404, "Request not found")
+    link, demand = row
+    number = demand.number
+    if link.state != "pending":
+        return {"result": "already_decided", "state": link.state, "number": number}
+    if payload.action == "approve" and link.expires_at <= datetime.now(timezone.utc):
+        return {"result": "expired", "number": number}
+    if payload.action == "approve":
+        # He asked on Telegram, so the result goes back there. Part of what the approval freezes.
+        demand.channel, demand.channel_ref = "telegram", chat
+        await db.commit()
+        await db.refresh(demand)
+    item = ApprovalItem(request_id=link.request_id, message_id=demand.id, params_hash=link.params_hash,
+                        message_updated_at=demand.updated_at)
+    if payload.action == "approve":
+        await authorize(AuthorizeIn(executor_agent_id=link.source_agent_id, instruction="Retorno pelo Telegram.", items=[item]), user, db)
+    else:
+        await reject(RejectIn(reason="Recusada pelo Telegram", items=[item]), user, db)
+    record_transition(db, demand, "moodle_telegram_decision", actor=str(user.id),
+                      extra={"request_id": str(link.request_id), "action": payload.action})
+    await db.commit()
+    return {"result": "approved" if payload.action == "approve" else "rejected", "number": number}
 
 
 @router.post("/status")
