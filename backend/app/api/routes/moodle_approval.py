@@ -107,19 +107,28 @@ async def list_approvals(user: User = Depends(get_current_user), db: AsyncSessio
     rows = (await db.execute(select(MoodleApproval, AgentDemand).join(AgentDemand, MoodleApproval.message_id == AgentDemand.id)
         .where(MoodleApproval.state == "pending").order_by(MoodleApproval.created_at))).all()
     items = []
+    unavailable_count = 0
     for link, demand in rows:
         try:
             proposal = _source(link.source_agent_id, link.request_id)
             if proposal["params_hash"] != link.params_hash:
+                unavailable_count += 1
                 continue
         except HTTPException:
+            unavailable_count += 1
             continue
         items.append({"request_id": str(link.request_id), "message_id": str(demand.id), "number": demand.number,
             "summary": proposal.get("summary", ""), "operation": proposal["wsfunction"],
             "environment": proposal["environment"], "host": proposal["host"], "destructive": proposal["destructive"],
             "params": proposal["params"],
             "params_hash": link.params_hash, "message_updated_at": demand.updated_at, "expires_at": link.expires_at})
-    return {"items": items}
+    recent = (await db.execute(select(MoodleApproval, AgentDemand).join(AgentDemand, MoodleApproval.message_id == AgentDemand.id)
+        .where(MoodleApproval.state != "pending").order_by(MoodleApproval.updated_at.desc()).limit(20))).all()
+    activity = [{"number": demand.number, "message_id": str(demand.id), "request_id": str(link.request_id),
+        "state": link.state, "outcome": link.outcome, "approved_at": link.approved_at,
+        "finished_at": link.finished_at, "dispatch_status": demand.dispatch_status, "archived": demand.status == "archived"}
+        for link, demand in recent]
+    return {"items": items, "unavailable_count": unavailable_count, "activity": activity}
 
 
 @router.post("/authorize")

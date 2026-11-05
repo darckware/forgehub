@@ -307,7 +307,8 @@
       "incubation": "Incubating",
       "running": "Running",
       "completed": "Processing completed",
-      "queued": "Queued"
+      "queued": "Queued",
+      "question": "Awaiting an answer"
     },
     "actions": {
       "approve": "Approve and release",
@@ -373,7 +374,8 @@
       "blocking_question": "Answer the blocking question.",
       "execution_context_missing": "Set sender, executor and working directory in Messages before approval.",
       "not_incubation": "This action requires incubation.",
-      "no_uncertain_outcome": "There is no uncertain outcome to investigate."
+      "no_uncertain_outcome": "There is no uncertain outcome to investigate.",
+      "moodle_flow_required": "Use Moodle approvals to decide this operation."
     },
     "events": {
       "demand_approve": "Approve and release",
@@ -397,7 +399,40 @@
     },
     "investigationHint": "Records what was checked. Reconciliation stays pending until you confirm the run is not active.",
     "confirmInactiveHint": "Confirm only after checking this run is not running. The failure becomes known, nothing runs, and another attempt still needs authorization.",
-    "typeRun": "Type the run identifier to confirm:"
+    "typeRun": "Type the run identifier to confirm:",
+    "groupLabel": "Work groups",
+    "groups": {
+      "moodle": "Moodle approvals",
+      "incubation": "Incubations",
+      "tasks": "Agent tasks"
+    },
+    "groupDescriptions": {
+      "tasks": "Authorize work, follow execution and review agent results.",
+      "incubation": "Decide which ideas become tasks, wait for a new date or are discarded."
+    },
+    "promote": "Turn into task",
+    "rowActions": "Actions",
+    "archiveItem": "Archive task #{{number}}",
+    "restoreItem": "Restore task #{{number}}",
+    "approveCompletion": "Approve completion",
+    "requestRevision": "Request revision",
+    "moodleRelated": "Follow-up of a Moodle operation",
+    "moodleStates": {
+      "pending": "Awaiting operation authorization",
+      "approved": "Operation authorized",
+      "claimed": "Operation execution started",
+      "finished": "Operation finished",
+      "completed": "Operation completed in Moodle",
+      "rejected": "Operation rejected"
+    },
+    "questionsHeading": "Questions to answer ({{count}})",
+    "reviewsHeading": "Completions to review ({{count}})",
+    "questionTask": "Linked task",
+    "questionUnlinked": "Question without a linked task",
+    "viewPromotedTask": "View task #{{number}}",
+    "reviewsTitle": "Completions to review",
+    "questionsTitle": "Questions to answer",
+    "viewDetails": "View details"
   },
   "location": {
     "title": "Current location",
@@ -477,11 +512,11 @@
     "confirmTitle": "Approve in Moodle",
     "confirmHint": "The executor agent will do exactly what is shown below.",
     "error": "Could not finish. Refresh the list and try again.",
-    "success": "Requests approved.",
+    "success": "Operations authorized. Execution will be tracked below.",
     "improve": "Improve instruction with Athos",
     "host": "Host",
     "params": "Parameters",
-    "approve": "Approve",
+    "approve": "Approve operation",
     "reject": "Reject",
     "approveOne": "Approve #{{number}}",
     "rejectOne": "Reject #{{number}}",
@@ -490,6 +525,14 @@
     "rejectTitle": "Reject in Moodle",
     "rejectHint": "Nothing will run and the request leaves the list.",
     "reason": "Reason (optional)",
-    "rejected": "Requests rejected."
+    "rejected": "Requests rejected.",
+    "unavailable": "Moodle approvals are unavailable in this environment.",
+    "invalidSources": "{{count}} request(s) have an unavailable or invalid proposal. An empty list does not confirm there are no pending requests.",
+    "activity": "Recent authorizations and outcomes",
+    "reportFailed": "The follow-up report failed; this does not undo the Moodle operation.",
+    "outcomes": {
+      "failed": "The operation recorded a failure. Check the evidence before a new request.",
+      "uncertain": "Operation outcome is uncertain. Check Moodle before any new attempt."
+    }
   }
 }

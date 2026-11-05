@@ -8,16 +8,16 @@ import { apiClient } from "@/lib/api";
 import type { Demand } from "@/hooks/useDemands";
 import { AgentTasksTab } from "./AgentTasksTab";
 
-const mocks = vi.hoisted(() => ({ demands: vi.fn(), post: vi.fn() }));
+const mocks = vi.hoisted(() => ({ demands: vi.fn(), post: vi.fn(), approvals: vi.fn(), questions: vi.fn() }));
 vi.mock("@/hooks/useDemands", async importOriginal => ({ ...await importOriginal<object>(), useAgentWork: mocks.demands }));
 vi.mock("@/hooks/useAgent", () => ({ useAgents: () => ({ data: [] }), useStreamTelegramImprovePrompt: () => vi.fn() }));
 vi.mock("@/hooks/useProject", () => ({ useProjects: () => ({ data: [] }) }));
 vi.mock("@/hooks/useTask", () => ({ useTasks: () => ({ data: [] }), useTaskDependencies: () => ({ data: [] }) }));
 vi.mock("@/hooks/useGovernance", () => ({
-  useGovernedApprovalRequests: () => ({ data: [] }),
+  useGovernedApprovalRequests: mocks.approvals,
   useDecideGovernedApproval: () => ({ reset: vi.fn() }),
 }));
-vi.mock("@/hooks/useOperationsViewModel", () => ({ useOperationsViewModel: () => ({ questions: { data: [] }, answerQuestion: { reset: vi.fn() } }) }));
+vi.mock("@/hooks/useOperationsViewModel", () => ({ useOperationsViewModel: () => ({ questions: mocks.questions(), answerQuestion: { reset: vi.fn() } }) }));
 vi.mock("@/components/Markdown", () => ({ Markdown: ({ content }: { content: string }) => <div>{content}</div> }));
 
 function item(overrides: Partial<Demand> = {}): Demand {
@@ -37,6 +37,7 @@ function open() {
 
 beforeEach(async () => {
   await i18n.changeLanguage("pt-BR");
+  mocks.approvals.mockReturnValue({ data: [] }); mocks.questions.mockReturnValue({ data: [] });
   mocks.demands.mockReturnValue({ data: { items: [item()], total: 1, page: 1, page_size: 25, counts: {}, contexts: [] }, isLoading: false, isError: false });
   mocks.post.mockReset(); mocks.post.mockResolvedValue({});
   vi.spyOn(apiClient, "post").mockImplementation(mocks.post);
@@ -44,6 +45,49 @@ beforeEach(async () => {
 });
 
 describe("operator deliberation", () => {
+  it("does not report zero decisions when their sources cannot load", () => {
+    mocks.approvals.mockReturnValue({ isError: true }); mocks.questions.mockReturnValue({ isLoading: true });
+    open();
+    expect(screen.queryByText("Conclusões para revisar (0)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Perguntas para responder (0)")).not.toBeInTheDocument();
+  });
+
+  it("links a promoted task by identity regardless of whether it has already left the queue", async () => {
+    mocks.demands.mockReturnValue({ data: { items: [item({ origin_type: "incubation" })], total: 1, page: 1, page_size: 25, counts: {}, contexts: [] } });
+    open(); fireEvent.click(screen.getByRole("tab", { name: "Incubações" }));
+    fireEvent.click(screen.getByRole("button", { name: /Revisar backup/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Transformar em tarefa" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Transformar em tarefa" }));
+    expect(await screen.findByRole("link", { name: /Ver tarefa #42/ })).toHaveAttribute("href", "/demands?message=work-1");
+  });
+  it("separates Moodle, incubations and tasks using server group filters", async () => {
+    open();
+    expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ group: "tasks" }), expect.any(Boolean));
+    fireEvent.click(screen.getByRole("tab", { name: "Incubações" }));
+    expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ group: "incubation" }), true);
+    fireEvent.click(screen.getByRole("tab", { name: "Aprovações Moodle" }));
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Aprovações Moodle" })).toBeInTheDocument();
+  });
+
+  it("offers archive on the task row before opening its details", async () => {
+    open();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Selecionar mensagem #42" }));
+    fireEvent.click(screen.getByRole("button", { name: "Arquivar tarefa #42" }));
+    expect(mocks.post).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Arquivar" }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith("/api/v1/demands/work-1/decision", expect.objectContaining({ action: "archive" })));
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Selecionar mensagem #42" })).not.toBeChecked());
+  });
+
+  it("calls incubation promotion Transformar em tarefa and explains that it queues work", () => {
+    mocks.demands.mockReturnValue({ data: { items: [item({ origin_type: "incubation" })], total: 1, page: 1, page_size: 25, counts: {}, contexts: [] } });
+    open();
+    fireEvent.click(screen.getByRole("tab", { name: "Incubações" }));
+    fireEvent.click(screen.getByRole("button", { name: /Revisar backup/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Transformar em tarefa" }));
+    expect(within(screen.getByRole("dialog")).getByText(/entrará na fila/)).toBeInTheDocument();
+  });
   it("shows pending work and excludes archived history from attention", () => {
     // The server returns only the selected lifecycle view.
     open();

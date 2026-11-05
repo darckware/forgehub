@@ -164,6 +164,7 @@ export const demandSchema = z.object({
 export type Demand = z.infer<typeof demandSchema>;
 
 export interface AgentWorkItem extends Demand {
+  moodle_approval?: { request_id: string; message_id: string; state: string; outcome: string | null; direct: boolean } | null;
   work_state?: string;
   failure_category?: string | null;
   recovery_state?: string;
@@ -177,11 +178,12 @@ export interface AgentWorkPage {
   contexts: { project_id: string | null; area: string | null }[];
 }
 
-export function useAgentWork(filters: Record<string, string | number | undefined>) {
+export function useAgentWork(filters: Record<string, string | number | undefined>, enabled = true) {
   return useQuery({
     queryKey: [...demandKeys.all, "agent-work", filters],
     queryFn: ({ signal }) => apiClient.get<AgentWorkPage>("/api/v1/demands/agent-work", { params: filters, signal }),
     refetchInterval: 30_000,
+    enabled,
   });
 }
 

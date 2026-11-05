@@ -70,6 +70,8 @@ Use the existing system sans stack for interface text and the system monospace s
 
 ## Layout
 
+Pessoal → Tarefas dos agentes separates Moodle approvals, incubations and executable agent tasks into three nested groups. Each group owns its filters and counts. Task rows expose View details and Archive; the table owns horizontal overflow on narrow screens. Source failures never imply zero pending decisions. Moodle operation outcomes and execution-report outcomes are presented separately.
+
 Administrative lists use full-width native tables with comfortable rows and horizontal overflow owned by the table surface. Expanded details appear directly beneath their owning row. Page-level controls remain above the table and do not move when a row opens.
 
 ## Elevation & Depth

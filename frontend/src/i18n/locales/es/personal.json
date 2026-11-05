@@ -307,7 +307,8 @@
       "incubation": "En incubación",
       "running": "En ejecución",
       "completed": "Procesamiento completado",
-      "queued": "En cola"
+      "queued": "En cola",
+      "question": "Esperando respuesta"
     },
     "actions": {
       "approve": "Aprobar y liberar",
@@ -373,7 +374,8 @@
       "blocking_question": "Responda la pregunta bloqueante.",
       "execution_context_missing": "Defina remitente, ejecutor y directorio en Messages antes de aprobar.",
       "not_incubation": "Esta acción requiere una incubación.",
-      "no_uncertain_outcome": "No hay un resultado incierto que investigar."
+      "no_uncertain_outcome": "No hay un resultado incierto que investigar.",
+      "moodle_flow_required": "Use Aprobaciones Moodle para decidir esta operación."
     },
     "events": {
       "demand_approve": "Aprobar y liberar",
@@ -397,7 +399,40 @@
     },
     "investigationHint": "Registra lo que se verificó. La reconciliación sigue pendiente hasta que confirmes que la ejecución no está activa.",
     "confirmInactiveHint": "Confirma solo si verificaste que esta ejecución no está corriendo. La falla pasa a ser conocida, no se ejecuta nada y un nuevo intento aún requiere autorización.",
-    "typeRun": "Escribe el identificador de la ejecución para confirmar:"
+    "typeRun": "Escribe el identificador de la ejecución para confirmar:",
+    "groupLabel": "Grupos de trabajo",
+    "groups": {
+      "moodle": "Aprobaciones Moodle",
+      "incubation": "Incubaciones",
+      "tasks": "Tareas de los agentes"
+    },
+    "groupDescriptions": {
+      "tasks": "Autorice trabajos, siga la ejecución y revise los resultados de los agentes.",
+      "incubation": "Decida qué ideas se convierten en tareas, esperan una nueva fecha o se descartan."
+    },
+    "promote": "Convertir en tarea",
+    "rowActions": "Acciones",
+    "archiveItem": "Archivar tarea #{{number}}",
+    "restoreItem": "Restaurar tarea #{{number}}",
+    "approveCompletion": "Aprobar conclusión",
+    "requestRevision": "Solicitar revisión",
+    "moodleRelated": "Seguimiento de una operación Moodle",
+    "moodleStates": {
+      "pending": "Esperando autorización de la operación",
+      "approved": "Operación autorizada",
+      "claimed": "Ejecución de la operación iniciada",
+      "finished": "Operación finalizada",
+      "completed": "Operación completada en Moodle",
+      "rejected": "Operación rechazada"
+    },
+    "questionsHeading": "Preguntas para responder ({{count}})",
+    "reviewsHeading": "Conclusiones para revisar ({{count}})",
+    "questionTask": "Tarea vinculada",
+    "questionUnlinked": "Pregunta sin tarea vinculada",
+    "viewPromotedTask": "Ver tarea #{{number}}",
+    "reviewsTitle": "Conclusiones para revisar",
+    "questionsTitle": "Preguntas para responder",
+    "viewDetails": "Ver detalles"
   },
   "location": {
     "title": "Ubicación actual",
@@ -477,11 +512,11 @@
     "confirmTitle": "Aprobar en Moodle",
     "confirmHint": "El agente ejecutor hará exactamente lo que se muestra abajo.",
     "error": "No se pudo completar. Actualice la lista e inténtelo de nuevo.",
-    "success": "Solicitudes aprobadas.",
+    "success": "Operaciones autorizadas. La ejecución se seguirá abajo.",
     "improve": "Mejorar instrucción con Athos",
     "host": "Servidor",
     "params": "Parámetros",
-    "approve": "Aprobar",
+    "approve": "Aprobar operación",
     "reject": "Rechazar",
     "approveOne": "Aprobar #{{number}}",
     "rejectOne": "Rechazar #{{number}}",
@@ -490,6 +525,14 @@
     "rejectTitle": "Rechazar en Moodle",
     "rejectHint": "No se ejecutará nada y la solicitud sale de la lista.",
     "reason": "Motivo (opcional)",
-    "rejected": "Solicitudes rechazadas."
+    "rejected": "Solicitudes rechazadas.",
+    "unavailable": "Aprobaciones Moodle no disponibles en este entorno.",
+    "invalidSources": "{{count}} solicitud(es) con propuesta no disponible o inválida. Una lista vacía no confirma la ausencia de pendientes.",
+    "activity": "Autorizaciones y resultados recientes",
+    "reportFailed": "El informe de seguimiento falló; esto no deshace la operación Moodle.",
+    "outcomes": {
+      "failed": "La operación registró un fallo. Compruebe la evidencia antes de una nueva solicitud.",
+      "uncertain": "Resultado de la operación incierto. Compruebe Moodle antes de cualquier nuevo intento."
+    }
   }
 }

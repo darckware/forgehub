@@ -122,6 +122,8 @@ async def decide_demand(db, demand, payload, *, actor):
         raise WorkflowBlocked("This message changed; refresh it before deciding")
     if demand.status == "archived" and payload.action != "restore" and not investigation:
         raise WorkflowBlocked("Archived work cannot be released implicitly")
+    if payload.action == "archive" and requires_reconciliation(demand):
+        raise WorkflowBlocked("Reconcile the uncertain execution before archiving")
     previous = {"previous_run_id": demand.agent_run_id, "previous_dispatch_status": demand.dispatch_status,
         "previous_error": demand.dispatch_error}
     now = datetime.now(timezone.utc)

@@ -9,12 +9,14 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Link } from "react-router-dom";
 
 type Approval = { request_id: string; message_id: string; number: number; summary: string; operation: string; environment: string; host: string; params: unknown; destructive: boolean; params_hash: string; message_updated_at: string; expires_at: string };
 const endpoint = "/api/v1/personal/moodle-approvals";
 const key = ["personal", "moodle-approvals"];
 
 type Decision = { action: "approve" | "reject"; items: Approval[] };
+type Activity = { number: number; message_id: string; state: string; outcome: string | null; dispatch_status: string | null };
 
 export function MoodleApprovalPanel() {
   const { t } = useTranslation("personal");
@@ -23,7 +25,7 @@ export function MoodleApprovalPanel() {
   const improvePrompt = useStreamTelegramImprovePrompt(athos?.id ?? "");
   const [improveOpen, setImproveOpen] = useState(false);
   const queryClient = useQueryClient();
-  const query = useQuery({ queryKey: key, queryFn: () => apiClient.get<{ items: Approval[] }>(endpoint) });
+  const query = useQuery({ queryKey: key, queryFn: () => apiClient.get<{ items: Approval[]; unavailable_count?: number; activity?: Activity[] }>(endpoint), refetchInterval: 30_000 });
   const [selected, setSelected] = useState<string[]>([]);
   const [executor, setExecutor] = useState<string | null>(null);
   const [instruction, setInstruction] = useState("");
@@ -48,17 +50,19 @@ export function MoodleApprovalPanel() {
       if (decision.action === "approve") setInstruction("");
       setOutcome(decision.action === "approve" ? "approved" : "rejected");
       void queryClient.invalidateQueries({ queryKey: key });
+      void queryClient.invalidateQueries({ queryKey: ["demands"] });
     } catch { setOutcome("error"); }
     finally { setDecision(null); busyRef.current = false; setBusy(false); }
   }
-  if (query.error instanceof ApiError && [404, 503].includes(query.error.status)) return null;
+  if (query.error instanceof ApiError && [404, 503].includes(query.error.status)) return <section aria-label={t("moodleApproval.title")} className="rounded-md border p-4"><p role="status">{t("moodleApproval.unavailable")}</p></section>;
   const rejecting = decision?.action === "reject";
   return <section className="space-y-3 rounded-md border p-4" aria-label={t("moodleApproval.title")}>
     <h3 className="font-semibold">{t("moodleApproval.title")}</h3>
     <p className="text-sm text-muted-foreground">{t("moodleApproval.hint")}</p>
     {query.isLoading && <p role="status">{t("moodleApproval.loading")}</p>}
     {query.isError && <div role="alert"><p>{t("moodleApproval.loadError")}</p><Button variant="outline" onClick={() => void query.refetch()}>{t("moodleApproval.retry")}</Button></div>}
-    {!query.isLoading && !query.isError && !items.length && <p className="text-sm">{t("moodleApproval.empty")}</p>}
+    {!query.isLoading && !query.isError && !items.length && !query.data?.unavailable_count && <p className="text-sm">{t("moodleApproval.empty")}</p>}
+    {Boolean(query.data?.unavailable_count) && <p role="alert">{t("moodleApproval.invalidSources", { count: query.data?.unavailable_count })}</p>}
     {items.length > 0 && <>
       <ul className="max-h-96 space-y-2 overflow-auto">{items.map(item => <li key={item.request_id} className="flex flex-col gap-2 rounded-md border p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
         <label className="flex min-w-0 gap-2"><input type="checkbox" aria-label={t("moodleApproval.select", { number: item.number })} checked={selected.includes(item.request_id)} disabled={busy} onChange={e => setSelected(ids => e.target.checked ? [...ids, item.request_id] : ids.filter(id => id !== item.request_id))} /><span className="min-w-0 break-words"><strong>#{item.number} · {item.summary}</strong><span className="block">{t("moodleApproval.operation")}: {item.operation} · {t("moodleApproval.environment")}: {item.environment} · {item.destructive ? t("moodleApproval.destructive") : t("moodleApproval.nonDestructive")}</span></span></label>
@@ -80,6 +84,15 @@ export function MoodleApprovalPanel() {
     {outcome === "error" && <p role="alert" className="text-sm text-destructive">{t("moodleApproval.error")}</p>}
     {outcome === "approved" && <p role="status" className="text-sm">{t("moodleApproval.success")}</p>}
     {outcome === "rejected" && <p role="status" className="text-sm">{t("moodleApproval.rejected")}</p>}
+    {Boolean(query.data?.activity?.length) && <div className="space-y-2 border-t pt-3">
+      <h4 className="font-medium">{t("moodleApproval.activity")}</h4>
+      <ul className="space-y-2 text-sm">{query.data?.activity?.map(entry => <li key={entry.message_id} className="rounded border p-3">
+        <Link className="underline" to={`/demands?message=${entry.message_id}`}>#{entry.number}</Link>
+        <span className="ml-2">{t(`agentTasks.moodleStates.${entry.outcome === "completed" ? "completed" : entry.state}`)}</span>
+        {entry.state === "finished" && entry.outcome && entry.outcome !== "completed" && <p>{t(`moodleApproval.outcomes.${entry.outcome}`)}</p>}
+        {entry.outcome === "completed" && entry.dispatch_status === "failed" && <p className="mt-1 text-muted-foreground">{t("moodleApproval.reportFailed")}</p>}
+      </li>)}</ul>
+    </div>}
     {improveOpen && athos && <ImprovePromptDialog initialDraft={instruction} subject={athos.name} agents={agents.data ?? []} includeLocalSlashCommands={false} includeHermesSlashCommands={false} improvePrompt={improvePrompt} onApply={text => { setInstruction(text); setImproveOpen(false); }} onClose={() => setImproveOpen(false)} />}
     <ConfirmDialog open={decision !== null} title={t(rejecting ? "moodleApproval.rejectTitle" : "moodleApproval.confirmTitle")} description={t(rejecting ? "moodleApproval.rejectHint" : "moodleApproval.confirmHint")} confirmLabel={t(rejecting ? "moodleApproval.reject" : "moodleApproval.approve")} variant={rejecting || decision?.items.some(item => item.destructive) ? "destructive" : "default"} loading={busy} dismissDisabled={busy} onConfirm={() => void decide()} onCancel={() => { if (!busy) setDecision(null); }}>
       <ul className="max-h-64 space-y-2 overflow-auto text-sm">{(decision?.items ?? []).map(item => <li key={item.request_id}>#{item.number} · {item.summary} · {item.operation} · {item.environment} · {item.destructive ? t("moodleApproval.destructive") : t("moodleApproval.nonDestructive")}<p className="break-all">{t("moodleApproval.host")}: {item.host}</p><pre className="whitespace-pre-wrap break-all">{t("moodleApproval.params")}: {JSON.stringify(item.params, null, 2)}</pre></li>)}</ul>
