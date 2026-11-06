@@ -35,6 +35,7 @@ import { TailscaleApiKeyCard } from "./TailscaleApiKeyCard";
 import { MachinesCard } from "./MachinesCard";
 import { MaintenanceProposalsCard } from "./MaintenanceProposalsCard";
 import { AuthorizedAgentsCard } from "./AuthorizedAgentsCard";
+import { DirectAccessCard } from "./DirectAccessCard";
 import { ExecutionComposer } from "./ExecutionComposer";
 import { SchedulesPanel } from "./SchedulesPanel";
 import { ScriptLibrary } from "./ScriptLibrary";
@@ -361,6 +362,7 @@ export default function RemoteAccessPage() {
           )}
           {detectOs.error && <p role="alert" className="text-xs text-destructive">{detectOs.error.message}</p>}
           {isAdmin && <AuthorizedAgentsCard />}
+          {isAdmin && <DirectAccessCard />}
           {isAdmin && <MaintenanceProposalsCard />}
           <MachinesCard />
           {rotating && (

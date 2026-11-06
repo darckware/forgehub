@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { Bot, History, KeyRound, Loader2, SquareTerminal, User, X } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import type { ExecResultStatus } from "@/hooks/useHostExecutions";
 import { useMachineMaintenance, type MaintenanceEntry } from "@/hooks/useHostInventory";
 import type { Server } from "@/hooks/useServers";
@@ -52,6 +53,11 @@ export function MaintenanceDialog({ machine, onClose }: { machine: Server; onClo
                       <span className="font-medium">{entry.title}</span>
                     )}
                     {entry.status && <VerdictBadge verdict={entry.status as ExecResultStatus} />}
+                    {entry.direct_access_id && (
+                      <Badge variant="secondary">
+                        {t("direct.historyBadge", { purpose: t(`direct.purposes.${entry.direct_access_purpose ?? "support"}`) })}
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {fmt.format(new Date(entry.at))} · {entry.agent_name ? t("maintenance.byAgent", { name: entry.agent_name }) : entry.actor}

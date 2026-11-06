@@ -303,6 +303,9 @@ export interface MaintenanceEntry {
   execution_id: string | null;
   /** The Messages task an agent's run answered, or a request created. */
   message_number?: number | null;
+  /** A direct command: the access it came from and that opening's purpose. */
+  direct_access_id?: string | null;
+  direct_access_purpose?: "development" | "support" | null;
 }
 
 export function useMachineMaintenance(serverId: string | null) {

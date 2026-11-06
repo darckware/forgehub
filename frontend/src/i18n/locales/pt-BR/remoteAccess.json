@@ -889,5 +889,38 @@
       "succeeded": "Concluída",
       "failed": "Falhou"
     }
+  },
+  "direct": {
+    "title": "Acesso direto",
+    "subtitle": "Agente autorizado roda comandos pelo ForgeHub por tempo limitado, sem aprovação por comando. A chave SSH nunca chega ao agente.",
+    "open": "Abrir acesso",
+    "empty": "Nenhum acesso direto aberto.",
+    "formTitle": "Abrir acesso direto",
+    "agent": "Agente",
+    "pickAgent": "Escolha um agente",
+    "eligibleHelp": "Só Claude, Codex e agy recebem credencial de run.",
+    "reason": "Motivo",
+    "purpose": "Finalidade",
+    "purposes": {
+      "development": "Desenvolvimento",
+      "support": "Suporte"
+    },
+    "duration": "Duração",
+    "hours_one": "{{count}} hora",
+    "hours_other": "{{count}} horas",
+    "allowElevation": "Permitir sudo/docker",
+    "elevationBadge": "sudo/docker",
+    "warning": "O agente poderá rodar qualquer comando nessas máquinas, com a conta que já existe nelas, até o fim do prazo. Tudo fica no histórico da máquina.",
+    "sensitive": "Inclui {{machines}}. Abrir acesso mesmo assim?",
+    "confirm": "Confirmar",
+    "submit": "Abrir acesso",
+    "remaining": "resta {{hours}} h {{minutes}} min",
+    "close": "Encerrar",
+    "closeTitle": "Encerrar o acesso de {{name}}?",
+    "closeText": "O próximo comando será recusado na hora. Um comando já em execução não é interrompido: termina sozinho ou no tempo limite dele.",
+    "closedIdle": "Acesso encerrado. Nenhum comando estava em execução.",
+    "closedRunning_one": "Acesso encerrado. {{count}} comando continua em execução até terminar ou esgotar o tempo limite.",
+    "closedRunning_other": "Acesso encerrado. {{count}} comandos continuam em execução até terminar ou esgotar o tempo limite.",
+    "historyBadge": "Acesso direto · {{purpose}}"
   }
 }

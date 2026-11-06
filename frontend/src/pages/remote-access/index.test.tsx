@@ -43,6 +43,7 @@ vi.mock("@/hooks/useVpn", async (importOriginal) => {
 vi.mock("./MachinesCard", () => ({ MachinesCard: () => null }));
 vi.mock("./MaintenanceProposalsCard", () => ({ MaintenanceProposalsCard: () => null }));
 vi.mock("./AuthorizedAgentsCard", () => ({ AuthorizedAgentsCard: () => null }));
+vi.mock("./DirectAccessCard", () => ({ DirectAccessCard: () => null }));
 vi.mock("./TailscaleApiKeyCard", () => ({ TailscaleApiKeyCard: () => null }));
 vi.mock("@/hooks/useHostInventory", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/useHostInventory")>()),

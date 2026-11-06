@@ -889,5 +889,38 @@
       "succeeded": "Succeeded",
       "failed": "Failed"
     }
+  },
+  "direct": {
+    "title": "Direct access",
+    "subtitle": "An authorized agent runs commands through ForgeHub for a limited time, with no approval per command. The SSH key never reaches the agent.",
+    "open": "Open access",
+    "empty": "No direct access is open.",
+    "formTitle": "Open direct access",
+    "agent": "Agent",
+    "pickAgent": "Pick an agent",
+    "eligibleHelp": "Only Claude, Codex and agy receive a run credential.",
+    "reason": "Reason",
+    "purpose": "Purpose",
+    "purposes": {
+      "development": "Development",
+      "support": "Support"
+    },
+    "duration": "Duration",
+    "hours_one": "{{count}} hour",
+    "hours_other": "{{count}} hours",
+    "allowElevation": "Allow sudo/docker",
+    "elevationBadge": "sudo/docker",
+    "warning": "The agent can run any command on these machines, with the account they already have, until the time is up. Everything goes to the machine's history.",
+    "sensitive": "Includes {{machines}}. Open access anyway?",
+    "confirm": "Confirm",
+    "submit": "Open access",
+    "remaining": "{{hours}} h {{minutes}} min left",
+    "close": "Close",
+    "closeTitle": "Close {{name}}'s access?",
+    "closeText": "The next command is refused at once. A command already running is not interrupted: it finishes by itself or at its own timeout.",
+    "closedIdle": "Access closed. No command was running.",
+    "closedRunning_one": "Access closed. {{count}} command keeps running until it finishes or reaches its timeout.",
+    "closedRunning_other": "Access closed. {{count}} commands keep running until they finish or reach their timeout.",
+    "historyBadge": "Direct access · {{purpose}}"
   }
 }
