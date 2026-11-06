@@ -105,6 +105,7 @@ class HostExecutionResult(Base, TimestampMixin):
         ),
         Index("ix_host_execution_results_execution", "execution_id"),
         Index("ix_host_execution_results_server_status", "server_id", "status"),
+        Index("ix_host_execution_results_delegation", "delegation_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -129,3 +130,7 @@ class HostExecutionResult(Base, TimestampMixin):
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The direct access (core/remote_authority.py) this machine's run came from.
+    delegation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.authority_delegations.id", ondelete="SET NULL"), nullable=True
+    )

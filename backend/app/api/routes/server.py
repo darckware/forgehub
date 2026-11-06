@@ -754,16 +754,19 @@ async def machine_maintenance(
     entries: list[MaintenanceEntry] = []
     from app.db.models.demand import AgentDemand
 
+    from app.db.models.governance import AuthorityDelegation
+
     rows = (await db.execute(
-        select(HostExecutionResult, HostExecution, Agent.name, AgentDemand.number)
+        select(HostExecutionResult, HostExecution, Agent.name, AgentDemand.number, AuthorityDelegation.purpose)
         .join(HostExecution, HostExecution.id == HostExecutionResult.execution_id)
         .outerjoin(Agent, Agent.id == HostExecution.agent_id)
         .outerjoin(AgentDemand, AgentDemand.id == HostExecution.agent_demand_id)
+        .outerjoin(AuthorityDelegation, AuthorityDelegation.id == HostExecutionResult.delegation_id)
         .where(HostExecutionResult.server_id == server_id)
         .order_by(HostExecution.started_at.desc())
         .limit(limit)
     )).all()
-    for result, execution, agent_name, message_number in rows:
+    for result, execution, agent_name, message_number, direct_purpose in rows:
         entries.append(MaintenanceEntry(
             at=result.started_at or execution.started_at, kind="execution",
             actor=agent_name or execution.requested_by, agent_name=agent_name, trigger=execution.trigger,
@@ -771,6 +774,7 @@ async def machine_maintenance(
             status=result.status, reason=execution.reason,
             darckware_item_kind=execution.darckware_item_kind, darckware_item_id=execution.darckware_item_id,
             execution_id=execution.id, message_number=message_number,
+            direct_access_id=result.delegation_id, direct_access_purpose=direct_purpose,
         ))
     sessions = (await db.execute(
         select(AuditEvent)
@@ -801,11 +805,15 @@ async def machine_maintenance(
         payload = event.payload or {}
         if event.event_type == "agent_task_requested":
             title = f"Tarefa pedida ao agente {payload.get('agent', '?')} (mensagem #{payload.get('demand_number')})"
+        elif event.event_type in ("direct_access_opened", "direct_access_closed"):
+            verb = "aberto" if event.event_type == "direct_access_opened" else "encerrado"
+            title = f"Acesso direto {verb} para {payload.get('agent', '?')}"
         else:
             title = _EVENT_TITLES.get(event.event_type, event.event_type.replace("_", " "))
         requested = event.event_type == "agent_task_requested"
+        direct = event.event_type.startswith("direct_access_")
         entries.append(MaintenanceEntry(at=event.created_at, kind="event", actor=event.actor, title=title,
-                                        reason=payload.get("instruction") if requested else None,
+                                        reason=payload.get("instruction") if requested else payload.get("reason") if direct else None,
                                         message_number=payload.get("demand_number") if requested else None))
     entries.sort(key=lambda e: e.at, reverse=True)
     return entries[:limit]

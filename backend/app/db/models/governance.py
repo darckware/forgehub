@@ -31,7 +31,8 @@ cross-cutting by design.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, text
+from sqlalchemy import false as sa_false
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -226,6 +227,11 @@ DELEGATION_RISK_ORDER = {level: index for index, level in enumerate(DELEGATION_R
 
 class AuthorityDelegation(Base, TimestampMixin):
     __tablename__ = "authority_delegations"
+    __table_args__ = (
+        CheckConstraint(
+            "purpose IS NULL OR purpose IN ('development', 'support')", name="ck_authority_delegations_purpose"
+        ),
+    )
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     grantor_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.users.id", ondelete="CASCADE"), nullable=False
@@ -249,6 +255,10 @@ class AuthorityDelegation(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Direct remote access only (core/remote_authority.py): what the opening was
+    # for, and whether detected elevation (sudo, docker...) is allowed.
+    purpose: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    allow_elevation: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false())
 
 
 class ApprovalDecisionRecord(Base, TimestampMixin):

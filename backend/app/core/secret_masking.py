@@ -16,7 +16,7 @@ import re
 MASK = "********"
 
 _PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S), MASK),
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)", re.S), MASK),
     (
         re.compile(
             r"(?i)\b((?:password|passwd|pwd|passphrase|secret|token|api[_-]?key)\w*\s*[=:]\s*)"

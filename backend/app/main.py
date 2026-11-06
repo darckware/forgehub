@@ -230,7 +230,7 @@ def is_agent_command_path(method: str, path: str) -> bool:
         # agents in settings.PERSONAL_AGENT_SLUGS (Maia).
         "/api/v1/personal/",
         # 2026-10-19: machine maintenance by agents; the routes check the
-        # delegation for "remote_access.execute" themselves.
+        # delegation for "remote_access.execute"/".direct" themselves.
         "/api/v1/host-executions/agent",
         # 2026-10-29 (M0.0): the mission's orchestrator acts with its own
         # agt_; every /missions route calls authorize_action itself.
@@ -520,6 +520,8 @@ app.include_router(host_group.router)
 app.include_router(host_execution.router)
 from app.api.routes import maintenance_proposal
 app.include_router(maintenance_proposal.router)
+from app.api.routes import direct_access
+app.include_router(direct_access.router)
 app.include_router(host_script.router)
 app.include_router(host_script.schedules_router)
 app.include_router(remote_access.router)

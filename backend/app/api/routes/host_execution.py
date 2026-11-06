@@ -39,7 +39,9 @@ from app.api.schemas.host_execution import (
     HostExecutionSummary,
 )
 from app.core import host_exec_runner
-from app.core.remote_authority import machine_ceilings, require_remote, project_product_id
+from app.core.remote_authority import (
+    direct_access_for, direct_accesses, machine_ceilings, project_product_id, require_direct, require_remote,
+)
 from app.core.host_scripts import ScriptError, compatible, render_script, resolve_values, shell_for
 from app.core.deps import ActorPrincipal, authorize_action, get_current_admin, get_maintenance_agent
 from app.core.secret_masking import mask_secrets
@@ -190,6 +192,7 @@ async def launch_execution(
     agent_demand_id: uuid.UUID | None = None,
     canary: bool = False,
     proposal_id: uuid.UUID | None = None,
+    direct_access: dict[uuid.UUID, uuid.UUID] | None = None,
 ) -> HostExecution:
     """Creates the execution + one result per machine (skipped ones already
     closed with their reason), audits it and starts the background run.
@@ -235,6 +238,7 @@ async def launch_execution(
                 status="skipped" if skipped_reason else "pending",
                 skip_reason=skipped_reason,
                 finished_at=now if skipped_reason else None,
+                delegation_id=(direct_access or {}).get(server.id),
             )
         )
     db.add(
@@ -254,6 +258,8 @@ async def launch_execution(
                 "reason": reason,
                 "darckware_item": f"{darckware_item[0]}:{darckware_item[1]}" if darckware_item else None,
                 "canary": canary,
+                "agent_demand_id": str(agent_demand_id) if agent_demand_id else None,
+                "direct_access": {str(k): str(v) for k, v in direct_access.items()} if direct_access else None,
             },
         )
     )
@@ -570,16 +576,23 @@ async def agent_list_machines(
         raise HTTPException(403, "Individual agent credential required")
     product_id, project_id = await remote_context(db, principal, message_number)
     readiness = await _agent_readiness(db)
+    direct = await direct_accesses(db, principal.principal_id)
     servers = (await db.execute(select(Server).where(Server.access_enabled.is_(True)).order_by(Server.name))).scalars()
-    return [
-        AgentMachineOut(
+    out = []
+    for s in servers:
+        access = direct_access_for(direct, s.id)
+        if access is None and principal.principal_id not in await machine_ceilings(
+                db, [principal.principal_id], [s], product_id, project_id):
+            continue
+        out.append(AgentMachineOut(
             id=s.id, name=s.name, kind=s.kind, os_family=s.os_family, darckware_client_name=s.darckware_client_name,
             location=s.location, runnable=readiness.get(s.id, (False, "unknown"))[0],
             status=readiness.get(s.id, (False, "unknown"))[1],
-        )
-        for s in servers
-        if principal.principal_id in await machine_ceilings(db, [principal.principal_id], [s], product_id, project_id)
-    ]
+            direct_access=access is not None,
+            direct_access_until=access.expires_at if access else None,
+            direct_allow_elevation=direct_access_for(direct, s.id, elevation=True) is not None,
+        ))
+    return out
 
 
 @router.get("/agent/scripts", response_model=list[AgentScriptOut])
@@ -843,7 +856,13 @@ async def agent_get_execution(
     from app.db.models.demand import AgentDemand
     demand = await db.get(AgentDemand, execution.agent_demand_id) if execution.agent_demand_id else None
     product_id, project_id = await remote_context(db, principal, demand.number if demand else None)
-    await require_remote(db, principal, servers, product_id=product_id, project_id=project_id)
+    direct_run = await db.scalar(select(HostExecutionResult.id).where(
+        HostExecutionResult.execution_id == execution_id, HostExecutionResult.delegation_id.is_not(None)).limit(1))
+    if direct_run:
+        # Same rule as a script: reading a run needs the authority to be open.
+        await require_direct(db, principal.principal_id, servers)
+    else:
+        await require_remote(db, principal, servers, product_id=product_id, project_id=project_id)
     return await _detail(db, execution)
 
 

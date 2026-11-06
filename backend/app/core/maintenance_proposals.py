@@ -24,6 +24,17 @@ def validate_content(content: str, requires_elevation: bool):
         raise HTTPException(422, "Elevation must be declared with requires_elevation=true")
 
 
+def refuse_literal_secret(text: str):
+    if _SECRET.search(text):
+        raise HTTPException(422, {"code": "LITERAL_SECRET", "message": (
+            "Possible literal secret: a direct command can't carry one. "
+            "Use a library script with a vault_secret parameter")})
+
+
+def looks_elevated(command: str) -> bool:
+    return bool(_ELEVATION.search(command))
+
+
 def content_hash(fields):
     # Parameter bindings are included too: changing a vault reference needs new approval.
     data = {key: fields[key] for key in ('content', 'shell', 'risk', 'timeout_seconds', 'requires_elevation')}
