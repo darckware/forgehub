@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.api.routes import demand as demand_routes
 from app.core.agent_availability import HOST_TIMEZONE, classify_infra_failure, parse_usage_limit
@@ -83,7 +83,10 @@ async def world():
     yield SimpleNamespace(limited=limited, free=free, hermes=hermes, message=message)
     ids = [limited.id, free.id, hermes.id]
     async with AsyncSessionLocal() as db:
-        await db.execute(delete(AuditEvent).where(AuditEvent.entity_id.in_(demand_ids)))
+        checks = (await db.scalars(select(AgentDemand.id).where(
+            AgentDemand.failure_check_source_id.in_(demand_ids)))).all()
+        await db.execute(delete(AuditEvent).where(AuditEvent.entity_id.in_([*demand_ids, *checks])))
+        await db.execute(delete(AgentDemand).where(AgentDemand.id.in_(checks)))
         await db.execute(delete(AgentDemand).where(AgentDemand.id.in_(demand_ids)))
         await db.execute(delete(AgentAvailability).where(AgentAvailability.agent_id.in_(ids)))
         await db.execute(delete(Agent).where(Agent.id.in_(ids)))
