@@ -13,6 +13,13 @@ message ID and hash from that task. A lost claim or uncertain Moodle response re
 investigation; never retry it automatically. The Messages record is authoritative because the
 creator's local proposal can remain pending after another agent executes it.
 
+A student batch (`mcp_student_batch_v1`) is one proposal, one hash and one claim for 1 to 30 rows.
+It is not a Moodle function: the MCP runs account, enrolment and group row by row and finishes with
+`completed`, `failed` or `uncertain`. Any uncertain row makes the whole outcome `uncertain`, and a
+failed row keeps what the other rows did. Neither is retried: read the current state and make a new
+proposal for what is missing. The list shows a view built from the hashed parameters, without the
+birth date. Rows held as possible duplicates and rejected rows are shown but do not run.
+
 The agent dropdown lists the registry. Selection does not provision Moodle access: the executor
 must already have the Moodle MCP and its own credential. Maia and Athos are the configured Moodle
 profiles. Other agents need explicit provisioning before they can execute these actions.

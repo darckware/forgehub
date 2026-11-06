@@ -88,3 +88,30 @@ it('shows a completed Moodle operation separately from a failed runner report', 
   await screen.findByText('Operação concluída no Moodle');
   expect(screen.getByText('O relatório de acompanhamento falhou; isso não desfaz a operação Moodle.')).toBeInTheDocument();
 });
+const studentBatch = { total: 3, new_accounts: 2, existing: 1, account_only: 1, units: ['CASA TESTE'], courses: ['IBA'], groups: ['CASA TESTE - T601M/26 IBA'],
+  rows: [
+    { row: 1, action: 'create', full_name: 'ANA LUÍSA DOS REIS', firstname: 'ANA', lastname: 'LUÍSA DOS REIS', username: 'analuisa17012014', email: 'analuisa17012014@gmail.com', userid: null, course: 'IBA', group: 'CASA TESTE - T601M/26 IBA', account_only: false, corrected_fields: ['firstname'], possible_duplicate_of: [] },
+    { row: 2, action: 'create', full_name: 'DUDA REIS', firstname: 'DUDA', lastname: 'REIS', username: 'dudareis07082013', email: 'dudareis07082013@gmail.com', userid: null, course: null, group: null, account_only: true, corrected_fields: [], possible_duplicate_of: [{ id: 61, username: 'dudaoutra' }] },
+    { row: 3, action: 'existing', full_name: 'BIA REIS', firstname: null, lastname: null, username: 'biareis', email: null, userid: 12, course: 'IBA', group: 'CASA TESTE - T601M/26 IBA', account_only: false, corrected_fields: [], possible_duplicate_of: [] },
+  ],
+  held_rows: [{ row: 4, full_name: 'CAIO REIS', candidates: [{ id: 60, username: 'caiooutro' }] }],
+  rejected_rows: [{ row: 5, label: 'MADONNA', code: 'single_word_name', reason: 'Nome com uma palavra só' }] };
+it('shows a student batch in readable form, with the list on opening and no raw parameters', async () => {
+  vi.spyOn(apiClient, 'get').mockResolvedValue({ items: [{ ...items[0], summary: 'Lote de 3 alunos', operation: 'mcp_student_batch_v1', destructive: false, params: {}, batch: studentBatch }] });
+  open(); await screen.findByText(/Lote de 3 alunos/);
+  expect(screen.getByText(/Contas novas: 2/)).toBeInTheDocument();
+  expect(screen.getByText(/Só conta, sem matrícula nem turma: 1/)).toBeInTheDocument();
+  expect(screen.getByText(/Unidade: CASA TESTE/)).toBeInTheDocument();
+  expect(screen.getByText(/Retidas por possível duplicidade, não executam: 1/)).toBeInTheDocument();
+  expect(screen.getByText(/MADONNA: Nome com uma palavra só/)).toBeInTheDocument();
+  expect(screen.getByText(/analuisa17012014 · analuisa17012014@gmail.com/)).toBeInTheDocument();
+  expect(screen.getByText(/ANA \/ LUÍSA DOS REIS/)).toBeInTheDocument();
+  expect(screen.getByText(/Corrigido pela regra: firstname/)).toBeInTheDocument();
+  expect(screen.getByText(/Sem matrícula e sem turma/)).toBeInTheDocument();
+  fireEvent.click(screen.getAllByText('Ver alunos')[0]);
+  expect(screen.getByRole('checkbox', { name: /Selecionar #7/ })).not.toBeChecked();
+  fireEvent.click(screen.getByRole('button', { name: 'Aprovar #7' }));
+  const dialog = screen.getByRole('dialog');
+  expect(within(dialog).getByText(/Contas novas: 2/)).toBeInTheDocument();
+  expect(within(dialog).queryByText(/Parâmetros/)).not.toBeInTheDocument();
+});

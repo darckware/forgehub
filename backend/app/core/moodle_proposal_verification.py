@@ -17,7 +17,11 @@ DESTRUCTIVE_FUNCTIONS = frozenset({
 ALLOWED_FUNCTIONS = DESTRUCTIVE_FUNCTIONS | {
     "core_course_update_courses", "core_user_create_users", "core_group_create_groups",
     "enrol_manual_enrol_users", "core_group_add_group_members", "core_user_update_users",
+    "mcp_student_batch_v1",
 }
+STUDENT_BATCH_FUNCTION = "mcp_student_batch_v1"
+STUDENT_BATCH_MAX_ROWS = 30
+MAX_SAFE_INT = 9007199254740991
 
 
 class ProposalInvalid(ValueError):
@@ -44,6 +48,129 @@ def _canonical(value):
             raise ProposalInvalid("Unsupported key") from exc
         return "{" + ",".join(_canonical(k) + ":" + _canonical(value[k]) for k in keys) + "}"
     raise ProposalInvalid("Unsupported proposal parameter")
+
+
+def _positive_id(value):
+    return type(value) is int and 0 < value <= MAX_SAFE_INT
+
+
+def _text(value, limit=254):
+    return isinstance(value, str) and 0 < len(value) <= limit
+
+
+def _birth_date(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{2}/[0-9]{2}/[0-9]{4}", value):
+        raise ProposalInvalid("Invalid birth date")
+    try:
+        birth_date = datetime.strptime(value, "%d/%m/%Y").date()
+    except ValueError as exc:
+        raise ProposalInvalid("Invalid birth date") from exc
+    if birth_date.year < 1000 or birth_date > datetime.now(timezone.utc).date():
+        raise ProposalInvalid("Invalid birth date")
+
+
+def _no_password(value):
+    """A password would rest in a file: the MCP derives it after the claim."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if "password" in key.lower() and key != "standard_password":
+                raise ProposalInvalid("A batch proposal cannot carry a password")
+            _no_password(item)
+    elif isinstance(value, list):
+        for item in value:
+            _no_password(item)
+    elif isinstance(value, str) and "@semed" in value.lower():
+        raise ProposalInvalid("A batch proposal cannot carry a password")
+
+
+def _candidates(value):
+    return isinstance(value, list) and all(
+        isinstance(c, dict) and set(c) == {"id", "username"} and _positive_id(c["id"]) and _text(c["username"])
+        for c in value)
+
+
+def _batch_row(row):
+    if not isinstance(row, dict) or not _positive_id(row.get("row")) or row.get("action") not in ("create", "existing"):
+        raise ProposalInvalid("Invalid batch row")
+    target = row.get("enrolment")
+    if target is not None and (
+            not isinstance(target, dict)
+            or set(target) != {"courseid", "course_shortname", "roleid", "role_shortname", "groupid", "group_name"}
+            or not all(_positive_id(target[k]) for k in ("courseid", "roleid", "groupid"))
+            or not _text(target["course_shortname"]) or not _text(target["group_name"])
+            or target["role_shortname"] != "student"):
+        raise ProposalInvalid("Invalid batch destination")
+    if row["action"] == "existing":
+        if set(row) != {"row", "action", "enrolment", "userid", "username", "full_name"} or target is None \
+                or not _positive_id(row["userid"]) or not _text(row["username"]):
+            raise ProposalInvalid("Invalid existing student row")
+        return
+    allowed = {"row", "action", "enrolment", "full_name", "account", "corrected_fields", "possible_duplicate_of"}
+    account = row.get("account")
+    if (not set(row) <= allowed or not isinstance(account, dict)
+            or set(account) != {"username", "firstname", "lastname", "email", "auth", "standard_password"}
+            or account["auth"] != "manual" or not _text(row.get("full_name"))
+            or not all(_text(account[k], 100) for k in ("firstname", "lastname"))
+            or f"{account['firstname']} {account['lastname']}" != row["full_name"]
+            or not isinstance(account["username"], str)
+            or re.fullmatch(r"[a-z0-9][a-z0-9_.@-]{1,99}", account["username"]) is None
+            or account["email"] != f"{account['username']}@gmail.com"):
+        raise ProposalInvalid("Invalid new student row")
+    standard = account["standard_password"]
+    if not isinstance(standard, dict) or set(standard) != {"date_of_birth", "policy"} or standard["policy"] != "semed_birthdate_v1":
+        raise ProposalInvalid("Invalid password policy")
+    _birth_date(standard["date_of_birth"])
+    if "possible_duplicate_of" in row and not _candidates(row["possible_duplicate_of"]):
+        raise ProposalInvalid("Invalid duplicate warning")
+    corrected = row.get("corrected_fields", [])
+    if not isinstance(corrected, list) or not set(corrected) <= {"firstname", "lastname", "username", "email"}:
+        raise ProposalInvalid("Invalid correction flag")
+
+
+def _validate_student_batch(params):
+    batch = params.get("student_batch")
+    if set(params) != {"student_batch"} or not isinstance(batch, dict) \
+            or set(batch) != {"version", "rows", "held_rows", "rejected_rows"} or batch["version"] != 1:
+        raise ProposalInvalid("Invalid student batch")
+    rows, held, left = batch["rows"], batch["held_rows"], batch["rejected_rows"]
+    if not isinstance(rows, list) or not 0 < len(rows) <= STUDENT_BATCH_MAX_ROWS or not isinstance(held, list) or not isinstance(left, list):
+        raise ProposalInvalid("Invalid student batch size")
+    _no_password(batch)
+    for row in rows:
+        _batch_row(row)
+    for row in held:
+        if (not isinstance(row, dict) or set(row) != {"row", "full_name", "candidates"} or not _positive_id(row["row"])
+                or not _text(row["full_name"]) or not _candidates(row["candidates"])):
+            raise ProposalInvalid("Invalid held row")
+    for row in left:
+        if (not isinstance(row, dict) or set(row) != {"row", "label", "code", "reason"} or not _positive_id(row["row"])
+                or not all(isinstance(row[k], str) for k in ("label", "code", "reason"))):
+            raise ProposalInvalid("Invalid rejected row")
+    numbers = [row["row"] for row in rows + held + left]
+    usernames = [row["account"]["username"] for row in rows if row["action"] == "create"]
+    if len(set(numbers)) != len(numbers) or len(set(usernames)) != len(usernames):
+        raise ProposalInvalid("Repeated row in student batch")
+
+
+def student_batch_view(params):
+    """What a person checks before approving. Built from the hashed params, never from the free
+    summary text, and without the birth date, which only the MCP needs."""
+    batch = params["student_batch"]
+    rows = []
+    for row in batch["rows"]:
+        account, target = row.get("account") or {}, row.get("enrolment") or {}
+        rows.append({"row": row["row"], "action": row["action"], "full_name": row.get("full_name"),
+            "firstname": account.get("firstname"), "lastname": account.get("lastname"),
+            "username": account.get("username") or row.get("username"), "email": account.get("email"),
+            "userid": row.get("userid"), "course": target.get("course_shortname"), "group": target.get("group_name"),
+            "account_only": not target, "corrected_fields": row.get("corrected_fields", []),
+            "possible_duplicate_of": row.get("possible_duplicate_of", [])})
+    groups = sorted({row["group"] for row in rows if row["group"]})
+    return {"total": len(rows), "new_accounts": sum(row["action"] == "create" for row in rows),
+        "existing": sum(row["action"] == "existing" for row in rows), "account_only": sum(row["account_only"] for row in rows),
+        "units": sorted({name.split(" - ")[0] for name in groups if " - " in name}),
+        "courses": sorted({row["course"] for row in rows if row["course"]}), "groups": groups,
+        "rows": rows, "held_rows": batch["held_rows"], "rejected_rows": batch["rejected_rows"]}
 
 
 def validate_proposal(proposal, request_id):
@@ -76,6 +203,8 @@ def validate_proposal(proposal, request_id):
         users = proposal["params"].get("users")
         if not isinstance(users, list) or any(not isinstance(u, dict) or "password" in u for u in users):
             raise ProposalInvalid("A create proposal cannot carry a password")
+    if function == STUDENT_BATCH_FUNCTION:
+        _validate_student_batch(proposal["params"])
     if not all(isinstance(proposal.get(k), str) and proposal[k] for k in ("host", "environment", "params_hash", "created_at", "expires_at")):
         raise ProposalInvalid("Proposal is incomplete")
     if re.fullmatch(r"[0-9a-f]{64}", proposal["params_hash"]) is None:

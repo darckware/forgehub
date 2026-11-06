@@ -533,6 +533,25 @@
     "outcomes": {
       "failed": "The operation recorded a failure. Check the evidence before a new request.",
       "uncertain": "Operation outcome is uncertain. Check Moodle before any new attempt."
+    },
+    "batch": {
+      "title": "Student batch",
+      "total": "{{count}} student(s)",
+      "newAccounts": "New accounts: {{count}}",
+      "existing": "Existing: {{count}}",
+      "accountOnly": "Account only, no enrolment or group: {{count}}",
+      "unit": "Unit",
+      "course": "Course",
+      "group": "Group",
+      "open": "View students",
+      "newAccount": "New account",
+      "existingAccount": "Existing account",
+      "noTarget": "No enrolment and no group",
+      "corrected": "Corrected by the rule: {{fields}}",
+      "keptDuplicate": "Kept despite a possible duplicate of",
+      "held": "Held as possible duplicates, will not run: {{count}}",
+      "candidate": "Candidate: id {{id}}, {{username}}",
+      "rejected": "Left out: {{count}}"
     }
   }
 }

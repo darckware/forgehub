@@ -1,0 +1,187 @@
+{
+  "operation": "student_batch",
+  "wsfunction": "mcp_student_batch_v1",
+  "params": {
+    "student_batch": {
+      "version": 1,
+      "rows": [
+        {
+          "row": 1,
+          "action": "create",
+          "enrolment": {
+            "courseid": 2,
+            "course_shortname": "INOV101",
+            "roleid": 5,
+            "role_shortname": "student",
+            "groupid": 7,
+            "group_name": "Turma A"
+          },
+          "full_name": "ANA LUÍSA DOS REIS",
+          "account": {
+            "username": "analuisa17012014",
+            "firstname": "ANA",
+            "lastname": "LUÍSA DOS REIS",
+            "email": "analuisa17012014@gmail.com",
+            "auth": "manual",
+            "standard_password": {
+              "date_of_birth": "17/01/2014",
+              "policy": "semed_birthdate_v1"
+            }
+          },
+          "corrected_fields": [
+            "firstname"
+          ]
+        },
+        {
+          "row": 2,
+          "action": "create",
+          "enrolment": {
+            "courseid": 2,
+            "course_shortname": "INOV101",
+            "roleid": 5,
+            "role_shortname": "student",
+            "groupid": 7,
+            "group_name": "Turma A"
+          },
+          "full_name": "JOÃO SILVA ALVES",
+          "account": {
+            "username": "joaosilva15092012",
+            "firstname": "JOÃO",
+            "lastname": "SILVA ALVES",
+            "email": "joaosilva15092012@gmail.com",
+            "auth": "manual",
+            "standard_password": {
+              "date_of_birth": "15/09/2012",
+              "policy": "semed_birthdate_v1"
+            }
+          }
+        },
+        {
+          "row": 3,
+          "action": "create",
+          "enrolment": {
+            "courseid": 2,
+            "course_shortname": "INOV101",
+            "roleid": 5,
+            "role_shortname": "student",
+            "groupid": 7,
+            "group_name": "Turma A"
+          },
+          "full_name": "JOÃO SILVA BRITO",
+          "account": {
+            "username": "joaosilva15092012_2",
+            "firstname": "JOÃO",
+            "lastname": "SILVA BRITO",
+            "email": "joaosilva15092012_2@gmail.com",
+            "auth": "manual",
+            "standard_password": {
+              "date_of_birth": "15/09/2012",
+              "policy": "semed_birthdate_v1"
+            }
+          }
+        },
+        {
+          "row": 4,
+          "action": "create",
+          "enrolment": null,
+          "full_name": "CONCEIÇÃO D’ÁVILA",
+          "account": {
+            "username": "conceicaodavila05062012",
+            "firstname": "CONCEIÇÃO",
+            "lastname": "D’ÁVILA",
+            "email": "conceicaodavila05062012@gmail.com",
+            "auth": "manual",
+            "standard_password": {
+              "date_of_birth": "05/06/2012",
+              "policy": "semed_birthdate_v1"
+            }
+          }
+        },
+        {
+          "row": 5,
+          "action": "create",
+          "enrolment": {
+            "courseid": 2,
+            "course_shortname": "INOV101",
+            "roleid": 5,
+            "role_shortname": "student",
+            "groupid": 7,
+            "group_name": "Turma A"
+          },
+          "full_name": "DUDA REIS",
+          "account": {
+            "username": "dudareis07082013",
+            "firstname": "DUDA",
+            "lastname": "REIS",
+            "email": "dudareis07082013@gmail.com",
+            "auth": "manual",
+            "standard_password": {
+              "date_of_birth": "07/08/2013",
+              "policy": "semed_birthdate_v1"
+            }
+          },
+          "possible_duplicate_of": [
+            {
+              "id": 61,
+              "username": "duda01012001"
+            }
+          ]
+        },
+        {
+          "row": 7,
+          "action": "existing",
+          "enrolment": {
+            "courseid": 2,
+            "course_shortname": "INOV101",
+            "roleid": 5,
+            "role_shortname": "student",
+            "groupid": 7,
+            "group_name": "Turma A"
+          },
+          "userid": 12,
+          "username": "carla.nologin",
+          "full_name": "Carla Teste"
+        }
+      ],
+      "held_rows": [
+        {
+          "row": 6,
+          "full_name": "CAIO REIS",
+          "candidates": [
+            {
+              "id": 60,
+              "username": "caioreis01012001"
+            }
+          ]
+        }
+      ],
+      "rejected_rows": [
+        {
+          "row": 8,
+          "label": "MADONNA",
+          "code": "single_word_name",
+          "reason": "Nome com uma palavra só: o Moodle exige sobrenome"
+        }
+      ]
+    }
+  },
+  "summary": "Lote de 6 aluno(s): 5 conta(s) nova(s), 1 existente(s); curso INOV101; turma Turma A; 1 só conta, sem matrícula nem turma; 1 retida(s) por possível duplicidade, não executa(m); 1 fora do lote",
+  "dry_run": {
+    "rows": 6,
+    "new_accounts": 5,
+    "existing": 1,
+    "account_only": 1,
+    "held": 1,
+    "rejected": 1
+  },
+  "justification": "Lote fictício para conferir o validador Python",
+  "environment": "staging",
+  "host": "127.0.0.1:9999",
+  "requested_by": "maia",
+  "request_id": "21731049-ad60-4c84-8383-302e57bed348",
+  "params_hash": "2f7c779ac4714519882735ac2afaf6bd262385724d5e1d16c742f83fc688868c",
+  "destructive": false,
+  "created_at": "2026-11-06T19:43:35.452Z",
+  "expires_at": "2026-11-07T19:43:35.452Z",
+  "status": "pending"
+}
