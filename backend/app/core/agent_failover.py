@@ -6,7 +6,11 @@ queue never waits on, or keeps failing against, an agent with no quota.
 Only plain Messages work moves. A mission task keeps the executor its baseline
 froze, a message marked `fixed_agent` (a review, whose reviewer must not be the
 executor) keeps its agent, an approved text keeps its approval, and a failure
-check belongs to its owner. Those wait for the reset instead.
+check belongs to its owner. Queued, those wait for the reset instead.
+
+Moving and waiting are two questions, because a run that already started and
+ended on a limit has more to answer for than a queued message: see
+`can_wait_for_reset`.
 """
 from __future__ import annotations
 
@@ -32,6 +36,24 @@ def can_switch(demand: AgentDemand) -> bool:
         or demand.mission_context_version_id
         or demand.failure_check_source_id
     )
+
+
+def can_wait_for_reset(demand: AgentDemand) -> bool:
+    """Whether a run that ended on a usage limit may go back to the queue.
+
+    A `fixed_agent` message and a failure check run again by themselves after
+    the reset, on the same agent. A failure check has to: it can't open a check
+    of itself, so failing it ended the diagnosis in silence (#42186).
+
+    The others stay failed, with the limit in `dispatch_error`:
+    - `requires_approval`: the run may have had effects, and an approval covers
+      one execution. The failure check it opens verifies them first, and a
+      Moodle approval can expire during the wait.
+    - `task_execution_id`: the execution would stay `running` with no run, and
+      its failure is what the task flow and the mission cycle act on.
+    - `mission_context_version_id`: the mission cycle reschedules it.
+    """
+    return not (demand.requires_approval or demand.task_execution_id or demand.mission_context_version_id)
 
 
 async def substitute_for(

@@ -177,6 +177,11 @@ def classify_infra_failure(text: str | None, dispatch_error: str | None = None) 
     return None
 
 
+def describe_reset(moment: datetime) -> str:
+    """A reset as the operator reads it, on the host's clock."""
+    return moment.astimezone(ZoneInfo(HOST_TIMEZONE)).strftime("%Y-%m-%d %H:%M %z")
+
+
 def run_finished_at(run: dict) -> datetime | None:
     """When the runner says a run ended, or None when it doesn't say. The bridge
     writes a naive `datetime.now()`, which is host time."""
