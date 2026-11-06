@@ -13,7 +13,8 @@ Factory reads and task mutations require ``FORGEHUB_AGENT_TOKEN`` (an
 ``agt_`` AgentServiceCredential). So do the machine-maintenance tools
 (2026-10-19): an agent runs library scripts on client machines as itself --
 recorded with its name and the reason -- and only with an active delegation
-for ``remote_access.execute`` whose risk ceiling fits the script. The mission
+for ``remote_access.execute`` whose risk ceiling fits the script; run_remote_command
+needs a temporary ``remote_access.direct`` access opened by a human admin. The mission
 tools (M0.2a: create_internal_project, manage_project_members; M0.2d:
 attach_project_document, get_my_mission_role, list_my_tasks) act as the
 caller too (every write with a required idempotency_key). Messages continues to use its narrowly

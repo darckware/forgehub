@@ -355,3 +355,36 @@ resume a claimed proposal after a bridge/backend restart. No Telegram approvals.
 ### Depois da aprovação (2026-11-06, revisão da entrega)
 
 Uma aprovação humana pode chegar horas depois do fim do run que propôs, e a credencial `agt_` desse run termina com ele. Por isso, aprovar cria uma nova tarefa do Messages para o agente que propôs (`open_run_task`, com `fixed_agent`), e a proposta passa a pertencer a ela. Só essa tarefa executa. O evento `approved` guarda a tarefa de origem em `origin_demand_id`. O agente não fica esperando: termina o run informando que aguarda aprovação, e a execução vem na tarefa nova.
+
+### Acesso direto temporário — 2026-11-06
+
+Decisão de Marcelo (opção A): no desenvolvimento e no suporte, um agente autorizado no painel roda
+os comandos que precisar pelo ForgeHub, sem aprovação por comando. O agente nunca recebe a chave
+SSH. A aprovação por hash continua para quem não tem acesso aberto, e nenhuma das duas ações
+implica a outra.
+
+- **Abrir e encerrar:** só admin humano, em Acesso Remoto › Máquinas › Acesso direto
+  (`/api/v1/remote-access/direct`). Agente, máquinas ou grupo, motivo, finalidade, 1, 4 ou 24 h e
+  `sudo/docker` desmarcado. Só Claude, Codex e agy são elegíveis; Hermes aguarda decisão de Marcelo.
+- **Máquina sensível:** um clique de confirmação na mesma tela, registrado na auditoria. A regra está
+  só em `is_sensitive_machine`: fora de `test`, `dev` e `lab`, tudo é sensível.
+- **Grupo:** a abertura guarda as máquinas daquele momento. Máquina que entra depois no grupo não
+  fica coberta, para não pular a confirmação.
+- **Comando:** MCP `run_remote_command`, sempre com tarefa dirigida ao agente. Timeout padrão 120 s,
+  máximo 1800 s. Máquina ocupada volta como ocupada, sem fila. Tarefa longa roda em segundo plano no
+  servidor, com log, porque a rota oscila.
+- **Encerrar:** o próximo comando é recusado na hora. O que já roda termina sozinho ou no tempo limite
+  e a resposta diz quantos são. Sem acesso aberto, o agente também deixa de ler a saída dos seus
+  comandos; ela continua no histórico para o admin.
+
+Limites conhecidos, para decisão de Marcelo:
+
+- `_ELEVATION` e `_SECRET` olham o texto. Aspas, variáveis ou base64 passam por eles, e também há
+  falso positivo (`cat docker.log`). O limite real é a conta da máquina: sem `allow_elevation` não há
+  garantia técnica de que o agente não elevou, se a conta tiver sudo.
+- Dentro do acesso, um comando pode gravar uma chave em `authorized_keys`, e essa porta sobrevive ao
+  encerramento. O registro fica no histórico, mas nada impede.
+- A máscara por padrão é o melhor esforço: pega bloco de chave privada, inclusive cortado, mas não
+  base64 solto.
+- A API de servidores só aceita `vps`, `semed` e `client`, logo hoje toda máquina cadastrada por ela
+  é sensível. Para existir máquina não sensível em produção, o `Literal` precisa aceitar os outros.
