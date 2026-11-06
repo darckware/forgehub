@@ -33,6 +33,8 @@ class InstructorRequestIn(BaseModel):
     author_phone: str | None = Field(default=None, max_length=20)
     # Said her name or quoted her. Anything else only continues an open conversation.
     called: bool = True
+    # WhatsApp's id of this message, so her answer quotes it.
+    message_id: str | None = Field(default=None, max_length=100)
 
 
 @router.get('/groups', response_model=list[WhatsAppGroupOut])
@@ -106,7 +108,7 @@ async def capture_instructor_request(payload: InstructorRequestIn, actor: str = 
         raise HTTPException(503, 'Maia is not available')
     demand = AgentDemand(from_agent='maia', from_agent_id=maia.id, target_agent_id=maia.id,
                          subject=subject, body='Captura do grupo.', context_area=conversation_key(conversation.id if conversation is not None else None, payload.called),
-                         origin_type='task', status='new', fixed_agent=True, channel=GROUP_CHANNEL, channel_ref=group,
+                         origin_type='task', status='new', fixed_agent=True, channel=GROUP_CHANNEL, channel_ref=group, channel_message_id=payload.message_id,
                          requires_response=False, working_path=settings.MOODLE_APPROVAL_WORKING_PATH,
                          scheduled_at=datetime.now(timezone.utc))
     db.add(demand)

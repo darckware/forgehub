@@ -419,6 +419,8 @@ class AgentDemand(Base, TimestampMixin):
     # Telegram chat_id.
     channel: Mapped[str | None] = mapped_column(String(20), nullable=True)
     channel_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # The message this item answers on that channel, so the reply quotes it (WhatsApp group).
+    channel_message_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # When the requested outcome return was completed. For ForgeHub contexts
     # whose canonical Messages record is itself the destination, this marks
     # the outcome as handled without creating an extra alert. NULL means a

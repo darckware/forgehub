@@ -19,6 +19,7 @@ from app.core.security import create_access_token, hash_password
 from app.db.base import AsyncSessionLocal
 from app.db.models.agent import Agent
 from app.db.models.demand import AgentDemand
+from app.db.models.notification import Notification
 from app.db.models.governance import AuditEvent
 from app.db.models.moodle_approval import MoodleApproval
 from app.db.models.personal import InstructorConversation, PersonalContact
@@ -338,7 +339,7 @@ async def test_feedback_sends_her_block_to_the_group_once(world, monkeypatch):
         assert await feedback.deliver_feedback(db, demand) is True
         await db.commit()
         await feedback.deliver_feedback(db, demand)
-    sent.assert_awaited_once_with(GROUP, "Encaminhei para aprovação.")
+    sent.assert_awaited_once_with(GROUP, "Encaminhei para aprovação.", reply_to=None)
 
 
 @pytest.mark.asyncio
@@ -355,7 +356,31 @@ async def test_send_says_who_wrote_it(monkeypatch):
     monkeypatch.setattr(ig.httpx, "AsyncClient", Client)
     monkeypatch.setattr(settings, "MAIA_INSTRUCTOR_GROUP_ID", GROUP)
     await ig.send_to_group(GROUP, "oi")
-    assert calls == {"target": f"whatsapp:{GROUP}", "message": "🤖 Maia: oi", "profile": "maia", "strict_media": True}
+    assert calls == {"target": f"whatsapp:{GROUP}", "message": "Maia: oi", "profile": "maia", "strict_media": True}
+    await ig.send_to_group(GROUP, "oi", reply_to="ABC123")
+    assert calls["reply_to"] == "ABC123"
+
+
+def test_markdown_never_reaches_the_group():
+    assert ig.group_reply("[GRUPO]Faltam **dois** dados de *Ana*: `turno`.[/GRUPO]", failed=False) == "Faltam dois dados de Ana: turno."
+    assert "2015" not in ig.clean_reply("nasceu em 16/*04*/2015")
+
+
+@pytest.mark.asyncio
+async def test_her_answer_quotes_the_instructor_and_a_missing_block_warns_the_operator(world, monkeypatch):
+    sent = AsyncMock()
+    monkeypatch.setattr(feedback, "send_to_group", sent)
+    resp = await world["client"].post(URL, json={**_request(), "message_id": "3EB0ABC"})
+    async with AsyncSessionLocal() as db:
+        demand = await db.scalar(select(AgentDemand).where(AgentDemand.number == resp.json()["number"]))
+        assert demand.channel_message_id == "3EB0ABC"
+        demand.dispatch_status, demand.dispatch_result = "completed", "Faltam dados do aluno.\nSTATUS: DONE"
+        await db.commit()
+        assert await feedback.deliver_feedback(db, demand) is True
+        await db.commit()
+        alert = await db.scalar(select(Notification).where(Notification.event_key.like(f"demand-feedback:{demand.id}:%")))
+        assert alert is not None and alert.title.startswith("Instrutor sem resposta da Maia")
+    sent.assert_awaited_once_with(GROUP, ig.FALLBACK_REPLY, reply_to="3EB0ABC")
 
 
 async def _registered(world, monkeypatch, tmp_path, origin_number, created=None):

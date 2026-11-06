@@ -37,7 +37,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.instructor_group import GROUP_CHANNEL, group_reply, record_reply, send_to_group
+from app.core.instructor_group import GROUP_CHANNEL, group_reply, needs_operator, record_reply, send_to_group
 from app.db.models.agent import Agent
 from app.db.models.demand import (
     DEMAND_TERMINAL_DISPATCH_STATUSES,
@@ -334,7 +334,9 @@ async def deliver_feedback(db: AsyncSession, demand: AgentDemand) -> bool:
             reply = await record_reply(db, demand, reply, demand.dispatch_result, failed=failed)
             if failed and reply:
                 await _deliver_notification(db, demand, title=title)
-            await send_to_group(demand.channel_ref, reply)
+            elif needs_operator(reply, failed=failed):
+                await _deliver_notification(db, demand, title=f"Instrutor sem resposta da Maia: {demand.subject}")
+            await send_to_group(demand.channel_ref, reply, reply_to=demand.channel_message_id)
         elif demand.channel in ("assistant", "factory"):
             if failed:
                 await _deliver_notification(db, demand, title=title)

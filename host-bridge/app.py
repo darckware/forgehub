@@ -2396,6 +2396,8 @@ class MessageSendRequest(BaseModel):
     profile: str | None = None
     # Only files under the messaging cache may attach, never a path a text happens to name.
     strict_media: bool = False
+    # WhatsApp only: the message to quote. `hermes send` has no such option.
+    reply_to: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,100}$")
 
 
 @app.get("/v1/telegram/{profile}/messages")
@@ -2457,6 +2459,28 @@ async def telegram_messages(
     }
 
 
+async def _send_whatsapp_reply(req: MessageSendRequest) -> dict:
+    """Straight to the profile's own WhatsApp bridge, the one with the quoted message in memory.
+    Plain text only: no MEDIA: handling exists on this path. A message the bridge no longer
+    remembers goes out unquoted."""
+    platform, _, chat_id = req.target.partition(":")
+    if platform != "whatsapp" or not chat_id or not req.profile:
+        raise HTTPException(status_code=400, detail="reply_to needs a whatsapp:<chat> target and a profile")
+    cfg = yaml.safe_load((PROFILES_DIR / req.profile / "config.yaml").read_text()) or {}
+    port = (cfg.get("whatsapp") or {}).get("bridge_port")
+    if not isinstance(port, int):
+        raise HTTPException(status_code=502, detail="Profile has no WhatsApp bridge port")
+    try:
+        async with httpx.AsyncClient(timeout=75) as client:
+            response = await client.post(f"http://127.0.0.1:{port}/send", json={
+                "chatId": chat_id, "message": req.message, "replyTo": req.reply_to})
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"WhatsApp bridge unreachable: {type(exc).__name__}") from None
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail=response.text[-2000:] or "Message send failed")
+    return response.json()
+
+
 @app.post("/v1/messages/send")
 async def send_message(
     req: MessageSendRequest, x_bridge_token: str | None = Header(default=None)
@@ -2480,6 +2504,9 @@ async def send_message(
             )
         cmd += ["-p", req.profile]
     # The body goes on stdin, never argv: it can be long and must not show up in `ps`.
+    if req.reply_to:
+        return await _send_whatsapp_reply(req)
+
     cmd += ["send", "--to", req.target, "--json", "--file", "-"]
     try:
         proc = await asyncio.to_thread(

@@ -107,6 +107,7 @@ async def register(payload: RegisterIn, principal: ActorPrincipal = Depends(get_
         target_agent_id=source_id, subject="Moodle: solicitação de aprovação", body="Proposta Moodle aguardando confirmação.",
         origin_type="task", status="new", requires_approval=True, approval_status="pending", scheduled_at=None,
         channel=origin.channel if origin else None, channel_ref=origin.channel_ref if origin else None,
+        channel_message_id=origin.channel_message_id if origin else None,
         working_path=settings.MOODLE_APPROVAL_WORKING_PATH, requires_response=False)
     db.add(demand)
     await db.flush()
@@ -219,7 +220,7 @@ async def reject(payload: RejectIn, user: User = Depends(get_current_user), db: 
     for _, demand in rows:
         if demand.channel == GROUP_CHANNEL:
             try:
-                await send_to_group(demand.channel_ref, REJECTED_REPLY)
+                await send_to_group(demand.channel_ref, REJECTED_REPLY, reply_to=demand.channel_message_id)
             except httpx.HTTPError:
                 logger.warning("Could not tell the group about rejected #%s", demand.number)
     return {"rejected": [d.number for _, d in rows]}
