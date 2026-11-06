@@ -112,7 +112,10 @@
     "revoke": "Revogar",
     "revokeTitle": "Revogar o acesso de {{name}}?",
     "revokeText": "O agente perde na hora a permissão de executar scripts nas máquinas. Execuções já iniciadas continuam até o fim.",
-    "empty": "Nenhum agente autorizado. Conceda acesso para um agente poder fazer manutenção."
+    "empty": "Nenhum agente autorizado. Conceda acesso para um agente poder fazer manutenção.",
+    "pickMachines": "Máquinas autorizadas",
+    "pickGroups": "Grupos autorizados",
+    "scopeRequired": "Selecione ao menos uma máquina ou grupo. Padrão: 24 horas."
   },
   "askAgent": {
     "button": "Pedir ao agente",
@@ -347,7 +350,10 @@
     "sshHelp": "O ForgeHub entra uma vez com essa conta (a senha é usada só nesta conexão e não é gravada), prepara, testa o login da darckware pela chave e, só se o teste passar e a opção abaixo estiver marcada, bloqueia essa conta.",
     "loginRequired": "Para instalar e configurar o acesso SSH do ForgeHub (conta darckware) é preciso entrar uma vez com uma conta administradora desta máquina.",
     "accountLabel": "Conta usada na configuração",
-    "accounts": {"registered": "Conta cadastrada: {{user}}", "other": "Outra conta"},
+    "accounts": {
+      "registered": "Conta cadastrada: {{user}}",
+      "other": "Outra conta"
+    },
     "thisAccount": "usada",
     "adminUser": "Login do administrador",
     "adminPassword": "Senha do administrador",
@@ -418,7 +424,12 @@
     "rotate_ssh_key": "Rotacionar chave SSH"
   },
   "composer": {
-    "authKey": {"autoOn": "Em branco, o ForgeHub gera uma chave por máquina com a tag informada; cada máquina aguarda sua aprovação no painel da Tailscale.", "autoOff": "Para o ForgeHub gerar a chave sozinho, cadastre a credencial da API na aba Rede Tailscale.", "open": "Gerar auth key no painel da Tailscale", "help": "Em Settings › Keys › Generate auth key: marque Pre-approved ou aprove a máquina no painel depois, deixe Reusable desligado (uma chave por estação) e escolha a tag do cliente (estação: tag:<cliente>-users; servidor: tag:<cliente>-srv) — sem ela o ForgeHub não alcança a máquina por SSH. Cole a chave tskey-auth-… aqui."},
+    "authKey": {
+      "autoOn": "Em branco, o ForgeHub gera uma chave por máquina com a tag informada; cada máquina aguarda sua aprovação no painel da Tailscale.",
+      "autoOff": "Para o ForgeHub gerar a chave sozinho, cadastre a credencial da API na aba Rede Tailscale.",
+      "open": "Gerar auth key no painel da Tailscale",
+      "help": "Em Settings › Keys › Generate auth key: marque Pre-approved ou aprove a máquina no painel depois, deixe Reusable desligado (uma chave por estação) e escolha a tag do cliente (estação: tag:<cliente>-users; servidor: tag:<cliente>-srv) — sem ela o ForgeHub não alcança a máquina por SSH. Cole a chave tskey-auth-… aqui."
+    },
     "canary": "Canário: primeiro em uma máquina",
     "canaryHelp": "Roda na primeira máquina e só segue para as outras se der certo.",
     "canaryOn": "Canário ligado: as demais máquinas só rodam se a primeira der certo.",
@@ -852,5 +863,64 @@
       "confirmText": "A chave antiga é descartada e a próxima conexão registra a nova. Faça isso só se souber por que ela mudou. Fica registrado na auditoria e no histórico da máquina.",
       "done": "Chave antiga descartada. Rode o script de novo."
     }
+  },
+  "proposals": {
+    "title": "Propostas de manutenção",
+    "help": "Revise o script completo e o hash antes de aprovar. A aprovação vale 24 horas e permite uma execução.",
+    "empty": "Nenhuma proposta de manutenção.",
+    "review": "Ver proposta",
+    "reviewTitle": "Revisar script de manutenção",
+    "approve": "Aprovar",
+    "reject": "Recusar",
+    "machines": "Máquinas",
+    "risk": "Risco e execução",
+    "reason": "Motivo",
+    "effect": "Efeito esperado",
+    "rollback": "Rollback",
+    "elevation": "Este script declara elevação de privilégios. Revise os comandos. ForgeHub executa como o usuário remoto configurado.",
+    "expires": "Validade: {{date}}",
+    "rejectionReason": "Motivo da recusa",
+    "states": {
+      "proposed": "Aguardando aprovação",
+      "approved": "Aprovada",
+      "rejected": "Recusada",
+      "expired": "Expirada",
+      "claimed": "Acionada — não repetir",
+      "succeeded": "Concluída",
+      "failed": "Falhou"
+    }
+  },
+  "direct": {
+    "title": "Acesso direto",
+    "subtitle": "Agente autorizado roda comandos pelo ForgeHub por tempo limitado, sem aprovação por comando. A chave SSH nunca chega ao agente.",
+    "open": "Abrir acesso",
+    "empty": "Nenhum acesso direto aberto.",
+    "formTitle": "Abrir acesso direto",
+    "agent": "Agente",
+    "pickAgent": "Escolha um agente",
+    "eligibleHelp": "Só Claude, Codex e agy recebem credencial de run.",
+    "reason": "Motivo",
+    "purpose": "Finalidade",
+    "purposes": {
+      "development": "Desenvolvimento",
+      "support": "Suporte"
+    },
+    "duration": "Duração",
+    "hours_one": "{{count}} hora",
+    "hours_other": "{{count}} horas",
+    "allowElevation": "Permitir sudo/docker",
+    "elevationBadge": "sudo/docker",
+    "warning": "O agente poderá rodar qualquer comando nessas máquinas, com a conta que já existe nelas, até o fim do prazo. Tudo fica no histórico da máquina.",
+    "sensitive": "Inclui {{machines}}. Abrir acesso mesmo assim?",
+    "confirm": "Confirmar",
+    "submit": "Abrir acesso",
+    "remaining": "resta {{hours}} h {{minutes}} min",
+    "close": "Encerrar",
+    "closeTitle": "Encerrar o acesso de {{name}}?",
+    "closeText": "O próximo comando será recusado na hora. Um comando já em execução não é interrompido: termina sozinho ou no tempo limite dele.",
+    "closedIdle": "Acesso encerrado. Nenhum comando estava em execução.",
+    "closedRunning_one": "Acesso encerrado. {{count}} comando continua em execução até terminar ou esgotar o tempo limite.",
+    "closedRunning_other": "Acesso encerrado. {{count}} comandos continuam em execução até terminar ou esgotar o tempo limite.",
+    "historyBadge": "Acesso direto · {{purpose}}"
   }
 }

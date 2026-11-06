@@ -106,7 +106,7 @@ async def test_t4a_agent_linux_execution():
                     now = datetime.now(timezone.utc)
                     db.add(AuthorityDelegation(
                         grantor_user_id=ids.grantor, grantee_type="agent", grantee_id=ids.agent,
-                        allowed_actions=["remote_access.execute"], max_risk="low",
+                        allowed_actions=["remote_access.execute"], servers=[str(rows["linux"].id), str(rows["linux2"].id)], max_risk="low",
                         valid_from=now - timedelta(minutes=1), expires_at=now + timedelta(hours=1),
                     ))
                     await db.commit()
@@ -124,7 +124,7 @@ async def test_t4a_agent_linux_execution():
                 assert outside.status_code == 403 and "Not in task" in outside.json()["detail"]
                 del ready[rows["linux2"].id]
                 not_ready = await ac.post("/api/v1/host-executions/agent", json={**body, "server_ids": [str(rows["linux2"].id)]})
-                assert not_ready.status_code == 409 and rows["linux2"].name in not_ready.json()["detail"]
+                assert not_ready.status_code == 403  # outside the task, regardless of readiness
 
                 resp = await ac.post("/api/v1/host-executions/agent", json={**body, "darckware_item_kind": "ticket", "darckware_item_id": "T-42"})
                 assert resp.status_code == 201, resp.text

@@ -61,6 +61,8 @@ class GovernedDecisionOut(BaseModel):
 
 class DelegationCreate(BaseModel):
     grantee_agent_id: uuid.UUID
+    servers: list[str] = Field(default_factory=list)
+    host_groups: list[str] = Field(default_factory=list)
     allowed_actions: list[str] = Field(min_length=1)
     scope_type: Literal["organization", "product", "project"] = "organization"
     product_id: uuid.UUID | None = None
@@ -89,6 +91,8 @@ class DelegationOut(BaseModel):
     scope_type: str
     product_id: uuid.UUID | None
     project_id: uuid.UUID | None
+    servers: list[str] = Field(default_factory=list)
+    host_groups: list[str] = Field(default_factory=list)
     allowed_actions: list[str]
     max_risk: str
     budget_limit: float | None

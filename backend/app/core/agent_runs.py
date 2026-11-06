@@ -8,6 +8,10 @@ caller (`api/routes/demand.py`'s Inbox dispatch) doesn't duplicate it again.
 Payload shape matches those existing callers exactly; migrating them to use
 this module instead is a separate, optional follow-up.
 """
+import hashlib
+import secrets
+from datetime import datetime, timedelta, timezone
+
 import httpx
 
 from app.core.agent_profile_files import external_identity_preamble
@@ -68,6 +72,16 @@ async def dispatch_agent_run(
         "hermes_profile": agent.profile_slug if agent.runtime_type == "hermes" else None,
         "autonomous": bool(agent.autonomous_runs),
     }
+    if agent.runtime_type in ("claude", "codex", "agy"):
+        from app.db.base import AsyncSessionLocal
+        from app.db.models.agent import AgentServiceCredential
+        token = "agt_" + secrets.token_urlsafe(32)
+        async with AsyncSessionLocal() as credential_db:
+            credential_db.add(AgentServiceCredential(agent_id=agent.id, label=f"dispatch:{run_id}",
+                token_hash=hashlib.sha256(token.encode()).hexdigest(),
+                expires_at=datetime.now(timezone.utc) + timedelta(seconds=min(max_seconds, 7200) + 60)))
+            await credential_db.commit()
+        body["agent_service_token"] = token
     # Its own route: a bridge that doesn't know it answers 404 instead of running unrestricted.
     path = "/v1/agent-runs"
     if restricted_toolsets:

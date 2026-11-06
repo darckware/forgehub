@@ -71,22 +71,22 @@ async def cw(world, runner, monkeypatch):  # noqa: F811 -- the imported fixtures
         await db.commit()
 
 
-def _key(world) -> str:
+def _key(world) -> str:  # noqa: F811 -- imported pytest fixtures are injected by name
     return f"m08-{world.tag}-{uuid.uuid4().hex}"
 
 
-async def _orch_headers(world, mission, actions=(PLAN, ORCH)):
+async def _orch_headers(world, mission, actions=(PLAN, ORCH)):  # noqa: F811 -- imported pytest fixtures are injected by name
     return await world.agent_token((await _mission_row(mission)).orchestrator_agent_id, list(actions))
 
 
-async def _cycle(world, mission, headers=None):
+async def _cycle(world, mission, headers=None):  # noqa: F811 -- imported pytest fixtures are injected by name
     async with world.client(headers) as client:
         response = await client.get(f"/api/v1/missions/{mission.project_id}/cycle")
     assert response.status_code == 200, response.text
     return response.json()
 
 
-async def _decide(world, mission, headers, action, reason="cycle decision", task_id=None, proposal_id=None,
+async def _decide(world, mission, headers, action, reason="cycle decision", task_id=None, proposal_id=None,  # noqa: F811 -- imported pytest fixtures are injected by name
                   cycle_id=None, key=None, **params):
     body = {"action": action, "reason": reason, "idempotency_key": key or _key(world),
             "params": {k: (str(v) if isinstance(v, (uuid.UUID, datetime)) else v) for k, v in params.items()}}
@@ -158,7 +158,7 @@ async def _verified_execution(task, evidence, executor_assignment=True) -> uuid.
 # ---------------------------------------------------------------------------
 # §2.1, §2.2: routine and triggers
 # ---------------------------------------------------------------------------
-async def _transition(world, mission, to, reason="test", headers=None):
+async def _transition(world, mission, to, reason="test", headers=None):  # noqa: F811 -- imported pytest fixtures are injected by name
     async with world.client(headers) as client:
         return await client.post(f"/api/v1/missions/{mission.project_id}:transition", json={
             "to": to, "reason": reason, "expected_row_version": await _row_version(mission.project_id)})

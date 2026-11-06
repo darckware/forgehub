@@ -39,8 +39,11 @@ from app.api.schemas.host_execution import (
     HostExecutionSummary,
 )
 from app.core import host_exec_runner
+from app.core.remote_authority import (
+    direct_access_for, direct_accesses, machine_ceilings, project_product_id, require_direct, require_remote,
+)
 from app.core.host_scripts import ScriptError, compatible, render_script, resolve_values, shell_for
-from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal, get_current_admin
+from app.core.deps import ActorPrincipal, authorize_action, get_current_admin, get_maintenance_agent
 from app.core.secret_masking import mask_secrets
 from app.core.forgevault import machine_secret_name, vault_reveal_name, vault_store
 from app.db.base import get_db
@@ -188,6 +191,8 @@ async def launch_execution(
     darckware_item: tuple[str, str] | None = None,
     agent_demand_id: uuid.UUID | None = None,
     canary: bool = False,
+    proposal_id: uuid.UUID | None = None,
+    direct_access: dict[uuid.UUID, uuid.UUID] | None = None,
 ) -> HostExecution:
     """Creates the execution + one result per machine (skipped ones already
     closed with their reason), audits it and starts the background run.
@@ -219,16 +224,21 @@ async def launch_execution(
     )
     db.add(execution)
     await db.flush()
+    if proposal_id:
+        from app.db.models.maintenance_proposal import MaintenanceProposal
+        proposal = await db.get(MaintenanceProposal, proposal_id)
+        proposal.execution_id = execution.id
     for server in servers:
-        reason = skip_reason(server, shell, busy, script.platform if script else None, shell_agnostic, login_given)
+        skipped_reason = skip_reason(server, shell, busy, script.platform if script else None, shell_agnostic, login_given)
         db.add(
             HostExecutionResult(
                 execution_id=execution.id,
                 server_id=server.id,
                 server_name=server.name,
-                status="skipped" if reason else "pending",
-                skip_reason=reason,
-                finished_at=now if reason else None,
+                status="skipped" if skipped_reason else "pending",
+                skip_reason=skipped_reason,
+                finished_at=now if skipped_reason else None,
+                delegation_id=(direct_access or {}).get(server.id),
             )
         )
     db.add(
@@ -248,6 +258,8 @@ async def launch_execution(
                 "reason": reason,
                 "darckware_item": f"{darckware_item[0]}:{darckware_item[1]}" if darckware_item else None,
                 "canary": canary,
+                "agent_demand_id": str(agent_demand_id) if agent_demand_id else None,
+                "direct_access": {str(k): str(v) for k, v in direct_access.items()} if direct_access else None,
             },
         )
     )
@@ -540,29 +552,56 @@ async def _agent_readiness(db: AsyncSession) -> dict[uuid.UUID, tuple[bool, str]
     return {e.server_id: (e.readiness == "ready", e.status) for e in result.entries}
 
 
+async def remote_context(db, principal, message_number=None):
+    if message_number is None:
+        return None, None
+    from app.db.models.demand import AgentDemand
+    from app.db.models.project import Project
+    demand = await db.scalar(select(AgentDemand).where(AgentDemand.number == message_number))
+    if not demand or demand.target_agent_id != principal.principal_id or demand.origin_type != "task":
+        raise HTTPException(403, "Task is not addressed to you")
+    if demand.status == "archived":
+        raise HTTPException(409, "Task is archived")
+    project = await db.get(Project, demand.project_id) if demand.project_id else None
+    return await project_product_id(db, project), demand.project_id
+
+
 @router.get("/agent/machines", response_model=list[AgentMachineOut])
 async def agent_list_machines(
-    db: AsyncSession = Depends(get_db), principal: ActorPrincipal = Depends(get_actor_principal)
+    message_number: int | None = None,
+    db: AsyncSession = Depends(get_db), principal: ActorPrincipal = Depends(get_maintenance_agent)
 ):
     """The machines an agent may maintain, with whether a script can run now."""
-    await authorize_action(db, principal, AGENT_ACTION)
+    if principal.principal_type != "agent":
+        raise HTTPException(403, "Individual agent credential required")
+    product_id, project_id = await remote_context(db, principal, message_number)
     readiness = await _agent_readiness(db)
+    direct = await direct_accesses(db, principal.principal_id)
     servers = (await db.execute(select(Server).where(Server.access_enabled.is_(True)).order_by(Server.name))).scalars()
-    return [
-        AgentMachineOut(
+    out = []
+    for s in servers:
+        access = direct_access_for(direct, s.id)
+        if access is None and principal.principal_id not in await machine_ceilings(
+                db, [principal.principal_id], [s], product_id, project_id):
+            continue
+        out.append(AgentMachineOut(
             id=s.id, name=s.name, kind=s.kind, os_family=s.os_family, darckware_client_name=s.darckware_client_name,
             location=s.location, runnable=readiness.get(s.id, (False, "unknown"))[0],
             status=readiness.get(s.id, (False, "unknown"))[1],
-        )
-        for s in servers
-    ]
+            direct_access=access is not None,
+            direct_access_until=access.expires_at if access else None,
+            direct_allow_elevation=direct_access_for(direct, s.id, elevation=True) is not None,
+        ))
+    return out
 
 
 @router.get("/agent/scripts", response_model=list[AgentScriptOut])
 async def agent_list_scripts(
-    db: AsyncSession = Depends(get_db), principal: ActorPrincipal = Depends(get_actor_principal)
+    message_number: int | None = None,
+    db: AsyncSession = Depends(get_db), principal: ActorPrincipal = Depends(get_maintenance_agent)
 ):
-    await authorize_action(db, principal, AGENT_ACTION)
+    product_id, project_id = await remote_context(db, principal, message_number)
+    await authorize_action(db, principal, AGENT_ACTION, product_id=product_id, project_id=project_id)
     from app.db.models.host_script import HostScriptCategory
 
     labels = dict((await db.execute(select(HostScriptCategory.id, HostScriptCategory.label))).all())
@@ -581,13 +620,16 @@ async def agent_list_scripts(
 async def agent_create_execution(
     payload: AgentExecutionCreate,
     db: AsyncSession = Depends(get_db),
-    principal: ActorPrincipal = Depends(get_actor_principal),
+    principal: ActorPrincipal = Depends(get_maintenance_agent),
 ):
     script = await db.get(HostScript, payload.script_id)
     if not script or script.archived:
         raise HTTPException(status_code=404, detail="Script not found")
-    await authorize_action(db, principal, AGENT_ACTION, action_risk=_RISK_FOR_DELEGATION.get(script.risk, "high"))
     servers, _ = await resolve_targets(db, payload.server_ids, [])
+    agent = await db.get(Agent, principal.principal_id)
+    demand_id = await _check_against_task(db, agent, payload, script, servers)
+    from app.api.routes.maintenance_proposal import task_and_authority
+    await task_and_authority(db, principal, payload.message_number, servers, script.risk, script)
     readiness = await _agent_readiness(db)
     blocked = [s.name for s in servers if not readiness.get(s.id, (False, ""))[0]]
     if blocked:
@@ -596,10 +638,6 @@ async def agent_create_execution(
             detail=f"ForgeHub has no working login on: {', '.join(blocked)} (a person must configure access first)",
         )
     item = darckware_item_of(payload.darckware_item_kind, payload.darckware_item_id)
-    agent = await db.get(Agent, principal.principal_id) if principal.principal_type == "agent" else None
-    demand_id = None
-    if agent is not None:
-        demand_id = await _check_against_task(db, agent, payload, script, servers)
     command, shell, secrets = await prepare_script_run(script, payload.parameter_values)
     execution = await launch_execution(
         db,
@@ -689,29 +727,17 @@ async def _check_against_task(
         if outside:
             raise HTTPException(status_code=403, detail=f"Not in task #{demand.number}: {', '.join(outside)}")
         allowed_scripts = (spec.payload or {}).get("script_ids") or []
-        if allowed_scripts and str(script.id) not in allowed_scripts:
+        if allowed_scripts and (script is None or str(script.id) not in allowed_scripts):
             raise HTTPException(status_code=403, detail=f"Task #{demand.number} allows only the scripts it lists")
     return demand.id
 
 
-async def agent_risk_ceilings(db: AsyncSession, agent_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
-    """The highest max_risk each agent's active remote_access.execute
-    delegations allow (absent = not authorized)."""
-    from app.db.models.governance import DELEGATION_RISK_ORDER, AuthorityDelegation
-
-    now = datetime.now(timezone.utc)
-    rows = (await db.execute(select(AuthorityDelegation).where(
-        AuthorityDelegation.grantee_type == "agent", AuthorityDelegation.grantee_id.in_(agent_ids),
-        AuthorityDelegation.status == "active", AuthorityDelegation.valid_from <= now,
-        AuthorityDelegation.expires_at > now,
-    ))).scalars()
-    best: dict[uuid.UUID, str] = {}
-    for row in rows:
-        if AGENT_ACTION not in (row.allowed_actions or []) or row.product_id or row.project_id:
-            continue
-        if DELEGATION_RISK_ORDER.get(row.max_risk, 0) >= DELEGATION_RISK_ORDER.get(best.get(row.grantee_id, ""), -1):
-            best[row.grantee_id] = row.max_risk
-    return best
+async def agent_risk_ceilings(db: AsyncSession, agent_ids: list[uuid.UUID], servers: list[Server], project_id: uuid.UUID | None = None) -> dict[uuid.UUID, str]:
+    from app.db.models.project import Project
+    project = await db.get(Project, project_id) if project_id else None
+    if project_id and not project:
+        raise HTTPException(422, "Project not found")
+    return await machine_ceilings(db, agent_ids, servers, await project_product_id(db, project), project_id)
 
 
 def _request_body(user: str, payload: AgentRequestCreate, servers: list[Server],
@@ -777,7 +803,7 @@ async def create_agent_request(
             raise HTTPException(status_code=422, detail=f"Secret parameters can't go in an agent task: {', '.join(secret)}")
         scripts.append((script, values))
     needed = max((DELEGATION_RISK_ORDER[_RISK_FOR_DELEGATION.get(s.risk, "high")] for s, _ in scripts), default=0)
-    ceilings = await agent_risk_ceilings(db, [a.id for a in agents])
+    ceilings = await agent_risk_ceilings(db, [a.id for a in agents], servers, payload.project_id)
     refused = [a.name for a in agents if a.id not in ceilings or DELEGATION_RISK_ORDER[ceilings[a.id]] < needed]
     if refused:
         raise HTTPException(status_code=422, detail=f"Not authorized for this maintenance: {', '.join(refused)}")
@@ -792,7 +818,7 @@ async def create_agent_request(
         # its answer lands on the same message (dispatch_result).
         demand = await create_demand_and_notify(db, DemandSubmitIn(
             from_agent=admin.username, from_agent_id=agent.id, target_agent_id=agent.id,
-            subject=subject[:255], body=body, origin_type="task",
+            subject=subject[:255], body=body, origin_type="task", project_id=payload.project_id,
         ), commit=False)
         # The agent receives only the body, so it carries the task's own number
         # (assigned at insert) for message_number.
@@ -819,13 +845,24 @@ async def create_agent_request(
 async def agent_get_execution(
     execution_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    principal: ActorPrincipal = Depends(get_actor_principal),
+    principal: ActorPrincipal = Depends(get_maintenance_agent),
 ):
     """An agent reads back only the runs it asked for."""
-    await authorize_action(db, principal, AGENT_ACTION)
     execution = await db.get(HostExecution, execution_id)
     if not execution or (principal.principal_type == "agent" and execution.agent_id != principal.principal_id):
         raise HTTPException(status_code=404, detail="Execution not found")
+    ids = (await db.scalars(select(HostExecutionResult.server_id).where(HostExecutionResult.execution_id == execution_id))).all()
+    servers, _ = await resolve_targets(db, [sid for sid in ids if sid], [])
+    from app.db.models.demand import AgentDemand
+    demand = await db.get(AgentDemand, execution.agent_demand_id) if execution.agent_demand_id else None
+    product_id, project_id = await remote_context(db, principal, demand.number if demand else None)
+    direct_run = await db.scalar(select(HostExecutionResult.id).where(
+        HostExecutionResult.execution_id == execution_id, HostExecutionResult.delegation_id.is_not(None)).limit(1))
+    if direct_run:
+        # Same rule as a script: reading a run needs the authority to be open.
+        await require_direct(db, principal.principal_id, servers)
+    else:
+        await require_remote(db, principal, servers, product_id=product_id, project_id=project_id)
     return await _detail(db, execution)
 
 

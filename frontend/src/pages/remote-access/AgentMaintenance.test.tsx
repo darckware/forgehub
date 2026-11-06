@@ -15,7 +15,7 @@ vi.mock("@/lib/api", () => ({ apiClient: { get: vi.fn(), post: vi.fn(), put: vi.
 const future = new Date(Date.now() + 30 * 86_400_000).toISOString();
 const agent = (id: string, name: string) => ({ id, name, is_active: true, status: "active", agent_type: "executor" });
 const delegation = (grantee: string, risk: string) => ({
-  id: `d-${grantee}`, grantee_id: grantee, scope_type: "organization", allowed_actions: ["remote_access.execute"],
+  servers: ["w1"], host_groups: [], id: `d-${grantee}`, grantee_id: grantee, scope_type: "organization", allowed_actions: ["remote_access.execute"],
   expires_at: future, status: "active", reason: null, max_risk: risk, product_id: null, project_id: null,
 });
 const SCRIPTS = [
@@ -26,6 +26,7 @@ const SCRIPTS = [
 
 function mockApi() {
   vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
+    if (url === "/api/v1/servers") return [{id: "w1", name: "Test machine"}] as never;
     if (url.startsWith("/api/v1/agents")) return [agent("a1", "Aegis"), agent("a2", "Vector"), agent("a3", "Atlas")] as never;
     if (url.startsWith("/api/v1/governed/authority-delegations")) return [delegation("a1", "medium"), delegation("a2", "low")] as never;
     if (url.startsWith("/api/v1/host-scripts/categories")) {
@@ -55,10 +56,12 @@ describe("agent maintenance screens", () => {
     expect(await screen.findByText("Aegis")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Conceder acesso a agentes" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Atlas" }));
+    expect(screen.getByRole("button", { name: "Conceder a 1 agente" })).toBeDisabled();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Test machine" }));
     expect(screen.queryByRole("checkbox", { name: "Aegis" })).not.toBeInTheDocument(); // already authorized
     fireEvent.click(screen.getByRole("button", { name: "Conceder a 1 agente" }));
     await vi.waitFor(() => expect(apiClient.post).toHaveBeenCalledWith("/api/v1/governed/authority-delegations", expect.objectContaining({
-      grantee_agent_id: "a3", allowed_actions: ["remote_access.execute"], max_risk: "medium",
+      servers: ["w1"], host_groups: [], grantee_agent_id: "a3", allowed_actions: ["remote_access.execute"], max_risk: "medium",
     })));
     fireEvent.click(screen.getAllByRole("button", { name: "Revogar" })[0]);
     const confirm = await screen.findByText("Revogar o acesso de Aegis?");

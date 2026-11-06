@@ -493,3 +493,8 @@ class MaintenanceEntry(BaseModel):
     darckware_item_kind: str | None = None
     darckware_item_id: str | None = None
     execution_id: uuid.UUID | None = None
+    # The Messages task an agent's run answered.
+    message_number: int | None = None
+    # A direct command: the access it came from and what that opening was for.
+    direct_access_id: uuid.UUID | None = None
+    direct_access_purpose: str | None = None

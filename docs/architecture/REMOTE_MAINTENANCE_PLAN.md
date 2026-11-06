@@ -291,3 +291,100 @@ A página Servidores continua para serviços web e cofre de chave de infraestrut
 4. Manutenção consome franquia / entra no informe?
 5. Servidores SEMED 172.15.x: subnet router no `srv-sup` ou ProxyJump? (172.15/16 não é faixa privada.)
 6. Estação piloto (sugestão: GAT-ADM-PC01 ou NotebookSTI).
+
+### Governed agent access — 2026-11-06
+
+Agents use their own `agt_` credential, never the shared Messages bridge token,
+for all maintenance routes. Backend dispatch issues a short-lived credential bound
+by agent UUID (only its SHA-256 is stored), valid for the run deadline + 60 seconds.
+The authenticated HTTP bridge request transports it as a secret field; a random
+0600 temporary file delivers it to the MCP. CLI configuration for claude/codex contains only `FORGEHUB_AGENT_TOKEN_FILE`, never its value.
+The installed agy rejects `mcpServers` in `--settings`, so its run reads the shared
+`~/.gemini/config/mcp_config.json`. The real file already has a `forgehub` entry
+(`factory_server.py`, with its own long-lived `FORGEHUB_AGENT_TOKEN`). That entry is
+never rewritten: the first agy run after publishing adds a separate
+`forgehub_dispatched` entry with no `env`, spliced into the file as bytes, checked
+against the parsed original and replaced atomically. A different entry under that
+name, or an unparsable file, refuses the run (bridge 400) and leaves the file alone.
+
+Both entries coexist in an agy run and both expose the maintenance tools, so either
+may answer. Neither uses the legacy token: maintenance reads only
+`FORGEHUB_AGENT_TOKEN_FILE`, which reaches the MCP child only by inheritance from
+the run's environment (with the agent slug; concurrent runs do not share identity).
+If agy does not pass that environment on, both refuse the call.
+
+**Pending:** that inheritance has not been proven in a real agy run, because agy had
+no quota. Acceptance criterion 1 is met for claude and codex by generated
+configuration and tests; for agy only the refusal path is proven. The registration
+was tested on temporary files; the real registry was not changed. The bridge removes
+the file when the process finishes; expired credentials fail closed. Agent slug is
+display/routing metadata, never maintenance identity. Long-lived credentials no longer
+reach maintenance: the factory MCP refuses them too, so a Hermes profile or an
+interactive session has no maintenance tools (only claude/codex/agy dispatches get a
+run credential, and no `remote_access.execute` delegation existed before this). No ForgeVault grants or SSH keys are involved.
+
+`AuthorityDelegation.servers` and `.host_groups` explicitly enumerate targets.
+An empty scope grants no machine. Current group membership is checked at execution.
+Risk is the lowest ceiling across all requested machines, using active, unrevoked,
+unexpired delegations matching the operation's project/product context. Listing,
+library execution, agent requests and proposals enforce target scope. Grants in the
+Remote Access screen require machines/groups and default to one day (24 hours).
+
+A one-off script stays in `maintenance_proposals`, outside the library. Only a human
+admin JWT can approve/reject the server-computed SHA-256 of canonical JSON covering
+content, shell, sorted machine IDs, risk, timeout, elevation and vault parameter bindings.
+Approval must submit the displayed hash, lasts 24 hours and authorizes one run.
+Only the proposing agent in the same non-archived Task may claim it. Task, delegation,
+readiness and hash are revalidated. Row lock + conditional `approved -> claimed` and a
+commit precede `launch_execution`. Execution is bound before the runner starts.
+Definite completion records succeeded/failed. Interrupted/uncertain runs stay claimed,
+without automatic closure or retries; recovery requires a new proposal and approval.
+
+Literal secrets are refused; use secret `vault_secret` bindings. ForgeHub never adds
+sudo: declared elevation is part of the readable script and its fingerprint; the
+connection still uses `remote_user`. Machine output remains masked and `_as_data`.
+Creation notifies with an event_key. Creation, decision, claim and definite finish
+are audited by authenticated UUID, task and hash. Normal execution history includes
+proposal executions through the existing maintenance history endpoint.
+
+Publication (operator gate only, not performed by this task): review/merge the branch,
+restart `forgehub-chat-bridge` **before** the backend, apply Alembic migrations through
+head, then publish backend/frontend and verify with a fresh dispatched run. Never
+resume a claimed proposal after a bridge/backend restart. No Telegram approvals.
+
+### Depois da aprovação (2026-11-06, revisão da entrega)
+
+Uma aprovação humana pode chegar horas depois do fim do run que propôs, e a credencial `agt_` desse run termina com ele. Por isso, aprovar cria uma nova tarefa do Messages para o agente que propôs (`open_run_task`, com `fixed_agent`), e a proposta passa a pertencer a ela. Só essa tarefa executa. O evento `approved` guarda a tarefa de origem em `origin_demand_id`. O agente não fica esperando: termina o run informando que aguarda aprovação, e a execução vem na tarefa nova.
+
+### Acesso direto temporário — 2026-11-06
+
+Decisão de Marcelo (opção A): no desenvolvimento e no suporte, um agente autorizado no painel roda
+os comandos que precisar pelo ForgeHub, sem aprovação por comando. O agente nunca recebe a chave
+SSH. A aprovação por hash continua para quem não tem acesso aberto, e nenhuma das duas ações
+implica a outra.
+
+- **Abrir e encerrar:** só admin humano, em Acesso Remoto › Máquinas › Acesso direto
+  (`/api/v1/remote-access/direct`). Agente, máquinas ou grupo, motivo, finalidade, 1, 4 ou 24 h e
+  `sudo/docker` desmarcado. Só Claude, Codex e agy são elegíveis; Hermes aguarda decisão de Marcelo.
+- **Máquina sensível:** um clique de confirmação na mesma tela, registrado na auditoria. A regra está
+  só em `is_sensitive_machine`: fora de `test`, `dev` e `lab`, tudo é sensível.
+- **Grupo:** a abertura guarda as máquinas daquele momento. Máquina que entra depois no grupo não
+  fica coberta, para não pular a confirmação.
+- **Comando:** MCP `run_remote_command`, sempre com tarefa dirigida ao agente. Timeout padrão 120 s,
+  máximo 1800 s. Máquina ocupada volta como ocupada, sem fila. Tarefa longa roda em segundo plano no
+  servidor, com log, porque a rota oscila.
+- **Encerrar:** o próximo comando é recusado na hora. O que já roda termina sozinho ou no tempo limite
+  e a resposta diz quantos são. Sem acesso aberto, o agente também deixa de ler a saída dos seus
+  comandos; ela continua no histórico para o admin.
+
+Limites conhecidos, para decisão de Marcelo:
+
+- `_ELEVATION` e `_SECRET` olham o texto. Aspas, variáveis ou base64 passam por eles, e também há
+  falso positivo (`cat docker.log`). O limite real é a conta da máquina: sem `allow_elevation` não há
+  garantia técnica de que o agente não elevou, se a conta tiver sudo.
+- Dentro do acesso, um comando pode gravar uma chave em `authorized_keys`, e essa porta sobrevive ao
+  encerramento. O registro fica no histórico, mas nada impede.
+- A máscara por padrão é o melhor esforço: pega bloco de chave privada, inclusive cortado, mas não
+  base64 solto.
+- A API de servidores só aceita `vps`, `semed` e `client`, logo hoje toda máquina cadastrada por ela
+  é sensível. Para existir máquina não sensível em produção, o `Literal` precisa aceitar os outros.

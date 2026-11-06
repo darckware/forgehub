@@ -67,6 +67,8 @@ class HostExecutionResultOut(BaseModel):
     duration_ms: int | None
     started_at: datetime | None
     finished_at: datetime | None
+    # The direct access this machine's run came from, when it did.
+    delegation_id: uuid.UUID | None = None
 
 
 class HostExecutionCounts(BaseModel):
@@ -141,6 +143,10 @@ class AgentMachineOut(BaseModel):
     # Whether ForgeHub can run a script there now (its own SSH login works).
     runnable: bool
     status: str
+    # An open direct access (run_remote_command) on this machine, and until when.
+    direct_access: bool = False
+    direct_access_until: datetime | None = None
+    direct_allow_elevation: bool = False
 
 
 class AgentScriptOut(BaseModel):
@@ -166,6 +172,7 @@ class AgentRequestCreate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    project_id: uuid.UUID | None = None
     agent_ids: list[uuid.UUID] = Field(min_length=1, max_length=10)
     server_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_TARGETS)
     instruction: str = Field(min_length=5, max_length=8000)

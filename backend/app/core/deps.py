@@ -205,3 +205,12 @@ def require_perm(module: str, op: str):
         return current_user
 
     return _dep
+
+
+async def get_maintenance_agent(
+    principal: ActorPrincipal = Depends(get_actor_principal),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> ActorPrincipal:
+    if credentials is None or not credentials.credentials.startswith("agt_") or principal.principal_type != "agent":
+        raise HTTPException(403, "Individual agt_ agent credential required")
+    return principal

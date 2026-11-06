@@ -16,6 +16,7 @@ from app.api.schemas.governed_approval import (
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
 from app.core.governed_approval import decide_concept_approval, decide_task_approval
 from app.core.mission_plan import decide_plan_approval
+from app.core.remote_authority import DIRECT_ACTION
 from app.db.base import AsyncSessionLocal, get_db
 from app.db.models.agent import Agent, AgentServiceCredential
 from app.db.models.governance import ApprovalRequest, AuthorityDelegation, AuditEvent, PolicyEvaluation
@@ -127,6 +128,8 @@ async def grant_delegation(
     await authorize_action(db, principal, "governance.delegation.manage")
     if principal.principal_type != "user":
         raise HTTPException(403, "Only a user can grant authority")
+    if DIRECT_ACTION in payload.allowed_actions:
+        raise HTTPException(422, "Direct access is opened through /api/v1/remote-access/direct")
     unknown = sorted(set(payload.allowed_actions) - set(SENSITIVE_ACTIONS))
     if unknown:
         raise HTTPException(422, {"message": "Unknown delegated actions", "actions": unknown})
@@ -139,6 +142,13 @@ async def grant_delegation(
     valid_from = payload.valid_from or now
     if payload.expires_at <= valid_from:
         raise HTTPException(422, "expires_at must be after valid_from")
+    if "remote_access.execute" in payload.allowed_actions:
+        from app.api.routes.host_execution import resolve_targets
+        # Validate UUIDs and existence; empty scope is permitted but grants nothing.
+        try:
+            await resolve_targets(db, payload.servers, payload.host_groups)
+        except ValueError:
+            raise HTTPException(422, "Invalid machine/group UUID") from None
     delegation = AuthorityDelegation(
         grantor_user_id=principal.principal_id, grantee_type="agent",
         grantee_id=agent.id, valid_from=valid_from,
@@ -170,6 +180,8 @@ async def revoke_delegation(
         raise HTTPException(404, "Delegation not found")
     if not principal.is_admin and delegation.grantor_user_id != principal.principal_id:
         raise HTTPException(403, "Only the grantor or admin can revoke this delegation")
+    if DIRECT_ACTION in delegation.allowed_actions and (principal.principal_type != "user" or not principal.is_admin):
+        raise HTTPException(403, "Only a human admin closes a direct access")
     delegation.status = "revoked"
     delegation.revoked_at = datetime.now(timezone.utc)
     db.add(AuditEvent(entity_type="authority_delegation", entity_id=delegation.id,

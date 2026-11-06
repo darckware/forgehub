@@ -279,7 +279,7 @@ export interface AuthorityDelegation {
   id: string; grantee_id: string; scope_type: string; allowed_actions: string[];
   expires_at: string; status: string; reason: string | null;
   grantor_user_id?: string; max_risk?: string; valid_from?: string;
-  product_id?: string | null; project_id?: string | null;
+  product_id?: string | null; project_id?: string | null; servers?: string[]; host_groups?: string[];
 }
 
 export function useAuthorityDelegations(enabled = true) {
@@ -289,7 +289,7 @@ export function useAuthorityDelegations(enabled = true) {
 export function useGrantAuthorityDelegation() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { grantee_agent_id: string; allowed_actions: string[]; scope_type: string; max_risk: string; expires_at: string; reason?: string }) => apiClient.post<AuthorityDelegation>("/api/v1/governed/authority-delegations", payload),
+    mutationFn: (payload: { grantee_agent_id: string; allowed_actions: string[]; scope_type: string; max_risk: string; expires_at: string; reason?: string; servers?: string[]; host_groups?: string[] }) => apiClient.post<AuthorityDelegation>("/api/v1/governed/authority-delegations", payload),
     onSuccess: () => client.invalidateQueries({ queryKey: ["authority-delegations"] }),
   });
 }

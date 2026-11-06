@@ -27,7 +27,9 @@ export function riskCovers(ceiling: string, needed: string): boolean {
 
 export function isRemoteAccessDelegation(d: AuthorityDelegation, now = Date.now()): boolean {
   return d.status === "active" && d.allowed_actions.includes(REMOTE_ACCESS_ACTION)
-    && !d.product_id && !d.project_id && new Date(d.expires_at).getTime() > now;
+    && !d.product_id && !d.project_id && new Date(d.expires_at).getTime() > now
+    && (!d.valid_from || new Date(d.valid_from).getTime() <= now)
+    && !!((d.servers?.length ?? 0) + (d.host_groups?.length ?? 0));
 }
 
 /** Agents with an active remote_access.execute delegation. */
