@@ -351,3 +351,7 @@ Publication (operator gate only, not performed by this task): review/merge the b
 restart `forgehub-chat-bridge` **before** the backend, apply Alembic migrations through
 head, then publish backend/frontend and verify with a fresh dispatched run. Never
 resume a claimed proposal after a bridge/backend restart. No Telegram approvals.
+
+### Depois da aprovação (2026-11-06, revisão da entrega)
+
+Uma aprovação humana pode chegar horas depois do fim do run que propôs, e a credencial `agt_` desse run termina com ele. Por isso, aprovar cria uma nova tarefa do Messages para o agente que propôs (`open_run_task`, com `fixed_agent`), e a proposta passa a pertencer a ela. Só essa tarefa executa. O evento `approved` guarda a tarefa de origem em `origin_demand_id`. O agente não fica esperando: termina o run informando que aguarda aprovação, e a execução vem na tarefa nova.

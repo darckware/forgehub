@@ -63,7 +63,9 @@ async def ctx(monkeypatch):
         await db.execute(delete(HostExecution).where(HostExecution.agent_id==agent.id))
         await db.execute(delete(AuthorityDelegation).where(AuthorityDelegation.grantee_id==agent.id))
         await db.execute(delete(AgentServiceCredential).where(AgentServiceCredential.agent_id.in_([agent.id,other.id])))
-        await db.execute(delete(AgentDemand).where(AgentDemand.id.in_([task.id,foreign.id])))
+        demand_ids=select(AgentDemand.id).where(AgentDemand.target_agent_id.in_([agent.id,other.id]))
+        await db.execute(delete(AuditEvent).where(AuditEvent.entity_id.in_(demand_ids)))
+        await db.execute(delete(AgentDemand).where(AgentDemand.target_agent_id.in_([agent.id,other.id])))
         await db.execute(delete(Server).where(Server.id.in_([s.id,b.id])))
         await db.execute(delete(Agent).where(Agent.id.in_([agent.id,other.id])))
         await db.execute(delete(User).where(User.id==admin.id));await db.commit()
@@ -75,7 +77,7 @@ async def approved(c):
     r=await c.client.post(H+'/'+p['id']+'/decision',json={'decision':'approved','content_hash':p['content_hash']},headers=c.admin_headers)
     assert r.status_code==200,r.text;return r.json()
 async def execute(c,p,**overrides):
-    return await c.client.post(A+'/'+p['id']+'/run',json={'message_number':c.task.number,'content_hash':p['content_hash'],**overrides},headers=c.agent_headers)
+    return await c.client.post(A+'/'+p['id']+'/run',json={'message_number':p['message_number'],'content_hash':p['content_hash'],**overrides},headers=c.agent_headers)
 
 @pytest.mark.asyncio
 async def test_complete_cycle_and_single_use(ctx):
@@ -84,7 +86,7 @@ async def test_complete_cycle_and_single_use(ctx):
     r=await execute(c,p);assert r.status_code==200,r.text
     eid=r.json()['id'];task=host_exec_runner._running.get(uuid.UUID(eid))
     if task:await task
-    got=await c.client.get(A+'/'+p['id'],params={'message_number':c.task.number},headers=c.agent_headers)
+    got=await c.client.get(A+'/'+p['id'],params={'message_number':p['message_number']},headers=c.agent_headers)
     assert got.json()['status']=='succeeded';assert got.json()['execution_id']==eid
     output=await c.client.get('/api/v1/host-executions/agent/'+eid,headers=c.agent_headers)
     assert 'never-show-this' not in output.text
@@ -96,6 +98,32 @@ async def test_complete_cycle_and_single_use(ctx):
         assert all(e.payload['content_hash']==p['content_hash'] for e in events)
         assert all(e.actor.startswith(('agent:','user:')) for e in events)
     assert (await execute(c,p)).status_code==409
+
+@pytest.mark.asyncio
+async def test_approval_hands_the_agent_a_new_task(ctx):
+    # The proposing run is long gone when the human decides: nothing may depend on it.
+    c=ctx;p=await proposed(c);assert p['message_number']==c.task.number
+    async with AsyncSessionLocal() as db:
+        (await db.get(AgentDemand,c.task.id)).status='archived';await db.commit()
+    r=await c.client.post(H+'/'+p['id']+'/decision',json={'decision':'approved','content_hash':p['content_hash']},headers=c.admin_headers)
+    assert r.status_code==200,r.text;p=r.json();assert p['message_number']!=c.task.number
+    async with AsyncSessionLocal() as db:
+        task=(await db.scalars(select(AgentDemand).where(AgentDemand.number==p['message_number']))).one()
+        assert (task.target_agent_id,task.origin_type,task.fixed_agent)==(c.agent.id,'task',True)
+        assert task.scheduled_at is not None and task.dispatch_status is None
+        assert all(v in task.body for v in (p['id'],p['content_hash'],f"message_number={task.number}",f"#{c.task.number}"))
+        event=(await db.scalars(select(AuditEvent).where(AuditEvent.entity_id==uuid.UUID(p['id']),AuditEvent.event_type=='approved'))).one()
+        assert event.payload['origin_demand_id']==str(c.task.id)
+    assert (await execute(c,p,message_number=c.task.number)).status_code in (403,409)
+    r=await execute(c,p);assert r.status_code==200,r.text
+
+@pytest.mark.asyncio
+async def test_rejection_opens_no_task(ctx):
+    c=ctx;p=await proposed(c)
+    r=await c.client.post(H+'/'+p['id']+'/decision',json={'decision':'rejected','content_hash':p['content_hash'],'reason':'no'},headers=c.admin_headers)
+    assert r.status_code==200,r.text;assert r.json()['message_number']==c.task.number
+    async with AsyncSessionLocal() as db:
+        assert len((await db.scalars(select(AgentDemand).where(AgentDemand.target_agent_id==c.agent.id))).all())==1
 
 @pytest.mark.asyncio
 async def test_concurrent_claim_has_one_winner(ctx):
@@ -113,11 +141,11 @@ async def test_run_refusals(ctx,kind):
         if kind=='tamper':row.content='echo changed'
         if kind=='expired':row.expires_at=datetime.now(timezone.utc)-timedelta(seconds=1)
         if kind=='rejected':row.status='rejected'
-        if kind=='archived':(await db.get(AgentDemand,c.task.id)).status='archived'
+        if kind=='archived':(await db.get(AgentDemand,row.agent_demand_id)).status='archived'
         if kind=='revoked':(await db.get(AuthorityDelegation,c.delegation.id)).status='revoked'
         if kind=='delegation_expired':(await db.get(AuthorityDelegation,c.delegation.id)).expires_at=datetime.now(timezone.utc)-timedelta(seconds=1)
         await db.commit()
-    if kind=='other_agent':r=await c.client.post(A+'/'+p['id']+'/run',json={'message_number':c.task.number,'content_hash':p['content_hash']},headers=c.other_headers)
+    if kind=='other_agent':r=await c.client.post(A+'/'+p['id']+'/run',json={'message_number':p['message_number'],'content_hash':p['content_hash']},headers=c.other_headers)
     else:r=await execute(c,p,**({'content_hash':'0'*64} if kind=='hash' else {'message_number':c.foreign.number} if kind=='other_task' else {}))
     assert r.status_code in (403,409),r.text
 
@@ -181,7 +209,7 @@ async def test_t4a_full_proposal_cycle(ctx,monkeypatch):
     assert 'fictitious-output-secret-548' not in r.text
     history=await c.client.get(f'/api/v1/servers/{c.server.id}/maintenance',headers=c.admin_headers)
     assert any(x['execution_id']==eid for x in history.json())
-    got=await c.client.get(A+'/'+p['id'],params={'message_number':c.task.number},headers=c.agent_headers)
+    got=await c.client.get(A+'/'+p['id'],params={'message_number':p['message_number']},headers=c.agent_headers)
     assert got.json()['status']=='succeeded'
     async with AsyncSessionLocal() as db:
         events=(await db.scalars(select(AuditEvent).where(AuditEvent.entity_id==uuid.UUID(p['id'])))).all()
