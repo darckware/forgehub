@@ -26,12 +26,25 @@ COMPLETION_CONTRACT = (
 )
 
 # Tolerates the markdown agents wrap lines in (`**STATUS: DONE**`, a list
-# bullet, backticks) but nothing else on the line, so prose that merely
-# mentions a status ("STATUS: DONE when tests pass") doesn't count.
+# bullet, backticks) and a `| text` evidence note after the status, but nothing
+# else on the line, so prose that merely mentions a status ("STATUS: DONE when
+# tests pass") doesn't count.
 _STATUS_LINE = re.compile(
-    r"^[\s>*_`#-]*STATUS\s*:\s*[*_`]*\s*(DONE|PARTIAL|BLOCKED)\b[\s*_`.]*$",
+    r"^[\s>*_`#-]*STATUS\s*:\s*[*_`]*\s*(DONE|PARTIAL|BLOCKED)\b[\s*_`.]*(?:\|(.*))?$",
     re.IGNORECASE,
 )
+_STATUS_WORD = re.compile(r"[\s*_`]*(?:DONE|PARTIAL|BLOCKED)\b", re.IGNORECASE)
+
+
+def _is_evidence_note(note: str) -> bool:
+    """Whether what follows the `|` is a real note. The contract's own model
+    line, `STATUS: DONE | PARTIAL | BLOCKED`, has the same shape, so a second
+    status in any `|` segment means no status was chosen, and an empty note may
+    be that line cut short. Fails closed, also for `STATUS: DONE | done in abc`:
+    a false failure can be reprocessed, a false DONE goes unnoticed."""
+    return bool(note.strip(" \t*_`.|")) and not any(
+        _STATUS_WORD.match(segment) for segment in note.split("|")
+    )
 
 
 def with_completion_contract(prompt: str) -> str:
@@ -40,11 +53,12 @@ def with_completion_contract(prompt: str) -> str:
 
 
 def parse_completion_status(text: str) -> str | None:
-    """The status of the last `STATUS:` line in `text`, or None when absent.
-    The last one wins: an agent may restate it after a correction."""
+    """The status of the last `STATUS:` report in `text`, or None when absent.
+    The last one wins: an agent may restate it after a correction. A line that
+    isn't a report (prose, the contract's model line) is skipped."""
     for line in reversed((text or "").splitlines()):
         match = _STATUS_LINE.match(line)
-        if match:
+        if match and (match.group(2) is None or _is_evidence_note(match.group(2))):
             return match.group(1).upper()
     return None
 

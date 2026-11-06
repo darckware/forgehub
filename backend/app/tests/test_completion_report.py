@@ -29,9 +29,42 @@ from app.db.models.notification import Notification
     ("Now let me run the tests:", None),
     ("I will print STATUS: DONE when tests pass", None),
     ("", None),
+    # #42198/#42199: the status followed by an evidence note.
+    ("Feito.\nSTATUS: DONE | evidence: commit abc123", "DONE"),
+    ("STATUS: PARTIAL | falta a revisão", "PARTIAL"),
+    ("STATUS: BLOCKED | sem acesso ao repositório", "BLOCKED"),
+    ("**STATUS: DONE | evidence: 12 testes**", "DONE"),
+    ("**STATUS: DONE** | evidence: 12 testes", "DONE"),
+    ("- `STATUS: done | commit abc`", "DONE"),
+    ("STATUS: DONE | evidence: a | b | c", "DONE"),
+    ("STATUS: PARTIAL | falta X\ncorrigido\nSTATUS: DONE | commit abc", "DONE"),
+    ("STATUS: DONE | commit abc\nreabri\nSTATUS: BLOCKED | falta acesso", "BLOCKED"),
+    # The contract's model line, echoed, is not a report.
+    ("STATUS: DONE | PARTIAL | BLOCKED", None),
+    ("Feito.\nSTATUS: DONE | PARTIAL | BLOCKED\n", None),
+    ("**STATUS: DONE | PARTIAL | BLOCKED**", None),
+    ("`STATUS: DONE | PARTIAL | BLOCKED`", None),
+    ("status: done | partial | blocked", None),
+    ("STATUS: DONE|PARTIAL|BLOCKED", None),
+    ("STATUS: DONE | PARTIAL", None),
+    ("STATUS: BLOCKED | PARTIAL | DONE", None),
+    ("STATUS: DONE | PARTIAL: faltou o deploy", None),
+    ("STATUS: DONE | evidência | BLOCKED", None),
+    ("STATUS: DONE |", None),
+    ("**STATUS: DONE | **", None),
+    # The model line never hides, or stands in for, a real report.
+    ("STATUS: DONE | PARTIAL | BLOCKED\nFeito.\nSTATUS: PARTIAL | falta X", "PARTIAL"),
+    ("STATUS: BLOCKED\nSTATUS: DONE | PARTIAL | BLOCKED", "BLOCKED"),
+    # Prose stays refused, with or without a pipe further along.
+    ("STATUS: DONE when tests pass | ok", None),
+    ("STATUS: DONE - commit abc", None),
 ])
 def test_parse_completion_status(text, expected):
     assert parse_completion_status(text) == expected
+
+
+def test_the_contract_itself_reports_nothing():
+    assert parse_completion_status(COMPLETION_CONTRACT) is None
 
 
 def test_contract_follows_the_prompt():
