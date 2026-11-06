@@ -1256,7 +1256,7 @@ async def reconcile_message(demand_id: uuid.UUID, db: AsyncSession = Depends(get
     demand.dispatch_deadline_at = datetime.now(timezone.utc) + timedelta(minutes=DISPATCH_TIMEOUT_MINUTES)
     await db.flush()
     if run.get("status") not in ("starting", "running"):
-        await _finalize_dispatch(db, demand.id, run)
+        await _finalize_dispatch(db, demand.id, run, reconciling=True)
     db.add(AuditEvent(entity_type="agent_demand", entity_id=demand.id, event_type="demand_reconciled", actor=admin.username, payload={"run_id": demand.agent_run_id, "state": run.get("status")}))
     await db.commit()
     await db.refresh(demand)
@@ -1756,6 +1756,27 @@ async def _add_dispatch_failed_notification(
     )
 
 
+async def _add_usage_limit_wait_notification(db: AsyncSession, demand: AgentDemand) -> None:
+    """Tells the operator a message is waiting for quota. Not a failure, and one
+    per attempt for the same reason as the failure notice."""
+    event_key = f"demand-usage-limit-wait:{demand.id}:{demand.dispatch_attempts}"
+    exists = await db.scalar(
+        select(Notification.id).where(Notification.event_key == event_key).limit(1)
+    )
+    if exists is not None:
+        return
+    db.add(
+        Notification(
+            source="system",
+            severity="warning",
+            title=f"Waiting for usage limit reset: {demand.subject}",
+            message=f"#{demand.number}: {demand.dispatch_error}",
+            event_key=event_key,
+            occurred_at=datetime.now(timezone.utc),
+        )
+    )
+
+
 async def run_dispatch_timeout_pass(db: AsyncSession) -> int:
     """Fails dispatches that never came back within the deadline.
 
@@ -2150,6 +2171,7 @@ def _extract_evidence_ref(text: str) -> str | None:
 
 async def _finalize_dispatch(
     db: AsyncSession, demand_id: uuid.UUID, run: dict[str, Any], *, expected_run_id: str | None = None,
+    reconciling: bool = False,
 ) -> AgentDemand | None:
     """The terminal transition of a dispatch, shared by the frontend's
     GET .../dispatch-status and the background completion pass: flips
@@ -2198,13 +2220,18 @@ async def _finalize_dispatch(
     if failure_reason:
         # M0.8 (cycle spec §3.3): a usage-limit message marks the executor
         # unavailable until its reset; no match writes nothing.
-        from app.core.agent_availability import record_usage_limit
-        from app.core.agent_failover import can_switch
-        limit_until = await record_usage_limit(db, locked, reply_body)
+        from app.core.agent_availability import (
+            RESCHEDULE_MARGIN, classify_infra_failure, describe_reset, record_usage_limit, run_finished_at,
+        )
+        from app.core.agent_failover import can_switch, can_wait_for_reset
+        limit_until = await record_usage_limit(
+            db, locked, reply_body, finished_at=run_finished_at(run), reconciling=reconciling)
         attempts_left = (locked.dispatch_attempts or 0) < (locked.retry_limit or DISPATCH_MAX_ATTEMPTS)
-        if limit_until and not historical and can_switch(locked) and attempts_left:
-            # Not a failure of the work: back to the queue, where the scheduled
-            # pass moves it to a free agent, or it waits for the reset.
+        if limit_until and not historical and can_wait_for_reset(locked) and attempts_left:
+            # Not a failure of the work: back to the queue. Work that may move
+            # is due now, so the scheduled pass hands it to a free agent; work
+            # that keeps its agent is due after the reset. The date holds it
+            # even when a reconciliation recorded no unavailability.
             from app.core.demand_workflow import record_transition
             record_transition(db, locked, "reprocess", actor="forgehub:usage-limit")
             locked.dispatch_status = None
@@ -2212,10 +2239,23 @@ async def _finalize_dispatch(
             locked.dispatch_error = None
             locked.dispatch_deadline_at = None
             locked.scheduled_at = datetime.now(timezone.utc)
+            if not can_switch(locked):
+                locked.scheduled_at = max(locked.scheduled_at, limit_until + RESCHEDULE_MARGIN)
+                # Cleared when the next run starts (_execute_dispatch).
+                locked.dispatch_error = (
+                    f"Waiting for the agent's usage limit to reset at {describe_reset(limit_until)}; "
+                    f"next attempt at {describe_reset(locked.scheduled_at)}, with the same agent."
+                )
+                await _add_usage_limit_wait_notification(db, locked)
             await db.commit()
             from app.core.dispatch_signal import wake_scheduled_dispatch
             wake_scheduled_dispatch()
             return None
+        if limit_until:
+            failure_reason = f"{failure_reason} Usage limit reached; it resets at {describe_reset(limit_until)}."
+        elif run_status != "completed" and classify_infra_failure(reply_body) == "usage_limit":
+            failure_reason = f"{failure_reason} The run reported a usage limit, with no reset time recognised."
+        locked.dispatch_error = failure_reason
     # Reached a terminal state, so the deadline no longer applies -- leaving
     # it set would let the timeout sweep re-fail an already-finished run.
     locked.dispatch_deadline_at = None
@@ -2423,7 +2463,8 @@ async def run_dispatch_completion_pass(db: AsyncSession) -> None:
             if demand.dispatch_status == "completed" or (demand.dispatch_status == "failed" and not requires_reconciliation(demand)):
                 await db.rollback()
                 continue
-            if requires_reconciliation(demand):
+            reconciling = requires_reconciliation(demand)
+            if reconciling:
                 record_transition(db, demand, "reconciled", extra={"runner_state": run.get("status")})
             if demand.dispatch_status is None:
                 demand.dispatch_attempts = (demand.dispatch_attempts or 0) + 1
@@ -2439,7 +2480,7 @@ async def run_dispatch_completion_pass(db: AsyncSession) -> None:
                 await db.rollback()
                 continue
             await db.flush()
-            await _finalize_dispatch(db, demand_id, run, expected_run_id=run_id)
+            await _finalize_dispatch(db, demand_id, run, expected_run_id=run_id, reconciling=reconciling)
             # Terminal now: send the outcome back to the channel that asked
             # (2026-08-13). In the same transaction as the state change, so a
             # crash between the two can't leave it delivered-but-unrecorded
