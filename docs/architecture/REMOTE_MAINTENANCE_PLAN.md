@@ -298,8 +298,13 @@ Agents use their own `agt_` credential, never the shared Messages bridge token,
 for all maintenance routes. Backend dispatch issues a short-lived credential bound
 by agent UUID (only its SHA-256 is stored), valid for the run deadline + 60 seconds.
 The authenticated HTTP bridge request transports it as a secret field; a random
-0600 temporary file delivers it to the MCP. CLI configuration for claude, codex
-and agy contains only `FORGEHUB_AGENT_TOKEN_FILE`, never its value. The bridge removes
+0600 temporary file delivers it to the MCP. CLI configuration for claude/codex contains only `FORGEHUB_AGENT_TOKEN_FILE`, never its value.
+The installed agy rejects `mcpServers` in `--settings`: its supported shared
+`~/.gemini/config/mcp_config.json` receives an identity-free ForgeHub MCP entry
+when the new bridge first launches agy. Only the child environment supplies
+the run-specific credential file path and slug; concurrent runs do not share identity.
+The existing native login and other MCP entries are preserved. This registration
+has only been tested with a temporary registry; the real registry was not changed. The bridge removes
 the file when the process finishes; expired credentials fail closed. Agent slug is
 display/routing metadata, never maintenance identity. Existing long-lived credentials
 remain supported by the factory MCP. No ForgeVault grants or SSH keys are involved.

@@ -166,6 +166,7 @@ class AgentRequestCreate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    project_id: uuid.UUID | None = None
     agent_ids: list[uuid.UUID] = Field(min_length=1, max_length=10)
     server_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_TARGETS)
     instruction: str = Field(min_length=5, max_length=8000)

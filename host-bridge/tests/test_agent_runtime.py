@@ -68,6 +68,7 @@ def test_runtime_executable_rejects_missing_explicit_path() -> None:
 def test_health_uses_codex_resolver_and_sanitizes_resolution_failure(monkeypatch) -> None:
     monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "test-token")
     bridge_app = importlib.import_module("app")
+    monkeypatch.setattr(bridge_app, "_ensure_agy_messages_mcp", lambda: None)
 
     def unavailable(runtime: str, *, env=None) -> str:
         assert runtime == "codex"
@@ -87,6 +88,7 @@ def test_external_runtimes_ignore_forgerouter_credential(monkeypatch, tmp_path, 
     monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "test-token")
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://localhost:2100")
     bridge_app = importlib.import_module("app")
+    monkeypatch.setattr(bridge_app, "_ensure_agy_messages_mcp", lambda: None)
     monkeypatch.setattr(bridge_app, "resolve_runtime_executable", lambda name, *, env=None: f"/bin/{name}")
     req = bridge_app.AgentRunRequest(
         run_id="00000000-0000-0000-0000-000000000001",
@@ -115,6 +117,7 @@ _AUTONOMY_FLAGS = {
 def _command_for(monkeypatch, tmp_path, runtime, **fields):
     monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "test-token")
     bridge_app = importlib.import_module("app")
+    monkeypatch.setattr(bridge_app, "_ensure_agy_messages_mcp", lambda: None)
     monkeypatch.setattr(bridge_app, "resolve_runtime_executable", lambda name, *, env=None: f"/bin/{name}")
     req = bridge_app.AgentRunRequest(
         run_id="00000000-0000-0000-0000-000000000001",
@@ -152,6 +155,7 @@ def test_a_restricted_hermes_run_gets_only_those_tools_and_no_memory(monkeypatch
     home = tmp_path / "maia"
     home.mkdir()
     bridge_app = importlib.import_module("app")
+    monkeypatch.setattr(bridge_app, "_ensure_agy_messages_mcp", lambda: None)
     monkeypatch.setattr(bridge_app, "Path", lambda p: tmp_path / Path(p).name if str(p).startswith("/root/.hermes") else Path(p))
     req = bridge_app.AgentRunRequest(run_id="00000000-0000-0000-0000-000000000001", runtime_type="hermes", project_path=str(tmp_path),
                                      prompt="do it", hermes_profile="profiles", restricted_toolsets="moodle")
@@ -165,6 +169,7 @@ def test_a_restricted_hermes_run_gets_only_those_tools_and_no_memory(monkeypatch
 def test_strict_media_reaches_hermes_send(monkeypatch) -> None:
     monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "test-token")
     bridge_app = importlib.import_module("app")
+    monkeypatch.setattr(bridge_app, "_ensure_agy_messages_mcp", lambda: None)
     seen = {}
 
     def fake_run(cmd, **kwargs):
@@ -230,6 +235,7 @@ def test_codex_repository_keeps_git_check(tmp_path,monkeypatch):
 def test_individual_credential_is_file_only_in_runtime_config(monkeypatch,tmp_path,runtime,slug):
     monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN","test-token")
     bridge=importlib.import_module("app")
+    monkeypatch.setattr(bridge,"_ensure_agy_messages_mcp",lambda: None)
     monkeypatch.setattr(bridge,"resolve_runtime_executable",lambda name:f"/bin/{name}")
     token="agt_test_individual_credential_never_in_argv"
     req=bridge.AgentRunRequest(run_id=str(__import__('uuid').uuid4()),runtime_type=runtime,
@@ -237,7 +243,95 @@ def test_individual_credential_is_file_only_in_runtime_config(monkeypatch,tmp_pa
     path=str(tmp_path/"credential")
     command,env=bridge._agent_run_command(req,tmp_path,path)
     assert token not in str(command)+str(env)+repr(req)+str(req.model_dump())
-    assert path in str(command)
-    assert 'FORGEHUB_AGENT_TOKEN_FILE' in str(command)
-    assert slug in str(command)
+    config = str(env) if runtime == 'agy' else str(command)
+    assert path in config
+    assert 'FORGEHUB_AGENT_TOKEN_FILE' in config
+    assert slug in config
+    assert '--settings' not in command
     assert token not in bridge._redact_run_output(token)
+
+
+def test_agy_registry_is_identity_free_and_preserves_other_servers(tmp_path,monkeypatch):
+    import json
+    monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "test-token")
+    bridge=importlib.import_module("app")
+    path=tmp_path/'mcp_config.json'
+    path.write_text(json.dumps({'mcpServers': {'existing': {'command':'true'}}}))
+    bridge._ensure_agy_messages_mcp(path)
+    data=json.loads(path.read_text())
+    assert data['mcpServers']['existing']=={'command':'true'}
+    assert 'forgehub_messages_mcp.py' in data['mcpServers']['forgehub_dispatched']['args'][-1]
+    assert 'env' not in data['mcpServers']['forgehub_dispatched']
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_agy_registry_preserves_legacy_factory_bytes_and_env(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "test-token")
+    bridge = importlib.import_module("app")
+    # Synthetic copy of the real entry's structure; no host config/secret is read.
+    legacy = b'''"forgehub" : {
+      "command": "uv", "args": ["run", "/root/project/forgehub/backend/app/mcp/factory_server.py"],
+      "env": {
+        "FORGEHUB_AGENT_TOKEN": "agt_synthetic_legacy_do_not_use",
+        "FORGEHUB_AGENT_SLUG": "dartan",
+        "FORGEHUB_API_URL": "http://localhost:8000",
+        "FORGEHUB_ENV_FILE": "/root/project/forgehub/.env"
+      }
+    }'''
+    original = b'{"mcpServers": {' + legacy + b'}, "other": {"keep": true}}\n'
+    path = tmp_path / "mcp_config.json"
+    path.write_bytes(original)
+    bridge._ensure_agy_messages_mcp(path)
+    updated = path.read_bytes()
+    assert legacy in updated  # exact original bytes, including env and whitespace
+    data = json.loads(updated)
+    assert data["mcpServers"]["forgehub"] == json.loads(original)["mcpServers"]["forgehub"]
+    assert "env" not in data["mcpServers"]["forgehub_dispatched"]
+    bridge._ensure_agy_messages_mcp(path)
+    assert path.read_bytes() == updated
+
+
+def test_agy_registry_refuses_dedicated_name_collision(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "test-token")
+    bridge = importlib.import_module("app")
+    path = tmp_path / "mcp_config.json"
+    original = b'{"mcpServers":{"forgehub_dispatched":{"command":"custom"}}}'
+    path.write_bytes(original)
+    with pytest.raises(ValueError, match="already exists"):
+        bridge._ensure_agy_messages_mcp(path)
+    assert path.read_bytes() == original
+
+
+def test_agy_registry_keeps_non_ascii_bytes_under_any_locale(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "test-token")
+    bridge = importlib.import_module("app")
+    legacy = '"forgehub": {"env": {"NOTE": "manutenção \\u00e7 ☃"}}'.encode()
+    path = tmp_path / "mcp_config.json"
+    path.write_bytes(b'{"mcpServers": {' + legacy + b'}}')
+    bridge._ensure_agy_messages_mcp(path)
+    assert legacy in path.read_bytes()
+
+
+def test_agy_registry_follows_a_symlink_instead_of_replacing_it(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "test-token")
+    bridge = importlib.import_module("app")
+    real = tmp_path / "real.json"
+    real.write_text('{"mcpServers": {}}')
+    link = tmp_path / "mcp_config.json"
+    link.symlink_to(real)
+    bridge._ensure_agy_messages_mcp(link)
+    assert link.is_symlink()
+    assert "forgehub_dispatched" in json.loads(real.read_text())["mcpServers"]
+
+
+def test_agy_registry_leaves_an_invalid_file_untouched(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "test-token")
+    bridge = importlib.import_module("app")
+    path = tmp_path / "mcp_config.json"
+    path.write_bytes(b'{"mcpServers": {broken')
+    with pytest.raises(ValueError):
+        bridge._ensure_agy_messages_mcp(path)
+    assert path.read_bytes() == b'{"mcpServers": {broken'
+    assert [p.name for p in tmp_path.iterdir()] == ["mcp_config.json"]

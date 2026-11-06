@@ -1395,10 +1395,18 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path, credential_path:
             _native_runtime_env(),
         )
 
+    agy_env = _native_runtime_env()
+    # agy has no session MCP override: its supported registry is mcp_config.json,
+    # so a run loads both `forgehub` (factory_server.py, with its own long-lived
+    # agt_) and `forgehub_dispatched` (no env of its own). Either may answer a
+    # maintenance tool, and both read only FORGEHUB_AGENT_TOKEN_FILE, inherited
+    # from this env; neither falls back to FORGEHUB_AGENT_TOKEN. If agy doesn't
+    # pass the env on, the call is refused. Not yet proven in a real agy run.
+    _ensure_agy_messages_mcp()
+    agy_env.update(messages_mcp["mcpServers"]["forgehub"]["env"])
     return (
         [
             resolve_runtime_executable("agy"),
-            "--settings", json.dumps(messages_mcp, separators=(",", ":")),
             "--print",
             req.prompt,
             "--mode",
@@ -1407,15 +1415,79 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path, credential_path:
             "--print-timeout",
             f"{req.max_seconds}s",
         ],
-        _native_runtime_env(),
+        agy_env,
     )
+
+
+_agy_mcp_lock = threading.Lock()
+
+
+def _ensure_agy_messages_mcp(config_path: Path | None = None):
+    """Add a dedicated agy MCP entry without rewriting any existing entry.
+
+    Never write a token, credential path or agent slug into this shared file.
+    Tests supply a temporary path. Production registration occurs only after
+    the operator deploys/restarts the bridge through the normal gate.
+    """
+    # resolve(): os.replace on a symlink would swap the link, not the real file.
+    path = (config_path or Path("/root/.gemini/config/mcp_config.json")).resolve()
+    entry = {"command": "uv", "args": ["run", "/root/project/forgehub/host-bridge/forgehub_messages_mcp.py"]}
+    with _agy_mcp_lock:
+        source = path.read_bytes().decode("utf-8") if path.exists() else "{}"
+        document = json.loads(source)
+        servers = document.get("mcpServers", {})
+        name = "forgehub_dispatched"
+        if name in servers:
+            if servers[name] != entry:
+                raise ValueError("Dedicated dispatched MCP entry already exists with different configuration")
+            return
+        # Insert at the end of the object; preserve every existing byte, including
+        # whitespace/escapes in legacy credentials. Never deserialize/rewrite them.
+        addition = json.dumps(name) + ": " + json.dumps(entry)
+        if "mcpServers" in document:
+            decoder = json.JSONDecoder()
+            position = source.index("{") + 1
+            while True:
+                position += len(source[position:]) - len(source[position:].lstrip())
+                key, position = decoder.raw_decode(source, position)
+                position = source.index(":", position) + 1
+                position += len(source[position:]) - len(source[position:].lstrip())
+                _, end = decoder.raw_decode(source, position)
+                if key == "mcpServers":
+                    insertion = end - 1
+                    break
+                position = source.index(",", end) + 1
+            addition = ("," if servers else "") + addition
+        else:
+            insertion = source.rindex("}")
+            addition = ("," if document else "") + '"mcpServers": {' + addition + "}"
+        updated = source[:insertion] + addition + source[insertion:]
+        # The splice above is by hand, so prove it before touching a file that
+        # holds another credential: only the dedicated entry may differ.
+        result = json.loads(updated)
+        added = result.get("mcpServers", {}).pop(name, None)
+        document.setdefault("mcpServers", {})
+        if added != entry or result != document:
+            raise ValueError("Refusing to write mcp_config.json: existing entries would change")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Bytes, not text: the bridge's locale must not re-encode existing values.
+        # mkstemp gives 0600, which is right for a file holding a credential.
+        fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".forgehub-mcp-")
+        try:
+            with os.fdopen(fd, "wb") as target:
+                target.write(updated.encode("utf-8"))
+                target.flush()
+                os.fsync(target.fileno())
+            os.replace(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
 
 
 def _native_runtime_env() -> dict[str, str]:
     """The bridge's env minus anything that would point a CLI at ForgeRouter
     instead of its own login (e.g. an inherited ANTHROPIC_BASE_URL)."""
     env = os.environ.copy()
-    for key in _FORGEROUTER_ENV_KEYS:
+    for key in (*_FORGEROUTER_ENV_KEYS, "FORGEHUB_AGENT_TOKEN", "FORGEHUB_AGENT_TOKEN_FILE"):
         env.pop(key, None)
     return env
 

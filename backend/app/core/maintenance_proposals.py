@@ -9,6 +9,11 @@ _ELEVATION = re.compile(r"\b(sudo|su|doas|pkexec|docker|podman|runas)\b|Start-Pr
 _SECRET = re.compile(
     r"-----BEGIN [^\n]*PRIVATE KEY-----|\b(?:agt_|sk-|ghp_|github_pat_)[a-zA-Z0-9_-]{12,}"
     r"|\bBearer\s+[a-zA-Z0-9._/-]+"
+    r"|\btskey-[A-Za-z0-9-]{8,}"
+    r"|\bnet\s+user\s+\S+\s+(?!/|\$|['\"]\$)[^\s]+"
+    r"|ConvertTo-SecureString\s+(?:-String\s+)?(?!\$|['\"]\$)[^\s]+"
+    r"|sshpass\s+-p\s*(?!\$|['\"]\$)[^\s]+"
+    r"|https?://[^/\s:]+:[^@/\s]+@"
     r"|(?:password|passwd|pwd|token|api[_-]?key|secret)\s*[:=]\s*['\"]?(?!\$|\{|\s|['\"]?\$)[^\s'\";]+", re.I)
 
 

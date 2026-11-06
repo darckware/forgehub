@@ -8,7 +8,7 @@ def test_undeclared_elevation_is_refused(command):
         validate_content(command, False)
     assert exc.value.status_code == 422
 
-@pytest.mark.parametrize('content', ['-----BEGIN OPENSSH PRIVATE KEY-----', 'TOKEN="abc123"', 'password=literal', 'Authorization: Bearer abcdef', 'agt_abcdefghijklmnopqrstuv'])
+@pytest.mark.parametrize('content', ['-----BEGIN OPENSSH PRIVATE KEY-----', 'TOKEN="abc123"', 'password=literal', 'Authorization: Bearer abcdef', 'agt_abcdefghijklmnopqrstuv', 'net user example LiteralPassword /add', "ConvertTo-SecureString 'LiteralPassword' -AsPlainText", 'sshpass -p literal ssh host', 'https://user:literal@example.test', 'tskey-auth-abcdefghijkl'])
 def test_literal_secrets_are_refused(content):
     with pytest.raises(HTTPException) as exc:
         validate_content(content, True)

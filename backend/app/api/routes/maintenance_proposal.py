@@ -13,7 +13,7 @@ from app.api.schemas.maintenance_proposal import ProposalCreate, ProposalDecisio
 from app.core.deps import ActorPrincipal, get_actor_principal, get_maintenance_agent
 from app.core.host_scripts import ScriptError, validate_parameters
 from app.core.maintenance_proposals import content_hash, proposal_hash, validate_content
-from app.core.remote_authority import require_remote
+from app.core.remote_authority import require_remote, project_product_id
 from app.db.base import get_db
 from app.db.models.agent import Agent
 from app.db.models.demand import AgentDemand
@@ -49,7 +49,7 @@ async def task_and_authority(db, principal, number, servers, risk, script=None):
     if demand.project_id:
         from app.db.models.project import Project
         project = await db.get(Project, demand.project_id)
-        product_id = project.product_id if project else None
+        product_id = await project_product_id(db, project)
     await require_remote(db, principal, servers, risk, product_id, demand.project_id)
     return demand_id
 

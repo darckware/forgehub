@@ -1809,20 +1809,20 @@ def _as_data(execution: dict[str, Any]) -> dict[str, Any]:
 
 
 @mcp.tool()
-async def list_maintenance_machines() -> list[dict[str, Any]]:
+async def list_maintenance_machines(message_number: int | None = None) -> list[dict[str, Any]]:
     """Machines (servers and workstations) you may maintain. `runnable` = ForgeHub
     can run a script there now; a machine that isn't must be prepared by a person
     ("Configure access") before any agent can touch it."""
-    return await _maintenance_call("GET", "/api/v1/host-executions/agent/machines")
+    return await _maintenance_call("GET", "/api/v1/host-executions/agent/machines", params={"message_number": message_number} if message_number else {})
 
 
 @mcp.tool()
-async def list_maintenance_scripts(platform: str | None = None, category: str | None = None) -> list[dict[str, Any]]:
+async def list_maintenance_scripts(platform: str | None = None, category: str | None = None, message_number: int | None = None) -> list[dict[str, Any]]:
     """Library scripts you may run (filter by platform windows/linux/macos or by
     category name, e.g. Tailscale, RustDesk, Contas de usuário, Manutenção).
     Each lists its risk and parameters; a parameter with `vault_secret` or
     `has_default` may be left out."""
-    scripts = await _maintenance_call("GET", "/api/v1/host-executions/agent/scripts")
+    scripts = await _maintenance_call("GET", "/api/v1/host-executions/agent/scripts", params={"message_number": message_number} if message_number else {})
     return [
         s for s in scripts
         if (not platform or s["platform"] == platform)

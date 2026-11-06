@@ -55,3 +55,10 @@ async def require_remote(db, principal, servers, risk="read", product_id=None, p
     ceiling = ceilings.get(principal.principal_id)
     if ceiling is None or DELEGATION_RISK_ORDER[ceiling] < DELEGATION_RISK_ORDER[RISK[risk]]:
         raise HTTPException(403, "No active delegation covers these machines and risk")
+
+
+async def project_product_id(db, project):
+    if project is None:
+        return None
+    from app.db.models.product import ProductVersion
+    return await db.scalar(select(ProductVersion.product_id).where(ProductVersion.id == project.product_version_id))

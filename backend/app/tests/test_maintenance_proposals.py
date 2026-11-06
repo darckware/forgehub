@@ -223,9 +223,9 @@ async def test_scope_applies_to_library_and_requests_and_groups(ctx):
         db.add_all([script,group]);await db.flush()
         db.add(HostGroupMember(group_id=group.id,server_id=c.server.id));await db.commit()
     try:
-        outside={'script_id':str(script.id),'server_ids':[str(c.outside.id)],'reason':'test','message_number':c.task.number}
+        outside={'script_id':str(script.id),'server_ids':[str(c.outside.id)],'reason':'test scope','message_number':c.task.number}
         assert (await c.client.post('/api/v1/host-executions/agent',json=outside,headers=c.agent_headers)).status_code==403
-        request={'agent_ids':[str(c.agent.id)],'server_ids':[str(c.outside.id)],'instruction':'test','scripts':[]}
+        request={'agent_ids':[str(c.agent.id)],'server_ids':[str(c.outside.id)],'instruction':'test scope','scripts':[]}
         assert (await c.client.post('/api/v1/host-executions/agent-requests',json=request,headers=c.admin_headers)).status_code==422
         async with AsyncSessionLocal() as db:
             d=await db.get(AuthorityDelegation,c.delegation.id);d.servers=[];d.host_groups=[str(group.id)];await db.commit()
@@ -236,3 +236,24 @@ async def test_scope_applies_to_library_and_requests_and_groups(ctx):
         async with AsyncSessionLocal() as db:
             await db.execute(delete(HostScript).where(HostScript.id==script.id))
             await db.execute(delete(HostGroup).where(HostGroup.id==group.id));await db.commit()
+
+@pytest.mark.asyncio
+async def test_project_scoped_delegation_is_checked_in_task_context(ctx):
+    from app.db.models.project import Project
+    c=ctx
+    async with AsyncSessionLocal() as db:
+        project=await db.scalar(select(Project).limit(1))
+        assert project is not None, 'isolated seed project required'
+        d=await db.get(AuthorityDelegation,c.delegation.id)
+        from app.core.remote_authority import project_product_id
+        d.project_id=project.id;d.product_id=await project_product_id(db,project)
+        (await db.get(AgentDemand,c.task.id)).project_id=project.id
+        await db.commit()
+        assert not await host.agent_risk_ceilings(db,[c.agent.id],[c.server])
+        assert c.agent.id in await host.agent_risk_ceilings(db,[c.agent.id],[c.server],project.id)
+    url='/api/v1/host-executions/agent/machines'
+    assert (await c.client.get(url,headers=c.agent_headers)).json()==[]
+    scoped=await c.client.get(url,params={'message_number':c.task.number},headers=c.agent_headers)
+    assert {m['id'] for m in scoped.json()}=={str(c.server.id)}
+    p=await approved(c)
+    assert (await execute(c,p)).status_code==200
