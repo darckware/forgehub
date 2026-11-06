@@ -11,12 +11,39 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Link } from "react-router-dom";
 
-type Approval = { request_id: string; message_id: string; number: number; summary: string; operation: string; environment: string; host: string; params: unknown; destructive: boolean; params_hash: string; message_updated_at: string; expires_at: string };
+type BatchCandidate = { id: number; username: string };
+type BatchRow = { row: number; action: "create" | "existing"; full_name: string | null; firstname: string | null; lastname: string | null; username: string | null; email: string | null; userid: number | null; course: string | null; group: string | null; account_only: boolean; corrected_fields: string[]; possible_duplicate_of: BatchCandidate[] };
+type StudentBatch = { total: number; new_accounts: number; existing: number; account_only: number; units: string[]; courses: string[]; groups: string[]; rows: BatchRow[]; held_rows: { row: number; full_name: string; candidates: BatchCandidate[] }[]; rejected_rows: { row: number; label: string; code: string; reason: string }[] };
+type Approval = { request_id: string; message_id: string; number: number; summary: string; operation: string; environment: string; host: string; params: unknown; batch?: StudentBatch | null; destructive: boolean; params_hash: string; message_updated_at: string; expires_at: string };
 const endpoint = "/api/v1/personal/moodle-approvals";
 const key = ["personal", "moodle-approvals"];
 
 type Decision = { action: "approve" | "reject"; items: Approval[] };
 type Activity = { number: number; message_id: string; state: string; outcome: string | null; dispatch_status: string | null };
+
+function BatchDetails({ batch }: { batch: StudentBatch }) {
+  const { t } = useTranslation("personal");
+  return <div className="mt-2 space-y-1 text-sm">
+    <p className="font-medium">{t("moodleApproval.batch.title")}: {t("moodleApproval.batch.total", { count: batch.total })}</p>
+    <p>{t("moodleApproval.batch.newAccounts", { count: batch.new_accounts })} · {t("moodleApproval.batch.existing", { count: batch.existing })}</p>
+    {batch.account_only > 0 && <p>{t("moodleApproval.batch.accountOnly", { count: batch.account_only })}</p>}
+    {batch.units.length > 0 && <p className="break-words">{t("moodleApproval.batch.unit")}: {batch.units.join(", ")}</p>}
+    {batch.courses.length > 0 && <p className="break-words">{t("moodleApproval.batch.course")}: {batch.courses.join(", ")}</p>}
+    {batch.groups.length > 0 && <p className="break-words">{t("moodleApproval.batch.group")}: {batch.groups.join(", ")}</p>}
+    {batch.held_rows.length > 0 && <div role="alert"><p className="font-medium">{t("moodleApproval.batch.held", { count: batch.held_rows.length })}</p><ul>{batch.held_rows.map(row => <li key={row.row} className="break-words">{row.full_name} · {row.candidates.map(c => t("moodleApproval.batch.candidate", { id: c.id, username: c.username })).join("; ")}</li>)}</ul></div>}
+    {batch.rejected_rows.length > 0 && <div><p className="font-medium">{t("moodleApproval.batch.rejected", { count: batch.rejected_rows.length })}</p><ul>{batch.rejected_rows.map(row => <li key={row.row} className="break-words">{row.label}: {row.reason}</li>)}</ul></div>}
+    <details><summary className="cursor-pointer underline">{t("moodleApproval.batch.open")}</summary>
+      <ul className="mt-1 space-y-2">{batch.rows.map(row => <li key={row.row} className="break-words rounded border p-2">
+        <strong>{row.full_name}</strong> · {t(row.action === "create" ? "moodleApproval.batch.newAccount" : "moodleApproval.batch.existingAccount")}
+        {row.action === "create" && <span className="block">{row.firstname} / {row.lastname}</span>}
+        <span className="block break-all">{row.username}{row.email ? ` · ${row.email}` : ""}</span>
+        <span className="block">{row.account_only ? t("moodleApproval.batch.noTarget") : `${row.course} · ${row.group}`}</span>
+        {row.corrected_fields.length > 0 && <span className="block">{t("moodleApproval.batch.corrected", { fields: row.corrected_fields.join(", ") })}</span>}
+        {row.possible_duplicate_of.length > 0 && <span className="block" role="alert">{t("moodleApproval.batch.keptDuplicate")}: {row.possible_duplicate_of.map(c => t("moodleApproval.batch.candidate", { id: c.id, username: c.username })).join("; ")}</span>}
+      </li>)}</ul>
+    </details>
+  </div>;
+}
 
 export function MoodleApprovalPanel() {
   const { t } = useTranslation("personal");
@@ -65,7 +92,7 @@ export function MoodleApprovalPanel() {
     {Boolean(query.data?.unavailable_count) && <p role="alert">{t("moodleApproval.invalidSources", { count: query.data?.unavailable_count })}</p>}
     {items.length > 0 && <>
       <ul className="max-h-96 space-y-2 overflow-auto">{items.map(item => <li key={item.request_id} className="flex flex-col gap-2 rounded-md border p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-        <label className="flex min-w-0 gap-2"><input type="checkbox" aria-label={t("moodleApproval.select", { number: item.number })} checked={selected.includes(item.request_id)} disabled={busy} onChange={e => setSelected(ids => e.target.checked ? [...ids, item.request_id] : ids.filter(id => id !== item.request_id))} /><span className="min-w-0 break-words"><strong>#{item.number} · {item.summary}</strong><span className="block">{t("moodleApproval.operation")}: {item.operation} · {t("moodleApproval.environment")}: {item.environment} · {item.destructive ? t("moodleApproval.destructive") : t("moodleApproval.nonDestructive")}</span></span></label>
+        <div className="min-w-0"><label className="flex min-w-0 gap-2"><input type="checkbox" aria-label={t("moodleApproval.select", { number: item.number })} checked={selected.includes(item.request_id)} disabled={busy} onChange={e => setSelected(ids => e.target.checked ? [...ids, item.request_id] : ids.filter(id => id !== item.request_id))} /><span className="min-w-0 break-words"><strong>#{item.number} · {item.summary}</strong><span className="block">{t("moodleApproval.operation")}: {item.operation} · {t("moodleApproval.environment")}: {item.environment} · {item.destructive ? t("moodleApproval.destructive") : t("moodleApproval.nonDestructive")}</span></span></label>{item.batch && <BatchDetails batch={item.batch} />}</div>
         <div className="flex shrink-0 gap-2">
           <Button size="sm" disabled={busy || !agentId} aria-label={t("moodleApproval.approveOne", { number: item.number })} onClick={() => ask("approve", [item])}>{t("moodleApproval.approve")}</Button>
           <Button size="sm" variant="outline" disabled={busy} aria-label={t("moodleApproval.rejectOne", { number: item.number })} onClick={() => ask("reject", [item])}>{t("moodleApproval.reject")}</Button>
@@ -95,7 +122,7 @@ export function MoodleApprovalPanel() {
     </div>}
     {improveOpen && athos && <ImprovePromptDialog initialDraft={instruction} subject={athos.name} agents={agents.data ?? []} includeLocalSlashCommands={false} includeHermesSlashCommands={false} improvePrompt={improvePrompt} onApply={text => { setInstruction(text); setImproveOpen(false); }} onClose={() => setImproveOpen(false)} />}
     <ConfirmDialog open={decision !== null} title={t(rejecting ? "moodleApproval.rejectTitle" : "moodleApproval.confirmTitle")} description={t(rejecting ? "moodleApproval.rejectHint" : "moodleApproval.confirmHint")} confirmLabel={t(rejecting ? "moodleApproval.reject" : "moodleApproval.approve")} variant={rejecting || decision?.items.some(item => item.destructive) ? "destructive" : "default"} loading={busy} dismissDisabled={busy} onConfirm={() => void decide()} onCancel={() => { if (!busy) setDecision(null); }}>
-      <ul className="max-h-64 space-y-2 overflow-auto text-sm">{(decision?.items ?? []).map(item => <li key={item.request_id}>#{item.number} · {item.summary} · {item.operation} · {item.environment} · {item.destructive ? t("moodleApproval.destructive") : t("moodleApproval.nonDestructive")}<p className="break-all">{t("moodleApproval.host")}: {item.host}</p><pre className="whitespace-pre-wrap break-all">{t("moodleApproval.params")}: {JSON.stringify(item.params, null, 2)}</pre></li>)}</ul>
+      <ul className="max-h-64 space-y-2 overflow-auto text-sm">{(decision?.items ?? []).map(item => <li key={item.request_id}>#{item.number} · {item.summary} · {item.operation} · {item.environment} · {item.destructive ? t("moodleApproval.destructive") : t("moodleApproval.nonDestructive")}<p className="break-all">{t("moodleApproval.host")}: {item.host}</p>{item.batch ? <BatchDetails batch={item.batch} /> : <pre className="whitespace-pre-wrap break-all">{t("moodleApproval.params")}: {JSON.stringify(item.params, null, 2)}</pre>}</li>)}</ul>
       {!rejecting && <p className="mt-2 text-sm">{t("moodleApproval.executor")}: {(agents.data ?? []).find(agent => agent.id === agentId)?.name}</p>}
       {!rejecting && instruction && <p className="mt-2 whitespace-pre-wrap break-words text-sm">{t("moodleApproval.instruction")}: {instruction}</p>}
       {rejecting && <label className="mt-2 block space-y-1 text-sm">{t("moodleApproval.reason")}<Textarea className="resize-none" rows={2} maxLength={1000} value={reason} disabled={busy} onChange={e => setReason(e.target.value)} /></label>}

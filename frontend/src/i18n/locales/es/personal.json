@@ -533,6 +533,25 @@
     "outcomes": {
       "failed": "La operación registró un fallo. Compruebe la evidencia antes de una nueva solicitud.",
       "uncertain": "Resultado de la operación incierto. Compruebe Moodle antes de cualquier nuevo intento."
+    },
+    "batch": {
+      "title": "Lote de alumnos",
+      "total": "{{count}} alumno(s)",
+      "newAccounts": "Cuentas nuevas: {{count}}",
+      "existing": "Existentes: {{count}}",
+      "accountOnly": "Solo cuenta, sin matrícula ni grupo: {{count}}",
+      "unit": "Unidad",
+      "course": "Curso",
+      "group": "Grupo",
+      "open": "Ver alumnos",
+      "newAccount": "Cuenta nueva",
+      "existingAccount": "Cuenta existente",
+      "noTarget": "Sin matrícula y sin grupo",
+      "corrected": "Corregido por la regla: {{fields}}",
+      "keptDuplicate": "Mantenida pese a posible duplicado de",
+      "held": "Retenidas por posible duplicado, no se ejecutan: {{count}}",
+      "candidate": "Candidato: id {{id}}, {{username}}",
+      "rejected": "Fuera del lote: {{count}}"
     }
   }
 }
