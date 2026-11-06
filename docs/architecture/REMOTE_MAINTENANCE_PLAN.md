@@ -299,15 +299,29 @@ for all maintenance routes. Backend dispatch issues a short-lived credential bou
 by agent UUID (only its SHA-256 is stored), valid for the run deadline + 60 seconds.
 The authenticated HTTP bridge request transports it as a secret field; a random
 0600 temporary file delivers it to the MCP. CLI configuration for claude/codex contains only `FORGEHUB_AGENT_TOKEN_FILE`, never its value.
-The installed agy rejects `mcpServers` in `--settings`: its supported shared
-`~/.gemini/config/mcp_config.json` receives an identity-free ForgeHub MCP entry
-when the new bridge first launches agy. Only the child environment supplies
-the run-specific credential file path and slug; concurrent runs do not share identity.
-The existing native login and other MCP entries are preserved. This registration
-has only been tested with a temporary registry; the real registry was not changed. The bridge removes
+The installed agy rejects `mcpServers` in `--settings`, so its run reads the shared
+`~/.gemini/config/mcp_config.json`. The real file already has a `forgehub` entry
+(`factory_server.py`, with its own long-lived `FORGEHUB_AGENT_TOKEN`). That entry is
+never rewritten: the first agy run after publishing adds a separate
+`forgehub_dispatched` entry with no `env`, spliced into the file as bytes, checked
+against the parsed original and replaced atomically. A different entry under that
+name, or an unparsable file, refuses the run (bridge 400) and leaves the file alone.
+
+Both entries coexist in an agy run and both expose the maintenance tools, so either
+may answer. Neither uses the legacy token: maintenance reads only
+`FORGEHUB_AGENT_TOKEN_FILE`, which reaches the MCP child only by inheritance from
+the run's environment (with the agent slug; concurrent runs do not share identity).
+If agy does not pass that environment on, both refuse the call.
+
+**Pending:** that inheritance has not been proven in a real agy run, because agy had
+no quota. Acceptance criterion 1 is met for claude and codex by generated
+configuration and tests; for agy only the refusal path is proven. The registration
+was tested on temporary files; the real registry was not changed. The bridge removes
 the file when the process finishes; expired credentials fail closed. Agent slug is
-display/routing metadata, never maintenance identity. Existing long-lived credentials
-remain supported by the factory MCP. No ForgeVault grants or SSH keys are involved.
+display/routing metadata, never maintenance identity. Long-lived credentials no longer
+reach maintenance: the factory MCP refuses them too, so a Hermes profile or an
+interactive session has no maintenance tools (only claude/codex/agy dispatches get a
+run credential, and no `remote_access.execute` delegation existed before this). No ForgeVault grants or SSH keys are involved.
 
 `AuthorityDelegation.servers` and `.host_groups` explicitly enumerate targets.
 An empty scope grants no machine. Current group membership is checked at execution.
