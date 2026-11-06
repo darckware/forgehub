@@ -72,7 +72,15 @@ async def dispatch_agent_run(
         "hermes_profile": agent.profile_slug if agent.runtime_type == "hermes" else None,
         "autonomous": bool(agent.autonomous_runs),
     }
-    if agent.runtime_type in ("claude", "codex", "agy"):
+    # Its own route: a bridge that doesn't know it answers 404 instead of running unrestricted.
+    path = "/v1/agent-runs"
+    if restricted_toolsets:
+        if agent.runtime_type != "hermes":
+            raise AgentRunDispatchError(f"Agent '{agent.name}' cannot run with restricted tools")
+        body["restricted_toolsets"] = restricted_toolsets
+        path = "/v1/agent-runs/restricted"
+    # After the refusals above, so a refused run leaves no credential behind.
+    if agent.id is not None and agent.runtime_type in ("claude", "codex", "agy"):
         from app.db.base import AsyncSessionLocal
         from app.db.models.agent import AgentServiceCredential
         token = "agt_" + secrets.token_urlsafe(32)
@@ -82,13 +90,6 @@ async def dispatch_agent_run(
                 expires_at=datetime.now(timezone.utc) + timedelta(seconds=min(max_seconds, 7200) + 60)))
             await credential_db.commit()
         body["agent_service_token"] = token
-    # Its own route: a bridge that doesn't know it answers 404 instead of running unrestricted.
-    path = "/v1/agent-runs"
-    if restricted_toolsets:
-        if agent.runtime_type != "hermes":
-            raise AgentRunDispatchError(f"Agent '{agent.name}' cannot run with restricted tools")
-        body["restricted_toolsets"] = restricted_toolsets
-        path = "/v1/agent-runs/restricted"
     async with httpx.AsyncClient(timeout=15) as client:
         response = await client.post(
             f"{settings.CHAT_BRIDGE_URL}{path}",
