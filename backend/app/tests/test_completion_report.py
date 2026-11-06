@@ -127,6 +127,20 @@ async def _finalize(demand_id, output: str):
         return reply, await session.get(AgentDemand, demand_id)
 
 
+async def test_done_with_evidence_is_completed(agents):
+    demand_id = await _dispatched(*agents)
+    _, demand = await _finalize(demand_id, "Feito no Moodle.\nSTATUS: DONE | evidence: consulta confirmou a conta")
+    assert demand.dispatch_status == "completed"
+    assert demand.dispatch_error is None
+
+
+async def test_the_echoed_model_line_is_not_done(agents):
+    demand_id = await _dispatched(*agents)
+    _, demand = await _finalize(demand_id, "Vou começar.\nSTATUS: DONE | PARTIAL | BLOCKED")
+    assert demand.dispatch_status == "failed"
+    assert "completion report" in demand.dispatch_error
+
+
 async def test_done_is_completed(agents):
     demand_id = await _dispatched(*agents)
     reply, demand = await _finalize(demand_id, "Arquivo criado, testes ok.\nSTATUS: DONE")
