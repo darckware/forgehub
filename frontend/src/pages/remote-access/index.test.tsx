@@ -41,6 +41,7 @@ vi.mock("@/hooks/useVpn", async (importOriginal) => {
 
 // The machines card has its own test (MachinesCard.test.tsx).
 vi.mock("./MachinesCard", () => ({ MachinesCard: () => null }));
+vi.mock("./MaintenanceProposalsCard", () => ({ MaintenanceProposalsCard: () => null }));
 vi.mock("./AuthorizedAgentsCard", () => ({ AuthorizedAgentsCard: () => null }));
 vi.mock("./TailscaleApiKeyCard", () => ({ TailscaleApiKeyCard: () => null }));
 vi.mock("@/hooks/useHostInventory", async (importOriginal) => ({

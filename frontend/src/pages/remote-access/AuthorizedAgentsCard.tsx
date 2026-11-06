@@ -84,6 +84,18 @@ export function AuthorizedAgentsCard() {
                   ))}
                 </ul>
               </fieldset>
+              {[{label: t("agents.pickMachines"), rows: vm.machines, chosen: vm.selectedMachines, toggle: vm.toggleMachine},
+                {label: t("agents.pickGroups"), rows: vm.groups, chosen: vm.selectedGroups, toggle: vm.toggleGroup}].map(section => (
+                <fieldset key={section.label} className="space-y-1">
+                  <legend className="text-sm font-medium">{section.label}</legend>
+                  <div className="max-h-40 space-y-1 overflow-y-auto">
+                    {section.rows.map(row => <label key={row.id} className="flex cursor-pointer items-center gap-2 py-1 text-sm">
+                      <input type="checkbox" checked={section.chosen.has(row.id)} onChange={() => section.toggle(row.id)} />{row.name}
+                    </label>)}
+                  </div>
+                </fieldset>
+              ))}
+              <p className="text-xs text-muted-foreground">{t("agents.scopeRequired")}</p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label htmlFor="grant-risk">{t("agents.maxRisk")}</Label>

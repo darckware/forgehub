@@ -291,3 +291,44 @@ A página Servidores continua para serviços web e cofre de chave de infraestrut
 4. Manutenção consome franquia / entra no informe?
 5. Servidores SEMED 172.15.x: subnet router no `srv-sup` ou ProxyJump? (172.15/16 não é faixa privada.)
 6. Estação piloto (sugestão: GAT-ADM-PC01 ou NotebookSTI).
+
+### Governed agent access — 2026-11-06
+
+Agents use their own `agt_` credential, never the shared Messages bridge token,
+for all maintenance routes. Backend dispatch issues a short-lived credential bound
+by agent UUID (only its SHA-256 is stored), valid for the run deadline + 60 seconds.
+The authenticated HTTP bridge request transports it as a secret field; a random
+0600 temporary file delivers it to the MCP. CLI configuration for claude, codex
+and agy contains only `FORGEHUB_AGENT_TOKEN_FILE`, never its value. The bridge removes
+the file when the process finishes; expired credentials fail closed. Agent slug is
+display/routing metadata, never maintenance identity. Existing long-lived credentials
+remain supported by the factory MCP. No ForgeVault grants or SSH keys are involved.
+
+`AuthorityDelegation.servers` and `.host_groups` explicitly enumerate targets.
+An empty scope grants no machine. Current group membership is checked at execution.
+Risk is the lowest ceiling across all requested machines, using active, unrevoked,
+unexpired delegations matching the operation's project/product context. Listing,
+library execution, agent requests and proposals enforce target scope. Grants in the
+Remote Access screen require machines/groups and default to one day (24 hours).
+
+A one-off script stays in `maintenance_proposals`, outside the library. Only a human
+admin JWT can approve/reject the server-computed SHA-256 of canonical JSON covering
+content, shell, sorted machine IDs, risk, timeout, elevation and vault parameter bindings.
+Approval must submit the displayed hash, lasts 24 hours and authorizes one run.
+Only the proposing agent in the same non-archived Task may claim it. Task, delegation,
+readiness and hash are revalidated. Row lock + conditional `approved -> claimed` and a
+commit precede `launch_execution`. Execution is bound before the runner starts.
+Definite completion records succeeded/failed. Interrupted/uncertain runs stay claimed,
+without automatic closure or retries; recovery requires a new proposal and approval.
+
+Literal secrets are refused; use secret `vault_secret` bindings. ForgeHub never adds
+sudo: declared elevation is part of the readable script and its fingerprint; the
+connection still uses `remote_user`. Machine output remains masked and `_as_data`.
+Creation notifies with an event_key. Creation, decision, claim and definite finish
+are audited by authenticated UUID, task and hash. Normal execution history includes
+proposal executions through the existing maintenance history endpoint.
+
+Publication (operator gate only, not performed by this task): review/merge the branch,
+restart `forgehub-chat-bridge` **before** the backend, apply Alembic migrations through
+head, then publish backend/frontend and verify with a fresh dispatched run. Never
+resume a claimed proposal after a bridge/backend restart. No Telegram approvals.

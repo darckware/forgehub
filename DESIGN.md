@@ -113,3 +113,8 @@ The operational monitoring contract is docs/superpowers/specs/2026-10-26-server-
 ## Pessoal: origens de demandas (2026-10-27)
 
 Preserve the existing theme and tab ids. Use separate “Contatos pessoais” and “Grupos do WhatsApp” tabs, with a horizontally scrollable tab strip on narrow screens. Only monitored WhatsApp groups may be registered. Missing monitoring data is an explicit unavailable state, never an empty registry. Suggestions and converted demands show the actual contact or group, requester, and message date. Registration and pending intake do not imply acceptance. Keep loading, empty, error, pending, and accepted states distinct; repeated acceptance yields the existing demand.
+
+Remote Access approvals use the shared ConfirmDialog and a status-bearing ViewModel.
+Show the full script, machines, risk, elevation, reason, effect, rollback and SHA-256.
+The fingerprint wraps at 390 px. Approval lasts 24 hours; rejection requires a reason.
+Agent authority defaults to 24 hours and requires explicit machines or groups.

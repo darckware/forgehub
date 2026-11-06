@@ -17,7 +17,7 @@ from app.db.models.user import User
 from app.tests.test_moodle_telegram_decision import client, request_row  # noqa: F401
 
 
-async def test_batch_rejects_stale_item_atomically_then_approves_each_exact_request(client, request_row):
+async def test_batch_rejects_stale_item_atomically_then_approves_each_exact_request(client, request_row):  # noqa: F811 -- imported pytest fixtures are injected by name
     second_id, request_id = uuid.uuid4(), uuid.uuid4()
     async with AsyncSessionLocal() as db:
         user = await db.get(User, request_row["owner_id"])

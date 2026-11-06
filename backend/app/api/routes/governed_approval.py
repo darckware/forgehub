@@ -139,6 +139,13 @@ async def grant_delegation(
     valid_from = payload.valid_from or now
     if payload.expires_at <= valid_from:
         raise HTTPException(422, "expires_at must be after valid_from")
+    if "remote_access.execute" in payload.allowed_actions:
+        from app.api.routes.host_execution import resolve_targets
+        # Validate UUIDs and existence; empty scope is permitted but grants nothing.
+        try:
+            await resolve_targets(db, payload.servers, payload.host_groups)
+        except ValueError:
+            raise HTTPException(422, "Invalid machine/group UUID") from None
     delegation = AuthorityDelegation(
         grantor_user_id=principal.principal_id, grantee_type="agent",
         grantee_id=agent.id, valid_from=valid_from,

@@ -112,7 +112,10 @@
     "revoke": "Revocar",
     "revokeTitle": "¿Revocar el acceso de {{name}}?",
     "revokeText": "El agente pierde al instante el permiso de ejecutar scripts en las máquinas. Las ejecuciones ya iniciadas terminan.",
-    "empty": "Ningún agente autorizado. Conceda acceso para que un agente pueda hacer mantenimiento."
+    "empty": "Ningún agente autorizado. Conceda acceso para que un agente pueda hacer mantenimiento.",
+    "pickMachines": "Máquinas autorizadas",
+    "pickGroups": "Grupos autorizados",
+    "scopeRequired": "Seleccione al menos una máquina o grupo. Predeterminado: 24 horas."
   },
   "askAgent": {
     "button": "Pedir al agente",
@@ -347,7 +350,10 @@
     "sshHelp": "ForgeHub entra una vez con esa cuenta (la contraseña se usa solo en esta conexión y no se guarda), prepara la máquina, prueba el acceso de darckware con la clave y, solo si la prueba pasa y la opción de abajo está marcada, bloquea esa cuenta.",
     "loginRequired": "Para instalar y configurar el acceso SSH de ForgeHub (cuenta darckware) hay que entrar una vez con una cuenta administradora de esta máquina.",
     "accountLabel": "Cuenta usada en la configuración",
-    "accounts": {"registered": "Cuenta registrada: {{user}}", "other": "Otra cuenta"},
+    "accounts": {
+      "registered": "Cuenta registrada: {{user}}",
+      "other": "Otra cuenta"
+    },
     "thisAccount": "usada",
     "adminUser": "Login del administrador",
     "adminPassword": "Contraseña del administrador",
@@ -418,7 +424,12 @@
     "rotate_ssh_key": "Rotar clave SSH"
   },
   "composer": {
-    "authKey": {"autoOn": "En blanco, ForgeHub genera una clave por máquina con la tag indicada; cada máquina espera su aprobación en el panel de Tailscale.", "autoOff": "Para que ForgeHub genere la clave solo, registre la credencial de la API en la pestaña Red Tailscale.", "open": "Generar auth key en el panel de Tailscale", "help": "En Settings › Keys › Generate auth key: marque Pre-approved o apruebe la máquina en el panel después, deje Reusable desactivado (una clave por máquina) y elija la tag del cliente (estación: tag:<cliente>-users; servidor: tag:<cliente>-srv) — sin ella ForgeHub no alcanza la máquina por SSH. Pegue aquí la clave tskey-auth-…."},
+    "authKey": {
+      "autoOn": "En blanco, ForgeHub genera una clave por máquina con la tag indicada; cada máquina espera su aprobación en el panel de Tailscale.",
+      "autoOff": "Para que ForgeHub genere la clave solo, registre la credencial de la API en la pestaña Red Tailscale.",
+      "open": "Generar auth key en el panel de Tailscale",
+      "help": "En Settings › Keys › Generate auth key: marque Pre-approved o apruebe la máquina en el panel después, deje Reusable desactivado (una clave por máquina) y elija la tag del cliente (estación: tag:<cliente>-users; servidor: tag:<cliente>-srv) — sin ella ForgeHub no alcanza la máquina por SSH. Pegue aquí la clave tskey-auth-…."
+    },
     "canary": "Canario: primero en una máquina",
     "canaryHelp": "Ejecuta en la primera máquina y solo sigue con las demás si sale bien.",
     "canaryOn": "Canario activo: las demás máquinas solo se ejecutan si la primera sale bien.",
@@ -851,6 +862,32 @@
       "confirmTitle": "¿Aceptar la nueva clave SSH?",
       "confirmText": "La clave anterior se descarta y la próxima conexión registra la nueva. Hágalo solo si sabe por qué cambió. Queda registrado en la auditoría y en el historial de la máquina.",
       "done": "Clave anterior descartada. Ejecute el script de nuevo."
+    }
+  },
+  "proposals": {
+    "title": "Propuestas de mantenimiento",
+    "help": "Revise el script completo y el hash antes de aprobar. La aprobación dura 24 horas y permite una ejecución.",
+    "empty": "Sin propuestas de mantenimiento.",
+    "review": "Ver propuesta",
+    "reviewTitle": "Revisar script de mantenimiento",
+    "approve": "Aprobar",
+    "reject": "Rechazar",
+    "machines": "Máquinas",
+    "risk": "Riesgo y ejecución",
+    "reason": "Motivo",
+    "effect": "Efecto esperado",
+    "rollback": "Reversión",
+    "elevation": "Este script declara elevación de privilegios. Revise los comandos. ForgeHub ejecuta como el usuario remoto configurado.",
+    "expires": "Validez: {{date}}",
+    "rejectionReason": "Motivo del rechazo",
+    "states": {
+      "proposed": "Pendiente",
+      "approved": "Aprobada",
+      "rejected": "Rechazada",
+      "expired": "Expirada",
+      "claimed": "Reclamada — no repetir",
+      "succeeded": "Completada",
+      "failed": "Fallida"
     }
   }
 }

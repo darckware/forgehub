@@ -225,3 +225,19 @@ def test_codex_repository_keeps_git_check(tmp_path,monkeypatch):
     request=bridge_app.AgentRunRequest(run_id='00000000-0000-4000-8000-000000000001',runtime_type='codex',project_path=str(nested),prompt='Inspect')
     command,_=bridge_app._agent_run_command(request,nested)
     assert '--skip-git-repo-check' not in command
+
+@pytest.mark.parametrize("runtime,slug", [("claude","porthus"),("codex","aramis"),("agy","dartan")])
+def test_individual_credential_is_file_only_in_runtime_config(monkeypatch,tmp_path,runtime,slug):
+    monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN","test-token")
+    bridge=importlib.import_module("app")
+    monkeypatch.setattr(bridge,"resolve_runtime_executable",lambda name:f"/bin/{name}")
+    token="agt_test_individual_credential_never_in_argv"
+    req=bridge.AgentRunRequest(run_id=str(__import__('uuid').uuid4()),runtime_type=runtime,
+        agent_slug=slug,project_path=str(tmp_path),prompt="test",agent_service_token=token)
+    path=str(tmp_path/"credential")
+    command,env=bridge._agent_run_command(req,tmp_path,path)
+    assert token not in str(command)+str(env)+repr(req)+str(req.model_dump())
+    assert path in str(command)
+    assert 'FORGEHUB_AGENT_TOKEN_FILE' in str(command)
+    assert slug in str(command)
+    assert token not in bridge._redact_run_output(token)

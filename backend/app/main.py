@@ -518,6 +518,8 @@ app.include_router(profiles.router)
 app.include_router(server.router)
 app.include_router(host_group.router)
 app.include_router(host_execution.router)
+from app.api.routes import maintenance_proposal
+app.include_router(maintenance_proposal.router)
 app.include_router(host_script.router)
 app.include_router(host_script.schedules_router)
 app.include_router(remote_access.router)

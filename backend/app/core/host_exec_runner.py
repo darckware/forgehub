@@ -224,6 +224,8 @@ async def _run_execution(
                 if execution.status == "running":
                     execution.status = "completed"
                 execution.finished_at = _now()
+                from app.core.maintenance_proposals import record_execution_finish
+                await record_execution_finish(db, execution_id)
                 await db.commit()
         _running.pop(execution_id, None)
 

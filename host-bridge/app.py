@@ -57,7 +57,7 @@ import websockets
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 from agent_runtime import resolve_runtime_executable, validate_working_directory
 from vpn_control import VpnControl, VpnPolicyError
@@ -214,6 +214,7 @@ def _redact_run_output(value: str) -> str:
     value = re.sub(r"(?i)(authorization:\s*bearer\s+)[^\s]+", r"\1[REDACTED]", value)
     value = re.sub(r"(?i)((?:api[_-]?key|auth[_-]?token)\s*[=:]\s*)[^\s,}\"]+", r"\1[REDACTED]", value)
     value = re.sub(r"\b(?:sk|key)-[A-Za-z0-9_-]{16,}\b", "[REDACTED]", value)
+    value = re.sub(r"\bagt_[A-Za-z0-9_-]+", "[REDACTED]", value)
     return value
 
 
@@ -1260,6 +1261,7 @@ def _validate_project_path(project_path: str) -> Path:
 
 
 class AgentRunRequest(BaseModel):
+    agent_service_token: SecretStr | None = Field(default=None, repr=False, exclude=True)
     run_id: str
     runtime_type: str  # claude | codex | agy (antigravity accepted as legacy alias) | hermes
     agent_slug: str | None = None
@@ -1283,7 +1285,7 @@ class AgentRunRequest(BaseModel):
     restricted_toolsets: str | None = None
 
 
-def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[str], dict[str, str]]:
+def _agent_run_command(req: AgentRunRequest, project_dir: Path, credential_path: str | None = None) -> tuple[list[str], dict[str, str]]:
     if req.mode not in {"plan", "execute"}:
         raise HTTPException(status_code=400, detail="mode must be plan or execute")
     if req.runtime_type not in {"claude", "codex", "agy", "antigravity", "hermes"}:
@@ -1341,7 +1343,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
         "agy": "dartan",
         "antigravity": "dartan",
     }.get(req.runtime_type)
-    messages_mcp = _messages_mcp_config(req.agent_slug or default_agent_slug)
+    messages_mcp = _messages_mcp_config(req.agent_slug or default_agent_slug, credential_path)
 
     if req.runtime_type == "claude":
         env = _native_runtime_env()
@@ -1380,7 +1382,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
                 "--json",
                 "--config",
                 _codex_messages_mcp_override(
-                    messages_mcp["mcpServers"]["forgehub"]["env"]["FORGEHUB_AGENT_SLUG"]
+                    messages_mcp["mcpServers"]["forgehub"]["env"]["FORGEHUB_AGENT_SLUG"], credential_path
                 ),
                 # Explicit filesystem workspaces are valid for Messages too.
                 # This does not change sandbox/approval settings or trust config.
@@ -1396,6 +1398,7 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path) -> tuple[list[st
     return (
         [
             resolve_runtime_executable("agy"),
+            "--settings", json.dumps(messages_mcp, separators=(",", ":")),
             "--print",
             req.prompt,
             "--mode",
@@ -1417,7 +1420,7 @@ def _native_runtime_env() -> dict[str, str]:
     return env
 
 
-def _messages_mcp_config(agent_slug: str | None) -> dict[str, dict]:
+def _messages_mcp_config(agent_slug: str | None, credential_path: str | None = None) -> dict[str, dict]:
     """Session-only ForgeHub Messages MCP config for external CLI runs.
 
     The host bridge launches all native CLIs as root, so they cannot rely on
@@ -1437,15 +1440,16 @@ def _messages_mcp_config(agent_slug: str | None) -> dict[str, dict]:
                     "FORGEHUB_API_URL": "http://localhost:8000",
                     "FORGEHUB_AGENT_SLUG": slug,
                     "FORGEHUB_ENV_FILE": "/root/project/forgehub/.env",
+                    **({"FORGEHUB_AGENT_TOKEN_FILE": credential_path} if credential_path else {}),
                 },
             }
         }
     }
 
 
-def _codex_messages_mcp_override(agent_slug: str | None) -> str:
+def _codex_messages_mcp_override(agent_slug: str | None, credential_path: str | None = None) -> str:
     """Codex accepts TOML values with `--config key=value` at session scope."""
-    server = _messages_mcp_config(agent_slug)["mcpServers"]["forgehub"]
+    server = _messages_mcp_config(agent_slug, credential_path)["mcpServers"]["forgehub"]
     env = server["env"]
     args = ",".join(json.dumps(value) for value in server["args"])
     env_entries = ",".join(f"{key}={json.dumps(value)}" for key, value in env.items())
@@ -1465,7 +1469,7 @@ _FORGEROUTER_ENV_KEYS = (
 )
 
 
-def _monitor_agent_run(run_id: str, proc: subprocess.Popen, max_seconds: int) -> None:
+def _monitor_agent_run(run_id: str, proc: subprocess.Popen, max_seconds: int, credential_path: str | None = None) -> None:
     try:
         stdout, stderr = proc.communicate(timeout=max_seconds)
         state = "completed" if proc.returncode == 0 else "failed"
@@ -1482,6 +1486,8 @@ def _monitor_agent_run(run_id: str, proc: subprocess.Popen, max_seconds: int) ->
     except Exception as exc:
         stdout, stderr, state = "", str(exc), "failed"
 
+    if credential_path:
+        Path(credential_path).unlink(missing_ok=True)
     with _agent_runs_lock:
         run = _agent_runs.get(run_id)
         if run is None:
@@ -1520,14 +1526,26 @@ async def start_agent_run(
         uuid.UUID(req.run_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="run_id must be a UUID") from exc
+    credential_path = None
     try:
         project_dir = validate_working_directory(req.project_path)
-        command, env = _agent_run_command(req, project_dir)
-    except (ValueError, RuntimeError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if req.agent_service_token:
+            # mkstemp creates 0600; random filename, outside the repo, never a token in argv.
+            fd, credential_path = tempfile.mkstemp(prefix="forgehub-run-", suffix=".credential")
+            with os.fdopen(fd, "w") as credential_file:
+                credential_file.write(req.agent_service_token.get_secret_value())
+        command, env = _agent_run_command(req, project_dir, credential_path)
+    except (ValueError, RuntimeError, HTTPException) as exc:
+        if credential_path:
+            Path(credential_path).unlink(missing_ok=True)
+        if isinstance(exc, HTTPException):
+            raise
+        raise HTTPException(status_code=400, detail="Invalid runtime configuration") from exc
 
     with _agent_runs_lock:
         if req.run_id in _agent_runs:
+            if credential_path:
+                Path(credential_path).unlink(missing_ok=True)
             raise HTTPException(status_code=409, detail="run_id already exists")
         _agent_runs[req.run_id] = {
             "run_id": req.run_id,
@@ -1558,6 +1576,8 @@ async def start_agent_run(
             start_new_session=True,
         )
     except (FileNotFoundError, OSError) as exc:
+        if credential_path:
+            Path(credential_path).unlink(missing_ok=True)
         with _agent_runs_lock:
             _agent_runs.pop(req.run_id, None)
         raise HTTPException(status_code=500, detail=f"failed to start {req.runtime_type}: {exc}") from exc
@@ -1570,7 +1590,7 @@ async def start_agent_run(
         _persist_agent_run(req.run_id)
     threading.Thread(
         target=_monitor_agent_run,
-        args=(req.run_id, proc, req.max_seconds),
+        args=(req.run_id, proc, req.max_seconds, credential_path),
         daemon=True,
     ).start()
     return {"run_id": req.run_id, "status": "running", "runtime_type": "agy" if req.runtime_type == "antigravity" else req.runtime_type, "pid": proc.pid, "adapter_version": AGENT_RUN_ADAPTER_VERSION}

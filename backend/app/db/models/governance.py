@@ -239,6 +239,8 @@ class AuthorityDelegation(Base, TimestampMixin):
     project_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.projects.id", ondelete="CASCADE"), nullable=True
     )
+    servers: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    host_groups: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     allowed_actions: Mapped[list] = mapped_column(JSONB, nullable=False)
     max_risk: Mapped[str] = mapped_column(String(20), nullable=False, default="low")
     budget_limit: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)

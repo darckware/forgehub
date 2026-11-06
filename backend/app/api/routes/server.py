@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import paramiko
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
 # paramiko's Transport runs its handshake in a background thread and logs
@@ -50,7 +50,6 @@ from app.api.schemas.server import (
     HostPreparationRequest,
     HostReadinessEntry,
     HostReadinessResult,
-    KeysToVaultOut,
     LoginPasswordOut,
     MaintenanceEntry,
     RotationOut,
@@ -985,7 +984,7 @@ async def install_server_key(
             failed_step=data.get("step"),
         )
 
-    old_path, old_ref = server.ssh_key_path, server.ssh_key_ref
+    old_path = server.ssh_key_path
     server.ssh_key_ref, server.ssh_key_path = new_ref, None
     server.private_key_encrypted = None
     server.public_key = public_key
@@ -1271,7 +1270,6 @@ async def _rotate_password(db: AsyncSession, server: Server) -> dict:
 
 async def _rotate_key(db: AsyncSession, server: Server) -> dict:
     log: list[str] = []
-    old_ref = server.ssh_key_ref
     try:
         new_ref, new_pub = await _generate_vault_key(server, unique=True)
     except HTTPException as exc:
