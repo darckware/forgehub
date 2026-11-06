@@ -215,7 +215,7 @@ Smoke na cópia migrada, sem workers e só em rede interna: `/health` retornou `
 
 `/root/.forgehub/releases/m0r-afef230/`: cópia do bridge da worktree, overrides, scripts e `release.json`. Imagens reconstruídas com cache: `forgehub-backend:m0r-afef230` (3,294 s; `sha256:89163dd70794b2619d255f63330878c3a92d94260f829934661a2f9258317256`) e `forgehub-frontend:m0r-afef230` (2,009 s; `sha256:af69998f2de43d730236ba7ac28d2162393e31b6051957cab7ebe2d5967b6a2b`). Tempos de relógio desta execução, não previsões para build sem cache. Teste do bridge: 123 passaram em 16,26 s. Backend essencial: 30 passaram em 26,97 s, com duas advertências de descontinuação; executado com o ambiente isolado de teste carregado após inicializar as referências de segurança. `bash -n` passou.
 
-SHA-256: `activate.sh` `38244586fa30027967435454ae55080c12233caf359d64bc8551842c31a1d048`; `rollback.sh` `cff4f65c2f83da805e2febab834ede25a3a2e37d10287b73755a319fe4aa057d`.
+SHA-256: `activate.sh` `5decbb9c42fd766152eeec7cdc38c56fc2e64215c620a1f0338bdafdfd7edd4c`; `rollback.sh` `cff4f65c2f83da805e2febab834ede25a3a2e37d10287b73755a319fe4aa057d`.
 
 O dump das 11:22, usado no ensaio de restauração, continua conferido por `sha256sum -c`. A ativação cria sempre um novo dump verificado após parar o backend e registra seu caminho em `backup-path.txt`. A proteção de falha reinicia o backend anterior caso a migration não termine. O smoke exige leitura autenticada da API e frontend com HTTP 200, além das verificações existentes.
 
@@ -290,4 +290,4 @@ O ensaio anterior restaurou numa base vazia. Repetido sobre uma cópia **já mig
 - **O `pg_restore` com `--clean --if-exists` sozinho falha.** A chave `mission_review_items_marcelo_user_id_fkey` (tabela nova da M0) depende de `users_pkey`, o restore para no meio, a versão fica em `f2d7a4c9e1b6` e parte dos objetos pode já ter sido apagada.
 - **A correção** é `DROP SCHEMA company CASCADE` seguido do mesmo `pg_restore`. Ela leva a base a `a4d238b759c1`, sem sobras (`plan_baseline_items` ausente) e com os dados iguais ao dump (`personal_contact_messages` = 2724). Um novo `upgrade head` depois dela funciona. Tempo: **2,65 s**.
 - O `rollback.sh` foi corrigido assim e confere `version_num == a4d238b759c1` no fim. Novo sha256 `cff4f65c2f83da805e2febab834ede25a3a2e37d10287b73755a319fe4aa057d`.
-- O `activate.sh` passou a contar "Task failure poll failed" desde a subida do backend novo, porque a rotina roda na subida e depois a cada 900 s. Novo sha256 `38244586fa30027967435454ae55080c12233caf359d64bc8551842c31a1d048`.
+- O `activate.sh` passou a contar "Task failure poll failed" desde a subida do backend novo, porque a rotina roda na subida e depois a cada 900 s. Novo sha256 `5decbb9c42fd766152eeec7cdc38c56fc2e64215c620a1f0338bdafdfd7edd4c`.
