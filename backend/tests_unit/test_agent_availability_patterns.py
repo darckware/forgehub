@@ -8,12 +8,20 @@ import os
 
 os.environ.setdefault("ENVIRONMENT", "test")
 
+import uuid  # noqa: E402
 from datetime import datetime, timedelta, timezone  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
 from zoneinfo import ZoneInfo  # noqa: E402
 
 import pytest  # noqa: E402
 
-from app.core.agent_availability import classify_infra_failure, parse_usage_limit  # noqa: E402
+from app.core.agent_availability import (  # noqa: E402
+    classify_infra_failure,
+    parse_usage_limit,
+    record_usage_limit,
+    run_finished_at,
+)
+from app.db.models.agent import Agent  # noqa: E402
 from app.main import is_agent_command_path  # noqa: E402
 
 SP = ZoneInfo("America/Sao_Paulo")
@@ -108,3 +116,84 @@ def test_infra_failure_classification(text, error, kind):
 ])
 def test_agent_paths(method, path, admitted):
     assert is_agent_command_path(method, path) is admitted
+
+
+class _Db:
+    """The two calls record_usage_limit makes, with the row it would write."""
+
+    def __init__(self, row=None):
+        self.row, self.added = row, []
+
+    async def get(self, model, _key):
+        return SimpleNamespace(runtime_type="claude") if model is Agent else self.row
+
+    def add(self, row):
+        self.added.append(row)
+
+
+# Run #42186 ended at 10:07 -03; Marcelo reconciled it at 14:38 -03 the same day.
+LIMIT_42186 = "You've hit your 5-hour limit · resets 12:10pm (America/Sao_Paulo)"
+ENDED_42186 = datetime(2026, 11, 6, 10, 7, tzinfo=SP)
+READ_42186 = datetime(2026, 11, 6, 14, 38, tzinfo=SP)
+RESET_42186 = datetime(2026, 11, 6, 12, 10, tzinfo=SP)
+DEMAND = SimpleNamespace(id=uuid.uuid4(), number=42186, target_agent_id=uuid.uuid4())
+
+
+@pytest.mark.asyncio
+async def test_a_reset_is_read_as_of_the_end_of_the_run_not_of_the_reading():
+    db = _Db()
+    until = await record_usage_limit(db, DEMAND, LIMIT_42186, READ_42186, finished_at=ENDED_42186)
+    assert until == RESET_42186
+    assert db.added == []
+
+
+@pytest.mark.asyncio
+async def test_a_live_run_records_its_reset():
+    db = _Db()
+    now = ENDED_42186 + timedelta(seconds=30)
+    assert await record_usage_limit(db, DEMAND, LIMIT_42186, now, finished_at=ENDED_42186) == RESET_42186
+    assert [row.unavailable_until for row in db.added] == [RESET_42186]
+
+
+@pytest.mark.asyncio
+async def test_without_a_known_end_the_reset_is_read_as_of_now():
+    db = _Db()
+    assert await record_usage_limit(db, DEMAND, LIMIT_42186, ENDED_42186) == RESET_42186
+    assert [row.unavailable_until for row in db.added] == [RESET_42186]
+
+
+@pytest.mark.asyncio
+async def test_reconciling_never_writes_even_a_reset_still_ahead():
+    db = _Db()
+    now = ENDED_42186 + timedelta(minutes=30)
+    until = await record_usage_limit(db, DEMAND, LIMIT_42186, now, finished_at=ENDED_42186, reconciling=True)
+    assert until == RESET_42186
+    assert db.added == []
+
+
+@pytest.mark.asyncio
+async def test_reconciling_leaves_an_earlier_known_reset_alone():
+    earlier = ENDED_42186 + timedelta(minutes=10)
+    row = SimpleNamespace(unavailable_until=earlier, reason="anterior")
+    await record_usage_limit(_Db(row), DEMAND, LIMIT_42186, ENDED_42186, finished_at=ENDED_42186, reconciling=True)
+    assert (row.unavailable_until, row.reason) == (earlier, "anterior")
+
+
+@pytest.mark.asyncio
+async def test_a_later_known_reset_is_never_shortened():
+    later = RESET_42186 + timedelta(hours=5)
+    row = SimpleNamespace(unavailable_until=later, reason="anterior")
+    await record_usage_limit(_Db(row), DEMAND, LIMIT_42186, ENDED_42186, finished_at=ENDED_42186)
+    assert row.unavailable_until == later
+
+
+@pytest.mark.parametrize("run, expected", [
+    ({"finished_at": "2026-11-06T10:07:07"}, datetime(2026, 11, 6, 10, 7, 7, tzinfo=SP)),
+    ({"finished_at": "2026-11-06T13:07:07+00:00"}, datetime(2026, 11, 6, 13, 7, 7, tzinfo=timezone.utc)),
+    ({"finished_at": None}, None),
+    ({"finished_at": "ontem"}, None),
+    ({"finished_at": 1762434427}, None),
+    ({}, None),
+])
+def test_run_finished_at(run, expected):
+    assert run_finished_at(run) == expected

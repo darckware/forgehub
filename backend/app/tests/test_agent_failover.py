@@ -4,13 +4,14 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
 from sqlalchemy import delete
 
 from app.api.routes import demand as demand_routes
-from app.core.agent_availability import classify_infra_failure, parse_usage_limit
+from app.core.agent_availability import HOST_TIMEZONE, classify_infra_failure, parse_usage_limit
 from app.core.agent_failover import can_switch, substitute_for
 from app.db.base import AsyncSessionLocal
 from app.db.models.agent import Agent
@@ -139,3 +140,77 @@ async def test_a_review_waits_for_its_own_agent(world, monkeypatch):
     async with AsyncSessionLocal() as db:
         fresh = await db.get(AgentDemand, row.id)
     assert fresh.target_agent_id == world.limited.id
+
+
+def _ended_on_a_limit(ended: datetime, reset: datetime) -> tuple[dict, str]:
+    """A failed run as the bridge reports it: a naive host-time end, and a limit
+    message with a clock time."""
+    zone = ZoneInfo(HOST_TIMEZONE)
+    clock = reset.astimezone(zone).strftime("%I:%M %p")
+    run_id = str(uuid.uuid4())
+    return {"run_id": run_id, "status": "failed", "error": "exit 1",
+            "output": f"You've hit your usage limit. try again at {clock}.",
+            "finished_at": ended.astimezone(zone).replace(tzinfo=None).isoformat()}, run_id
+
+
+async def _no_availability_row(agent: Agent) -> None:
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(AgentAvailability).where(AgentAvailability.agent_id == agent.id))
+        await db.commit()
+
+
+async def _availability(agent: Agent) -> datetime | None:
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AgentAvailability, agent.id)
+        return row.unavailable_until if row else None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ended_hours_ago, reset_hours_ago", [(4.5, 2.5), (1, -1)])
+async def test_reconciling_an_old_result_marks_nobody_unavailable(world, monkeypatch, ended_hours_ago, reset_hours_ago):
+    """#42186, whose reset had passed, and one whose reset is still ahead."""
+    await _no_availability_row(world.limited)
+    now = datetime.now(timezone.utc)
+    run, run_id = _ended_on_a_limit(now - timedelta(hours=ended_hours_ago), now - timedelta(hours=reset_hours_ago))
+    row = await world.message(world.limited, agent_run_id=run_id, dispatch_status="failed",
+                              dispatch_error="The agent run ended as 'failed'.", fixed_agent=True)
+
+    async def fake_poll(_run_id):
+        return run
+
+    monkeypatch.setattr(demand_routes, "poll_agent_run", fake_poll)
+    async with AsyncSessionLocal() as db:
+        await demand_routes.reconcile_message(row.id, db, SimpleNamespace(username="teste"))
+    assert await _availability(world.limited) is None
+
+
+@pytest.mark.asyncio
+async def test_the_completion_pass_reconciling_an_uncertain_run_marks_nobody_unavailable(world, monkeypatch):
+    await _no_availability_row(world.limited)
+    now = datetime.now(timezone.utc)
+    run, run_id = _ended_on_a_limit(now - timedelta(hours=1), now + timedelta(hours=1))
+    await world.message(world.limited, agent_run_id=run_id, dispatch_status="failed",
+                        dispatch_error=demand_routes.RECONCILIATION_REQUIRED_ERROR, fixed_agent=True)
+
+    async def fake_poll(_run_id):
+        return run
+
+    monkeypatch.setattr(demand_routes, "poll_agent_run", fake_poll)
+    async with AsyncSessionLocal() as db:
+        await demand_routes.run_dispatch_completion_pass(db)
+    assert await _availability(world.limited) is None
+
+
+@pytest.mark.asyncio
+async def test_a_live_finish_read_late_keeps_the_reset_of_the_end_of_the_run(world, monkeypatch):
+    """The pass was late (backend down), the run isn't under reconciliation: a
+    reset still ahead is real and stays the one the run announced."""
+    await _no_availability_row(world.limited)
+    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    reset = now + timedelta(hours=1)
+    run, run_id = _ended_on_a_limit(now - timedelta(hours=1), reset)
+    row = await world.message(world.limited, agent_run_id=run_id, dispatch_status="running", fixed_agent=True)
+    async with AsyncSessionLocal() as db:
+        await demand_routes._finalize_dispatch(db, row.id, run, expected_run_id=run_id)
+        await db.commit()
+    assert await _availability(world.limited) == reset

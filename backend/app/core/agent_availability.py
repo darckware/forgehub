@@ -9,7 +9,9 @@ item 3.
   is the next such time after ``now`` in the timezone the message names, else
   the host's (``HOST_TIMEZONE``).
 - ``record_usage_limit`` stores it in ``agent_availability`` from a finished
-  run (called by ``_finalize_dispatch``/``_fail_dispatch``).
+  run (called by ``_finalize_dispatch``/``_fail_dispatch``). The message is read
+  as of the run's end, and a reconciliation only reads it: re-reading "resets
+  12:10pm" at 14:38 turned a reset already past into the next day's (#42186).
 - ``unavailable_agents``/``unavailable_until`` are what ``reserve_dispatch``
   and the scheduled pass read: the agent is busy until then
   (``AGENT_UNAVAILABLE``, the item stays queued).
@@ -175,17 +177,35 @@ def classify_infra_failure(text: str | None, dispatch_error: str | None = None) 
     return None
 
 
-async def record_usage_limit(db: AsyncSession, demand, text: str | None, now: datetime | None = None) -> datetime | None:
+def run_finished_at(run: dict) -> datetime | None:
+    """When the runner says a run ended, or None when it doesn't say. The bridge
+    writes a naive `datetime.now()`, which is host time."""
+    try:
+        value = datetime.fromisoformat(run.get("finished_at") or "")
+    except (TypeError, ValueError):
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=ZoneInfo(HOST_TIMEZONE))
+
+
+async def record_usage_limit(
+    db: AsyncSession, demand, text: str | None, now: datetime | None = None, *,
+    finished_at: datetime | None = None, reconciling: bool = False,
+) -> datetime | None:
     """From a finished run's output: when it matches a usage-limit pattern of
-    the target agent's runtime, mark the agent unavailable until the reset.
-    Never shortens a later known reset. Caller commits."""
+    the target agent's runtime, return the reset it announced, as of
+    `finished_at` (else `now`), and mark the agent unavailable until then.
+
+    Writes nothing when that reset has passed, or when `reconciling`: an old
+    result never extends the agent's unavailability, not even over an operator
+    who cleared it. If the limit still holds, the next run reports it. Never
+    shortens a later known reset. Caller commits."""
     if demand.target_agent_id is None or not text:
         return None
     agent = await db.get(Agent, demand.target_agent_id)
     now = now or datetime.now(timezone.utc)
-    until = parse_usage_limit(agent.runtime_type if agent else None, text, now)
-    if until is None:
-        return None
+    until = parse_usage_limit(agent.runtime_type if agent else None, text, finished_at or now)
+    if until is None or reconciling or until <= now:
+        return until
     row = await db.get(AgentAvailability, demand.target_agent_id)
     reason = f"usage limit reported by run #{demand.number} (patterns {PATTERNS_VERSION})"[:200]
     if row is None:

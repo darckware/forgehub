@@ -1256,7 +1256,7 @@ async def reconcile_message(demand_id: uuid.UUID, db: AsyncSession = Depends(get
     demand.dispatch_deadline_at = datetime.now(timezone.utc) + timedelta(minutes=DISPATCH_TIMEOUT_MINUTES)
     await db.flush()
     if run.get("status") not in ("starting", "running"):
-        await _finalize_dispatch(db, demand.id, run)
+        await _finalize_dispatch(db, demand.id, run, reconciling=True)
     db.add(AuditEvent(entity_type="agent_demand", entity_id=demand.id, event_type="demand_reconciled", actor=admin.username, payload={"run_id": demand.agent_run_id, "state": run.get("status")}))
     await db.commit()
     await db.refresh(demand)
@@ -2150,6 +2150,7 @@ def _extract_evidence_ref(text: str) -> str | None:
 
 async def _finalize_dispatch(
     db: AsyncSession, demand_id: uuid.UUID, run: dict[str, Any], *, expected_run_id: str | None = None,
+    reconciling: bool = False,
 ) -> AgentDemand | None:
     """The terminal transition of a dispatch, shared by the frontend's
     GET .../dispatch-status and the background completion pass: flips
@@ -2198,9 +2199,10 @@ async def _finalize_dispatch(
     if failure_reason:
         # M0.8 (cycle spec §3.3): a usage-limit message marks the executor
         # unavailable until its reset; no match writes nothing.
-        from app.core.agent_availability import record_usage_limit
+        from app.core.agent_availability import record_usage_limit, run_finished_at
         from app.core.agent_failover import can_switch
-        limit_until = await record_usage_limit(db, locked, reply_body)
+        limit_until = await record_usage_limit(
+            db, locked, reply_body, finished_at=run_finished_at(run), reconciling=reconciling)
         attempts_left = (locked.dispatch_attempts or 0) < (locked.retry_limit or DISPATCH_MAX_ATTEMPTS)
         if limit_until and not historical and can_switch(locked) and attempts_left:
             # Not a failure of the work: back to the queue, where the scheduled
@@ -2423,7 +2425,8 @@ async def run_dispatch_completion_pass(db: AsyncSession) -> None:
             if demand.dispatch_status == "completed" or (demand.dispatch_status == "failed" and not requires_reconciliation(demand)):
                 await db.rollback()
                 continue
-            if requires_reconciliation(demand):
+            reconciling = requires_reconciliation(demand)
+            if reconciling:
                 record_transition(db, demand, "reconciled", extra={"runner_state": run.get("status")})
             if demand.dispatch_status is None:
                 demand.dispatch_attempts = (demand.dispatch_attempts or 0) + 1
@@ -2439,7 +2442,7 @@ async def run_dispatch_completion_pass(db: AsyncSession) -> None:
                 await db.rollback()
                 continue
             await db.flush()
-            await _finalize_dispatch(db, demand_id, run, expected_run_id=run_id)
+            await _finalize_dispatch(db, demand_id, run, expected_run_id=run_id, reconciling=reconciling)
             # Terminal now: send the outcome back to the channel that asked
             # (2026-08-13). In the same transaction as the state change, so a
             # crash between the two can't leave it delivered-but-unrecorded
