@@ -1,9 +1,10 @@
 /** Remote Access › Machines: temporary direct access (2026-11-06). A human admin
- * opens it for an external agent on chosen machines; inside it the agent runs
+ * opens it for a listed agent on chosen machines; inside it the agent runs
  * commands through ForgeHub with no approval per command, and never gets the
- * SSH key. State: useDirectAccessViewModel. */
+ * SSH key. The card also edits that list and pauses every agent's access to
+ * machines. State: useDirectAccessViewModel + useDirectAgentsViewModel. */
 import { useTranslation } from "react-i18next";
-import { Bot, Loader2, Plus, TerminalSquare, TriangleAlert, X } from "lucide-react";
+import { Bot, Loader2, Pause, Play, Plus, TerminalSquare, Trash2, TriangleAlert, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { DIRECT_DURATIONS, DIRECT_PURPOSES, type DirectDuration, type DirectPurpose } from "@/hooks/useDirectAccess";
 import { useDirectAccessViewModel } from "@/hooks/useDirectAccessViewModel";
+import { useDirectAgentsViewModel } from "@/hooks/useDirectAgentsViewModel";
 
 function remaining(expiresAt: string, now: number): { hours: number; minutes: number } {
   const total = Math.max(1, Math.ceil((new Date(expiresAt).getTime() - now) / 60_000));
@@ -23,7 +25,9 @@ function remaining(expiresAt: string, now: number): { hours: number; minutes: nu
 export function DirectAccessCard() {
   const { t } = useTranslation("remoteAccess");
   const vm = useDirectAccessViewModel();
+  const list = useDirectAgentsViewModel();
   const busy = vm.status === "submitting";
+  const controlKnown = list.control !== null;
 
   return (
     <Card>
@@ -34,11 +38,38 @@ export function DirectAccessCard() {
           </CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">{t("direct.subtitle")}</p>
         </div>
-        <Button type="button" size="sm" onClick={vm.openForm} className="cursor-pointer gap-1.5">
-          <Plus className="h-3.5 w-3.5" aria-hidden="true" /> {t("direct.open")}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {list.paused ? (
+            <Button type="button" size="sm" onClick={() => void list.resume()} disabled={list.resumePending} className="cursor-pointer gap-1.5">
+              {list.resumePending ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" /> : <Play className="h-3.5 w-3.5" aria-hidden="true" />}
+              {t("direct.resume")}
+            </Button>
+          ) : (
+            <Button type="button" size="sm" variant="outline" onClick={list.askPause} disabled={!controlKnown} className="cursor-pointer gap-1.5">
+              <Pause className="h-3.5 w-3.5" aria-hidden="true" /> {t("direct.pause")}
+            </Button>
+          )}
+          <Button type="button" size="sm" onClick={vm.openForm} disabled={list.paused || !controlKnown} className="cursor-pointer gap-1.5">
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" /> {t("direct.open")}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        <div role="status" className={list.paused ? "rounded-md border border-amber-500/50 px-3 py-2 text-sm" : "text-xs text-muted-foreground"}>
+          {list.paused && (
+            <p className="flex items-start gap-2 font-medium">
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 break-words">
+                {t("direct.pausedState", {
+                  who: list.control?.paused_by ?? "?",
+                  when: list.control?.paused_at ? new Date(list.control.paused_at).toLocaleString() : "?",
+                })}
+              </span>
+            </p>
+          )}
+          {list.paused && list.control?.reason && <p className="mt-1 break-words text-xs">{list.control.reason}</p>}
+          <p className={list.paused ? "mt-1 text-xs text-muted-foreground" : undefined}>{t("direct.pauseScope")}</p>
+        </div>
         {vm.status === "loading" && <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-label={t("maintenance.loading")} />}
         {vm.status !== "loading" && vm.active.length === 0 && <p className="text-sm text-muted-foreground">{t("direct.empty")}</p>}
         {vm.active.length > 0 && (
@@ -68,6 +99,60 @@ export function DirectAccessCard() {
           </p>
         )}
         {vm.error && !vm.closing && !vm.formOpen && <p role="alert" className="text-xs text-destructive">{vm.error}</p>}
+
+        <section aria-labelledby="direct-agents-title" className="space-y-2 border-t border-border pt-3">
+          <h3 id="direct-agents-title" className="text-sm font-medium">{t("direct.agentsTitle")}</h3>
+          {list.status === "loading" && <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-label={t("maintenance.loading")} />}
+          {list.status !== "loading" && list.listed.length === 0 && <p className="text-sm text-muted-foreground">{t("direct.agentsEmpty")}</p>}
+          {list.listed.length > 0 && (
+            <ul className="divide-y divide-border rounded-md border border-border">
+              {list.listed.map((agent) => (
+                <li key={agent.id} className="flex flex-wrap items-center gap-2 px-3 py-1.5 text-sm">
+                  <Bot className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                  <span className="min-w-0 break-words font-medium">{agent.name}</span>
+                  {agent.runtime_type && <Badge variant="secondary">{agent.runtime_type}</Badge>}
+                  {agent.unsupported_reason && <Badge variant="warning">{t(`direct.unsupported.${agent.unsupported_reason}`)}</Badge>}
+                  <Button type="button" size="sm" variant="ghost" onClick={() => list.askRemove(agent)}
+                    aria-label={t("direct.removeAgent", { name: agent.name })}
+                    className="ml-auto cursor-pointer text-destructive hover:text-destructive">
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Select aria-label={t("direct.addAgentLabel")} value={list.candidateId} onChange={(e) => list.setCandidateId(e.target.value)}
+              className="sm:max-w-xs max-md:text-base">
+              <option value="">{t("direct.pickAgentToAdd")}</option>
+              {list.addable.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </Select>
+            <Button type="button" size="sm" variant="outline" onClick={() => void list.add()}
+              disabled={!list.candidateId || list.addPending} className="cursor-pointer gap-1.5">
+              {list.addPending ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" /> : <Plus className="h-3.5 w-3.5" aria-hidden="true" />}
+              {t("direct.addAgent")}
+            </Button>
+          </div>
+          {list.unsupported.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">{t("direct.unsupportedTitle")}</p>
+              <ul className="space-y-0.5 text-xs text-muted-foreground">
+                {list.unsupported.map((agent) => (
+                  <li key={agent.id} className="break-words">
+                    <span className="font-medium">{agent.name}</span>: {t(`direct.unsupported.${agent.unsupported_reason}`)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {list.removed && (
+            <p role="status" className="text-xs text-muted-foreground">
+              {t("direct.agentRemoved", { count: list.removed.closed_accesses })}
+              {list.removed.running_commands > 0 && ` ${t("direct.closedRunning", { count: list.removed.running_commands })}`}
+            </p>
+          )}
+          {list.error && !list.removing && !list.confirmingPause && <p role="alert" className="text-xs text-destructive">{list.error}</p>}
+        </section>
       </CardContent>
 
       {vm.formOpen && (
@@ -155,6 +240,35 @@ export function DirectAccessCard() {
         onConfirm={() => void vm.confirmClose()}
         onCancel={vm.cancelClose}
       />
+
+      <ConfirmDialog
+        open={list.removing !== null}
+        title={t("direct.removeTitle", { name: list.removing?.name ?? "" })}
+        description={t("direct.removeText")}
+        confirmLabel={t("direct.removeConfirm")}
+        loading={list.removePending}
+        error={list.removing ? list.error ?? undefined : undefined}
+        onConfirm={() => void list.confirmRemove()}
+        onCancel={list.cancelRemove}
+      />
+
+      <ConfirmDialog
+        open={list.confirmingPause}
+        title={t("direct.pauseTitle")}
+        description={t("direct.pauseText")}
+        confirmLabel={t("direct.pause")}
+        variant="default"
+        icon="warning"
+        loading={list.pausePending}
+        error={list.confirmingPause ? list.error ?? undefined : undefined}
+        onConfirm={() => void list.confirmPause()}
+        onCancel={list.cancelPause}
+      >
+        <div className="space-y-1">
+          <Label htmlFor="direct-pause-reason">{t("direct.pauseReason")}</Label>
+          <Textarea id="direct-pause-reason" rows={2} value={list.pauseReason} onChange={(e) => list.setPauseReason(e.target.value)} className="max-md:text-base" />
+        </div>
+      </ConfirmDialog>
     </Card>
   );
 }

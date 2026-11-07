@@ -898,7 +898,7 @@
     "formTitle": "Abrir acceso directo",
     "agent": "Agente",
     "pickAgent": "Elige un agente",
-    "eligibleHelp": "Solo Claude, Codex y agy reciben credencial de ejecución.",
+    "eligibleHelp": "Solo aparecen los agentes de la lista de abajo.",
     "reason": "Motivo",
     "purpose": "Finalidad",
     "purposes": {
@@ -921,6 +921,31 @@
     "closedIdle": "Acceso cerrado. No había ningún comando en ejecución.",
     "closedRunning_one": "Acceso cerrado. {{count}} comando sigue en ejecución hasta terminar o agotar su tiempo límite.",
     "closedRunning_other": "Acceso cerrado. {{count}} comandos siguen en ejecución hasta terminar o agotar su tiempo límite.",
-    "historyBadge": "Acceso directo · {{purpose}}"
+    "historyBadge": "Acceso directo · {{purpose}}",
+    "pause": "Pausar",
+    "resume": "Activar",
+    "pausedState": "Acceso de los agentes pausado por {{who}} el {{when}}.",
+    "pauseScope": "La pausa bloquea el acceso de todos los agentes por ForgeHub. Las personas, el terminal SSH del Workspace y los agendamientos de personas siguen con normalidad.",
+    "pauseTitle": "¿Pausar el acceso de los agentes?",
+    "pauseText": "La pausa bloquea el acceso de todos los agentes por ForgeHub: comandos, scripts de la biblioteca, propuestas aprobadas, pedidos al agente y agendamientos de agente. Ningún acceso se cierra y el tiempo sigue corriendo. Un comando en ejecución llega hasta el final.",
+    "pauseReason": "Motivo (opcional)",
+    "agentsTitle": "Agentes con acceso directo",
+    "agentsEmpty": "Ningún agente en la lista.",
+    "addAgent": "Agregar",
+    "addAgentLabel": "Agente para agregar",
+    "pickAgentToAdd": "Elija un agente",
+    "removeAgent": "Quitar a {{name}} de la lista",
+    "removeTitle": "¿Quitar a {{name}} de la lista?",
+    "removeConfirm": "Quitar",
+    "removeText": "Los accesos abiertos de este agente se cierran ahora y su próximo comando se rechaza. Un comando en ejecución no se interrumpe: termina o alcanza su propio tiempo límite.",
+    "agentRemoved_one": "Agente quitado de la lista. {{count}} acceso cerrado.",
+    "agentRemoved_other": "Agente quitado de la lista. {{count}} accesos cerrados.",
+    "unsupportedTitle": "Aún no soportado",
+    "unsupported": {
+      "RUNTIME_WITHOUT_RUN_CREDENTIAL": "el runtime no recibe credencial de ejecución.",
+      "PROFILE_NOT_READABLE": "no se pudo leer la configuración del perfil.",
+      "PROFILE_WITHOUT_FORGEHUB_MCP": "el perfil no tiene el MCP forgehub activo.",
+      "PROFILE_MCP_WITHOUT_MAINTENANCE_TOOLS": "el MCP forgehub del perfil no expone las herramientas de mantenimiento."
+    }
   }
 }

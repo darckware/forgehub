@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
-import { useAgents, type Agent } from "@/hooks/useAgent";
 import {
-  DIRECT_RUNTIMES, useCloseDirectAccess, useDirectAccesses, useOpenDirectAccess,
-  type DirectAccess, type DirectDuration, type DirectPurpose,
+  useCloseDirectAccess, useDirectAccesses, useDirectAgents, useOpenDirectAccess,
+  type DirectAccess, type DirectAgent, type DirectDuration, type DirectPurpose,
 } from "@/hooks/useDirectAccess";
 import { useHostGroups } from "@/hooks/useHostInventory";
 import { useServers } from "@/hooks/useServers";
@@ -18,7 +17,7 @@ export interface DirectAccessViewModel {
   status: "loading" | "idle" | "opening" | "confirming" | "submitting" | "error";
   active: DirectAccess[];
   now: number;
-  eligible: Agent[];
+  eligible: DirectAgent[];
   machines: { id: string; name: string }[];
   groups: { id: string; name: string }[];
   formOpen: boolean;
@@ -59,7 +58,7 @@ function sensitiveMachines(error: unknown): string[] | null {
 }
 
 /** The refusal ForgeHub wrote (literal secret in the reason, agent not eligible...). */
-function refusalText(error: unknown): string {
+export function refusalText(error: unknown): string {
   const detail = error instanceof ApiError ? (error.body as { detail?: unknown } | null)?.detail : null;
   if (typeof detail === "string") return detail;
   const message = (detail as { message?: unknown } | null)?.message;
@@ -68,7 +67,7 @@ function refusalText(error: unknown): string {
 
 export function useDirectAccessViewModel(): DirectAccessViewModel {
   const accesses = useDirectAccesses();
-  const agents = useAgents();
+  const agents = useDirectAgents();
   const servers = useServers();
   const hostGroups = useHostGroups();
   const openMutation = useOpenDirectAccess();
@@ -103,9 +102,7 @@ export function useDirectAccessViewModel(): DirectAccessViewModel {
     });
   };
 
-  const eligible = (agents.data ?? [])
-    .filter((a) => a.is_active && a.status === "active" && DIRECT_RUNTIMES.includes(a.runtime_type ?? ""))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const eligible = (agents.data ?? []).filter((a) => a.allowed && !a.unsupported_reason);
   const submitting = openMutation.isPending;
   const complete = Boolean(agentId) && (selectedMachines.size > 0 || selectedGroups.size > 0)
     && reason.trim().length >= MIN_REASON;

@@ -6,10 +6,10 @@ import { apiClient } from "@/lib/api";
  * backend (core/remote_authority.py); these lists only feed the form. */
 export const DIRECT_DURATIONS = [1, 4, 24] as const;
 export const DIRECT_PURPOSES = ["development", "support"] as const;
-/** Only these runtimes receive a run credential. Hermes stays out: Marcelo's call. */
-export const DIRECT_RUNTIMES: readonly string[] = ["claude", "codex", "agy"];
 const PATH = "/api/v1/remote-access/direct";
 const KEY = ["remote-access", "direct"];
+const AGENTS_KEY = [...KEY, "agents"];
+const CONTROL_KEY = [...KEY, "control"];
 
 export type DirectPurpose = (typeof DIRECT_PURPOSES)[number];
 export type DirectDuration = (typeof DIRECT_DURATIONS)[number];
@@ -43,6 +43,72 @@ export interface DirectAccessClosed {
   closed_at: string;
   running_commands: number;
   notice: string;
+}
+
+/** An active agent: on the list or not, and the code of why it can't use an access. */
+export interface DirectAgent {
+  id: string;
+  name: string;
+  runtime_type: string | null;
+  allowed: boolean;
+  unsupported_reason: string | null;
+}
+
+export interface DirectAgentRemoved {
+  agent_id: string;
+  closed_accesses: number;
+  running_commands: number;
+  notice: string;
+}
+
+/** The pause of every agent's access to machines through ForgeHub. */
+export interface AgentAccessControl {
+  paused: boolean;
+  paused_at: string | null;
+  paused_by: string | null;
+  reason: string | null;
+}
+
+export function useDirectAgents() {
+  return useQuery({ queryKey: AGENTS_KEY, queryFn: () => apiClient.get<DirectAgent[]>(`${PATH}/agents`) });
+}
+
+export function useAddDirectAgent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.post<DirectAgent>(`${PATH}/agents/${id}`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: AGENTS_KEY }),
+  });
+}
+
+export function useRemoveDirectAgent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete<DirectAgentRemoved>(`${PATH}/agents/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}
+
+export function useAgentAccessControl() {
+  return useQuery({
+    queryKey: CONTROL_KEY, queryFn: () => apiClient.get<AgentAccessControl>(`${PATH}/control`), refetchInterval: 30_000,
+  });
+}
+
+export function usePauseAgentAccess() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (reason: string) => apiClient.post<AgentAccessControl>(`${PATH}/control:pause`, { reason: reason || null }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: CONTROL_KEY }),
+  });
+}
+
+export function useResumeAgentAccess() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.post<AgentAccessControl>(`${PATH}/control:resume`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: CONTROL_KEY }),
+  });
 }
 
 export function useDirectAccesses() {

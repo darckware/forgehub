@@ -898,7 +898,7 @@
     "formTitle": "Open direct access",
     "agent": "Agent",
     "pickAgent": "Pick an agent",
-    "eligibleHelp": "Only Claude, Codex and agy receive a run credential.",
+    "eligibleHelp": "Only the agents on the list below appear here.",
     "reason": "Reason",
     "purpose": "Purpose",
     "purposes": {
@@ -921,6 +921,31 @@
     "closedIdle": "Access closed. No command was running.",
     "closedRunning_one": "Access closed. {{count}} command keeps running until it finishes or reaches its timeout.",
     "closedRunning_other": "Access closed. {{count}} commands keep running until they finish or reach their timeout.",
-    "historyBadge": "Direct access · {{purpose}}"
+    "historyBadge": "Direct access · {{purpose}}",
+    "pause": "Pause",
+    "resume": "Activate",
+    "pausedState": "Agent access paused by {{who}} on {{when}}.",
+    "pauseScope": "Pause blocks the access of all agents through ForgeHub. People, the Workspace SSH terminal and people's schedules carry on as usual.",
+    "pauseTitle": "Pause agent access?",
+    "pauseText": "Pause blocks the access of all agents through ForgeHub: commands, library scripts, approved proposals, requests to agents and agent schedules. No access is closed and the clock keeps running. A command already running goes to the end.",
+    "pauseReason": "Reason (optional)",
+    "agentsTitle": "Agents with direct access",
+    "agentsEmpty": "No agent on the list.",
+    "addAgent": "Add",
+    "addAgentLabel": "Agent to add",
+    "pickAgentToAdd": "Pick an agent",
+    "removeAgent": "Remove {{name}} from the list",
+    "removeTitle": "Remove {{name}} from the list?",
+    "removeConfirm": "Remove",
+    "removeText": "This agent's open accesses close now and its next command is refused. A command already running is not interrupted: it finishes or reaches its own timeout.",
+    "agentRemoved_one": "Agent removed from the list. {{count}} access closed.",
+    "agentRemoved_other": "Agent removed from the list. {{count}} accesses closed.",
+    "unsupportedTitle": "Not supported yet",
+    "unsupported": {
+      "RUNTIME_WITHOUT_RUN_CREDENTIAL": "this runtime gets no run credential.",
+      "PROFILE_NOT_READABLE": "the profile's configuration could not be read.",
+      "PROFILE_WITHOUT_FORGEHUB_MCP": "the profile has no active forgehub MCP.",
+      "PROFILE_MCP_WITHOUT_MAINTENANCE_TOOLS": "the profile's forgehub MCP doesn't expose the maintenance tools."
+    }
   }
 }
