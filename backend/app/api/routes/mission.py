@@ -566,6 +566,10 @@ async def update_mission(
             if not (data["name"] or "").strip():
                 raise mission_error(422, "MISSION_NAME_REQUIRED", "Mission name cannot be blank")
             data["name"] = data["name"].strip()
+            if data["name"].lower() != project.name.strip().lower():
+                await _assert_name_free_in_version(db, project.product_version_id, data["name"])
+        if data.get("working_directory_path") is not None and not data["working_directory_path"].startswith("/"):
+            raise mission_error(422, "PATH_NOT_ABSOLUTE", "working_directory_path must be absolute")
     if {"risk_level", "required_review_layers"} & data.keys():
         if not (mission.state == "draft" or (mission.state == "planning" and mission.planning_stage == "draft_plan")):
             raise mission_error(409, "PLANNING_FIXED_AFTER_P1",

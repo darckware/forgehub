@@ -361,6 +361,12 @@ async def test_review_request_and_return(world, runner):
     assert "Baseline:" in review_demand.body
     assert "somente leitura" in review_demand.body
     assert "report_task_execution" not in review_demand.body
+    # Quota failover must not silently hand this membership's review to a
+    # different agent (possibly its own executor). The mission cycle can
+    # explicitly appoint another independent reviewer through its guarded route.
+    from app.core.agent_failover import can_switch
+    assert review_demand.fixed_agent is True
+    assert can_switch(review_demand) is False
 
     # The reviewer decides with its own agt_; another agent can't.
     reviewer_token = await world.agent_token(reviewer, None)

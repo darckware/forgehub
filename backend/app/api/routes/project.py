@@ -213,6 +213,14 @@ async def update_project(
                 "message": "A mission's status and type change only through POST /api/v1/missions/{id}:transition",
             },
         )
+    if project.project_type == "mission" and {"name", "description", "working_directory_path"} & data.keys():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "MISSION_METADATA_REQUIRES_COMMAND",
+                "message": "Edit mission metadata through PATCH /api/v1/missions/{id} with its row version",
+            },
+        )
     for field, value in data.items():
         setattr(project, field, value)
     await db.commit()

@@ -83,3 +83,8 @@ preserved; it must not be duplicated or treated as accepted.
 
 Independent official release approval and production publication are not claimed by this report.
 Unrelated FileNest planning, ECO-047 and diagnostics changes in the workspace were preserved.
+
+Later the same day Marcelo instructed **“faça você a revisão”**, authorizing Aramis to substitute
+the blocked Porthus review for this release. The request #42236 was preserved and archived.
+See [the operator-requested review](2026-11-07-mission-self-review.md) for findings, corrections
+and the final release decision; the pending-review state above is the earlier historical snapshot.

@@ -304,7 +304,7 @@ async def request_task_review(
         status="new", target_agent_id=payload.reviewer_agent_id, project_id=task_project_id,
         working_path=project.working_directory_path if project else None,
         origin_type="task", origin_id=task.id, channel="factory", channel_ref=str(task.id),
-        requires_response=False, scheduled_at=now,
+        requires_response=False, scheduled_at=now, fixed_agent=True,
     )
     db.add(demand)
     await db.flush()

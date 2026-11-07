@@ -362,6 +362,54 @@ async def test_mission_edit_metadata_preserves_state_and_rejects_stale_update(wo
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["draft", "active", "completed"])
+@pytest.mark.parametrize("field,value", [
+    ("name", "Changed through the project shortcut"),
+    ("description", "Unreviewed replacement context"),
+    ("working_directory_path", "/srv/unapproved-target"),
+])
+async def test_project_patch_cannot_bypass_mission_metadata_command(world, state, field, value):
+    mission = await world.create_mission()
+    project_id = mission["project_id"]
+    await _force(project_id, state=state)
+    async with world.client() as client:
+        before = (await client.get(f"/api/v1/missions/{project_id}")).json()
+        response = await client.patch(f"/api/v1/projects/{project_id}", json={field: value})
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "MISSION_METADATA_REQUIRES_COMMAND"
+        after = (await client.get(f"/api/v1/missions/{project_id}")).json()
+        assert after[field] == before[field]
+        assert after["row_version"] == before["row_version"]
+
+
+@pytest.mark.asyncio
+async def test_mission_edit_refuses_relative_working_path(world):
+    mission = await world.create_mission()
+    path = f"/api/v1/missions/{mission['project_id']}"
+    async with world.client() as client:
+        relative = await client.patch(path, json={
+            "expected_row_version": mission["row_version"], "working_directory_path": "relative/project",
+        })
+        assert relative.status_code == 422, relative.text
+        assert relative.json()["detail"]["code"] == "PATH_NOT_ABSOLUTE"
+        assert (await client.get(path)).json()["row_version"] == mission["row_version"]
+
+
+@pytest.mark.asyncio
+async def test_mission_edit_refuses_name_collision_in_its_version(world):
+    mission = await world.create_mission()
+    other = await world.create_mission()
+    path = f"/api/v1/missions/{mission['project_id']}"
+    async with world.client() as client:
+        duplicate = await client.patch(path, json={
+            "expected_row_version": mission["row_version"], "name": f"  {other['name'].upper()}  ",
+        })
+        assert duplicate.status_code == 409, duplicate.text
+        assert duplicate.json()["detail"]["code"] == "PROJECT_NAME_EXISTS_IN_VERSION"
+        assert (await client.get(path)).json()["row_version"] == mission["row_version"]
+
+
+@pytest.mark.asyncio
 async def test_create_mission_projects_draft_and_names_orchestrator(world):
     executor = await world.common_project()
     mission = await world.create_mission(executor_project_ids=[executor["id"]])
@@ -397,7 +445,8 @@ async def test_patch_status_refused_for_mission(world):
     assert status_patch.json()["detail"]["code"] == "MISSION_STATUS_IS_PROJECTED"
     assert type_patch.status_code == 409
     assert type_patch.json()["detail"]["code"] == "MISSION_STATUS_IS_PROJECTED"
-    assert name_patch.status_code == 200 and name_patch.json()["status"] == "planned"
+    assert name_patch.status_code == 409
+    assert name_patch.json()["detail"]["code"] == "MISSION_METADATA_REQUIRES_COMMAND"
 
 
 @pytest.mark.asyncio
