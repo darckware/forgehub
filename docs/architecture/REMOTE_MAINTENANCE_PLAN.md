@@ -388,3 +388,22 @@ Limites conhecidos, para decisão de Marcelo:
   base64 solto.
 - A API de servidores só aceita `vps`, `semed` e `client`, logo hoje toda máquina cadastrada por ela
   é sensível. Para existir máquina não sensível em produção, o `Literal` precisa aceitar os outros.
+
+## Lista do acesso direto e pausa dos agentes (2026-11-06)
+
+**Lista.** `Agent.direct_access_allowed`, editada na tela de Acesso Remoto só por admin humano. Abrir acesso oferece apenas a lista e o backend recusa os demais (`AGENT_NOT_LISTED`). Excluir um agente encerra os acessos abertos dele na mesma transação e o próximo comando é recusado. Comando em execução vai até o fim, e a resposta diz quantos seguem. Inclusão e exclusão ficam em `AuditEvent` com o admin autenticado.
+
+**Pausa.** Uma linha em `agent_remote_access_control`, sem variável de ambiente nem reinício. É o bloqueio de todo acesso de agente às máquinas pelo ForgeHub: `run_remote_command`, `run_maintenance_script`, execução de proposta aprovada, `POST /host-executions/agent-requests`, abertura de acesso e agendamento de agente. Código `AGENT_REMOTE_ACCESS_PAUSED`.
+
+- Não encerra nada. Acessos e aprovações mantêm o próprio prazo: o que não venceu volta a valer ao reativar, o que venceu não volta.
+- Comando em execução segue até o fim.
+- Pessoas, agendamentos de pessoas e o terminal SSH do Workspace não são afetados.
+- Criar proposta continua possível, porque não executa nada. Aprovar uma proposta durante a pausa gera a tarefa do agente, que é recusada: a proposta segue aprovada e a tarefa pode ser reprocessada depois de reativar, dentro do prazo.
+- Um agendamento de agente que vence durante a pausa dispara uma vez ao reativar.
+- A pausa não bloqueia SSH feito fora do ForgeHub. O bloqueio pelo cofre é outra etapa.
+
+**Concorrência.** Cada rota confere a pausa no início e de novo com a linha em `FOR SHARE` até o commit. Pausar pega a linha em `FOR UPDATE`, então espera o comando que está sendo gravado, e o seguinte já é recusado.
+
+**Hermes.** Um run normal agora recebe a credencial temporária. O Hermes filtra o ambiente dos MCP stdio (`_build_safe_env`) e descarta `FORGEHUB_AGENT_TOKEN_FILE`, mas mantém `XDG_*`, por isso o bridge usa `XDG_FORGEHUB_AGENT_TOKEN_FILE`. Nenhum perfil é alterado. O caminho restrito nunca recebe credencial. Perfis cujo MCP `forgehub` não expõe `run_remote_command` (Lara e Maia) aparecem como "ainda não suportado", sem opção de adicionar.
+
+**Publicação.** Reiniciar `forgehub-chat-bridge` antes do backend, para o run Hermes receber a variável. Com bridge antigo, o arquivo é criado e ignorado, e a ferramenta recusa.
