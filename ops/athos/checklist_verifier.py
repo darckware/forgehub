@@ -890,6 +890,15 @@ def check_shared_skills_locked() -> Result:
     notes = (result.stdout or result.stderr).strip() or f"verify exited {result.returncode}"
     return ok(notes) if result.returncode == 0 else fail(notes + " — unlock/edit/lock: /root/.hermes/shared-skills/_tools/shared_skills_lock.py")
 
+
+def check_forgevault_ssh_key_reads() -> Result:
+    """ECO-060 (2026-11-06, #42179): only forgehub-remote-access reads *_SSH_KEY in ForgeVault.
+    Any failure to read the audit is a failure here, never a pass."""
+    result = run(["python3", str(ATHOS / "scripts/forgevault_ssh_key_audit.py")], timeout=50)
+    output = (result.stdout + result.stderr).strip()
+    return ok(output) if result.returncode == 0 else fail(output or "NOT VERIFIED: no output from the audit")
+
+
 CHECKS = {
     "ECO-001": check_docs,
     "ECO-002": check_foundation_boundary,
@@ -949,6 +958,7 @@ CHECKS = {
     "ECO-057": check_hindsight_retention_timer,
     "ECO-058": check_offsite_backup,
     "ECO-059": check_shared_skills_locked,
+    "ECO-060": check_forgevault_ssh_key_reads,
 }
 
 
