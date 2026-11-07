@@ -52,6 +52,13 @@ components:
 
 # ForgeHub Design Context
 
+Mission registration and metadata editing use full pages. Team roles and responsibilities are edited
+inline beneath the mission form; dialogs only confirm membership/permission changes or cancellation.
+Use the existing Select, Textarea and ConfirmDialog owners. Native select and datetime popups remain
+browser-owned. A mission's removal action is cancellation, preserving history and evidence. Show the
+orchestrator separately from executor/reviewer roles and explain that the approved brief supplies the
+dispatch objective. Team changes use the guarded mission command rather than generic automation APIs.
+
 Personal Demands preserve source independently of capture suggestions. Keep group/contact identity and requester visible in the existing inset metadata area. Show status and registration date/actor in the compact metadata row, and completion date/actor when present. Never infer the completing agent for historical records without that evidence.
 
 ## Overview

@@ -341,6 +341,27 @@ async def test_project_create_schema_does_not_accept_mission(world):
 
 
 @pytest.mark.asyncio
+async def test_mission_edit_metadata_preserves_state_and_rejects_stale_update(world):
+    mission = await world.create_mission()
+    async with world.client() as client:
+        response = await client.patch(f"/api/v1/missions/{mission['project_id']}", json={
+            "expected_row_version": mission["row_version"], "name": "Missão revisada",
+            "description": "Contexto revisado", "working_directory_path": "/root/project/filenest",
+            "priority": 25,
+        })
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["name"] == "Missão revisada"
+        assert data["description"] == "Contexto revisado"
+        assert data["working_directory_path"] == "/root/project/filenest"
+        assert data["state"] == "draft"
+        stale = await client.patch(f"/api/v1/missions/{mission['project_id']}", json={
+            "expected_row_version": mission["row_version"], "name": "Sobrescrita",
+        })
+        assert stale.status_code == 409
+
+
+@pytest.mark.asyncio
 async def test_create_mission_projects_draft_and_names_orchestrator(world):
     executor = await world.common_project()
     mission = await world.create_mission(executor_project_ids=[executor["id"]])

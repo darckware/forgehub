@@ -3,12 +3,13 @@ import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDuration } from "@/components/missions/missionFormat";
 import { useMissions, type MissionFilters } from "@/hooks/useMissions";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/authStore";
 
 const STATES = ["active", "verifying", "awaiting_acceptance", "ready", "planning", "paused", "draft", "completed", "cancelled"];
 
@@ -16,6 +17,7 @@ const STATES = ["active", "verifying", "awaiting_acceptance", "ready", "planning
  * by priority (lower = more urgent) and deadline. */
 export default function MissionsPage() {
   const { t } = useTranslation("missions");
+  const admin = useAuthStore((s) => s.user?.is_admin === true);
   const [filters, setFilters] = useState<MissionFilters>({ states: [], q: "", hasConflicts: false, hasUncertain: false });
   const query = useMissions(filters);
   const items = query.data?.items ?? [];
@@ -25,7 +27,7 @@ export default function MissionsPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title={t("list.title")} description={t("list.description")} />
+      <PageHeader title={t("list.title")} description={t("list.description")} actions={admin && <Link className={buttonVariants()} to="/missions/new">{t("form.createTitle")}</Link>} />
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         <Input aria-label={t("list.search")} placeholder={t("list.search")} value={filters.q}
           onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} className="sm:max-w-xs max-md:text-base" />
@@ -75,7 +77,7 @@ export default function MissionsPage() {
                 {items.map((m) => (
                   <TableRow key={m.project_id}>
                     <TableCell className="font-mono text-xs">{m.priority}</TableCell>
-                    <TableCell><Link className="font-medium text-primary hover:underline" to={`/missions/${m.project_id}`}>{m.name}</Link></TableCell>
+                    <TableCell><Link className="font-medium text-primary hover:underline" to={`/missions/${m.project_id}`}>{m.name}</Link>{admin && <Link className="ml-3 text-xs text-muted-foreground underline" to={`/missions/${m.project_id}/edit`}>{t("form.editTitle")}</Link>}</TableCell>
                     <TableCell><Badge variant="outline">{t(`state.${m.state}`, m.state)}</Badge></TableCell>
                     <TableCell className="text-xs">{m.orchestrator.name}</TableCell>
                     <TableCell className="text-xs">{m.progress.done_proven}/{m.progress.total}</TableCell>

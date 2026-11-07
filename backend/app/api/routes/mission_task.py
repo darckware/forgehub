@@ -43,7 +43,12 @@ from app.core.command_receipts import (
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
 from app.core.dispatch_signal import wake_scheduled_dispatch
 from app.core.mission import mission_error, project_id_for_task_source
-from app.core.mission_dispatch import OPEN_REVIEW_STATUSES, in_flight_error, task_run_in_flight
+from app.core.mission_dispatch import (
+    OPEN_REVIEW_STATUSES,
+    build_mission_dispatch_context,
+    in_flight_error,
+    task_run_in_flight,
+)
 from app.core.mission_plan import NON_EXECUTOR_ROLES, mission_scope_tasks
 from app.core.task_completion_guard import resolve_executor_agent_id
 from app.db.base import get_db
@@ -282,6 +287,11 @@ async def request_task_review(
     await db.flush()
     project = await db.get(Project, task_project_id)
     orchestrator = await db.get(Agent, mission.orchestrator_agent_id) if mission.orchestrator_agent_id else None
+    context = await build_mission_dispatch_context(
+        db, task, mission=mission, membership=reviewer,
+        working_path=project.working_directory_path if project else None,
+        command_text=_review_body(task, execution, review), for_review=True,
+    )
     now = datetime.now(timezone.utc)
     # No task_execution_id: the review run must never close the executor's
     # execution (_finalize_dispatch writes there). It still carries the task
@@ -290,7 +300,7 @@ async def request_task_review(
         from_agent=orchestrator.name if orchestrator else "forgehub",
         from_agent_id=orchestrator.id if orchestrator else None,
         subject=f"Revisão: Task #{task.number} — {task.title}"[:255],
-        body=_review_body(task, execution, review),
+        body=context.body,
         status="new", target_agent_id=payload.reviewer_agent_id, project_id=task_project_id,
         working_path=project.working_directory_path if project else None,
         origin_type="task", origin_id=task.id, channel="factory", channel_ref=str(task.id),
@@ -304,7 +314,8 @@ async def request_task_review(
         payload=_audit_payload(principal, source, delegation, idempotency_key=payload.idempotency_key,
                                mission_project_id=str(project_id), execution_id=str(execution.id),
                                review_id=str(review.id), reviewer_membership_id=str(reviewer.id),
-                               reviewer_agent_id=str(payload.reviewer_agent_id), demand_id=str(demand.id)),
+                               reviewer_agent_id=str(payload.reviewer_agent_id), demand_id=str(demand.id),
+                               context_manifest=context.manifest),
     ))
     out = ReviewRequestOut(task_id=task.id, execution_id=execution.id, review_id=review.id,
                            reviewer_membership_id=reviewer.id, reviewer_agent_id=payload.reviewer_agent_id,

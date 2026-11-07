@@ -202,6 +202,7 @@ async def build_mission_dispatch_context(
     working_path: str | None,
     membership: ProjectAgentMembership | None,
     command_text: str | None = None,
+    for_review: bool = False,
 ) -> MissionDispatchContext:
     """The dispatch body of a mission task, built only from the §6 allowlist."""
     manifest: list[dict[str, Any]] = []
@@ -266,10 +267,17 @@ async def build_mission_dispatch_context(
             note("task_dependency", predecessor.id, [predecessor.number, predecessor.title, predecessor.status])
         parts.append("\n".join(lines))
 
-    execution_lines = []
+    orchestrator = await db.get(Agent, mission.orchestrator_agent_id)
+    execution_lines = [f"Orquestrador: {orchestrator.name if orchestrator else mission.orchestrator_agent_id}"]
+    note("mission_orchestrator", mission.orchestrator_agent_id,
+         {"name": orchestrator.name if orchestrator else None})
     if membership is not None:
         execution_lines.append(f"Seu papel: {membership.role}")
-        note("project_agent_membership", membership.id, membership.role)
+        if membership.responsibilities:
+            execution_lines.append(f"Suas responsabilidades: {membership.responsibilities}")
+        execution_lines.append("Seu papel não autoriza ampliar o escopo da tarefa nem aprovar a própria entrega.")
+        note("project_agent_membership", membership.id,
+             {"role": membership.role, "responsibilities": membership.responsibilities})
     reviewer = (await db.execute(
         select(Agent.name, TaskExecutionReview.id)
         .join(ProjectAgentMembership, ProjectAgentMembership.id == TaskExecutionReview.reviewer_membership_id)
@@ -304,9 +312,10 @@ async def build_mission_dispatch_context(
         parts.append(f"Instrução adicional:\n{command_text}")
         note("command_text", None, command_text)
 
-    parts.append(EVIDENCE_INSTRUCTION)
-    parts.append(MISSION_REPORT_INSTRUCTION)
-    note("instructions", None, [EVIDENCE_INSTRUCTION, MISSION_REPORT_INSTRUCTION])
+    instructions = (["Trabalhe em somente leitura: revise a entrega, os critérios e as evidências; não implemente correções."]
+                    if for_review else [EVIDENCE_INSTRUCTION, MISSION_REPORT_INSTRUCTION])
+    parts.extend(instructions)
+    note("instructions", None, instructions)
 
     context = MissionDispatchContext(body="\n\n".join(parts), manifest=manifest)
     if context.size > MISSION_CONTEXT_MAX_BYTES:

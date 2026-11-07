@@ -47,6 +47,9 @@ class MissionUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_row_version: int
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    working_directory_path: str | None = Field(default=None, max_length=1024)
     priority: int | None = Field(default=None, ge=1, le=1000)
     autonomy_level: str | None = None
     brief_artifact_id: uuid.UUID | None = None
@@ -77,6 +80,9 @@ class PlanningAdvanceIn(BaseModel):
 class MissionOut(BaseModel):
     project_id: uuid.UUID
     name: str
+    product_version_id: uuid.UUID | None = None
+    description: str | None = None
+    working_directory_path: str | None = None
     project_type: str
     project_status: str
     state: str

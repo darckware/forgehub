@@ -1,6 +1,7 @@
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
+import { useAuthStore } from "@/store/authStore";
 import { useTranslation } from "react-i18next";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { MissionExecutionsBoard } from "@/components/missions/MissionExecutionsBoard";
 import { useMissionExecutionsViewModel } from "@/hooks/useMissionExecutionsViewModel";
 
@@ -19,6 +20,7 @@ export default function MissionDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const { t } = useTranslation("missions");
   const vm = useMissionExecutionsViewModel(projectId);
+  const admin = useAuthStore((s) => s.user?.is_admin === true);
 
   if (vm.status === "loading") return <BoardSkeleton />;
   if (vm.status === "error") {
@@ -31,5 +33,5 @@ export default function MissionDetailPage() {
       </div>
     );
   }
-  return <MissionExecutionsBoard vm={vm} />;
+  return <div className="space-y-4">{admin && <div className="flex justify-end"><Link className={buttonVariants({ variant: "outline" })} to={`/missions/${projectId}/edit`}>{t("form.editTitle")}</Link></div>}<MissionExecutionsBoard vm={vm} /></div>;
 }

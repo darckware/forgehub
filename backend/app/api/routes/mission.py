@@ -145,6 +145,9 @@ async def _out(db: AsyncSession, project: Project, mission: ProjectMission) -> M
     return MissionOut(
         project_id=project.id,
         name=project.name,
+        product_version_id=project.product_version_id,
+        description=project.description,
+        working_directory_path=project.working_directory_path,
         project_type=project.project_type,
         project_status=project.status,
         state=mission.state,
@@ -553,6 +556,16 @@ async def update_mission(
     _assert_n0(data.get("autonomy_level"))
     if mission.state in ("completed", "cancelled"):
         raise mission_error(409, "MISSION_TERMINAL", "A completed or cancelled mission is read-only")
+    project_fields = {"name", "description", "working_directory_path"} & data.keys()
+    if project_fields:
+        if mission.current_baseline_id is not None or not (
+            mission.state == "draft" or (mission.state == "planning" and mission.planning_stage == "draft_plan")
+        ):
+            raise mission_error(409, "MISSION_BRIEF_FIXED", "Use a change request to change an approved mission brief")
+        if "name" in project_fields:
+            if not (data["name"] or "").strip():
+                raise mission_error(422, "MISSION_NAME_REQUIRED", "Mission name cannot be blank")
+            data["name"] = data["name"].strip()
     if {"risk_level", "required_review_layers"} & data.keys():
         if not (mission.state == "draft" or (mission.state == "planning" and mission.planning_stage == "draft_plan")):
             raise mission_error(409, "PLANNING_FIXED_AFTER_P1",
@@ -568,9 +581,9 @@ async def update_mission(
             raise mission_error(422, "BRIEF_NOT_FOUND", "brief_artifact_id is not an artifact")
     if not data:
         return await _out(db, project, mission)
-    before = {k: getattr(mission, k) for k in data}
+    before = {k: getattr(project if k in project_fields else mission, k) for k in data}
     for field, value in data.items():
-        setattr(mission, field, value)
+        setattr(project if field in project_fields else mission, field, value)
     mission.row_version += 1
     db.add(AuditEvent(
         entity_type="mission", entity_id=project_id, event_type="mission_updated", actor=principal.display_name,
