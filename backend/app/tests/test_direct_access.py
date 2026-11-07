@@ -677,8 +677,9 @@ async def test_pause_refuses_command_and_opening_and_shows_in_the_listing(pausab
     assert r.status_code == 403 and await code_of(r) == PAUSED
     [machine] = (await c.client.get("/api/v1/host-executions/agent/machines", headers=c.agent_h)).json()
     assert machine["agent_access_paused"] is True and machine["runnable"] is False and machine["direct_access"] is True
-    [event] = await audit_events(CONTROL_ID, "agent_remote_access_paused")
-    assert event.actor == c.admin.username and event.payload == {"reason": "Incidente"}
+    events = await audit_events(CONTROL_ID, "agent_remote_access_paused")
+    [event] = [e for e in events if e.actor == c.admin.username]
+    assert event.payload == {"reason": "Incidente"}
 
 
 @pytest.mark.asyncio

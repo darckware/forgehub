@@ -338,8 +338,9 @@ async def test_agent_dispatch_goes_to_the_stub(stubbed):
 
     from app.core.agent_runs import dispatch_agent_run, poll_agent_run
 
+    # Unsaved (id=None): a saved agent's run credential would need the database.
     agent = SimpleNamespace(name="Agente Teste", runtime_type="hermes", profile_slug="agente-teste",
-                            autonomous_runs=False, id=uuid.uuid4())
+                            autonomous_runs=False, id=None)
     run_id = str(uuid.uuid4())
     started = await dispatch_agent_run(run_id, agent, "secret prompt text", "/srv/teste")
     assert started["status"] == "running"
