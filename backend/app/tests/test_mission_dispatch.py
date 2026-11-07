@@ -356,6 +356,17 @@ async def test_review_request_and_return(world, runner):
     review_demand = next(d for d in await _demands(task.id) if d.id == uuid.UUID(requested.json()["demand_id"]))
     assert (review_demand.target_agent_id, review_demand.task_execution_id) == (reviewer, None)
     assert review_demand.scheduled_at is not None and review_demand.origin_type == "task"
+    assert "Seu papel: reviewer" in review_demand.body
+    assert "Orquestrador:" in review_demand.body
+    assert "Baseline:" in review_demand.body
+    assert "somente leitura" in review_demand.body
+    assert "report_task_execution" not in review_demand.body
+    # Quota failover must not silently hand this membership's review to a
+    # different agent (possibly its own executor). The mission cycle can
+    # explicitly appoint another independent reviewer through its guarded route.
+    from app.core.agent_failover import can_switch
+    assert review_demand.fixed_agent is True
+    assert can_switch(review_demand) is False
 
     # The reviewer decides with its own agt_; another agent can't.
     reviewer_token = await world.agent_token(reviewer, None)

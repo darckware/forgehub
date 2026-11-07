@@ -58,6 +58,25 @@ async def _brief_file(tmp_path, monkeypatch, mission, content: str) -> None:
 
 
 @pytest.mark.asyncio
+async def test_dispatch_contains_function_responsibilities_and_orchestrator(world, runner):
+    mission = await _mission(world)
+    from app.db.models.orchestration import ProjectAgentMembership
+    async with AsyncSessionLocal() as db:
+        member = await db.get(ProjectAgentMembership, mission.membership)
+        member.responsibilities = "Implementar somente backend e apresentar testes de recusa."
+        await db.commit()
+    task = await mission.task("backend scoped context")
+    await mission.baseline([task.id])
+    response = await _dispatch(world, task.id)
+    assert response.status_code == 200, response.text
+    demand = await _demand(response)
+    assert "Orquestrador:" in demand.body
+    assert "Implementar somente backend e apresentar testes de recusa." in demand.body
+    assert "Seu papel: developer" in demand.body
+    assert "não autoriza ampliar" in demand.body
+
+
+@pytest.mark.asyncio
 async def test_canaries_absent(world, runner, tmp_path, monkeypatch):
     mission = await _mission(world)
     maia, lara, kb, other, brief_secret = (_canary(k) for k in ("MAIA", "LARA", "KB", "OTHER", "BRIEF"))

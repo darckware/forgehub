@@ -805,7 +805,7 @@ body is built only from these fields, each with source id + content hash recorde
 | mission name, objective section of the **approved** brief version | artifact version (approved) |
 | linked criteria `code + statement + verification_method` | `mission_acceptance_criteria` |
 | predecessor tasks `number + title + status` (no results) | `task_dependencies` |
-| executor role, reviewer name, working_path, declared targets | membership, `task_execution_targets` |
+| orchestrator id and name; executor role and responsibilities; reviewer name, working_path, declared targets | mission orchestrator, membership, `task_execution_targets` |
 | open critique/return reason for this task (correction tasks) | review feedback / audit |
 | evidence-format instruction and completion-report contract | constants already in use [backend/app/api/routes/task.py:1077-1085], `core/completion_report.py` |
 
