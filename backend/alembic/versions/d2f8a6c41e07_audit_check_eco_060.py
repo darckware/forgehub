@@ -14,7 +14,7 @@ import sqlalchemy as sa
 from app.core.audit_catalog import CANONICAL_AUDIT_CHECKS
 
 revision = "d2f8a6c41e07"
-down_revision = "a3c7e1d94b26"
+down_revision = "b8d4f1c2a6e3"
 branch_labels = None
 depends_on = None
 
