@@ -81,7 +81,10 @@ async def dispatch_agent_run(
         path = "/v1/agent-runs/restricted"
     # After the refusals above, so a refused run leaves no credential behind.
     # A restricted run never gets one: it reads text from outside (instructors' group).
-    if agent.id is not None and not restricted_toolsets and agent.runtime_type in ("claude", "codex", "agy", "hermes"):
+    # Hermes only when on the direct access list: a profile's stdio MCPs can all see the path.
+    gets_credential = agent.runtime_type in ("claude", "codex", "agy") or (
+        agent.runtime_type == "hermes" and agent.direct_access_allowed)
+    if agent.id is not None and not restricted_toolsets and gets_credential:
         from app.db.base import AsyncSessionLocal
         from app.db.models.agent import AgentServiceCredential
         token = "agt_" + secrets.token_urlsafe(32)

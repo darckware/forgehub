@@ -221,7 +221,7 @@ async def test_t4a_full_proposal_cycle(ctx,monkeypatch):
 async def test_dispatch_mints_identity_for_actual_agent(ctx,runtime):
     import httpx
     from app.core.agent_runs import dispatch_agent_run
-    c=ctx;c.agent.runtime_type=runtime;c.agent.profile_slug='agent-'+runtime
+    c=ctx;c.agent.runtime_type=runtime;c.agent.profile_slug='agent-'+runtime;c.agent.direct_access_allowed=True
     captured={}
     class Client:
         def __init__(self,**kwargs):pass

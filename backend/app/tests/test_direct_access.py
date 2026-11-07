@@ -811,3 +811,38 @@ async def test_agent_schedules_wait_and_people_are_not_affected(pausable):
             await db.execute(delete(HostExecution).where(HostExecution.schedule_id.in_([by_agent.id, by_person.id])))
             await db.execute(delete(HostScript).where(HostScript.id == script.id))
             await db.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("listed", [False, True])
+async def test_hermes_run_gets_a_credential_only_on_the_list(monkeypatch, listed):
+    from app.core import agent_runs
+    sent = {}
+
+    class Response:
+        status_code = 202
+        def raise_for_status(self): ...
+        def json(self): return {"status": "starting"}
+
+    class Client:
+        def __init__(self, **_): ...
+        async def __aenter__(self): return self
+        async def __aexit__(self, *_): ...
+        async def post(self, _url, json, headers):
+            sent.update(json)
+            return Response()
+
+    monkeypatch.setattr(agent_runs.httpx, "AsyncClient", Client)
+    async with AsyncSessionLocal() as db:
+        agent = Agent(name=f"hermes-list-{uuid.uuid4().hex}", agent_type="executor", runtime_type="hermes",
+                      profile_slug="ficticio", direct_access_allowed=listed)
+        db.add(agent)
+        await db.commit()
+    try:
+        await agent_runs.dispatch_agent_run(f"r-{uuid.uuid4().hex}", agent, "p", "/tmp")
+        assert ("agent_service_token" in sent) is listed
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(AgentServiceCredential).where(AgentServiceCredential.agent_id == agent.id))
+            await db.execute(delete(Agent).where(Agent.id == agent.id))
+            await db.commit()
