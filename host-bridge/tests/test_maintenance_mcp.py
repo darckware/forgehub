@@ -69,3 +69,15 @@ def test_coded_refusal_reaches_the_agent_and_other_bodies_do_not(tmp_path,monkey
         with pytest.raises(module.ForgeHubError) as error:
             asyncio.run(module.run_remote_command(['m1'],'id','Check user',42))
         assert 'agt_' not in str(error.value)
+
+
+def test_a_hermes_run_reads_the_credential_through_the_xdg_name(tmp_path,monkeypatch):
+    module=importlib.import_module('forgehub_messages_mcp')
+    file=tmp_path/'credential';file.write_text('agt_synthetic_hermes_run');file.chmod(0o600)
+    monkeypatch.delenv('FORGEHUB_AGENT_TOKEN_FILE',raising=False)
+    monkeypatch.setenv('XDG_FORGEHUB_AGENT_TOKEN_FILE',str(file))
+    assert module._maintenance_token()=='agt_synthetic_hermes_run'
+    monkeypatch.delenv('XDG_FORGEHUB_AGENT_TOKEN_FILE')
+    monkeypatch.setenv('FORGEHUB_AGENT_TOKEN','agt_long_lived_never_read_here')
+    with pytest.raises(module.ForgeHubError):
+        module._maintenance_token()

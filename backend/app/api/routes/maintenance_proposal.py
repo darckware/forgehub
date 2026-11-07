@@ -13,7 +13,7 @@ from app.api.schemas.maintenance_proposal import ProposalCreate, ProposalDecisio
 from app.core.deps import ActorPrincipal, get_actor_principal, get_maintenance_agent
 from app.core.host_scripts import ScriptError, validate_parameters
 from app.core.maintenance_proposals import content_hash, proposal_hash, validate_content
-from app.core.remote_authority import require_remote, project_product_id
+from app.core.remote_authority import require_agent_access_active, require_remote, project_product_id
 from app.db.base import get_db
 from app.db.models.agent import Agent
 from app.db.models.demand import AgentDemand
@@ -187,6 +187,7 @@ async def owned(db, principal, proposal_id, number):
 
 @router.post(AGENT + "/{proposal_id}/run")
 async def run(proposal_id: uuid.UUID, payload: ProposalRun, principal: ActorPrincipal = Depends(get_maintenance_agent), db: AsyncSession = Depends(get_db)):
+    await require_agent_access_active(db)
     await expire(db)
     # Row lock + conditional update; commit the claim BEFORE starting any remote work.
     p = await db.scalar(select(MaintenanceProposal).where(MaintenanceProposal.id == proposal_id).with_for_update())
@@ -201,6 +202,8 @@ async def run(proposal_id: uuid.UUID, payload: ProposalRun, principal: ActorPrin
     # Resolve vault bindings before claiming, but never persist resolved values.
     script = SimpleNamespace(archived=False, parameters=p.parameters, platform="windows" if p.shell == "powershell" else "linux", content=p.content)
     command, shell, secrets = await host.prepare_script_run(script, {})
+    # Before the claim: a paused run leaves the approval intact for after reactivation.
+    await require_agent_access_active(db, lock=True)
     claimed = await db.execute(update(MaintenanceProposal).where(MaintenanceProposal.id == p.id, MaintenanceProposal.status == "approved").values(status="claimed", claimed_at=datetime.now(timezone.utc)))
     if claimed.rowcount != 1:
         raise HTTPException(409, "Already claimed")

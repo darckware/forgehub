@@ -56,6 +56,36 @@ class DirectAccessClosed(BaseModel):
     notice: str
 
 
+class DirectAgentOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    runtime_type: str | None
+    allowed: bool
+    # Why it can't use a direct access: a code the screen words. None = it can.
+    unsupported_reason: str | None
+
+
+class DirectAgentRemoved(BaseModel):
+    agent_id: uuid.UUID
+    closed_accesses: int
+    # Machines still running a command of the closed accesses.
+    running_commands: int
+    notice: str
+
+
+class AgentAccessControlOut(BaseModel):
+    paused: bool
+    paused_at: datetime | None
+    paused_by: str | None
+    reason: str | None
+
+
+class AgentAccessPause(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = Field(default=None, max_length=2000)
+
+
 class DirectCommandCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

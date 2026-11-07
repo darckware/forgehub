@@ -148,6 +148,11 @@ class Agent(Base, TimestampMixin):
     autonomous_runs: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )
+    # The list on Remote Access: only these agents can get a direct access.
+    # A human admin changes it (api/routes/direct_access.py), never an agent.
+    direct_access_allowed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     mission: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     department: Mapped[str | None] = mapped_column(String(100), nullable=True)

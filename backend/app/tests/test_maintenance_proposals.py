@@ -217,7 +217,7 @@ async def test_t4a_full_proposal_cycle(ctx,monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('runtime',['claude','codex','agy'])
+@pytest.mark.parametrize('runtime',['claude','codex','agy','hermes'])
 async def test_dispatch_mints_identity_for_actual_agent(ctx,runtime):
     import httpx
     from app.core.agent_runs import dispatch_agent_run
@@ -285,3 +285,100 @@ async def test_project_scoped_delegation_is_checked_in_task_context(ctx):
     assert {m['id'] for m in scoped.json()}=={str(c.server.id)}
     p=await approved(c)
     assert (await execute(c,p)).status_code==200
+
+
+async def set_paused(paused):
+    from app.core.remote_authority import agent_access_control
+    async with AsyncSessionLocal() as db:
+        (await agent_access_control(db)).paused=paused;await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_a_restricted_run_never_gets_a_credential(ctx):
+    import httpx
+    from app.core.agent_runs import dispatch_agent_run
+    c=ctx;c.agent.runtime_type='hermes';c.agent.profile_slug='maia'
+    captured={}
+    class Client:
+        def __init__(self,**kwargs):pass
+        async def __aenter__(self):return self
+        async def __aexit__(self,*args):pass
+        async def post(self,url,**kwargs):
+            captured.update(kwargs['json']);captured['url']=url
+            return httpx.Response(202,json={'run_id':'test'},request=httpx.Request('POST',url))
+    run_id=str(uuid.uuid4())
+    with patch('app.core.agent_runs.httpx.AsyncClient',Client):
+        await dispatch_agent_run(run_id,c.agent,'text from a group','/srv/forgehub-test/',restricted_toolsets='moodle_capture')
+    assert captured['url'].endswith('/v1/agent-runs/restricted') and 'agent_service_token' not in captured
+    async with AsyncSessionLocal() as db:
+        assert await db.scalar(select(AgentServiceCredential).where(AgentServiceCredential.label=='dispatch:'+run_id)) is None
+
+
+@pytest.mark.asyncio
+async def test_pause_stops_library_and_requests_and_the_approved_proposal_survives(ctx):
+    from app.db.models.host_script import HostScript, HostScriptCategory
+    c=ctx
+    p=await approved(c)
+    async with AsyncSessionLocal() as db:
+        category=await db.scalar(select(HostScriptCategory).limit(1))
+        script=HostScript(name='pause-'+uuid.uuid4().hex,category_id=category.id,platform='linux',risk='read',timeout_seconds=30,parameters=[],content='true',current_version=1,created_by='test',updated_by='test')
+        db.add(script);await db.commit()
+        number=(await db.get(AgentDemand,uuid.UUID(str((await db.get(MaintenanceProposal,uuid.UUID(p['id']))).agent_demand_id)))).number
+    run_url=f"{A}/{p['id']}/run";run_body={'message_number':number,'content_hash':p['content_hash']}
+    library={'script_id':str(script.id),'server_ids':[str(c.server.id)],'reason':'Library run','message_number':c.task.number}
+    request={'agent_ids':[str(c.agent.id)],'server_ids':[str(c.server.id)],'instruction':'Check the disk','scripts':[]}
+    try:
+        await set_paused(True)
+        for r in [await c.client.post(run_url,json=run_body,headers=c.agent_headers),
+                  await c.client.post('/api/v1/host-executions/agent',json=library,headers=c.agent_headers),
+                  await c.client.post('/api/v1/host-executions/agent-requests',json=request,headers=c.admin_headers)]:
+            assert r.status_code==403 and r.json()['detail']['code']=='AGENT_REMOTE_ACCESS_PAUSED',r.text
+        async with AsyncSessionLocal() as db:
+            assert (await db.get(MaintenanceProposal,uuid.UUID(p['id']))).status=='approved'
+        await set_paused(False)
+        r=await c.client.post('/api/v1/host-executions/agent',json=library,headers=c.agent_headers)
+        assert r.status_code==201,r.text
+        for pending in list(host_exec_runner._running.values()):await pending
+        r=await c.client.post(run_url,json=run_body,headers=c.agent_headers)
+        assert r.status_code==200,r.text
+        async with AsyncSessionLocal() as db:
+            assert (await db.get(MaintenanceProposal,uuid.UUID(p['id']))).status!='approved'
+    finally:
+        await set_paused(False)
+        for pending in list(host_exec_runner._running.values()):await pending
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(HostScript).where(HostScript.id==script.id));await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_a_proposal_whose_approval_lapsed_during_the_pause_stays_expired(ctx):
+    c=ctx
+    p=await approved(c)
+    async with AsyncSessionLocal() as db:
+        row=await db.get(MaintenanceProposal,uuid.UUID(p['id']))
+        row.expires_at=datetime.now(timezone.utc)-timedelta(seconds=1)
+        number=(await db.get(AgentDemand,row.agent_demand_id)).number;await db.commit()
+    r=await c.client.post(f"{A}/{p['id']}/run",json={'message_number':number,'content_hash':p['content_hash']},headers=c.agent_headers)
+    assert r.status_code==409
+
+
+@pytest.mark.asyncio
+async def test_people_keep_running_while_paused(ctx):
+    from app.db.models.host_script import HostScript, HostScriptCategory
+    c=ctx
+    async with AsyncSessionLocal() as db:
+        category=await db.scalar(select(HostScriptCategory).limit(1))
+        script=HostScript(name='person-'+uuid.uuid4().hex,category_id=category.id,platform='linux',risk='read',timeout_seconds=30,parameters=[],content='true',current_version=1,created_by='test',updated_by='test')
+        db.add(script);await db.commit()
+    try:
+        await set_paused(True)
+        r=await c.client.post('/api/v1/host-executions',json={'script_id':str(script.id),'server_ids':[str(c.server.id)],'reason':'Person run'},headers=c.admin_headers)
+        assert r.status_code==201,r.text
+    finally:
+        await set_paused(False)
+        for pending in list(host_exec_runner._running.values()):await pending
+        async with AsyncSessionLocal() as db:
+            ids=select(HostExecution.id).where(HostExecution.target_summary==c.server.name)
+            await db.execute(delete(AuditEvent).where(AuditEvent.entity_id.in_(ids)))
+            await db.execute(delete(HostExecution).where(HostExecution.target_summary==c.server.name))
+            await db.execute(delete(HostScript).where(HostScript.id==script.id));await db.commit()

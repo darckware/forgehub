@@ -225,6 +225,20 @@ DELEGATION_RISK_LEVELS = ("low", "medium", "high", "critical")
 DELEGATION_RISK_ORDER = {level: index for index, level in enumerate(DELEGATION_RISK_LEVELS)}
 
 
+class AgentRemoteAccessControl(Base, TimestampMixin):
+    """The one switch that stops every agent reaching machines through ForgeHub.
+    A single row (core/remote_authority.py's CONTROL_ID), created by the migration
+    and locked by whoever checks it, so a pause holds for the very next command."""
+
+    __tablename__ = "agent_remote_access_control"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false())
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    paused_by: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class AuthorityDelegation(Base, TimestampMixin):
     __tablename__ = "authority_delegations"
     __table_args__ = (

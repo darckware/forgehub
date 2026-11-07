@@ -1285,6 +1285,13 @@ class AgentRunRequest(BaseModel):
     restricted_toolsets: str | None = None
 
 
+# Hermes gives a stdio MCP child only a safe list plus the server's `env` from
+# config.yaml (tools/mcp_tool_config.py's _build_safe_env), so FORGEHUB_AGENT_TOKEN_FILE
+# never reaches the profile's `forgehub` MCP. `XDG_*` is on that list, which spares
+# editing every profile. An update that closes it fails safe: the tool refuses.
+HERMES_RUN_CREDENTIAL_ENV = "XDG_FORGEHUB_AGENT_TOKEN_FILE"
+
+
 def _agent_run_command(req: AgentRunRequest, project_dir: Path, credential_path: str | None = None) -> tuple[list[str], dict[str, str]]:
     if req.mode not in {"plan", "execute"}:
         raise HTTPException(status_code=400, detail="mode must be plan or execute")
@@ -1313,6 +1320,10 @@ def _agent_run_command(req: AgentRunRequest, project_dir: Path, credential_path:
             raise HTTPException(status_code=400, detail=f"unknown hermes profile: {req.hermes_profile}")
         hermes_env = os.environ.copy()
         hermes_env["HERMES_HOME"] = str(profile_home)
+        for key in ("FORGEHUB_AGENT_TOKEN", "FORGEHUB_AGENT_TOKEN_FILE", HERMES_RUN_CREDENTIAL_ENV):
+            hermes_env.pop(key, None)
+        if credential_path and not req.restricted_toolsets:
+            hermes_env[HERMES_RUN_CREDENTIAL_ENV] = credential_path
         restriction = ["-t", req.restricted_toolsets, "--ignore-rules"] if req.restricted_toolsets else []
         return (
             [
@@ -1598,6 +1609,8 @@ async def start_agent_run(
         uuid.UUID(req.run_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="run_id must be a UUID") from exc
+    if req.restricted_toolsets and req.agent_service_token:
+        raise HTTPException(status_code=400, detail="a restricted run never receives a credential")
     credential_path = None
     try:
         project_dir = validate_working_directory(req.project_path)

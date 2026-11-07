@@ -10,11 +10,11 @@ from types import SimpleNamespace
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 
 from app.api.routes import host_execution as host
 from app.core import host_exec_runner
-from app.core.remote_authority import is_sensitive_machine
+from app.core.remote_authority import CONTROL_ID, agent_access_control, hermes_direct_problem, is_sensitive_machine
 from app.core.secret_masking import mask_secrets
 from app.core.security import create_access_token
 from app.db.base import AsyncSessionLocal
@@ -22,7 +22,7 @@ from app.db.models.agent import Agent, AgentServiceCredential
 from app.db.models.demand import AgentDemand
 from app.db.models.governance import AuditEvent, AuthorityDelegation
 from app.db.models.host_execution import HostExecution, HostExecutionResult
-from app.db.models.host_script import HostScript, HostScriptCategory
+from app.db.models.host_script import HostSchedule, HostScript, HostScriptCategory
 from app.db.models.notification import Notification
 from app.db.models.server import HostGroup, HostGroupMember, Server
 from app.db.models.user import User
@@ -41,8 +41,8 @@ async def ctx(monkeypatch):
     async with AsyncSessionLocal() as db:
         admin = User(username="direct-admin-" + tag, hashed_password="unused", is_admin=True)
         plain = User(username="direct-user-" + tag, hashed_password="unused", is_admin=False)
-        agent = Agent(name="direct-agent-" + tag, agent_type="executor", runtime_type="claude")
-        other = Agent(name="direct-other-" + tag, agent_type="executor", runtime_type="codex")
+        agent = Agent(name="direct-agent-" + tag, agent_type="executor", runtime_type="claude", direct_access_allowed=True)
+        other = Agent(name="direct-other-" + tag, agent_type="executor", runtime_type="codex", direct_access_allowed=True)
         hermes = Agent(name="direct-hermes-" + tag, agent_type="executor", runtime_type="hermes", profile_slug="d" + tag[:8])
         lab = Server(name="direct-lab-" + tag, ip_address="192.0.2.51", remote_user="test", os_family="linux", environment="lab")
         lab2 = Server(name="direct-lab2-" + tag, ip_address="192.0.2.52", remote_user="test", os_family="linux", environment="test")
@@ -88,7 +88,7 @@ async def ctx(monkeypatch):
             await db.execute(delete(Notification).where(or_(*keys)))
         run_ids = select(HostExecution.id).where(HostExecution.agent_id.in_(agents))
         await db.execute(delete(AuditEvent).where(or_(AuditEvent.entity_id.in_(run_ids), AuditEvent.entity_id.in_(access_ids),
-                                                      AuditEvent.entity_id.in_(ids))))
+                                                      AuditEvent.entity_id.in_(ids), AuditEvent.entity_id.in_(agents))))
         await db.execute(delete(HostExecution).where(HostExecution.agent_id.in_(agents)))
         await db.execute(delete(AuthorityDelegation).where(AuthorityDelegation.grantee_id.in_(agents)))
         await db.execute(delete(AgentServiceCredential).where(AgentServiceCredential.agent_id.in_(agents)))
@@ -502,3 +502,311 @@ async def test_no_ssh_key_in_results_history_audit_or_agent_routes(ctx):
 
 def test_a_truncated_private_key_is_masked_to_the_end():
     assert mask_secrets("x\n-----BEGIN RSA PRIVATE KEY-----\nMIIEow") == "x\n********"
+
+
+# --- the list of agents ---------------------------------------------------------
+
+AGENTS = ADMIN + "/agents"
+CONTROL = ADMIN + "/control"
+PAUSED = "AGENT_REMOTE_ACCESS_PAUSED"
+
+
+def hermes_profile(tmp_path, tools=""):
+    (tmp_path / "config.yaml").write_text(
+        "mcp_servers:\n  forgehub:\n    command: uv\n    args: [run, /srv/backend/app/mcp/factory_server.py]\n" + tools)
+    return str(tmp_path)
+
+
+async def set_home(agent, home):
+    async with AsyncSessionLocal() as db:
+        (await db.get(Agent, agent.id)).home_path = home
+        await db.commit()
+
+
+async def audit_events(entity_id, event_type):
+    async with AsyncSessionLocal() as db:
+        return (await db.scalars(select(AuditEvent).where(
+            AuditEvent.entity_id == entity_id, AuditEvent.event_type == event_type))).all()
+
+
+@pytest.mark.asyncio
+async def test_adding_and_removing_is_audited_with_the_admin(ctx):
+    c = ctx
+    assert (await c.client.delete(f"{AGENTS}/{c.other.id}", headers=c.admin_h)).status_code == 200
+    assert (await c.client.delete(f"{AGENTS}/{c.other.id}", headers=c.admin_h)).status_code == 404
+    listed = {a["id"]: a for a in (await c.client.get(AGENTS, headers=c.admin_h)).json()}
+    assert listed[str(c.other.id)]["allowed"] is False and listed[str(c.agent.id)]["allowed"] is True
+    assert (await c.client.post(f"{AGENTS}/{c.other.id}", headers=c.admin_h)).status_code == 201
+    assert (await c.client.post(f"{AGENTS}/{c.other.id}", headers=c.admin_h)).status_code == 409
+    for event in ("direct_access_agent_removed", "direct_access_agent_added"):
+        [row] = await audit_events(c.other.id, event)
+        assert row.actor == c.admin.username
+
+
+@pytest.mark.asyncio
+async def test_an_agent_off_the_list_cannot_get_an_access(ctx):
+    c = ctx
+    await c.client.delete(f"{AGENTS}/{c.agent.id}", headers=c.admin_h)
+    r = await c.client.post(ADMIN, json=opening(c), headers=c.admin_h)
+    assert r.status_code == 422 and await code_of(r) == "AGENT_NOT_LISTED"
+
+
+@pytest.mark.asyncio
+async def test_removing_closes_the_open_accesses_and_refuses_the_next_command(ctx):
+    c = ctx
+    await opened(c)
+    await opened(c, server_ids=[str(c.lab2.id)])
+    assert (await c.client.post(RUN, json=command(c), headers=c.agent_h)).status_code == 201
+    r = await c.client.delete(f"{AGENTS}/{c.agent.id}", headers=c.admin_h)
+    assert r.status_code == 200
+    assert r.json()["closed_accesses"] == 2 and "not interrupted" in r.json()["notice"]
+    assert (await c.client.get(ADMIN, headers=c.admin_h)).json() == []
+    r = await c.client.post(RUN, json=command(c), headers=c.agent_h)
+    assert r.status_code == 403 and await code_of(r) == "AGENT_NOT_LISTED"
+    async with AsyncSessionLocal() as db:
+        rows = (await db.scalars(select(AuthorityDelegation).where(AuthorityDelegation.grantee_id == c.agent.id))).all()
+        assert {r.status for r in rows} == {"revoked"}
+        events = (await db.scalars(select(AuditEvent).where(
+            AuditEvent.entity_id.in_([r.id for r in rows]), AuditEvent.event_type == "direct_access_closed"))).all()
+        assert len(events) == 2 and {e.actor for e in events} == {c.admin.username}
+        assert {e.payload["cause"] for e in events} == {"agent_removed_from_list"}
+
+
+@pytest.mark.asyncio
+async def test_removing_says_how_many_commands_are_still_running(ctx, monkeypatch):
+    c = ctx
+    release = asyncio.Event()
+
+    async def slow(*args):
+        await release.wait()
+        return dict(exit_code=0, stdout="done", stderr="", duration_ms=1, failure=None)
+
+    monkeypatch.setattr(host_exec_runner, "call_bridge_exec", slow)
+    await opened(c)
+    run = await c.client.post(RUN, json=command(c), headers=c.agent_h)
+    assert (await c.client.delete(f"{AGENTS}/{c.agent.id}", headers=c.admin_h)).json()["running_commands"] == 1
+    release.set()
+    await finished(c, run.json()["id"])
+
+
+@pytest.mark.asyncio
+async def test_a_hermes_agent_joins_only_if_its_profile_reaches_the_tool(ctx, tmp_path):
+    c = ctx
+    await set_home(c.hermes, str(tmp_path / "missing"))
+    r = await c.client.post(f"{AGENTS}/{c.hermes.id}", headers=c.admin_h)
+    assert r.status_code == 422 and await code_of(r) == "PROFILE_NOT_READABLE"
+    await set_home(c.hermes, hermes_profile(tmp_path, "    tools:\n      include: [send_agent_message]\n"))
+    listed = {a["id"]: a for a in (await c.client.get(AGENTS, headers=c.admin_h)).json()}
+    assert listed[str(c.hermes.id)]["unsupported_reason"] == "PROFILE_MCP_WITHOUT_MAINTENANCE_TOOLS"
+    assert (await c.client.post(f"{AGENTS}/{c.hermes.id}", headers=c.admin_h)).status_code == 422
+    await set_home(c.hermes, hermes_profile(tmp_path))
+    assert (await c.client.post(f"{AGENTS}/{c.hermes.id}", headers=c.admin_h)).status_code == 201
+    assert (await opened(c, agent_id=str(c.hermes.id)))["agent_id"] == str(c.hermes.id)
+
+
+@pytest.mark.parametrize("config,problem", [
+    ({}, "PROFILE_WITHOUT_FORGEHUB_MCP"),
+    ({"mcp_servers": {"forgehub": {"enabled": False, "args": ["factory_server.py"]}}}, "PROFILE_WITHOUT_FORGEHUB_MCP"),
+    ({"mcp_servers": {"forgehub": {"args": ["/profiles/maia/mcp/forgehub.py"]}}}, "PROFILE_MCP_WITHOUT_MAINTENANCE_TOOLS"),
+    ({"mcp_servers": {"forgehub": {"args": ["x/factory_server.py"], "tools": {"exclude": ["run_remote_command"]}}}},
+     "PROFILE_MCP_WITHOUT_MAINTENANCE_TOOLS"),
+    ({"mcp_servers": {"forgehub": {"args": ["x/factory_server.py"], "tools": {"include": ["run_remote_command"]}}}}, None),
+    ({"mcp_servers": {"forgehub": {"args": ["x/forgehub_messages_mcp.py"]}}}, None),
+])
+def test_hermes_profile_rule(config, problem):
+    assert hermes_direct_problem(config) == problem
+
+
+@pytest.mark.asyncio
+async def test_agents_never_change_the_list_or_the_pause_even_with_delegation(ctx):
+    c = ctx
+    await opened(c)
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        db.add(AuthorityDelegation(grantor_user_id=c.admin.id, grantee_type="agent", grantee_id=c.agent.id,
+                                   allowed_actions=["remote_access.execute"], servers=[str(c.lab.id)], max_risk="high",
+                                   valid_from=now, expires_at=now + timedelta(hours=1)))
+        await db.commit()
+    # The agent's credential stops at the middleware (401); a person's session at the route.
+    for headers, refused in ((c.agent_h, 401), (c.user_h, 403)):
+        calls = [c.client.get(AGENTS, headers=headers), c.client.post(f"{AGENTS}/{c.other.id}", headers=headers),
+                 c.client.delete(f"{AGENTS}/{c.agent.id}", headers=headers), c.client.get(CONTROL, headers=headers),
+                 c.client.post(CONTROL + ":pause", json={}, headers=headers),
+                 c.client.post(CONTROL + ":resume", headers=headers)]
+        for call in calls:
+            assert (await call).status_code == refused
+    async with AsyncSessionLocal() as db:
+        assert (await agent_access_control(db)).paused is False
+
+
+# --- the pause ------------------------------------------------------------------
+
+@pytest_asyncio.fixture
+async def pausable(ctx):
+    """Always leaves the switch active: the database is shared by the whole suite."""
+    yield ctx
+    async with AsyncSessionLocal() as db:
+        control = await agent_access_control(db)
+        control.paused, control.paused_at, control.paused_by, control.reason = False, None, None, None
+        await db.execute(delete(AuditEvent).where(AuditEvent.entity_id == CONTROL_ID))
+        await db.execute(delete(Notification).where(Notification.event_key.like("agent-remote-access:%")))
+        await db.commit()
+
+
+async def pause(c, reason=None):
+    r = await c.client.post(CONTROL + ":pause", json={"reason": reason}, headers=c.admin_h)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+async def resume(c):
+    r = await c.client.post(CONTROL + ":resume", headers=c.admin_h)
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.asyncio
+async def test_pause_refuses_command_and_opening_and_shows_in_the_listing(pausable):
+    c = pausable
+    await opened(c)
+    state = await pause(c, "Incidente")
+    assert state["paused"] is True and state["paused_by"] == c.admin.username and state["reason"] == "Incidente"
+    assert (await c.client.get(CONTROL, headers=c.admin_h)).json()["paused"] is True
+    r = await c.client.post(RUN, json=command(c), headers=c.agent_h)
+    assert r.status_code == 403 and await code_of(r) == PAUSED
+    r = await c.client.post(ADMIN, json=opening(c, server_ids=[str(c.lab2.id)]), headers=c.admin_h)
+    assert r.status_code == 403 and await code_of(r) == PAUSED
+    [machine] = (await c.client.get("/api/v1/host-executions/agent/machines", headers=c.agent_h)).json()
+    assert machine["agent_access_paused"] is True and machine["runnable"] is False and machine["direct_access"] is True
+    [event] = await audit_events(CONTROL_ID, "agent_remote_access_paused")
+    assert event.actor == c.admin.username and event.payload == {"reason": "Incidente"}
+
+
+@pytest.mark.asyncio
+async def test_pause_closes_nothing_and_a_valid_access_counts_again(pausable):
+    c = pausable
+    access = await opened(c)
+    await pause(c)
+    assert [a["id"] for a in (await c.client.get(ADMIN, headers=c.admin_h)).json()] == [access["id"]]
+    await resume(c)
+    r = await c.client.post(RUN, json=command(c), headers=c.agent_h)
+    assert r.status_code == 201, r.text
+    await finished(c, r.json()["id"])
+    [machine] = (await c.client.get("/api/v1/host-executions/agent/machines", headers=c.agent_h)).json()
+    assert machine["agent_access_paused"] is False and machine["runnable"] is True
+    assert await audit_events(CONTROL_ID, "agent_remote_access_resumed")
+
+
+@pytest.mark.asyncio
+async def test_an_access_that_expires_during_the_pause_does_not_come_back(pausable):
+    c = pausable
+    access = await opened(c)
+    await pause(c)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AuthorityDelegation, uuid.UUID(access["id"]))
+        row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await db.commit()
+    await resume(c)
+    r = await c.client.post(RUN, json=command(c), headers=c.agent_h)
+    assert r.status_code == 403 and await code_of(r) == "NO_DIRECT_ACCESS"
+
+
+@pytest.mark.asyncio
+async def test_pausing_twice_and_resuming_twice_are_conflicts(pausable):
+    c = pausable
+    assert (await c.client.post(CONTROL + ":resume", headers=c.admin_h)).status_code == 409
+    await pause(c)
+    assert (await c.client.post(CONTROL + ":pause", json={}, headers=c.admin_h)).status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_a_literal_secret_in_the_pause_reason_is_refused(pausable):
+    r = await pausable.client.post(CONTROL + ":pause", json={"reason": "password=hunter2hunter2"}, headers=pausable.admin_h)
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_a_pause_landing_after_the_first_check_still_stops_the_command(pausable, monkeypatch):
+    """The first check passes, then the pause commits: only the check under the lock catches it."""
+    c = pausable
+    await opened(c)
+
+    async def pause_midway(db):
+        await pause(c)
+        return {c.lab.id: (True, "complete")}
+
+    monkeypatch.setattr(host, "_agent_readiness", pause_midway)
+    r = await c.client.post(RUN, json=command(c), headers=c.agent_h)
+    assert r.status_code == 403 and await code_of(r) == PAUSED
+    async with AsyncSessionLocal() as db:
+        assert await db.scalar(select(func.count()).select_from(HostExecution).where(HostExecution.agent_id == c.agent.id)) == 0
+
+
+@pytest.mark.asyncio
+async def test_a_pause_waits_for_a_command_being_recorded(pausable):
+    c = pausable
+    async with AsyncSessionLocal() as db:
+        await agent_access_control(db, lock=True)
+        pending = asyncio.create_task(c.client.post(CONTROL + ":pause", json={}, headers=c.admin_h))
+        await asyncio.sleep(0.3)
+        assert not pending.done()
+        await db.commit()
+    assert (await pending).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_a_running_command_finishes_during_the_pause(pausable, monkeypatch):
+    c = pausable
+    release = asyncio.Event()
+
+    async def slow(*args):
+        await release.wait()
+        return dict(exit_code=0, stdout="done", stderr="", duration_ms=1, failure=None)
+
+    monkeypatch.setattr(host_exec_runner, "call_bridge_exec", slow)
+    await opened(c)
+    run = await c.client.post(RUN, json=command(c), headers=c.agent_h)
+    await pause(c)
+    release.set()
+    await finished(c, run.json()["id"])
+    async with AsyncSessionLocal() as db:
+        result = await db.scalar(select(HostExecutionResult).where(HostExecutionResult.execution_id == uuid.UUID(run.json()["id"])))
+        assert result.status == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_agent_schedules_wait_and_people_are_not_affected(pausable):
+    from app.api.routes.host_script import run_due_schedules
+
+    c = pausable
+    past = datetime.now(timezone.utc) - timedelta(minutes=1)
+    async with AsyncSessionLocal() as db:
+        category = await db.scalar(select(HostScriptCategory).limit(1))
+        script = HostScript(name="pause-script-" + uuid.uuid4().hex, category_id=category.id, platform="linux",
+                            content="echo ok", risk="read", created_by="t", updated_by="t", timeout_seconds=30)
+        db.add(script)
+        await db.flush()
+        shape = dict(script_id=script.id, server_ids=[str(c.lab.id)], group_ids=[], kind="once", run_at=past,
+                     next_run_at=past, created_by="t", parameter_values={})
+        by_agent = HostSchedule(name="pause-agent", agent_id=c.agent.id, **shape)
+        by_person = HostSchedule(name="pause-person", **shape)
+        db.add_all([by_agent, by_person])
+        await db.commit()
+    try:
+        await pause(c)
+        assert await run_due_schedules() == 1
+        r = await c.client.post(f"/api/v1/host-schedules/{by_agent.id}:run-now", headers=c.admin_h)
+        assert r.status_code == 403 and await code_of(r) == PAUSED
+        async with AsyncSessionLocal() as db:
+            assert (await db.get(HostSchedule, by_agent.id)).enabled is True
+            assert (await db.get(HostSchedule, by_person.id)).last_execution_id is not None
+        await resume(c)
+        assert await run_due_schedules() == 1
+    finally:
+        for pending in list(host_exec_runner._running.values()):
+            await pending
+        async with AsyncSessionLocal() as db:
+            runs = select(HostExecution.id).where(HostExecution.schedule_id.in_([by_agent.id, by_person.id]))
+            await db.execute(delete(AuditEvent).where(AuditEvent.entity_id.in_(runs)))
+            await db.execute(delete(HostExecution).where(HostExecution.schedule_id.in_([by_agent.id, by_person.id])))
+            await db.execute(delete(HostScript).where(HostScript.id == script.id))
+            await db.commit()

@@ -393,7 +393,12 @@ async def delete_schedule(schedule_id: uuid.UUID, db: AsyncSession = Depends(get
 
 async def fire_schedule(db: AsyncSession, schedule: HostSchedule, actor: str):
     """One run of a schedule: an ordinary execution with trigger="schedule",
-    unreachable machines retried until the window closes."""
+    unreachable machines retried until the window closes. An agent's schedule
+    obeys the pause, whoever fires it; a person's never does."""
+    from app.core.remote_authority import require_agent_access_active
+
+    if schedule.agent_id:
+        await require_agent_access_active(db)
     script = await db.get(HostScript, schedule.script_id)
     if script is None or script.archived:
         return None
@@ -401,6 +406,8 @@ async def fire_schedule(db: AsyncSession, schedule: HostSchedule, actor: str):
     servers, group_names = await resolve_targets(db, schedule.server_ids, schedule.group_ids)
     if not servers:
         return None
+    if schedule.agent_id:
+        await require_agent_access_active(db, lock=True)
     return await launch_execution(
         db, servers=servers, command=command, shell=shell, timeout_seconds=script.timeout_seconds,
         actor=actor, target_summary=f"{schedule.name}: " + (" + ".join(group_names) or f"{len(servers)} machine(s)"),
@@ -430,16 +437,18 @@ async def run_due_schedules() -> int:
     loops must never fire the same run."""
     from app.db.base import AsyncSessionLocal
 
+    from app.core.remote_authority import agent_access_control
+
     fired = 0
     now = _now()
     async with AsyncSessionLocal() as db:
-        due = list(
-            (await db.execute(
-                select(HostSchedule)
-                .where(HostSchedule.enabled.is_(True), HostSchedule.next_run_at.is_not(None), HostSchedule.next_run_at <= now)
-                .with_for_update(skip_locked=True)
-            )).scalars()
-        )
+        control = await agent_access_control(db)
+        query = (select(HostSchedule)
+                 .where(HostSchedule.enabled.is_(True), HostSchedule.next_run_at.is_not(None), HostSchedule.next_run_at <= now))
+        if control is None or control.paused:
+            # An agent's schedule stays due, unclaimed: it fires once after reactivation.
+            query = query.where(HostSchedule.agent_id.is_(None))
+        due = list((await db.execute(query.with_for_update(skip_locked=True))).scalars())
         claimed = []
         for schedule in due:
             schedule.last_run_at = now

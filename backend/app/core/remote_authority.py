@@ -4,13 +4,21 @@ Two separate actions. `remote_access.execute` runs library scripts and approved
 proposals. `remote_access.direct` runs any command, only through a temporary
 opening made by a human admin (api/routes/direct_access.py); neither implies
 the other.
+
+Above both sits one switch (Marcelo, 2026-11-06: "a pausa bloqueia todos os
+agentes"): while paused, no agent reaches a machine through ForgeHub, by any
+route. People, their schedules and the Workspace terminal are not affected.
 """
+import uuid
 from datetime import datetime, timezone
 
+import yaml
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.db.models.governance import AuthorityDelegation, DELEGATION_RISK_ORDER
+from app.core import agent_mcp
+from app.core.agent_profile_files import EXTERNAL_RUNTIMES
+from app.db.models.governance import AgentRemoteAccessControl, AuthorityDelegation, DELEGATION_RISK_ORDER
 from app.db.models.server import HostGroupMember
 
 ACTION = "remote_access.execute"
@@ -20,6 +28,62 @@ DIRECT_DURATIONS_HOURS = (1, 4, 24)
 # Everything else counts as sensitive, an unknown or blank value included.
 NON_SENSITIVE_ENVIRONMENTS = frozenset({"test", "dev", "lab"})
 RISK = {"read": "low", "change": "medium", "destructive": "high"}
+# The single row of agent_remote_access_control, created by its migration.
+CONTROL_ID = uuid.UUID("6f1d2c4e-8a35-4b7e-9c10-3e5a7b9d1f24")
+PAUSED_CODE = "AGENT_REMOTE_ACCESS_PAUSED"
+# What a Hermes profile's `forgehub` entry must run and expose to use direct access.
+_MAINTENANCE_MCP_FILES = ("factory_server.py", "forgehub_messages_mcp.py")
+_DIRECT_TOOL = "run_remote_command"
+
+
+async def agent_access_control(db, lock=False):
+    query = select(AgentRemoteAccessControl).where(AgentRemoteAccessControl.id == CONTROL_ID)
+    return await db.scalar(query.with_for_update(read=True) if lock else query)
+
+
+async def require_agent_access_active(db, lock=False):
+    """403 while paused. A missing row refuses too: not knowing is never "active".
+    `lock` holds the row FOR SHARE until the caller commits, so a pause waits for a
+    run already being recorded and the next one sees it. Refuse before anything is
+    spent, an approved proposal's claim included."""
+    control = await agent_access_control(db, lock)
+    if control is None or control.paused:
+        raise HTTPException(403, {"code": PAUSED_CODE, "message": (
+            "Agent access to machines through ForgeHub is paused by a human admin. "
+            "Nothing was run; do not retry until it is reactivated.")})
+
+
+def hermes_direct_problem(profile_config: dict) -> str | None:
+    """Why a Hermes profile can't call run_remote_command; None when it can."""
+    entry = (profile_config.get("mcp_servers") or {}).get("forgehub")
+    if not isinstance(entry, dict) or entry.get("enabled") is False:
+        return "PROFILE_WITHOUT_FORGEHUB_MCP"
+    if not any(str(arg).endswith(_MAINTENANCE_MCP_FILES) for arg in entry.get("args") or []):
+        return "PROFILE_MCP_WITHOUT_MAINTENANCE_TOOLS"
+    tools = entry.get("tools") or {}
+    if _DIRECT_TOOL in (tools.get("exclude") or []) or ("include" in tools and _DIRECT_TOOL not in (tools["include"] or [])):
+        return "PROFILE_MCP_WITHOUT_MAINTENANCE_TOOLS"
+    return None
+
+
+def direct_access_problem(agent) -> str | None:
+    """Why this agent could not use a direct access, or None. External runtimes get
+    the run credential through their session config. Hermes gets it through
+    the XDG_ variable (host-bridge/app.py), and the tool must reach it: Lara's and
+    Maia's profiles filter it out. Read from the runtime's own file, not a copy."""
+    if agent.runtime_type in EXTERNAL_RUNTIMES:
+        return None
+    if agent.runtime_type != "hermes" or not agent.profile_slug:
+        return "RUNTIME_WITHOUT_RUN_CREDENTIAL"
+    fmt = agent_mcp.format_for("hermes")
+    resolved = agent_mcp.resolve_host_file(agent_mcp.config_host_path(agent.effective_home_path, fmt))
+    if resolved is None:
+        return "PROFILE_NOT_READABLE"
+    try:
+        config = yaml.safe_load(resolved.read_text())
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return "PROFILE_NOT_READABLE"
+    return hermes_direct_problem(config if isinstance(config, dict) else {})
 
 
 def delegation_covers(row, server_id, groups):

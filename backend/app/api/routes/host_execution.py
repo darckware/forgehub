@@ -40,7 +40,8 @@ from app.api.schemas.host_execution import (
 )
 from app.core import host_exec_runner
 from app.core.remote_authority import (
-    direct_access_for, direct_accesses, machine_ceilings, project_product_id, require_direct, require_remote,
+    agent_access_control, direct_access_for, direct_accesses, machine_ceilings, project_product_id,
+    require_agent_access_active, require_direct, require_remote,
 )
 from app.core.host_scripts import ScriptError, compatible, render_script, resolve_values, shell_for
 from app.core.deps import ActorPrincipal, authorize_action, get_current_admin, get_maintenance_agent
@@ -577,6 +578,8 @@ async def agent_list_machines(
     product_id, project_id = await remote_context(db, principal, message_number)
     readiness = await _agent_readiness(db)
     direct = await direct_accesses(db, principal.principal_id)
+    control = await agent_access_control(db)
+    paused = control is None or control.paused
     servers = (await db.execute(select(Server).where(Server.access_enabled.is_(True)).order_by(Server.name))).scalars()
     out = []
     for s in servers:
@@ -586,7 +589,8 @@ async def agent_list_machines(
             continue
         out.append(AgentMachineOut(
             id=s.id, name=s.name, kind=s.kind, os_family=s.os_family, darckware_client_name=s.darckware_client_name,
-            location=s.location, runnable=readiness.get(s.id, (False, "unknown"))[0],
+            location=s.location, runnable=not paused and readiness.get(s.id, (False, "unknown"))[0],
+            agent_access_paused=paused,
             status=readiness.get(s.id, (False, "unknown"))[1],
             direct_access=access is not None,
             direct_access_until=access.expires_at if access else None,
@@ -622,6 +626,7 @@ async def agent_create_execution(
     db: AsyncSession = Depends(get_db),
     principal: ActorPrincipal = Depends(get_maintenance_agent),
 ):
+    await require_agent_access_active(db)
     script = await db.get(HostScript, payload.script_id)
     if not script or script.archived:
         raise HTTPException(status_code=404, detail="Script not found")
@@ -639,6 +644,8 @@ async def agent_create_execution(
         )
     item = darckware_item_of(payload.darckware_item_kind, payload.darckware_item_id)
     command, shell, secrets = await prepare_script_run(script, payload.parameter_values)
+    # Held until launch_execution commits: a pause waits for this run to be recorded.
+    await require_agent_access_active(db, lock=True)
     execution = await launch_execution(
         db,
         servers=servers,
@@ -782,6 +789,7 @@ async def create_agent_request(
     from app.api.schemas.demand import DemandSubmitIn
     from app.db.models.governance import DELEGATION_RISK_ORDER
 
+    await require_agent_access_active(db)
     agents = list((await db.execute(select(Agent).where(Agent.id.in_(payload.agent_ids)))).scalars())
     if len(agents) != len(set(payload.agent_ids)):
         raise HTTPException(status_code=422, detail="Unknown agent")
@@ -834,6 +842,7 @@ async def create_agent_request(
                               actor=admin.username, payload={"agent": agent.name, "demand_number": demand.number,
                                                              "instruction": payload.instruction.strip()[:500]}))
         out.append(AgentRequestOut(agent_id=agent.id, agent_name=agent.name, demand_id=demand.id, demand_number=demand.number))
+    await require_agent_access_active(db, lock=True)
     await db.commit()
     from app.core.dispatch_signal import wake_scheduled_dispatch
 

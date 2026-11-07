@@ -80,7 +80,8 @@ async def dispatch_agent_run(
         body["restricted_toolsets"] = restricted_toolsets
         path = "/v1/agent-runs/restricted"
     # After the refusals above, so a refused run leaves no credential behind.
-    if agent.id is not None and agent.runtime_type in ("claude", "codex", "agy"):
+    # A restricted run never gets one: it reads text from outside (instructors' group).
+    if agent.id is not None and not restricted_toolsets and agent.runtime_type in ("claude", "codex", "agy", "hermes"):
         from app.db.base import AsyncSessionLocal
         from app.db.models.agent import AgentServiceCredential
         token = "agt_" + secrets.token_urlsafe(32)

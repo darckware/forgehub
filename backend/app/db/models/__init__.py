@@ -48,7 +48,7 @@ from app.db.models.agent import (  # noqa: F401
 from app.db.models.artifact import Artifact, ArtifactVersion  # noqa: F401
 from app.db.models.governance import (  # noqa: F401
     Policy, Approval, AuditEvent, PolicyVersion, PolicyBinding, PolicyEvaluation,
-    ApprovalRequest, ApprovalDecisionRecord, AuthorityDelegation,
+    AgentRemoteAccessControl, ApprovalRequest, ApprovalDecisionRecord, AuthorityDelegation,
 )
 from app.db.models.active_turn import ActiveTurn  # noqa: F401
 from app.db.models.chat import ChatSession, ChatMessage, ChatArtifact, ChatSessionParticipant, ChatGroup  # noqa: F401

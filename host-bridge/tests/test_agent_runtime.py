@@ -335,3 +335,61 @@ def test_agy_registry_leaves_an_invalid_file_untouched(tmp_path, monkeypatch):
         bridge._ensure_agy_messages_mcp(path)
     assert path.read_bytes() == b'{"mcpServers": {broken'
     assert [p.name for p in tmp_path.iterdir()] == ["mcp_config.json"]
+
+
+def _hermes_req(bridge, tmp_path, monkeypatch, **extra):
+    monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "test-token")
+    monkeypatch.setattr(bridge, "Path", lambda p: tmp_path / Path(p).name if str(p).startswith("/root/.hermes") else Path(p))
+    (tmp_path / "profiles" / "athos").mkdir(parents=True)
+    return bridge.AgentRunRequest(run_id=str(__import__("uuid").uuid4()), runtime_type="hermes", project_path=str(tmp_path),
+                                  prompt="do it", hermes_profile="athos", **extra)
+
+
+def test_a_hermes_run_passes_the_credential_file_under_the_name_hermes_lets_through(monkeypatch, tmp_path):
+    bridge = importlib.import_module("app")
+    monkeypatch.setenv("FORGEHUB_AGENT_TOKEN_FILE", "/inherited/from/the/bridge")
+    req = _hermes_req(bridge, tmp_path, monkeypatch, agent_service_token="agt_never_in_argv_or_env")
+    command, env = bridge._agent_run_command(req, tmp_path, "/tmp/forgehub-run-x.credential")
+    assert env[bridge.HERMES_RUN_CREDENTIAL_ENV] == "/tmp/forgehub-run-x.credential"
+    assert "FORGEHUB_AGENT_TOKEN_FILE" not in env
+    assert "agt_never_in_argv_or_env" not in str(command) + str(env)
+    assert bridge.HERMES_RUN_CREDENTIAL_ENV not in bridge._agent_run_command(
+        req.model_copy(update={"agent_service_token": None}), tmp_path)[1]
+
+
+def test_a_restricted_run_never_carries_a_credential_path(monkeypatch, tmp_path):
+    bridge = importlib.import_module("app")
+    monkeypatch.setenv(bridge.HERMES_RUN_CREDENTIAL_ENV, "/inherited/from/the/bridge")
+    req = _hermes_req(bridge, tmp_path, monkeypatch, restricted_toolsets="moodle_capture")
+    _, env = bridge._agent_run_command(req, tmp_path, "/tmp/forgehub-run-x.credential")
+    assert bridge.HERMES_RUN_CREDENTIAL_ENV not in env and "FORGEHUB_AGENT_TOKEN_FILE" not in env
+
+
+def test_the_restricted_route_refuses_a_credential_and_leaves_no_file(monkeypatch, tmp_path):
+    import asyncio
+    import tempfile
+    from fastapi import HTTPException
+    bridge = importlib.import_module("app")
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    req = _hermes_req(bridge, tmp_path, monkeypatch, restricted_toolsets="moodle_capture", agent_service_token="agt_x")
+    monkeypatch.setattr(bridge, "_check_token", lambda token: None)
+    with pytest.raises(HTTPException) as refused:
+        asyncio.run(bridge.start_restricted_agent_run(req, "test-token"))
+    assert refused.value.status_code == 400
+    assert not list(tmp_path.glob("forgehub-run-*"))
+
+
+HERMES_PYTHON = Path("/usr/local/lib/hermes-agent/venv/bin/python")
+
+
+@pytest.mark.skipif(not HERMES_PYTHON.exists(), reason="Hermes is not installed here")
+def test_the_installed_hermes_passes_only_the_xdg_name_to_a_stdio_mcp():
+    """Hermes' own filter: if an update closes XDG_*, this fails before a run does."""
+    import json
+    import subprocess
+    code = ("import json;from tools.mcp_tool_config import _build_safe_env;"
+            "print(json.dumps({k:v for k,v in _build_safe_env({}).items() if 'FORGEHUB' in k}))")
+    out = subprocess.run([str(HERMES_PYTHON), "-c", code], cwd=HERMES_PYTHON.parents[2], capture_output=True, text=True, timeout=60,
+                         env={**os.environ, "FORGEHUB_AGENT_TOKEN_FILE": "/a", "XDG_FORGEHUB_AGENT_TOKEN_FILE": "/b"})
+    assert out.returncode == 0, out.stderr[-500:]
+    assert json.loads(out.stdout.strip().splitlines()[-1]) == {"XDG_FORGEHUB_AGENT_TOKEN_FILE": "/b"}

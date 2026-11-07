@@ -147,6 +147,8 @@ class AgentMachineOut(BaseModel):
     direct_access: bool = False
     direct_access_until: datetime | None = None
     direct_allow_elevation: bool = False
+    # A human admin paused every agent's access: `runnable` is false and nothing runs.
+    agent_access_paused: bool = False
 
 
 class AgentScriptOut(BaseModel):
