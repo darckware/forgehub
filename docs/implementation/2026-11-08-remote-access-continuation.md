@@ -91,3 +91,51 @@ changes again, reconcile the manifest before activation.
 Exact artifacts, backup/restore and migration rehearsal, activation results and service
 health are recorded in `/root/.forgehub/releases/remote-access-*`. Append final publication
 results after activation and health checks complete. Never commit private dumps.
+
+### Installed — 2026-11-08
+
+Publication completed at **20:49:50 America/Sao_Paulo (23:49:50 UTC)**.
+
+- ForgeHub application commit **`4b6ef28`**, published to `origin/develop`;
+  backend/frontend images **`fh-4b6ef28`**. Backend reports healthy; frontend route
+  `/remote-access` responds HTTP 200. Upload without authentication returns HTTP 401
+  through the frontend proxy.
+- ForgeVault commit **`21dfa9e`**, published to `origin/main`; API image **`fv-21dfa9e`**,
+  readiness HTTP 200. Its additive restricted-secret migration is applied.
+- Alembic revision **`e2c8d0b45e73`** is applied in production.
+- `forgehub-chat-bridge.service` is active with its working directory pinned to
+  `/root/.forgehub/releases/remote-access-4b6ef28/forgehub/host-bridge`; health HTTP 200.
+  The existing Hermes gateway was not restarted.
+- **Seven active SSH keys are restricted**, with explicit grants for the ForgeHub
+  remote-access consumer. The activation verified consumer reads and HTTP 403 for
+  the administrative identity on all seven keys, without emitting values. The retired
+  eighth key remains revoked. No production remote commands were sent.
+- **Zero active direct machine configurations** remain after migration, as designed.
+  A human administrator must save each agent's intended scope in Acesso Remoto before
+  that agent can run direct commands or transfer files. No blanket permissions were added.
+- Output retention is 90 days; mission tools remain enabled and mission cycle disabled.
+
+The first publication attempt rolled back successfully. Its final route introspection
+used `r.path` on every FastAPI router; the production image's FastAPI **0.162.2** exposes
+`_IncludedRouter` objects without that attribute. This was reproduced without network or
+database access. The installer now verifies routes using `app.openapi()['paths']`; the
+corrected check passed before retry. Migrations were retained and checked rather than
+reapplied. All rollback service checks passed before retrying.
+
+Additional regressions inside the **exact production backend image** passed:
+**182 passed, 2 deselected**. An initial broader image run had 182 passes and two failures
+because the production image intentionally has no Docker CLI:
+`test_linux_target_open_use_close` and `test_t4a_full_proposal_cycle`. Both host-dependent
+cases passed in the full 2,011-test host run; they were excluded only from the image check.
+
+Backups for both databases were restored and migrated successfully in private, internal
+quarantine containers with no ports, application processes or shared volumes. Durable
+backup directory: `/root/backup/remote-access-4b6ef28`. Release directory:
+`/root/.forgehub/releases/remote-access-4b6ef28`, including image IDs, source archive hashes,
+approval scope, migration SQL, installer, activation logs and `production-verification.json`.
+The prior application images are retained. A ForgeHub rollback may keep the additive schema;
+**never restore old ForgeVault binaries while any restricted key remains active**.
+
+Unrelated pre-existing changes in both main checkouts were preserved. This publication
+completes the access implementation; whole-project acceptance and the FileNest pilot are
+still the separately planned next phase.
