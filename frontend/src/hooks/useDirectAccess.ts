@@ -1,10 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api";
 
-/** Direct remote access (2026-11-06): a human admin opens it for an agent on
- * chosen machines for 1, 4 or 24 hours. Durations and rules live in the
- * backend (core/remote_authority.py); these lists only feed the form. */
-export const DIRECT_DURATIONS = [1, 4, 24] as const;
+/** Human-confirmed per-agent configuration. Backend remains the authority. */
+export const DIRECT_DURATIONS = [0, 1, 4, 24] as const;
 export const DIRECT_PURPOSES = ["development", "support"] as const;
 const PATH = "/api/v1/remote-access/direct";
 const KEY = ["remote-access", "direct"];
@@ -18,31 +16,27 @@ export interface DirectAccess {
   id: string;
   agent_id: string;
   agent_name: string;
-  purpose: DirectPurpose;
+  purpose: DirectPurpose | null;
   allow_elevation: boolean;
   reason: string | null;
   machines: { id: string; name: string; sensitive: boolean }[];
   granted_by: string | null;
   opened_at: string;
-  expires_at: string;
+  expires_at: string | null;
+  open_ended: boolean;
+  all_machines: boolean;
+  duration_hours: DirectDuration;
 }
 
 export interface DirectAccessInput {
-  agent_id: string;
+  all_machines: boolean;
   server_ids: string[];
   group_ids: string[];
-  reason: string;
-  purpose: DirectPurpose;
+  reason: string | null;
+  purpose: DirectPurpose | null;
   duration_hours: DirectDuration;
   allow_elevation: boolean;
   confirm_sensitive: boolean;
-}
-
-export interface DirectAccessClosed {
-  id: string;
-  closed_at: string;
-  running_commands: number;
-  notice: string;
 }
 
 /** An active agent: on the list or not, and the code of why it can't use an access. */
@@ -52,6 +46,7 @@ export interface DirectAgent {
   runtime_type: string | null;
   allowed: boolean;
   unsupported_reason: string | null;
+  configuration: DirectAccess | null;
 }
 
 export interface DirectAgentRemoved {
@@ -70,14 +65,15 @@ export interface AgentAccessControl {
 }
 
 export function useDirectAgents() {
-  return useQuery({ queryKey: AGENTS_KEY, queryFn: () => apiClient.get<DirectAgent[]>(`${PATH}/agents`) });
+  return useQuery({ queryKey: AGENTS_KEY, queryFn: () => apiClient.get<DirectAgent[]>(`${PATH}/agents`), refetchInterval: 30_000 });
 }
 
-export function useAddDirectAgent() {
+export function useConfigureDirectAgent() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => apiClient.post<DirectAgent>(`${PATH}/agents/${id}`, {}),
-    onSuccess: () => qc.invalidateQueries({ queryKey: AGENTS_KEY }),
+    mutationFn: ({ agentId, input }: { agentId: string; input: DirectAccessInput }) =>
+      apiClient.put<DirectAgent>(`${PATH}/agents/${agentId}`, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
 }
 
@@ -113,20 +109,4 @@ export function useResumeAgentAccess() {
 
 export function useDirectAccesses() {
   return useQuery({ queryKey: KEY, queryFn: () => apiClient.get<DirectAccess[]>(PATH), refetchInterval: 30_000 });
-}
-
-export function useOpenDirectAccess() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (input: DirectAccessInput) => apiClient.post<DirectAccess>(PATH, input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
-  });
-}
-
-export function useCloseDirectAccess() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => apiClient.post<DirectAccessClosed>(`${PATH}/${id}:close`, {}),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
-  });
 }

@@ -1,19 +1,4 @@
-"""Direct, temporary remote access (Marcelo, 2026-11-06, option A).
-
-A human admin opens an access for an agent on chosen machines for 1, 4 or 24
-hours; inside it, the agent runs commands through ForgeHub with no approval per
-command. The agent never gets the SSH key: ForgeHub connects with the vault's
-key on the machine's existing account and records everything.
-
-The opening is a dedicated route and not `/governed/authority-delegations`,
-which refuses this action: only here are the fixed durations, the agent's
-runtime and the sensitive confirmation enforced.
-
-Two things sit around it, both only for a human admin: the list of agents that
-may get an access (`Agent.direct_access_allowed`), and the pause, which stops
-every agent on every route (core/remote_authority.py) and closes nothing: an
-access still valid at reactivation counts again, its clock having kept running.
-"""
+"""Human configuration of direct access per agent; command history stays immutable."""
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -24,14 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.routes import host_execution as host
 from app.api.schemas.direct_access import (
-    AgentAccessControlOut, AgentAccessPause, DirectAccessClosed, DirectAccessMachine, DirectAccessOpen,
+    AgentAccessControlOut, AgentAccessPause, DirectAccessMachine, DirectAgentConfigure,
     DirectAccessOut, DirectAgentOut, DirectAgentRemoved, DirectCommandCreate,
 )
 from app.api.schemas.host_execution import HostExecutionDetail
 from app.core.deps import ActorPrincipal, get_actor_principal, get_maintenance_agent
 from app.core.maintenance_proposals import looks_elevated, refuse_literal_secret
 from app.core.remote_authority import (
-    CONTROL_ID, DIRECT_ACTION, agent_access_control, direct_access_problem, is_sensitive_machine, require_agent_access_active,
+    CONTROL_ID, DIRECT_ACTION, DIRECT_NO_EXPIRY, direct_coverage_expands, agent_access_control, direct_access_problem, is_sensitive_machine, require_agent_access_active,
     require_direct,
 )
 from app.db.base import get_db
@@ -75,7 +60,8 @@ async def _out(db: AsyncSession, rows: list[AuthorityDelegation]) -> list[Direct
         out.append(DirectAccessOut(
             id=row.id, agent_id=row.grantee_id, agent_name=agents.get(row.grantee_id, "?"), purpose=row.purpose,
             allow_elevation=row.allow_elevation, reason=row.reason, granted_by=users.get(row.grantor_user_id),
-            opened_at=row.valid_from, expires_at=row.expires_at,
+            opened_at=row.valid_from, expires_at=None if row.open_ended else row.expires_at,
+            open_ended=row.open_ended, all_machines=row.all_machines, duration_hours=row.duration_hours,
             machines=[DirectAccessMachine(id=m.id, name=m.name, sensitive=is_sensitive_machine(m))
                       for m in sorted(machines, key=lambda m: m.name)],
         ))
@@ -90,86 +76,79 @@ async def list_direct_accesses(
     now = datetime.now(timezone.utc)
     rows = (await db.scalars(select(AuthorityDelegation).where(
         AuthorityDelegation.status == "active", AuthorityDelegation.revoked_at.is_(None),
-        AuthorityDelegation.purpose.is_not(None), AuthorityDelegation.expires_at > now,
+        AuthorityDelegation.expires_at > now,
     ).order_by(AuthorityDelegation.expires_at))).all()
     return await _out(db, [r for r in rows if DIRECT_ACTION in r.allowed_actions])
 
 
-@router.post(ADMIN, response_model=DirectAccessOut, status_code=status.HTTP_201_CREATED)
-async def open_direct_access(
-    payload: DirectAccessOpen,
+@router.put(ADMIN + "/agents/{agent_id}", response_model=DirectAgentOut)
+async def configure_direct_agent(
+    agent_id: uuid.UUID,
+    payload: DirectAgentConfigure,
     principal: ActorPrincipal = Depends(get_actor_principal),
     db: AsyncSession = Depends(get_db),
 ):
     _human_admin(principal)
-    refuse_literal_secret(payload.reason)
-    # Removing the agent from the list waits for this row, and sees this opening to close it.
-    agent = await db.scalar(select(Agent).where(Agent.id == payload.agent_id).with_for_update(read=True))
+    if payload.reason:
+        refuse_literal_secret(payload.reason)
+    agent = await db.scalar(select(Agent).where(Agent.id == agent_id).with_for_update())
     if not agent or not agent.is_active or agent.status != "active":
-        raise HTTPException(422, "Active agent not found")
-    if not agent.direct_access_allowed:
-        raise HTTPException(422, {"code": "AGENT_NOT_LISTED", "message": "This agent is not on the direct access list"})
+        raise HTTPException(404, "Active agent not found")
     if problem := direct_access_problem(agent):
-        raise HTTPException(422, {"code": problem, "message": "This agent cannot use a direct access"})
-    await require_agent_access_active(db, lock=True)
-    servers, _ = await host.resolve_targets(db, payload.server_ids, payload.group_ids)
-    if not servers:
-        raise HTTPException(422, "Pick at least one machine or a group with machines")
-    sensitive = [s.name for s in servers if is_sensitive_machine(s)]
-    if sensitive and not payload.confirm_sensitive:
-        raise HTTPException(409, {"code": "SENSITIVE_CONFIRMATION_REQUIRED", "machines": sensitive,
-                                  "message": "This opening includes sensitive machines and needs confirmation"})
+        raise HTTPException(422, {"code": problem, "message": "This agent cannot use direct access"})
+    # Do not accept ambiguous coverage: all is a deliberate choice of future machines too.
+    if payload.all_machines and (payload.server_ids or payload.group_ids):
+        raise HTTPException(422, "Choose all machines or a restricted selection")
+    servers = []
+    if not payload.all_machines:
+        servers, _ = await host.resolve_targets(db, payload.server_ids, payload.group_ids)
+    rows = (await db.scalars(select(AuthorityDelegation).where(
+        AuthorityDelegation.grantee_type == "agent", AuthorityDelegation.grantee_id == agent.id,
+        AuthorityDelegation.status == "active", AuthorityDelegation.revoked_at.is_(None),
+    ).with_for_update())).all()
+    previous_rows = [r for r in rows if DIRECT_ACTION in r.allowed_actions]
+    previous = max(previous_rows, key=lambda r: r.valid_from, default=None)
     now = datetime.now(timezone.utc)
+    # Expired or unlisted configuration grants no coverage to preserve.
+    effective_previous = previous if agent.direct_access_allowed and previous and previous.expires_at > now else None
+    expands = direct_coverage_expands(effective_previous, payload.all_machines, [m.id for m in servers])
+    needs_confirmation = expands and (payload.all_machines or any(is_sensitive_machine(m) for m in servers))
+    if needs_confirmation and not payload.confirm_sensitive:
+        raise HTTPException(409, {"code": "SENSITIVE_CONFIRMATION_REQUIRED",
+            "all_machines": payload.all_machines, "machines": [m.name for m in servers],
+            "message": ("Includes all machines, including production and clients" if payload.all_machines
+                        else "Confirm the machines this agent may access")})
+    was_listed = agent.direct_access_allowed
+    agent.direct_access_allowed = True
+    for row in previous_rows:
+        row.status, row.revoked_at = "revoked", now
     access = AuthorityDelegation(
         grantor_user_id=principal.principal_id, grantee_type="agent", grantee_id=agent.id,
         allowed_actions=[DIRECT_ACTION], max_risk="high", valid_from=now,
-        expires_at=now + timedelta(hours=payload.duration_hours),
-        # Machines of this moment: see direct_access_for. The groups stay as a record.
-        servers=[str(s.id) for s in servers], host_groups=[str(g) for g in payload.group_ids],
+        expires_at=DIRECT_NO_EXPIRY if payload.duration_hours == 0 else now + timedelta(hours=payload.duration_hours),
+        servers=[str(m.id) for m in servers], host_groups=[str(g) for g in payload.group_ids],
         reason=payload.reason, purpose=payload.purpose, allow_elevation=payload.allow_elevation,
+        all_machines=payload.all_machines, open_ended=payload.duration_hours == 0,
+        duration_hours=payload.duration_hours,
     )
     db.add(access)
     await db.flush()
-    db.add(AuditEvent(
-        entity_type="authority_delegation", entity_id=access.id, event_type="direct_access_opened",
-        actor=principal.display_name,
-        payload={"agent_id": str(agent.id), "agent": agent.name, "machines": [s.name for s in servers],
-                 "groups": access.host_groups, "reason": payload.reason, "purpose": payload.purpose,
-                 "duration_hours": payload.duration_hours, "allow_elevation": payload.allow_elevation,
-                 "sensitive_machines": sensitive,
-                 "sensitive_confirmed_by": principal.display_name if sensitive else None},
-    ))
-    _audit_machines(db, "direct_access_opened", principal.display_name, servers, agent.name, payload.reason)
-    db.add(Notification(
-        source="system", severity="warning" if sensitive else "info", title="Acesso remoto direto aberto",
-        message=f"{principal.display_name} abriu acesso direto para {agent.name} por {payload.duration_hours} h.",
-        event_key=f"direct-access:opened:{access.id}", occurred_at=now,
-    ))
+    event = "direct_access_configured"
+    db.add(AuditEvent(entity_type="authority_delegation", entity_id=access.id, event_type=event,
+        actor=principal.display_name, payload={"agent_id": str(agent.id), "agent": agent.name,
+            "all_machines": access.all_machines, "servers": access.servers, "groups": access.host_groups,
+            "duration_hours": payload.duration_hours, "open_ended": access.open_ended,
+            "allow_elevation": access.allow_elevation, "reason": payload.reason, "purpose": payload.purpose,
+            "previous_ids": [str(r.id) for r in previous_rows],
+            "sensitive_confirmed_by": principal.display_name if needs_confirmation else None,
+            "confirmed_by_user_id": str(principal.principal_id) if needs_confirmation else None}))
+    if not was_listed:
+        db.add(AuditEvent(entity_type="agent", entity_id=agent.id, event_type="direct_access_agent_added",
+            actor=principal.display_name, payload={"agent": agent.name, "configuration_id": str(access.id)}))
+    _audit_machines(db, event, principal.display_name, servers, agent.name, payload.reason)
     await db.commit()
-    await db.refresh(access)
-    return (await _out(db, [access]))[0]
-
-
-@router.post(ADMIN + "/{access_id}:close", response_model=DirectAccessClosed)
-async def close_direct_access(
-    access_id: uuid.UUID,
-    principal: ActorPrincipal = Depends(get_actor_principal),
-    db: AsyncSession = Depends(get_db),
-):
-    _human_admin(principal)
-    # Waits for a command holding this row FOR SHARE: that one counts as already running.
-    access = await db.scalar(select(AuthorityDelegation).where(
-        AuthorityDelegation.id == access_id).with_for_update())
-    if access is None or DIRECT_ACTION not in access.allowed_actions:
-        raise HTTPException(404, "Direct access not found")
-    now = datetime.now(timezone.utc)
-    if access.status != "active" or access.revoked_at or access.expires_at <= now:
-        raise HTTPException(409, "This direct access is already closed")
-    agent = await db.get(Agent, access.grantee_id)
-    name = agent.name if agent else str(access.grantee_id)
-    running = await _close(db, access, principal.display_name, name, now)
-    await db.commit()
-    return DirectAccessClosed(id=access.id, closed_at=now, running_commands=running, notice=RUNNING_NOTICE)
+    return DirectAgentOut(id=agent.id, name=agent.name, runtime_type=agent.runtime_type, allowed=True,
+        unsupported_reason=None, configuration=(await _out(db, [access]))[0])
 
 
 async def _close(db: AsyncSession, access: AuthorityDelegation, actor: str, agent: str, now: datetime,
@@ -198,30 +177,13 @@ async def list_direct_agents(
     _human_admin(principal)
     rows = (await db.scalars(select(Agent).where(Agent.is_active.is_(True), Agent.status == "active")
                              .order_by(Agent.name))).all()
+    configs = (await db.scalars(select(AuthorityDelegation).where(
+        AuthorityDelegation.grantee_type == "agent", AuthorityDelegation.grantee_id.in_([a.id for a in rows]),
+        AuthorityDelegation.status == "active", AuthorityDelegation.revoked_at.is_(None),
+    ).order_by(AuthorityDelegation.valid_from))).all()
+    by_agent = {r.agent_id: r for r in await _out(db, [c for c in configs if DIRECT_ACTION in c.allowed_actions])}
     return [DirectAgentOut(id=a.id, name=a.name, runtime_type=a.runtime_type, allowed=a.direct_access_allowed,
-                           unsupported_reason=direct_access_problem(a)) for a in rows]
-
-
-@router.post(ADMIN + "/agents/{agent_id}", response_model=DirectAgentOut, status_code=status.HTTP_201_CREATED)
-async def add_direct_agent(
-    agent_id: uuid.UUID,
-    principal: ActorPrincipal = Depends(get_actor_principal),
-    db: AsyncSession = Depends(get_db),
-):
-    _human_admin(principal)
-    agent = await db.scalar(select(Agent).where(Agent.id == agent_id).with_for_update())
-    if not agent or not agent.is_active or agent.status != "active":
-        raise HTTPException(404, "Active agent not found")
-    if agent.direct_access_allowed:
-        raise HTTPException(409, "This agent is already on the list")
-    if problem := direct_access_problem(agent):
-        raise HTTPException(422, {"code": problem, "message": "This agent cannot use a direct access"})
-    agent.direct_access_allowed = True
-    db.add(AuditEvent(entity_type="agent", entity_id=agent.id, event_type="direct_access_agent_added",
-                      actor=principal.display_name, payload={"agent": agent.name}))
-    await db.commit()
-    return DirectAgentOut(id=agent.id, name=agent.name, runtime_type=agent.runtime_type, allowed=True,
-                          unsupported_reason=None)
+                           unsupported_reason=direct_access_problem(a), configuration=by_agent.get(a.id)) for a in rows]
 
 
 @router.delete(ADMIN + "/agents/{agent_id}", response_model=DirectAgentRemoved)
@@ -346,7 +308,7 @@ async def run_direct_command(
     if not agent.direct_access_allowed:
         raise HTTPException(403, {"code": "AGENT_NOT_LISTED", "message": "You are not on the direct access list"})
     demand_id = await host._check_against_task(
-        db, agent, SimpleNamespace(message_number=payload.message_number), None, servers)
+        db, agent, SimpleNamespace(message_number=payload.message_number), None, servers, principal=principal)
     elevation = looks_elevated(payload.command)
     await require_direct(db, agent.id, servers, elevation)
     readiness = await host._agent_readiness(db)

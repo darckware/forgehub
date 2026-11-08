@@ -26,6 +26,7 @@ export interface HostExecutionResult {
   exit_code: number | null;
   stdout: string | null;
   stderr: string | null;
+  output_expired?: boolean;
   truncated: boolean;
   duration_ms: number | null;
   started_at: string | null;
@@ -57,6 +58,7 @@ export interface HostExecutionSummary {
   target_summary: string | null;
   started_at: string;
   finished_at: string | null;
+  output_expired_count?: number;
   counts: ExecCounts;
   verdict: ExecVerdict;
 }

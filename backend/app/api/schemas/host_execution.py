@@ -63,6 +63,7 @@ class HostExecutionResultOut(BaseModel):
     exit_code: int | None
     stdout: str | None
     stderr: str | None
+    output_expired: bool = False
     truncated: bool
     duration_ms: int | None
     started_at: datetime | None
@@ -101,6 +102,7 @@ class HostExecutionSummary(BaseModel):
     target_summary: str | None
     started_at: datetime
     finished_at: datetime | None
+    output_expired_count: int = 0
     counts: HostExecutionCounts = Field(default_factory=HostExecutionCounts)
     # "succeeded" only when every machine that ran succeeded and nothing is
     # still pending; "failed" as soon as any machine failed.
@@ -146,6 +148,7 @@ class AgentMachineOut(BaseModel):
     # An open direct access (run_remote_command) on this machine, and until when.
     direct_access: bool = False
     direct_access_until: datetime | None = None
+    direct_access_open_ended: bool = False
     direct_allow_elevation: bool = False
     # A human admin paused every agent's access: `runnable` is false and nothing runs.
     agent_access_paused: bool = False

@@ -20,9 +20,12 @@ describe("MaintenanceDialog", () => {
     vi.mocked(apiClient.get).mockResolvedValue([
       { at: "2026-10-19T12:00:00Z", kind: "execution", actor: "Vector", agent_name: "Vector", trigger: "agent",
         title: "Reiniciar spooler", status: "succeeded", reason: "Fila travada", darckware_item_kind: "ticket",
-        darckware_item_id: "T-7", execution_id: "e1" },
+        darckware_item_id: "T-7", execution_id: "e1", output_expired: true },
       { at: "2026-10-19T11:00:00Z", kind: "terminal", actor: "marcelodarck", agent_name: null, trigger: null,
         title: "Terminal SSH aberto", status: null, reason: null, darckware_item_kind: null, darckware_item_id: null, execution_id: null },
+      { at: "2026-10-19T10:00:00Z", kind: "event", actor: "Aramis", agent_name: "Aramis", status: "succeeded",
+        title: "file transfer succeeded", transfer_direction: "upload", transfer_local_path: "/srv/plugin.zip",
+        transfer_remote_path: "/tmp/plugin.zip", transfer_size: 123, transfer_sha256: "abc123", transfer_overwrite: true },
     ] as never);
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
@@ -33,6 +36,10 @@ describe("MaintenanceDialog", () => {
     expect(await screen.findByRole("link", { name: "Reiniciar spooler" })).toHaveAttribute("href", "/remote-access/executions/e1");
     expect(screen.getByText(/agente Vector · chamado T-7/)).toBeInTheDocument();
     expect(screen.getByText("Fila travada")).toBeInTheDocument();
+    expect(screen.getByText("Saída expirada")).toBeInTheDocument();
+    expect(screen.getByText("/srv/plugin.zip")).toBeInTheDocument();
+    expect(screen.getByText("/tmp/plugin.zip")).toBeInTheDocument();
+    expect(screen.getByText(/SHA-256: abc123/)).toBeInTheDocument();
     expect(screen.getByText(/marcelodarck/)).toBeInTheDocument();
     expect(apiClient.get).toHaveBeenCalledWith("/api/v1/servers/m1/maintenance");
   });

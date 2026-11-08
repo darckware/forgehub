@@ -8,25 +8,23 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.api.schemas.host_execution import MAX_TARGETS, ExecShell
 
 
-class DirectAccessOpen(BaseModel):
+class DirectAgentConfigure(BaseModel):
+    """Human-confirmed configuration. Groups are resolved to a machine snapshot."""
     model_config = ConfigDict(extra="forbid")
 
-    agent_id: uuid.UUID
+    all_machines: bool = True
     server_ids: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_TARGETS)
     group_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50)
-    reason: str = Field(min_length=5, max_length=2000)
-    purpose: Literal["development", "support"]
-    duration_hours: Literal[1, 4, 24]
+    reason: str | None = Field(default=None, max_length=2000)
+    purpose: Literal["development", "support"] | None = None
+    duration_hours: Literal[0, 1, 4, 24] = 0
     allow_elevation: bool = False
     confirm_sensitive: bool = False
 
     @field_validator("reason")
     @classmethod
-    def reason_has_text(cls, value: str) -> str:
-        value = value.strip()
-        if len(value) < 5:
-            raise ValueError("A reason is required")
-        return value
+    def clean_reason(cls, value: str | None) -> str | None:
+        return (value or "").strip() or None
 
 
 class DirectAccessMachine(BaseModel):
@@ -39,13 +37,16 @@ class DirectAccessOut(BaseModel):
     id: uuid.UUID
     agent_id: uuid.UUID
     agent_name: str
-    purpose: str
+    purpose: str | None
     allow_elevation: bool
     reason: str | None
     machines: list[DirectAccessMachine]
     granted_by: str | None
     opened_at: datetime
-    expires_at: datetime
+    expires_at: datetime | None
+    open_ended: bool
+    all_machines: bool
+    duration_hours: Literal[0, 1, 4, 24]
 
 
 class DirectAccessClosed(BaseModel):
@@ -63,6 +64,7 @@ class DirectAgentOut(BaseModel):
     allowed: bool
     # Why it can't use a direct access: a code the screen words. None = it can.
     unsupported_reason: str | None
+    configuration: DirectAccessOut | None = None
 
 
 class DirectAgentRemoved(BaseModel):

@@ -96,7 +96,8 @@ async def test_done_dispatch_must_pass_briefing_gate(monkeypatch):
 
     briefing = task(41557, target_agent_id="athos", subject=f"[Rotina] {BRIEFING_TITLE}",
                     consolidated_into_id=None, agent_run_id="runner", dispatch_status="running")
-    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: briefing)))
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: briefing)),
+                         scalars=AsyncMock(return_value=SimpleNamespace(all=lambda: [])))
     gate = AsyncMock(side_effect=RuntimeError("briefing gate reached"))
     monkeypatch.setattr(briefing_evidence, "briefing_failure_reason", gate)
     with pytest.raises(RuntimeError, match="briefing gate reached"):

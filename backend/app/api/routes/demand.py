@@ -1533,9 +1533,9 @@ async def _execute_dispatch(
         restriction = {"restricted_toolsets": run_toolsets(demand.requires_approval)} if demand.channel == GROUP_CHANNEL else {}
         run = await dispatch_agent_run(run_id, agent, with_completion_contract(prompt), project_path, **restriction)
     except AgentRunDispatchError as exc:
-        demand.agent_run_id = None
         demand.dispatch_attempts = (demand.dispatch_attempts or 0) + 1
         await _fail_dispatch(db, demand, str(exc), title=f"Dispatch failed: {demand.subject}")
+        demand.agent_run_id = None
         await db.commit()
         raise
 
@@ -1694,6 +1694,26 @@ async def _agents_already_running(db: AsyncSession) -> set[uuid.UUID]:
     return set(rows)
 
 
+async def _revoke_dispatch_credential(db, demand, outcome):
+    """Close the run credential in the same transaction as its terminal event."""
+    from app.db.models.agent import AgentServiceCredential
+    from app.db.models.governance import AuditEvent
+    if not demand.agent_run_id:
+        return
+    rows = (await db.scalars(select(AgentServiceCredential).where(
+        AgentServiceCredential.label == f"dispatch:{demand.agent_run_id}",
+        AgentServiceCredential.agent_id == demand.target_agent_id,
+        AgentServiceCredential.revoked_at.is_(None),
+    ).with_for_update())).all()
+    now = datetime.now(timezone.utc)
+    for credential in rows:
+        credential.revoked_at = now
+        db.add(AuditEvent(entity_type="agent_demand", entity_id=demand.id,
+            event_type="dispatch_credential_revoked", actor="system",
+            payload={"run_id": demand.agent_run_id, "credential_id": str(credential.id),
+                "task_number": demand.number, "outcome": outcome}))
+
+
 async def _fail_dispatch(
     db: AsyncSession, demand: AgentDemand, reason: str, *, title: str
 ) -> None:
@@ -1707,6 +1727,7 @@ async def _fail_dispatch(
     Deliberately does not commit: callers batch this with their own state
     changes, matching the rest of this module ("Caller commits").
     """
+    await _revoke_dispatch_credential(db, demand, "failed")
     demand.dispatch_status = "failed"
     demand.dispatch_error = reason
     demand.dispatch_deadline_at = None
@@ -2021,13 +2042,13 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
             # reading pane's Dispatch button once fixed.
             # Explicit runner rejections are known not to have accepted the
             # reserved id created by _execute_dispatch.
-            demand.agent_run_id = None
             await _fail_dispatch(
                 db,
                 demand,
                 str(exc),
                 title=f"Dispatch failed: {demand.subject}",
             )
+            demand.agent_run_id = None
             await deliver_feedback(db, demand)
             await db.commit()
             logger.exception("Scheduled dispatch permanently failed for demand %s", demand_id)
@@ -2202,6 +2223,7 @@ async def _finalize_dispatch(
         return None
 
     run_status = run.get("status")
+    await _revoke_dispatch_credential(db, locked, run_status or "failed")
     historical = locked.status == "archived" or locked.consolidated_into_id is not None
     reply_body = _extract_run_result_text(run)
     # Terminal: completed / failed / timed_out / cancelled / stale. A clean

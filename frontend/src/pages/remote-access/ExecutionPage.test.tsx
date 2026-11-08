@@ -30,8 +30,8 @@ const EXECUTION = {
   ],
 };
 
-function renderPage() {
-  vi.mocked(apiClient.get).mockResolvedValue(EXECUTION as never);
+function renderPage(execution = EXECUTION) {
+  vi.mocked(apiClient.get).mockResolvedValue(execution as never);
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
@@ -63,6 +63,14 @@ describe("ExecutionPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /GAT-ADM-PC02/ }));
     expect(screen.getByText("Access denied")).toBeInTheDocument();
+  });
+
+  it("identifies expired output while preserving the command and outcome", async () => {
+    renderPage({ ...EXECUTION, results: [result({ output_expired: true, stdout: null, stderr: null })] });
+    expect(await screen.findByText("Saída expirada")).toBeInTheDocument();
+    expect(screen.getByText("Get-ComputerInfo")).toBeInTheDocument();
+    expect(screen.getByText("código 0")).toBeInTheDocument();
+    expect(screen.queryByText("Windows 11 Pro")).not.toBeInTheDocument();
   });
 
   it("copies the command to the clipboard", async () => {

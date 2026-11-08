@@ -174,6 +174,11 @@
     "removeText": "O ForgeHub deixa de gerar auth keys: os instaladores voltam a exigir a chave colada à mão. Revogue o token também no painel da Tailscale."
   },
   "maintenance": {
+    "transfer": {
+      "upload": "Envio de arquivo",
+      "download": "Download de arquivo",
+      "overwrite": "Sobrescrita autorizada"
+    },
     "open": "Manutenções de {{name}}",
     "title": "Manutenções · {{name}}",
     "help": "Tudo o que chegou a esta máquina pelo ForgeHub: scripts e comandos (por pessoa ou agente, com o motivo e o atendimento), sessões de terminal SSH e eventos de acesso. A máquina tem uma única conta (darckware); quem fez cada coisa fica registrado aqui.",
@@ -307,6 +312,7 @@
     }
   },
   "execution": {
+    "outputExpired": "Saída expirada",
     "record": "Registro da manutenção",
     "title": "Execução",
     "subtitle": "Por {{who}} em {{when}} · {{targets}}",
@@ -892,7 +898,7 @@
   },
   "direct": {
     "title": "Acesso direto",
-    "subtitle": "Agente autorizado roda comandos pelo ForgeHub por tempo limitado, sem aprovação por comando. A chave SSH nunca chega ao agente.",
+    "subtitle": "Configure as máquinas permitidas para cada agente. Comandos e arquivos passam pelo ForgeHub, com tarefa em execução e histórico. A chave SSH fica com o ForgeHub.",
     "open": "Abrir acesso",
     "empty": "Nenhum acesso direto aberto.",
     "formTitle": "Abrir acesso direto",
@@ -927,7 +933,7 @@
     "pausedState": "Acesso dos agentes pausado por {{who}} em {{when}}.",
     "pauseScope": "Pausa bloqueia o acesso de todos os agentes pelo ForgeHub. Pessoas, o terminal SSH do Workspace e agendamentos de pessoas seguem normalmente.",
     "pauseTitle": "Pausar o acesso dos agentes?",
-    "pauseText": "Pausa bloqueia o acesso de todos os agentes pelo ForgeHub: comandos, scripts da biblioteca, propostas aprovadas, pedidos ao agente e agendamentos de agente. Nenhum acesso é encerrado e o tempo continua correndo. Um comando em execução vai até o fim.",
+    "pauseText": "Pausa bloqueia os comandos, scripts, propostas e transferências de todos os agentes pelo ForgeHub. As configurações ficam salvas e o prazo continua correndo. Uma operação em execução termina sozinha ou no seu tempo limite.",
     "pauseReason": "Motivo (opcional)",
     "agentsTitle": "Agentes com acesso direto",
     "agentsEmpty": "Nenhum agente na lista.",
@@ -946,6 +952,28 @@
       "PROFILE_NOT_READABLE": "não foi possível ler a configuração do perfil.",
       "PROFILE_WITHOUT_FORGEHUB_MCP": "o perfil não tem o MCP forgehub ativo.",
       "PROFILE_MCP_WITHOUT_MAINTENANCE_TOOLS": "o MCP forgehub do perfil não expõe as ferramentas de manutenção."
-    }
+    },
+    "configure": "Configurar {{name}}",
+    "allMachines": "Todas as máquinas",
+    "indefinite": "0 h (indeterminado)",
+    "pendingConfiguration": "Aguardando configuração",
+    "notListed": "Fora da lista",
+    "configured": "Configurado",
+    "expired": "Prazo encerrado",
+    "oldAccess": "Aberto há mais de 7 dias",
+    "since": "Configurado em {{when}}",
+    "until": "Até {{when}}",
+    "applyNextCommand": "As alterações valem para o próximo comando. A tarefa precisa estar em execução e dirigida ao agente. Grupos salvam as máquinas atuais; novas máquinas do grupo não entram automaticamente.",
+    "noMachines": "Sem máquinas selecionadas, o agente não terá acesso.",
+    "noOptions": "Nenhuma opção disponível.",
+    "optionalPurpose": "Finalidade (opcional)",
+    "unspecified": "Não informada",
+    "save": "Salvar configuração",
+    "saved": "Configuração de {{name}} salva.",
+    "inventoryError": "Não foi possível carregar as máquinas e grupos. Tente novamente antes de salvar.",
+    "retry": "Tentar novamente",
+    "confirmTitle": "Confirmar acesso de {{name}}?",
+    "allSensitive": "Inclui todas as máquinas, inclusive produção e clientes.",
+    "selectedSensitive": "Inclui {{machines}}. Permitir o acesso deste agente?"
   }
 }

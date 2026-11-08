@@ -338,10 +338,10 @@ async def test_agent_maintenance_needs_delegation_reason_and_a_prepared_machine(
                            created_by="t", updated_by="t")
         db.add_all([grantor, agent, script, risky])
         await db.flush()
-        db.add(AgentServiceCredential(agent_id=agent.id, label="test", token_hash=hashlib.sha256(token.encode()).hexdigest()))
+        db.add(AgentServiceCredential(agent_id=agent.id, label=f"dispatch:maintenance-{tag}", token_hash=hashlib.sha256(token.encode()).hexdigest()))
         # A task addressed to the agent, never scheduled (nothing dispatches it).
         task = AgentDemand(from_agent="t", subject=f"maint {tag}", body="x", origin_type="task",
-                           target_agent_id=agent.id, from_agent_id=agent.id)
+                           target_agent_id=agent.id, from_agent_id=agent.id, dispatch_status="running", agent_run_id=f"maintenance-{tag}")
         other = AgentDemand(from_agent="t", subject=f"other {tag}", body="x", origin_type="task")
         db.add_all([task, other])
         await db.flush()

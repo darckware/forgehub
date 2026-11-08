@@ -36,13 +36,13 @@ async def ctx(monkeypatch):
         s=Server(name='proposal-target-'+tag,ip_address='192.0.2.42',remote_user='test',os_family='linux')
         b=Server(name='proposal-outside-'+tag,ip_address='192.0.2.43',remote_user='test',os_family='linux')
         db.add_all([admin,agent,other,s,b]);await db.flush()
-        task=AgentDemand(from_agent='test',from_agent_id=agent.id,target_agent_id=agent.id,subject='test',body='test',origin_type='task')
-        foreign=AgentDemand(from_agent='test',from_agent_id=other.id,target_agent_id=other.id,subject='other',body='test',origin_type='task')
+        task=AgentDemand(from_agent='test',from_agent_id=agent.id,target_agent_id=agent.id,subject='test',body='test',origin_type='task',dispatch_status='running',agent_run_id='proposal-'+tag)
+        foreign=AgentDemand(from_agent='test',from_agent_id=other.id,target_agent_id=other.id,subject='other',body='test',origin_type='task',dispatch_status='running',agent_run_id='proposal-'+tag)
         db.add_all([task,foreign]);await db.flush();now=datetime.now(timezone.utc)
         delegation=AuthorityDelegation(grantor_user_id=admin.id,grantee_type='agent',grantee_id=agent.id,allowed_actions=['remote_access.execute'],servers=[str(s.id)],host_groups=[],max_risk='high',valid_from=now-timedelta(minutes=1),expires_at=now+timedelta(hours=1))
         db.add(delegation)
         for ag,tok in [(agent,token),(other,other_token)]:
-            db.add(AgentServiceCredential(agent_id=ag.id,label='test',token_hash=hashlib.sha256(tok.encode()).hexdigest()))
+            db.add(AgentServiceCredential(agent_id=ag.id,label='dispatch:proposal-'+tag,token_hash=hashlib.sha256(tok.encode()).hexdigest()))
         await db.commit()
     async def readiness(db):return {s.id:(True,'complete'),b.id:(True,'complete')}
     monkeypatch.setattr(host,'_agent_readiness',readiness)
@@ -77,6 +77,17 @@ async def approved(c):
     r=await c.client.post(H+'/'+p['id']+'/decision',json={'decision':'approved','content_hash':p['content_hash']},headers=c.admin_headers)
     assert r.status_code==200,r.text;return r.json()
 async def execute(c,p,**overrides):
+    number = overrides.get('message_number', p['message_number'])
+    async with AsyncSessionLocal() as db:
+        task = await db.scalar(select(AgentDemand).where(AgentDemand.number == number).with_for_update())
+        if task.target_agent_id == c.agent.id and task.id != c.task.id and task.dispatch_status is None:
+            task.dispatch_status = 'running'
+            task.agent_run_id = 'approved-' + str(task.id)
+            token = 'agt_approved_' + str(task.id)
+            db.add(AgentServiceCredential(agent_id=c.agent.id,label='dispatch:'+task.agent_run_id,token_hash=hashlib.sha256(token.encode()).hexdigest()))
+            await db.commit()
+        if task.target_agent_id == c.agent.id and task.id != c.task.id:
+            c.agent_headers = {'Authorization': 'Bearer agt_approved_' + str(task.id)}
     return await c.client.post(A+'/'+p['id']+'/run',json={'message_number':p['message_number'],'content_hash':p['content_hash'],**overrides},headers=c.agent_headers)
 
 @pytest.mark.asyncio
@@ -339,7 +350,7 @@ async def test_pause_stops_library_and_requests_and_the_approved_proposal_surviv
         r=await c.client.post('/api/v1/host-executions/agent',json=library,headers=c.agent_headers)
         assert r.status_code==201,r.text
         for pending in list(host_exec_runner._running.values()):await pending
-        r=await c.client.post(run_url,json=run_body,headers=c.agent_headers)
+        r=await execute(c,p)
         assert r.status_code==200,r.text
         async with AsyncSessionLocal() as db:
             assert (await db.get(MaintenanceProposal,uuid.UUID(p['id']))).status!='approved'
@@ -358,7 +369,7 @@ async def test_a_proposal_whose_approval_lapsed_during_the_pause_stays_expired(c
         row=await db.get(MaintenanceProposal,uuid.UUID(p['id']))
         row.expires_at=datetime.now(timezone.utc)-timedelta(seconds=1)
         number=(await db.get(AgentDemand,row.agent_demand_id)).number;await db.commit()
-    r=await c.client.post(f"{A}/{p['id']}/run",json={'message_number':number,'content_hash':p['content_hash']},headers=c.agent_headers)
+    r=await execute(c,p,message_number=number)
     assert r.status_code==409
 
 

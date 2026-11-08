@@ -1807,8 +1807,8 @@ def _maintenance_error(response):
     return failure
 
 
-async def _maintenance_call(method, path, **kwargs):
-    async with httpx.AsyncClient(base_url=BASE_URL, timeout=60,
+async def _maintenance_call(method, path, *, timeout=60, **kwargs):
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=timeout,
         headers={"Authorization": f"Bearer {_maintenance_token()}"}) as client:
         response = await client.request(method, path, **kwargs)
         if response.is_error:
@@ -1910,6 +1910,44 @@ async def run_remote_command(
     return _as_data(await _maintenance_call("POST", "/api/v1/host-executions/agent/commands", json={
         "server_ids": machine_ids, "command": command, "reason": reason, "message_number": message_number,
         "shell": shell, "timeout_seconds": timeout_seconds,
+    }))
+
+
+@mcp.tool()
+async def upload_remote_file(machine_id: str, local_path: str, remote_path: str, reason: str,
+    message_number: int, overwrite: bool = False) -> dict[str, Any]:
+    """Send an artifact to a machine through ForgeHub SSH. Requires your individual
+    active run credential, a running task addressed to you, and direct access to
+    this machine. ForgeHub holds the SSH key. File contents never enter JSON.
+    Local paths must stay in the task working directory or its isolated run
+    directory; secrets, dotenv, key and agent configuration paths are forbidden.
+    Maximum 200 MiB; SHA-256 verified at both ends. Destination is atomic and
+    never replaced unless overwrite=true (recorded in machine history). POSIX
+    machines only; Windows returns 501. No sudo; use run_remote_command to move
+    a staged artifact to a protected directory with explicit elevation access.
+    Returns paths, size and SHA-256 only, never content or credentials."""
+    return _as_data(await _maintenance_call("POST", "/api/v1/remote-files/agent/upload", timeout=650, json={
+        "machine_id": machine_id, "local_path": local_path, "remote_path": remote_path,
+        "reason": reason, "message_number": message_number, "overwrite": overwrite,
+    }))
+
+
+@mcp.tool()
+async def download_remote_file(machine_id: str, local_path: str, remote_path: str, reason: str,
+    message_number: int, overwrite: bool = False) -> dict[str, Any]:
+    """Fetch an artifact from a machine through ForgeHub SSH. Requires your individual
+    active run credential, a running task addressed to you, and direct access to
+    this machine. ForgeHub holds the SSH key. File contents never enter JSON.
+    Local paths must stay in the task working directory or its isolated run
+    directory; secrets, dotenv, key and agent configuration paths are forbidden.
+    Maximum 200 MiB; SHA-256 verified at both ends. Destination is atomic and
+    never replaced unless overwrite=true (recorded in machine history). POSIX
+    machines only; Windows returns 501. No sudo; use run_remote_command to move
+    a staged artifact to a protected directory with explicit elevation access.
+    Returns paths, size and SHA-256 only, never content or credentials."""
+    return _as_data(await _maintenance_call("POST", "/api/v1/remote-files/agent/download", timeout=650, json={
+        "machine_id": machine_id, "local_path": local_path, "remote_path": remote_path,
+        "reason": reason, "message_number": message_number, "overwrite": overwrite,
     }))
 
 

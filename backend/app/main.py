@@ -274,8 +274,12 @@ def is_agent_command_path(method: str, path: str) -> bool:
         method == "PATCH" and path.startswith("/api/v1/orchestration/reviews/") and len(parts) == 6
         and parts[5] != ""
     )
+    remote_file_transfer = method == "POST" and path in {
+        "/api/v1/remote-files/agent/upload", "/api/v1/remote-files/agent/download",
+    }
     return (command_path or factory_read_path or factory_task_command or task_dependency_command
-            or task_dispatch_command or task_report_command or review_decision or agent_availability_command)
+            or task_dispatch_command or task_report_command or review_decision or agent_availability_command
+            or remote_file_transfer)
 
 
 class RequireAuthMiddleware(BaseHTTPMiddleware):
@@ -520,6 +524,9 @@ app.include_router(host_group.router)
 app.include_router(host_execution.router)
 from app.api.routes import maintenance_proposal
 app.include_router(maintenance_proposal.router)
+from app.api.routes import remote_file_transfer
+app.include_router(remote_file_transfer.router)
+
 from app.api.routes import direct_access
 app.include_router(direct_access.router)
 app.include_router(host_script.router)
@@ -1036,6 +1043,8 @@ async def _start_background_tasks() -> None:
     from app.core.dispatch_signal import reset_scheduled_dispatch_signal
 
     reset_scheduled_dispatch_signal()
+    from app.core.host_output_retention import host_output_retention_loop
+
     workers = (
         ("tool-version-poll", _tool_version_poll_loop),
         ("scheduled-dispatch-poll", _scheduled_dispatch_poll_loop),
@@ -1056,6 +1065,7 @@ async def _start_background_tasks() -> None:
         ("agent-activity-retention", _agent_activity_retention_loop),
         ("command-receipt-retention", _command_receipt_retention_loop),
         ("host-schedule-poll", _host_schedule_poll_loop),
+        ("host-output-retention", host_output_retention_loop),
     )
     _background_tasks = [asyncio.create_task(worker(), name=name) for name, worker in workers]
 

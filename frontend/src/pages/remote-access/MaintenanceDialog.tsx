@@ -50,7 +50,7 @@ export function MaintenanceDialog({ machine, onClose }: { machine: Server; onClo
                     {entry.execution_id ? (
                       <Link to={`/remote-access/executions/${entry.execution_id}`} className="font-medium hover:underline">{entry.title}</Link>
                     ) : (
-                      <span className="font-medium">{entry.title}</span>
+                      <span className="font-medium">{entry.transfer_direction ? t(`maintenance.transfer.${entry.transfer_direction}`) : entry.title}</span>
                     )}
                     {entry.status && <VerdictBadge verdict={entry.status as ExecResultStatus} />}
                     {entry.direct_access_id && (
@@ -65,6 +65,13 @@ export function MaintenanceDialog({ machine, onClose }: { machine: Server; onClo
                     {entry.message_number && <> · <Link to="/demands" className="underline">{t("askAgent.message", { number: entry.message_number })}</Link></>}
                   </p>
                   {entry.reason && <p className="text-xs">{entry.reason}</p>}
+                  {entry.output_expired && <p className="text-xs text-muted-foreground">{t("execution.outputExpired")}</p>}
+                  {entry.transfer_direction && <div className="space-y-1 break-all text-xs text-muted-foreground">
+                    <p><code>{entry.transfer_local_path}</code> {entry.transfer_direction === "upload" ? "→" : "←"} <code>{entry.transfer_remote_path}</code></p>
+                    {entry.transfer_size != null && <p>{entry.transfer_size.toLocaleString(i18n.language)} B</p>}
+                    {entry.transfer_sha256 && <p>SHA-256: {entry.transfer_sha256}</p>}
+                    {entry.transfer_overwrite && <p>{t("maintenance.transfer.overwrite")}</p>}
+                  </div>}
                 </div>
               </li>
             ))}

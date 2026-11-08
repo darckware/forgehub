@@ -306,6 +306,13 @@ export interface MaintenanceEntry {
   /** A direct command: the access it came from and that opening's purpose. */
   direct_access_id?: string | null;
   direct_access_purpose?: "development" | "support" | null;
+  output_expired?: boolean;
+  transfer_direction?: "upload" | "download" | null;
+  transfer_local_path?: string | null;
+  transfer_remote_path?: string | null;
+  transfer_size?: number | null;
+  transfer_sha256?: string | null;
+  transfer_overwrite?: boolean | null;
 }
 
 export function useMachineMaintenance(serverId: string | null) {

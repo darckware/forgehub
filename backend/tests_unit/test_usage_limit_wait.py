@@ -56,6 +56,10 @@ class FakeSession:
     async def scalar(self, _statement):
         return None
 
+    async def scalars(self, _statement):
+        # No dispatch credential is stored by this in-memory test session.
+        return SimpleNamespace(all=lambda: [])
+
     async def flush(self):
         return None
 

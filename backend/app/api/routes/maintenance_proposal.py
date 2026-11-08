@@ -71,7 +71,7 @@ async def task_and_authority(db, principal, number, servers, risk, script=None):
     if principal.principal_type != "agent":
         raise HTTPException(403, "Individual agent credential required")
     agent = await db.get(Agent, principal.principal_id)
-    demand_id = await host._check_against_task(db, agent, SimpleNamespace(message_number=number), script, servers)
+    demand_id = await host._check_against_task(db, agent, SimpleNamespace(message_number=number), script, servers, principal=principal)
     demand = await db.get(AgentDemand, demand_id)
     product_id = None
     if demand.project_id:

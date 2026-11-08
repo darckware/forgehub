@@ -774,7 +774,7 @@ async def machine_maintenance(
             status=result.status, reason=execution.reason,
             darckware_item_kind=execution.darckware_item_kind, darckware_item_id=execution.darckware_item_id,
             execution_id=execution.id, message_number=message_number,
-            direct_access_id=result.delegation_id, direct_access_purpose=direct_purpose,
+            direct_access_id=result.delegation_id, direct_access_purpose=direct_purpose, output_expired=result.output_expired,
         ))
     sessions = (await db.execute(
         select(AuditEvent)
@@ -805,6 +805,8 @@ async def machine_maintenance(
         payload = event.payload or {}
         if event.event_type == "agent_task_requested":
             title = f"Tarefa pedida ao agente {payload.get('agent', '?')} (mensagem #{payload.get('demand_number')})"
+        elif event.event_type == "direct_access_configured":
+            title = f"Acesso direto configurado para {payload.get('agent', '?')}"
         elif event.event_type in ("direct_access_opened", "direct_access_closed"):
             verb = "aberto" if event.event_type == "direct_access_opened" else "encerrado"
             title = f"Acesso direto {verb} para {payload.get('agent', '?')}"
@@ -812,9 +814,19 @@ async def machine_maintenance(
             title = _EVENT_TITLES.get(event.event_type, event.event_type.replace("_", " "))
         requested = event.event_type == "agent_task_requested"
         direct = event.event_type.startswith("direct_access_")
+        transfer = event.event_type.startswith("file_transfer_")
         entries.append(MaintenanceEntry(at=event.created_at, kind="event", actor=event.actor, title=title,
-                                        reason=payload.get("instruction") if requested else payload.get("reason") if direct else None,
-                                        message_number=payload.get("demand_number") if requested else None))
+            reason=payload.get("instruction") if requested else payload.get("reason") if direct or transfer else None,
+            message_number=payload.get("demand_number") if requested else payload.get("message_number") if transfer else None,
+            agent_name=payload.get("agent") if transfer else None,
+            status=("running" if event.event_type == "file_transfer_started" else event.event_type.removeprefix("file_transfer_")) if transfer else None,
+            transfer_direction=payload.get("direction") if transfer else None,
+            transfer_local_path=payload.get("local_path") if transfer else None,
+            transfer_remote_path=payload.get("remote_path") if transfer else None,
+            transfer_size=payload.get("size") if transfer else None,
+            transfer_sha256=payload.get("sha256") if transfer else None,
+            transfer_overwrite=payload.get("overwrite") if transfer else None,
+        ))
     entries.sort(key=lambda e: e.at, reverse=True)
     return entries[:limit]
 

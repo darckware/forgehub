@@ -273,6 +273,9 @@ class AuthorityDelegation(Base, TimestampMixin):
     # for, and whether detected elevation (sudo, docker...) is allowed.
     purpose: Mapped[str | None] = mapped_column(String(20), nullable=True)
     allow_elevation: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false())
+    all_machines: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false())
+    open_ended: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=sa_false())
+    duration_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
 
 class ApprovalDecisionRecord(Base, TimestampMixin):

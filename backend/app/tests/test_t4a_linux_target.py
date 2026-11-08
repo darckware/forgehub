@@ -71,10 +71,12 @@ async def test_t4a_agent_linux_execution():
                            created_by="t", updated_by="t")
         db.add_all([grantor, agent, script, risky])
         await db.flush()
-        db.add(AgentServiceCredential(agent_id=agent.id, label="test", token_hash=hashlib.sha256(token.encode()).hexdigest()))
-        # A task addressed to the agent, never scheduled (nothing dispatches it).
+        run_id = f"test-run-{tag}"
+        db.add(AgentServiceCredential(agent_id=agent.id, label=f"dispatch:{run_id}", token_hash=hashlib.sha256(token.encode()).hexdigest()))
+        # A synthetic active dispatch addressed to the agent; no worker is started.
         task = AgentDemand(from_agent="t", subject=f"maint {tag}", body="x", origin_type="task",
-                           target_agent_id=agent.id, from_agent_id=agent.id)
+                           target_agent_id=agent.id, from_agent_id=agent.id,
+                           dispatch_status="running", agent_run_id=run_id)
         other = AgentDemand(from_agent="t", subject=f"other {tag}", body="x", origin_type="task")
         db.add_all([task, other])
         await db.flush()

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  useAddDirectAgent, useAgentAccessControl, useDirectAgents, usePauseAgentAccess, useRemoveDirectAgent, useResumeAgentAccess,
+  useAgentAccessControl, useDirectAgents, usePauseAgentAccess, useRemoveDirectAgent, useResumeAgentAccess,
   type AgentAccessControl, type DirectAgent, type DirectAgentRemoved,
 } from "@/hooks/useDirectAccess";
 import { refusalText } from "@/hooks/useDirectAccessViewModel";
@@ -16,10 +16,6 @@ export interface DirectAgentsViewModel {
   listed: DirectAgent[];
   addable: DirectAgent[];
   unsupported: DirectAgent[];
-  candidateId: string;
-  setCandidateId: (id: string) => void;
-  add: () => Promise<void>;
-  addPending: boolean;
   removing: DirectAgent | null;
   askRemove: (agent: DirectAgent) => void;
   cancelRemove: () => void;
@@ -37,17 +33,16 @@ export interface DirectAgentsViewModel {
   resume: () => Promise<void>;
   resumePending: boolean;
   error: string | null;
+  retry: () => void;
 }
 
 export function useDirectAgentsViewModel(): DirectAgentsViewModel {
   const agents = useDirectAgents();
   const control = useAgentAccessControl();
-  const addMutation = useAddDirectAgent();
   const removeMutation = useRemoveDirectAgent();
   const pauseMutation = usePauseAgentAccess();
   const resumeMutation = useResumeAgentAccess();
 
-  const [candidateId, setCandidateId] = useState("");
   const [removing, setRemoving] = useState<DirectAgent | null>(null);
   const [removed, setRemoved] = useState<DirectAgentRemoved | null>(null);
   const [confirmingPause, setConfirmingPause] = useState(false);
@@ -55,7 +50,7 @@ export function useDirectAgentsViewModel(): DirectAgentsViewModel {
   const [error, setError] = useState<string | null>(null);
 
   const rows = agents.data ?? [];
-  const submitting = addMutation.isPending || removeMutation.isPending || pauseMutation.isPending || resumeMutation.isPending;
+  const submitting = removeMutation.isPending || pauseMutation.isPending || resumeMutation.isPending;
   const status = agents.isLoading || control.isLoading ? "loading" : submitting ? "submitting" : error ? "error"
     : removing || confirmingPause ? "confirming" : "ready";
   const attempt = async (action: () => Promise<void>) => {
@@ -74,15 +69,6 @@ export function useDirectAgentsViewModel(): DirectAgentsViewModel {
     listed: rows.filter((a) => a.allowed),
     addable: rows.filter((a) => !a.allowed && !a.unsupported_reason),
     unsupported: rows.filter((a) => !a.allowed && a.unsupported_reason),
-    candidateId,
-    setCandidateId,
-    add: () => attempt(async () => {
-      if (!candidateId) return;
-      setRemoved(null);
-      await addMutation.mutateAsync(candidateId);
-      setCandidateId("");
-    }),
-    addPending: addMutation.isPending,
     removing,
     askRemove: (agent) => { setError(null); setRemoved(null); setRemoving(agent); },
     cancelRemove: () => setRemoving(null),
@@ -105,6 +91,7 @@ export function useDirectAgentsViewModel(): DirectAgentsViewModel {
     pausePending: pauseMutation.isPending,
     resume: () => attempt(async () => { await resumeMutation.mutateAsync(); }),
     resumePending: resumeMutation.isPending,
-    error,
+    error: error ?? (agents.error ? refusalText(agents.error) : control.error ? refusalText(control.error) : null),
+    retry: () => { void agents.refetch(); void control.refetch(); },
   };
 }

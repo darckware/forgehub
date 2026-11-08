@@ -62,6 +62,7 @@ from pydantic import BaseModel, Field, SecretStr
 from agent_runtime import resolve_runtime_executable, validate_working_directory
 from vpn_control import VpnControl, VpnPolicyError
 from remote_fs import make_remote_fs_router
+from remote_file_transfer import make_transfer_router
 from host_exec import AgentCache, make_host_exec_router
 from forgevault_proxy import VaultClient, make_forgevault_router
 from evidence_probe import make_evidence_router
@@ -4395,17 +4396,35 @@ async def list_terminal_sessions(x_bridge_token: str | None = Header(default=Non
     return {"sessions": _list_forgehub_tmux_sessions()}
 
 
-# Fase 6.4 (2026-07-28): a tmux session never expires on its own -- an
-# orphan (see Fase 6.2 above) sits there forever, invisible unless someone
-# happens to open System Control. This sweep kills only what tmux's own
-# `session_activity` (real last input/output, not creation time) proves
-# has been quiet past the timeout -- never a young session, only a
-# genuinely forgotten one. Both knobs are env-configurable since "how long
-# is too long" is an operational judgment call, not a constant worth
-# hardcoding.
-TERMINAL_INACTIVITY_TIMEOUT_SECONDS = int(os.environ.get("FORGEHUB_TERMINAL_INACTIVITY_TIMEOUT_HOURS", "24")) * 3600
+# Terminal lifetime belongs to the user. Quiet sessions may contain Codex
+# waiting for input, so inactivity alone must never terminate a program.
+# Optional cleanup is restricted to detached, empty shells; default is off.
+TERMINAL_INACTIVITY_TIMEOUT_SECONDS = int(os.environ.get("FORGEHUB_TERMINAL_INACTIVITY_TIMEOUT_HOURS", "0")) * 3600
 TERMINAL_INACTIVITY_SWEEP_INTERVAL_SECONDS = int(os.environ.get("FORGEHUB_TERMINAL_SWEEP_INTERVAL_SECONDS", "1800"))
 _terminal_inactivity_sweep_task: asyncio.Task | None = None
+
+
+def _terminal_session_is_idle_shell(session_name: str) -> bool:
+    result = _tmux("list-panes", "-s", "-t", session_name, "-F",
+                   "#{pane_pid}\t#{pane_current_command}\t#{pane_dead}")
+    if result.returncode or not result.stdout.strip():
+        return False
+    for line in result.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3:
+            return False
+        pid, command, dead = parts
+        if dead == "1":
+            continue
+        if command not in {"bash", "sh", "zsh", "fish", "dash", "ksh"} or not pid.isdigit():
+            return False
+        try:
+            # Background jobs also belong to the shell and must survive.
+            if Path(f"/proc/{pid}/task/{pid}/children").read_text().strip():
+                return False
+        except OSError:
+            return False
+    return True
 
 
 async def _terminal_inactivity_sweep_loop() -> None:
@@ -4413,8 +4432,11 @@ async def _terminal_inactivity_sweep_loop() -> None:
         try:
             now = int(time.time())
             for session in _list_forgehub_tmux_sessions():
-                if now - session["last_activity_at"] >= TERMINAL_INACTIVITY_TIMEOUT_SECONDS:
-                    _tmux("kill-session", "-t", f"forgehub-{session['session_id']}")
+                name = f"forgehub-{session['session_id']}"
+                if (not session["attached"]
+                        and now - session["last_activity_at"] >= TERMINAL_INACTIVITY_TIMEOUT_SECONDS
+                        and _terminal_session_is_idle_shell(name)):
+                    _tmux("kill-session", "-t", name)
         except Exception:
             pass
         await asyncio.sleep(TERMINAL_INACTIVITY_SWEEP_INTERVAL_SECONDS)
@@ -4423,7 +4445,8 @@ async def _terminal_inactivity_sweep_loop() -> None:
 @app.on_event("startup")
 async def _start_terminal_inactivity_sweep() -> None:
     global _terminal_inactivity_sweep_task
-    _terminal_inactivity_sweep_task = asyncio.create_task(_terminal_inactivity_sweep_loop())
+    if TERMINAL_INACTIVITY_TIMEOUT_SECONDS > 0:
+        _terminal_inactivity_sweep_task = asyncio.create_task(_terminal_inactivity_sweep_loop())
 
 
 @app.on_event("shutdown")
@@ -5165,6 +5188,7 @@ async def _agent_socket_for(key_ref: str) -> str:
 
 
 app.include_router(make_remote_fs_router(_check_token, _resolve_key_path, _agent_socket_for))
+app.include_router(make_transfer_router(_check_token, _resolve_key_path, _agent_socket_for))
 # See host_exec.py (Remote Access phase 4: one script on one machine).
 _vault_client = VaultClient()
 _agent_cache = AgentCache(_vault_client.reveal)

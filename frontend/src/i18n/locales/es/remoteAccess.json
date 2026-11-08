@@ -174,6 +174,11 @@
     "removeText": "ForgeHub deja de generar auth keys: los instaladores vuelven a exigir la clave pegada a mano. Revoque el token también en el panel de Tailscale."
   },
   "maintenance": {
+    "transfer": {
+      "upload": "Envío de archivo",
+      "download": "Descarga de archivo",
+      "overwrite": "Sobrescritura autorizada"
+    },
     "open": "Mantenimientos de {{name}}",
     "title": "Mantenimientos · {{name}}",
     "help": "Todo lo que llegó a esta máquina por ForgeHub: scripts y comandos (por persona o agente, con el motivo y la atención), sesiones de terminal SSH y eventos de acceso. La máquina tiene una sola cuenta (darckware); quién hizo cada cosa queda registrado aquí.",
@@ -307,6 +312,7 @@
     }
   },
   "execution": {
+    "outputExpired": "Salida caducada",
     "record": "Registro del mantenimiento",
     "title": "Ejecución",
     "subtitle": "Por {{who}} el {{when}} · {{targets}}",
@@ -892,7 +898,7 @@
   },
   "direct": {
     "title": "Acceso directo",
-    "subtitle": "Un agente autorizado ejecuta comandos por ForgeHub durante un tiempo limitado, sin aprobación por comando. La clave SSH nunca llega al agente.",
+    "subtitle": "Configure las máquinas permitidas para cada agente. Los comandos y archivos pasan por ForgeHub, con una tarea en ejecución e historial. ForgeHub conserva la clave SSH.",
     "open": "Abrir acceso",
     "empty": "No hay ningún acceso directo abierto.",
     "formTitle": "Abrir acceso directo",
@@ -927,7 +933,7 @@
     "pausedState": "Acceso de los agentes pausado por {{who}} el {{when}}.",
     "pauseScope": "La pausa bloquea el acceso de todos los agentes por ForgeHub. Las personas, el terminal SSH del Workspace y los agendamientos de personas siguen con normalidad.",
     "pauseTitle": "¿Pausar el acceso de los agentes?",
-    "pauseText": "La pausa bloquea el acceso de todos los agentes por ForgeHub: comandos, scripts de la biblioteca, propuestas aprobadas, pedidos al agente y agendamientos de agente. Ningún acceso se cierra y el tiempo sigue corriendo. Un comando en ejecución llega hasta el final.",
+    "pauseText": "La pausa bloquea comandos, scripts, propuestas y transferencias de todos los agentes por ForgeHub. Las configuraciones se conservan y el plazo sigue corriendo. Una operación en curso termina sola o al alcanzar su tiempo límite.",
     "pauseReason": "Motivo (opcional)",
     "agentsTitle": "Agentes con acceso directo",
     "agentsEmpty": "Ningún agente en la lista.",
@@ -946,6 +952,28 @@
       "PROFILE_NOT_READABLE": "no se pudo leer la configuración del perfil.",
       "PROFILE_WITHOUT_FORGEHUB_MCP": "el perfil no tiene el MCP forgehub activo.",
       "PROFILE_MCP_WITHOUT_MAINTENANCE_TOOLS": "el MCP forgehub del perfil no expone las herramientas de mantenimiento."
-    }
+    },
+    "configure": "Configurar {{name}}",
+    "allMachines": "Todas las máquinas",
+    "indefinite": "0 h (indeterminado)",
+    "pendingConfiguration": "Esperando configuración",
+    "notListed": "Fuera de la lista",
+    "configured": "Configurado",
+    "expired": "Plazo terminado",
+    "oldAccess": "Abierto hace más de 7 días",
+    "since": "Configurado el {{when}}",
+    "until": "Hasta {{when}}",
+    "applyNextCommand": "Los cambios se aplican al próximo comando. La tarea debe estar en ejecución y dirigida al agente. Los grupos guardan las máquinas actuales; los nuevos miembros no se incluyen automáticamente.",
+    "noMachines": "Sin máquinas seleccionadas, el agente no tendrá acceso.",
+    "noOptions": "No hay opciones disponibles.",
+    "optionalPurpose": "Finalidad (opcional)",
+    "unspecified": "No informada",
+    "save": "Guardar configuración",
+    "saved": "Configuración de {{name}} guardada.",
+    "inventoryError": "No se pudieron cargar las máquinas y grupos. Reintente antes de guardar.",
+    "retry": "Reintentar",
+    "confirmTitle": "¿Confirmar acceso de {{name}}?",
+    "allSensitive": "Incluye todas las máquinas, incluso producción y clientes.",
+    "selectedSensitive": "Incluye {{machines}}. ¿Permitir el acceso de este agente?"
   }
 }

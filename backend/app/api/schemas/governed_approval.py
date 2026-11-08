@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 
 class ApprovalRequestOut(BaseModel):
@@ -97,10 +97,17 @@ class DelegationOut(BaseModel):
     max_risk: str
     budget_limit: float | None
     valid_from: datetime
-    expires_at: datetime
+    expires_at: datetime | None
+    open_ended: bool = False
     status: str
     revoked_at: datetime | None
     reason: str | None
+
+
+    @field_serializer("expires_at")
+    def visible_expiry(self, value: datetime | None) -> datetime | None:
+        # Direct access uses a storage-only far-future sentinel.
+        return None if self.open_ended else value
 
 
 class AgentCredentialCreate(BaseModel):

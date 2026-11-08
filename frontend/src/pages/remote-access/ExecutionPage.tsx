@@ -108,7 +108,7 @@ export default function ExecutionPage() {
 
   const e = vm.execution;
   const knownFailureOf = (r: HostExecutionResult) =>
-    r.status === "failed" ? detectKnownFailure([r.stderr, r.stdout].filter(Boolean).join("\n")) : null;
+    !r.output_expired && r.status === "failed" ? detectKnownFailure([r.stderr, r.stdout].filter(Boolean).join("\n")) : null;
   const resultDetail = (r: HostExecutionResult, known: KnownFailure | null) => {
     if (r.status === "skipped") return r.skip_reason;
     if (known) return t(`knownFailure.${known.kind}.short`);
@@ -212,7 +212,7 @@ export default function ExecutionPage() {
             <div className="space-y-1">
               <Label htmlFor="fix-command">{t("run.command")}</Label>
               <Textarea id="fix-command" value={vm.followUp.command} onChange={(ev) => vm.followUp.setCommand(ev.target.value)}
-                className="min-h-[120px] font-mono text-xs max-md:text-base" spellCheck={false} />
+                className="min-h-[120px] resize-none font-mono text-xs max-md:text-base" spellCheck={false} />
             </div>
             {vm.followUp.error && <p role="alert" className="text-xs text-destructive">{vm.followUp.error}</p>}
             <div className="flex flex-wrap justify-end gap-2">
@@ -233,7 +233,7 @@ export default function ExecutionPage() {
         <CardContent className="divide-y divide-border p-0">
           {e.results.map((r) => {
             const open = vm.expanded.has(r.id);
-            const hasOutput = Boolean(r.stdout || r.stderr);
+            const hasOutput = !r.output_expired && Boolean(r.stdout || r.stderr);
             const known = knownFailureOf(r);
             const detail = resultDetail(r, known);
             return (
@@ -252,8 +252,9 @@ export default function ExecutionPage() {
                   <span className="text-xs text-muted-foreground">{formatDuration(r.duration_ms)}</span>
                   {detail && <span className="text-xs text-muted-foreground">· {detail}</span>}
                 </button>
+                {r.output_expired && <p className="mt-2 pl-7 text-xs text-muted-foreground">{t("execution.outputExpired")}</p>}
                 {known && <KnownFailureHint failure={known} serverId={r.server_id} />}
-                {open && (
+                {open && !r.output_expired && (
                   <div className="mt-3 space-y-3 pl-7">
                     <OutputBlock label={t("execution.stdout")} text={r.stdout} />
                     <OutputBlock label={t("execution.stderr")} text={r.stderr} tone="error" />

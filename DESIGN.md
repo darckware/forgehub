@@ -125,3 +125,15 @@ Remote Access approvals use the shared ConfirmDialog and a status-bearing ViewMo
 Show the full script, machines, risk, elevation, reason, effect, rollback and SHA-256.
 The fingerprint wraps at 390 px. Approval lasts 24 hours; rejection requires a reason.
 Agent authority defaults to 24 hours and requires explicit machines or groups.
+
+Command history and execution details distinguish expired output from empty output using the same muted, localized “Output expired” label. Expiration preserves the command, machine, actor, time and outcome; it never changes the verdict or presents output controls for deleted content.
+
+## Agent machine configuration (2026-11-08)
+
+Remote Access lists each active agent once and expands one configuration form inline.
+Reuse the canonical native Select, Textarea, Button and ConfirmDialog. No separate opening
+or closing workflow remains. Defaults are all machines, indefinite 0 h, and elevation off;
+only an administrator-confirmed save grants scope. Display awaiting-configuration, empty
+scope, expiry, pause, unsupported runtime and unavailable inventory explicitly. Sensitive
+coverage confirmation names production/client coverage; edits invalidate that confirmation.
+Selected groups save current machines; all-machine scope includes future prepared machines.

@@ -1,63 +1,9 @@
-import { useEffect, useState } from "react";
-import {
-  useCloseDirectAccess, useDirectAccesses, useDirectAgents, useOpenDirectAccess,
-  type DirectAccess, type DirectAgent, type DirectDuration, type DirectPurpose,
-} from "@/hooks/useDirectAccess";
+import { useEffect, useRef, useState } from "react";
+import { useConfigureDirectAgent, useDirectAgents, type DirectAccessInput, type DirectAgent, type DirectDuration, type DirectPurpose } from "@/hooks/useDirectAccess";
 import { useHostGroups } from "@/hooks/useHostInventory";
 import { useServers } from "@/hooks/useServers";
 import { ApiError } from "@/lib/api";
 
-const MIN_REASON = 5;
-
-/** "Acesso direto" (Remote Access › Machines). idle -> opening -> submitting,
- * and -> confirming when the backend says the selection has sensitive machines:
- * it alone resolves groups and decides what is sensitive, so the warning names
- * what it answered. Any change to the form drops that confirmation. */
-export interface DirectAccessViewModel {
-  status: "loading" | "idle" | "opening" | "confirming" | "submitting" | "error";
-  active: DirectAccess[];
-  now: number;
-  eligible: DirectAgent[];
-  machines: { id: string; name: string }[];
-  groups: { id: string; name: string }[];
-  formOpen: boolean;
-  openForm: () => void;
-  closeForm: () => void;
-  agentId: string;
-  setAgentId: (id: string) => void;
-  selectedMachines: Set<string>;
-  selectedGroups: Set<string>;
-  toggleMachine: (id: string) => void;
-  toggleGroup: (id: string) => void;
-  reason: string;
-  setReason: (value: string) => void;
-  purpose: DirectPurpose;
-  setPurpose: (value: DirectPurpose) => void;
-  hours: DirectDuration;
-  setHours: (value: DirectDuration) => void;
-  allowElevation: boolean;
-  setAllowElevation: (value: boolean) => void;
-  /** Sensitive machines awaiting the one-click confirmation. */
-  sensitive: string[] | null;
-  canSubmit: boolean;
-  submit: () => Promise<void>;
-  closing: DirectAccess | null;
-  askClose: (access: DirectAccess) => void;
-  cancelClose: () => void;
-  confirmClose: () => Promise<void>;
-  closePending: boolean;
-  /** Commands still running on the access just closed; null before any close. */
-  stillRunning: number | null;
-  error: string | null;
-}
-
-function sensitiveMachines(error: unknown): string[] | null {
-  if (!(error instanceof ApiError) || error.status !== 409) return null;
-  const detail = (error.body as { detail?: { code?: string; machines?: string[] } } | null)?.detail;
-  return detail?.code === "SENSITIVE_CONFIRMATION_REQUIRED" ? detail.machines ?? [] : null;
-}
-
-/** The refusal ForgeHub wrote (literal secret in the reason, agent not eligible...). */
 export function refusalText(error: unknown): string {
   const detail = error instanceof ApiError ? (error.body as { detail?: unknown } | null)?.detail : null;
   if (typeof detail === "string") return detail;
@@ -65,111 +11,58 @@ export function refusalText(error: unknown): string {
   return typeof message === "string" ? message : (error as Error).message;
 }
 
-export function useDirectAccessViewModel(): DirectAccessViewModel {
-  const accesses = useDirectAccesses();
+/** Inline editor preserves its own draft while background queries refresh. Sensitive
+ * coverage is resolved by the backend; any edit cancels the previous confirmation. */
+export function useDirectAccessViewModel() {
   const agents = useDirectAgents();
   const servers = useServers();
-  const hostGroups = useHostGroups();
-  const openMutation = useOpenDirectAccess();
-  const closeMutation = useCloseDirectAccess();
-
-  const [now, setNow] = useState(() => Date.now());
-  const [formOpen, setFormOpen] = useState(false);
-  const [agentId, setAgent] = useState("");
-  const [selectedMachines, setSelectedMachines] = useState<Set<string>>(new Set());
-  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
-  const [reason, setReasonText] = useState("");
-  const [purpose, setPurposeValue] = useState<DirectPurpose>("support");
-  const [hours, setHoursValue] = useState<DirectDuration>(1);
+  const groups = useHostGroups();
+  const mutation = useConfigureDirectAgent();
+  const [editing, setEditing] = useState<DirectAgent | null>(null);
+  const [allMachines, setAll] = useState(true);
+  const [selectedMachines, setMachines] = useState<Set<string>>(new Set());
+  const [selectedGroups, setGroups] = useState<Set<string>>(new Set());
+  const [purpose, setPurpose] = useState<DirectPurpose | "">("");
+  const [reason, setReason] = useState("");
+  const [hours, setHours] = useState<DirectDuration>(0);
   const [allowElevation, setElevation] = useState(false);
-  const [sensitive, setSensitive] = useState<string[] | null>(null);
-  const [closing, setClosing] = useState<DirectAccess | null>(null);
-  const [stillRunning, setStillRunning] = useState<number | null>(null);
+  const [confirmation, setConfirmation] = useState<{ all: boolean; machines: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const edited = <T,>(setter: (value: T) => void) => (value: T) => { setSensitive(null); setter(value); };
-  const toggle = (setter: typeof setSelectedMachines, id: string) => {
-    setSensitive(null);
-    setter((cur) => {
-      const next = new Set(cur);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+  const [saved, setSaved] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now);
+  const submitting = useRef(false);
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(timer); }, []);
+  const edited = <T,>(setter: (value: T) => void) => (value: T) => { setConfirmation(null); setter(value); };
+  const toggle = (setter: typeof setMachines, id: string) => { setConfirmation(null); setter((old) => { const next = new Set(old); if (next.has(id)) next.delete(id); else next.add(id); return next; }); };
+  const inventoryError = Boolean(servers.error || groups.error);
+  const canSubmit = Boolean(editing) && !mutation.isPending && !servers.isLoading && !groups.isLoading && !inventoryError;
+  const submit = async (confirmed = false) => {
+    if (!editing || !canSubmit || submitting.current) return;
+    submitting.current = true;
+    setError(null);
+    const input: DirectAccessInput = { all_machines: allMachines, server_ids: allMachines ? [] : [...selectedMachines], group_ids: allMachines ? [] : [...selectedGroups], reason: reason.trim() || null, purpose: purpose || null, duration_hours: hours, allow_elevation: allowElevation, confirm_sensitive: confirmed && confirmation !== null };
+    try { await mutation.mutateAsync({ agentId: editing.id, input }); setSaved(editing.name); setEditing(null); setConfirmation(null); }
+    catch (e) {
+      const detail = e instanceof ApiError && e.status === 409 ? (e.body as { detail?: { code?: string; all_machines?: boolean; machines?: string[] } })?.detail : null;
+      if (detail?.code === "SENSITIVE_CONFIRMATION_REQUIRED") setConfirmation({ all: Boolean(detail.all_machines), machines: detail.machines ?? [] });
+      else setError(refusalText(e));
+    } finally { submitting.current = false; }
   };
-
-  const eligible = (agents.data ?? []).filter((a) => a.allowed && !a.unsupported_reason);
-  const submitting = openMutation.isPending;
-  const complete = Boolean(agentId) && (selectedMachines.size > 0 || selectedGroups.size > 0)
-    && reason.trim().length >= MIN_REASON;
-  const status = accesses.isLoading ? "loading" : submitting ? "submitting" : error ? "error"
-    : sensitive ? "confirming" : formOpen ? "opening" : "idle";
-
   return {
-    status,
-    active: (accesses.data ?? []).filter((a) => new Date(a.expires_at).getTime() > now),
-    now,
-    eligible,
-    machines: servers.data ?? [],
-    groups: hostGroups.data ?? [],
-    formOpen,
-    openForm: () => {
-      setError(null); setStillRunning(null); setSensitive(null); setAgent(""); setReasonText("");
-      setSelectedMachines(new Set()); setSelectedGroups(new Set());
-      setPurposeValue("support"); setHoursValue(1); setElevation(false); setNow(Date.now()); setFormOpen(true);
+    agents: agents.data ?? [], loading: agents.isLoading, now, editing,
+    open: (agent: DirectAgent) => {
+      const config = agent.configuration; setEditing(agent); setError(null); setSaved(null); setConfirmation(null);
+      setAll(config?.all_machines ?? true); setMachines(new Set(config?.machines.map((m) => m.id) ?? [])); setGroups(new Set());
+      setPurpose(config?.purpose ?? ""); setReason(config?.reason ?? ""); setHours(config?.duration_hours ?? 0); setElevation(config?.allow_elevation ?? false);
     },
-    closeForm: () => setFormOpen(false),
-    agentId,
-    setAgentId: edited(setAgent),
-    selectedMachines,
-    selectedGroups,
-    toggleMachine: (id) => toggle(setSelectedMachines, id),
-    toggleGroup: (id) => toggle(setSelectedGroups, id),
-    reason,
-    setReason: edited(setReasonText),
-    purpose,
-    setPurpose: edited(setPurposeValue),
-    hours,
-    setHours: edited(setHoursValue),
-    allowElevation,
-    setAllowElevation: edited(setElevation),
-    sensitive,
-    canSubmit: complete && !submitting,
-    submit: async () => {
-      if (!complete || submitting) return;
-      setError(null);
-      try {
-        await openMutation.mutateAsync({
-          agent_id: agentId, server_ids: [...selectedMachines], group_ids: [...selectedGroups], reason: reason.trim(),
-          purpose, duration_hours: hours, allow_elevation: allowElevation, confirm_sensitive: sensitive !== null,
-        });
-        setSensitive(null);
-        setFormOpen(false);
-      } catch (e) {
-        const machines = sensitiveMachines(e);
-        if (machines) setSensitive(machines);
-        else setError(refusalText(e));
-      }
-    },
-    closing,
-    askClose: (access) => { setError(null); setStillRunning(null); setClosing(access); },
-    cancelClose: () => setClosing(null),
-    confirmClose: async () => {
-      if (!closing) return;
-      try {
-        const closed = await closeMutation.mutateAsync(closing.id);
-        setStillRunning(closed.running_commands);
-        setClosing(null);
-      } catch (e) {
-        setError(refusalText(e));
-      }
-    },
-    closePending: closeMutation.isPending,
-    stillRunning,
-    error,
+    close: () => { if (!mutation.isPending) { setEditing(null); setConfirmation(null); } },
+    allMachines, setAllMachines: edited(setAll), selectedMachines, selectedGroups,
+    toggleMachine: (id: string) => toggle(setMachines, id), toggleGroup: (id: string) => toggle(setGroups, id),
+    machines: servers.data ?? [], groups: groups.data ?? [],
+    inventoryError, inventoryLoading: servers.isLoading || groups.isLoading,
+    retryInventory: () => { void servers.refetch(); void groups.refetch(); },
+    purpose, setPurpose: edited(setPurpose), reason, setReason: edited(setReason), hours, setHours: edited(setHours),
+    allowElevation, setAllowElevation: edited(setElevation), confirmation, cancelConfirmation: () => setConfirmation(null),
+    error, saved, submit, pending: mutation.isPending, canSubmit,
   };
 }

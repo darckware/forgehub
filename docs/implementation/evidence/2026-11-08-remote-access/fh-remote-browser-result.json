@@ -1,0 +1,29 @@
+{
+  "viewports": [
+    1440,
+    390
+  ],
+  "mutations": [
+    {
+      "all_machines": true,
+      "server_ids": [],
+      "group_ids": [],
+      "reason": null,
+      "purpose": null,
+      "duration_hours": 0,
+      "allow_elevation": false,
+      "confirm_sensitive": false
+    },
+    {
+      "all_machines": true,
+      "server_ids": [],
+      "group_ids": [],
+      "reason": null,
+      "purpose": null,
+      "duration_hours": 0,
+      "allow_elevation": false,
+      "confirm_sensitive": true
+    }
+  ],
+  "errors": []
+}

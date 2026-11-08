@@ -81,3 +81,14 @@ def test_a_hermes_run_reads_the_credential_through_the_xdg_name(tmp_path,monkeyp
     monkeypatch.setenv('FORGEHUB_AGENT_TOKEN','agt_long_lived_never_read_here')
     with pytest.raises(module.ForgeHubError):
         module._maintenance_token()
+
+
+@pytest.mark.parametrize('tool', ['upload_remote_file', 'download_remote_file'])
+def test_transfer_waits_for_the_bridge_deadline(tmp_path, monkeypatch, tool):
+    def complete_after_sixty_seconds(request):
+        if request.extensions['timeout']['read'] <= 630:
+            raise httpx.ReadTimeout('Transfer is still running after 60 seconds', request=request)
+        return httpx.Response(200, json={'size': 4, 'sha256': 'a' * 64})
+    module = _mcp_with(tmp_path, monkeypatch, complete_after_sixty_seconds)
+    got = asyncio.run(getattr(module, tool)('m1', '/srv/artifact', '/tmp/artifact', 'Deliver artifact', 42))
+    assert got['size'] == 4

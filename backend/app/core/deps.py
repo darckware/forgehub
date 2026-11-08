@@ -25,6 +25,8 @@ class ActorPrincipal:
     display_name: str
     is_admin: bool = False
     profile_id: uuid.UUID | None = None
+    credential_id: uuid.UUID | None = None
+    credential_label: str | None = None
 
 
 async def get_actor_principal(
@@ -46,7 +48,7 @@ async def get_actor_principal(
         agent = await db.get(Agent, credential.agent_id)
         if agent is None or not agent.is_active or agent.status != "active":
             raise HTTPException(403, "Agent principal is inactive")
-        return ActorPrincipal("agent", agent.id, agent.name)
+        return ActorPrincipal("agent", agent.id, agent.name, credential_id=credential.id, credential_label=credential.label)
     payload = decode_access_token(token)
     username = payload.get("sub") if payload else None
     if not username:

@@ -174,6 +174,11 @@
     "removeText": "ForgeHub stops generating auth keys: installers again require a key pasted by hand. Revoke the token in the Tailscale console too."
   },
   "maintenance": {
+    "transfer": {
+      "upload": "File upload",
+      "download": "File download",
+      "overwrite": "Overwrite authorized"
+    },
     "open": "Maintenance of {{name}}",
     "title": "Maintenance · {{name}}",
     "help": "Everything that reached this machine through ForgeHub: scripts and commands (by a person or an agent, with the reason and the client item), SSH terminal sessions and access events. The machine has one account (darckware); who did what is recorded here.",
@@ -307,6 +312,7 @@
     }
   },
   "execution": {
+    "outputExpired": "Output expired",
     "record": "Maintenance record",
     "title": "Execution",
     "subtitle": "By {{who}} on {{when}} · {{targets}}",
@@ -892,7 +898,7 @@
   },
   "direct": {
     "title": "Direct access",
-    "subtitle": "An authorized agent runs commands through ForgeHub for a limited time, with no approval per command. The SSH key never reaches the agent.",
+    "subtitle": "Configure the machines each agent may use. Commands and files go through ForgeHub with a running task and audit history. ForgeHub keeps the SSH key.",
     "open": "Open access",
     "empty": "No direct access is open.",
     "formTitle": "Open direct access",
@@ -927,7 +933,7 @@
     "pausedState": "Agent access paused by {{who}} on {{when}}.",
     "pauseScope": "Pause blocks the access of all agents through ForgeHub. People, the Workspace SSH terminal and people's schedules carry on as usual.",
     "pauseTitle": "Pause agent access?",
-    "pauseText": "Pause blocks the access of all agents through ForgeHub: commands, library scripts, approved proposals, requests to agents and agent schedules. No access is closed and the clock keeps running. A command already running goes to the end.",
+    "pauseText": "Pause blocks commands, scripts, proposals and transfers for every agent through ForgeHub. Configurations remain saved and time limits keep running. An operation in progress finishes by itself or at its timeout.",
     "pauseReason": "Reason (optional)",
     "agentsTitle": "Agents with direct access",
     "agentsEmpty": "No agent on the list.",
@@ -946,6 +952,28 @@
       "PROFILE_NOT_READABLE": "the profile's configuration could not be read.",
       "PROFILE_WITHOUT_FORGEHUB_MCP": "the profile has no active forgehub MCP.",
       "PROFILE_MCP_WITHOUT_MAINTENANCE_TOOLS": "the profile's forgehub MCP doesn't expose the maintenance tools."
-    }
+    },
+    "configure": "Configure {{name}}",
+    "allMachines": "All machines",
+    "indefinite": "0 h (indefinite)",
+    "pendingConfiguration": "Awaiting configuration",
+    "notListed": "Not listed",
+    "configured": "Configured",
+    "expired": "Time limit ended",
+    "oldAccess": "Open for more than 7 days",
+    "since": "Configured on {{when}}",
+    "until": "Until {{when}}",
+    "applyNextCommand": "Changes apply to the next command. The task must be running and addressed to the agent. Groups save current machines; new group members are not included automatically.",
+    "noMachines": "With no machines selected, the agent has no access.",
+    "noOptions": "No options available.",
+    "optionalPurpose": "Purpose (optional)",
+    "unspecified": "Not specified",
+    "save": "Save configuration",
+    "saved": "Configuration saved for {{name}}.",
+    "inventoryError": "Could not load machines and groups. Retry before saving.",
+    "retry": "Retry",
+    "confirmTitle": "Confirm access for {{name}}?",
+    "allSensitive": "Includes all machines, including production and clients.",
+    "selectedSensitive": "Includes {{machines}}. Allow this agent access?"
   }
 }

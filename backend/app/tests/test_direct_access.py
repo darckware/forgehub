@@ -51,11 +51,11 @@ async def ctx(monkeypatch):
         db.add_all([admin, plain, agent, other, hermes, lab, lab2, prod, group])
         await db.flush()
         db.add(HostGroupMember(group_id=group.id, server_id=lab2.id))
-        task = AgentDemand(from_agent="t", from_agent_id=agent.id, target_agent_id=agent.id, subject="t", body="t", origin_type="task")
-        foreign = AgentDemand(from_agent="t", from_agent_id=other.id, target_agent_id=other.id, subject="o", body="t", origin_type="task")
+        task = AgentDemand(from_agent="t", from_agent_id=agent.id, target_agent_id=agent.id, subject="t", body="t", origin_type="task", dispatch_status="running", agent_run_id="direct-test-" + tag)
+        foreign = AgentDemand(from_agent="t", from_agent_id=other.id, target_agent_id=other.id, subject="o", body="t", origin_type="task", dispatch_status="running", agent_run_id="direct-test-" + tag)
         db.add_all([task, foreign])
         for row, token in ((agent, tokens["agent"]), (other, tokens["other"]), (hermes, tokens["hermes"])):
-            db.add(AgentServiceCredential(agent_id=row.id, label="test", token_hash=hashlib.sha256(token.encode()).hexdigest()))
+            db.add(AgentServiceCredential(agent_id=row.id, label="dispatch:direct-test-" + tag, token_hash=hashlib.sha256(token.encode()).hexdigest()))
         await db.commit()
     machines = [lab, lab2, prod]
 
@@ -82,7 +82,7 @@ async def ctx(monkeypatch):
     async with AsyncSessionLocal() as db:
         ids = [m.id for m in machines]
         access_ids = select(AuthorityDelegation.id).where(AuthorityDelegation.grantee_id.in_(agents))
-        keys = [Notification.event_key.like(f"direct-access:{verb}:{i}") for verb in ("opened", "closed")
+        keys = [Notification.event_key == f"delegation:revoked:{i}" for i in (await db.scalars(access_ids)).all()] + [Notification.event_key.like(f"direct-access:{verb}:{i}") for verb in ("opened", "closed")
                 for i in (await db.scalars(access_ids)).all()]
         if keys:
             await db.execute(delete(Notification).where(or_(*keys)))
@@ -101,14 +101,15 @@ async def ctx(monkeypatch):
 
 
 def opening(c, **extra):
-    return {"agent_id": str(c.agent.id), "server_ids": [str(c.lab.id)], "reason": "Fix the deploy", "purpose": "support",
+    return {"all_machines": False, "server_ids": [str(c.lab.id)], "reason": "Fix the deploy", "purpose": "support",
             "duration_hours": 1, **extra}
 
 
 async def opened(c, **extra):
-    r = await c.client.post(ADMIN, json=opening(c, **extra), headers=c.admin_h)
-    assert r.status_code == 201, r.text
-    return r.json()
+    agent_id = extra.pop("agent_id", str(c.agent.id))
+    r = await c.client.put(f"{ADMIN}/agents/{agent_id}", json=opening(c, **extra), headers=c.admin_h)
+    assert r.status_code == 200, r.text
+    return r.json()["configuration"]
 
 
 def command(c, **extra):
@@ -120,6 +121,93 @@ async def finished(c, execution_id):
     pending = host_exec_runner._running.get(uuid.UUID(execution_id))
     if pending:
         await pending
+
+
+@pytest.mark.asyncio
+async def test_file_transfer_metadata_is_visible_in_machine_history(ctx):
+    c = ctx
+    async with AsyncSessionLocal() as db:
+        db.add(AuditEvent(entity_type='server', entity_id=c.lab.id,
+            event_type='file_transfer_succeeded', actor=c.agent.name, payload={
+                'agent': c.agent.name, 'message_number': c.task.number,
+                'reason': 'Deliver plugin archive', 'direction': 'upload',
+                'local_path': '/srv/project/plugin.zip', 'remote_path': '/tmp/plugin.zip',
+                'size': 123, 'sha256': 'a' * 64, 'overwrite': False,
+            }))
+        await db.commit()
+    response = await c.client.get(f'/api/v1/servers/{c.lab.id}/maintenance', headers=c.admin_h)
+    assert response.status_code == 200
+    entry = next(e for e in response.json() if e.get('transfer_direction') == 'upload')
+    assert entry['message_number'] == c.task.number
+    assert entry['agent_name'] == c.agent.name
+    assert entry['reason'] == 'Deliver plugin archive'
+    assert entry['transfer_local_path'] == '/srv/project/plugin.zip'
+    assert entry['transfer_remote_path'] == '/tmp/plugin.zip'
+    assert entry['transfer_size'] == 123 and entry['transfer_sha256'] == 'a' * 64
+    assert entry['transfer_overwrite'] is False
+    assert entry['status'] == 'succeeded'
+
+
+@pytest.mark.asyncio
+async def test_task_completion_waits_for_authorized_operation_to_be_recorded(ctx):
+    from sqlalchemy import text, update
+    from sqlalchemy.exc import DBAPIError
+    from app.core.deps import ActorPrincipal
+    c = ctx
+    principal = ActorPrincipal('agent', c.agent.id, c.agent.name,
+        credential_label=f'dispatch:{c.task.agent_run_id}')
+    async with AsyncSessionLocal() as operation, AsyncSessionLocal() as completion:
+        await host._check_against_task(operation, c.agent, SimpleNamespace(message_number=c.task.number),
+            None, [c.lab], principal=principal)
+        await completion.execute(text("SET LOCAL lock_timeout = '100ms'"))
+        with pytest.raises(DBAPIError) as blocked:
+            await completion.execute(update(AgentDemand).where(AgentDemand.id == c.task.id).values(dispatch_status='completed'))
+        assert blocked.value.orig.sqlstate == '55P03'
+        await completion.rollback()
+        await operation.commit()
+        await completion.execute(update(AgentDemand).where(AgentDemand.id == c.task.id).values(dispatch_status='completed'))
+        await completion.commit()
+
+
+@pytest.mark.asyncio
+async def test_rejected_dispatch_revokes_credential_before_clearing_run_id(ctx, monkeypatch):
+    from app.api.routes import demand as demand_routes
+    from app.core.agent_runs import AgentRunDispatchError
+    from app.core import demand_failure_check
+    c = ctx
+    issued = []
+    async def rejected(run_id, agent, *args, **kwargs):
+        async with AsyncSessionLocal() as db:
+            credential = AgentServiceCredential(agent_id=agent.id, label=f'dispatch:{run_id}',
+                token_hash=hashlib.sha256(uuid.uuid4().bytes).hexdigest())
+            db.add(credential)
+            await db.commit()
+            issued.append(credential.id)
+        raise AgentRunDispatchError('Synthetic bridge rejection')
+    async def no_failure_check(*args):
+        pass
+    monkeypatch.setattr(demand_routes, 'dispatch_agent_run', rejected)
+    monkeypatch.setattr(demand_failure_check, 'ensure_failure_check', no_failure_check)
+    async with AsyncSessionLocal() as db:
+        task = await db.get(AgentDemand, c.task.id)
+        task.dispatch_status, task.agent_run_id, task.working_path = None, None, '/tmp/fixture-project'
+        await db.commit()
+    try:
+        response = await c.client.post(f'/api/v1/demands/{c.task.id}/dispatch',
+            headers=c.admin_h, json={'target_agent_id': str(c.agent.id)})
+        assert response.status_code == 409, response.text
+        assert len(issued) == 1
+        async with AsyncSessionLocal() as db:
+            credential = await db.get(AgentServiceCredential, issued[0])
+            assert credential.revoked_at is not None
+            event = await db.scalar(select(AuditEvent).where(AuditEvent.entity_id == c.task.id,
+                AuditEvent.event_type == 'dispatch_credential_revoked'))
+            assert event.payload['credential_id'] == str(issued[0])
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(AuditEvent).where(AuditEvent.entity_id == c.task.id))
+            await db.execute(delete(Notification).where(Notification.event_key.like(f'demand-dispatch-failed:{c.task.id}:%')))
+            await db.commit()
 
 
 async def code_of(response):
@@ -157,13 +245,13 @@ async def test_linux_target_open_use_close(ctx, monkeypatch):
     assert len(runs) == 1
     assert (runs[0]["direct_access_id"], runs[0]["direct_access_purpose"], runs[0]["message_number"]) == (access["id"], "support", c.task.number)
     assert runs[0]["reason"] == "Check the kernel" and runs[0]["agent_name"] == c.agent.name
-    assert any("Acesso direto aberto" in h["title"] for h in history)
+    assert await audit_events(uuid.UUID(access["id"]), "direct_access_configured")
 
-    closed = await c.client.post(f"{ADMIN}/{access['id']}:close", headers=c.admin_h)
+    closed = await c.client.delete(f"{ADMIN}/agents/{c.agent.id}", headers=c.admin_h)
     assert closed.status_code == 200, closed.text
     assert closed.json()["running_commands"] == 0 and "not interrupted" in closed.json()["notice"]
     refused = await c.client.post(RUN, json=command(c), headers=c.agent_h)
-    assert refused.status_code == 403 and await code_of(refused) == "NO_DIRECT_ACCESS"
+    assert refused.status_code == 403 and await code_of(refused) == "AGENT_NOT_LISTED"
     assert access["id"] not in [a["id"] for a in (await c.client.get(ADMIN, headers=c.admin_h)).json()]
     async with AsyncSessionLocal() as db:
         run = await db.get(HostExecution, uuid.UUID(eid))
@@ -171,7 +259,7 @@ async def test_linux_target_open_use_close(ctx, monkeypatch):
         started = (await db.scalars(select(AuditEvent).where(AuditEvent.entity_id == run.id))).one()
         assert started.payload["direct_access"] == {str(c.lab.id): access["id"]}
         events = (await db.scalars(select(AuditEvent).where(AuditEvent.entity_id == uuid.UUID(access["id"])))).all()
-        assert {e.event_type for e in events} == {"direct_access_opened", "direct_access_closed"}
+        assert {e.event_type for e in events} == {"direct_access_configured", "direct_access_closed"}
         assert all(e.actor == c.admin.username for e in events)
 
 
@@ -233,14 +321,14 @@ async def test_access_must_cover_every_machine_and_empty_covers_nothing(ctx):
 @pytest.mark.asyncio
 async def test_only_a_human_admin_opens_and_closes(ctx):
     c = ctx
-    assert (await c.client.post(ADMIN, json=opening(c), headers=c.agent_h)).status_code in (401, 403)
-    assert (await c.client.post(ADMIN, json=opening(c), headers=c.user_h)).status_code == 403
+    assert (await c.client.put(f"{ADMIN}/agents/{c.agent.id}", json=opening(c), headers=c.agent_h)).status_code in (401, 403)
+    assert (await c.client.put(f"{ADMIN}/agents/{c.agent.id}", json=opening(c), headers=c.user_h)).status_code == 403
     access = await opened(c)
-    assert (await c.client.post(f"{ADMIN}/{access['id']}:close", headers=c.agent_h)).status_code in (401, 403)
-    assert (await c.client.post(f"{ADMIN}/{access['id']}:close", headers=c.user_h)).status_code == 403
+    assert (await c.client.delete(f"{ADMIN}/agents/{c.agent.id}", headers=c.agent_h)).status_code in (401, 403)
+    assert (await c.client.delete(f"{ADMIN}/agents/{c.agent.id}", headers=c.user_h)).status_code == 403
     assert (await c.client.post(f"/api/v1/governed/authority-delegations/{access['id']}:revoke", headers=c.agent_h)).status_code in (401, 403)
-    assert (await c.client.post(f"{ADMIN}/{access['id']}:close", headers=c.admin_h)).status_code == 200
-    assert (await c.client.post(f"{ADMIN}/{access['id']}:close", headers=c.admin_h)).status_code == 409
+    assert (await c.client.delete(f"{ADMIN}/agents/{c.agent.id}", headers=c.admin_h)).status_code == 200
+    assert (await c.client.delete(f"{ADMIN}/agents/{c.agent.id}", headers=c.admin_h)).status_code == 404
 
 
 @pytest.mark.asyncio
@@ -254,12 +342,12 @@ async def test_the_generic_delegation_route_cannot_open_direct_access(ctx):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("change", [
-    {"duration_hours": 2}, {"duration_hours": 48}, {"duration_hours": 0}, {"reason": "    "}, {"reason": ""},
-    {"purpose": "fun"}, {"expires_at": "2099-01-01T00:00:00Z"}, {"server_ids": []},
+    {"duration_hours": 2}, {"duration_hours": 48},
+    {"purpose": "fun"}, {"expires_at": "2099-01-01T00:00:00Z"},
 ])
 async def test_opening_validation(ctx, change):
     c = ctx
-    assert (await c.client.post(ADMIN, json=opening(c, **change), headers=c.admin_h)).status_code == 422
+    assert (await c.client.put(f"{ADMIN}/agents/{c.agent.id}", json=opening(c, **change), headers=c.admin_h)).status_code == 422
 
 
 @pytest.mark.asyncio
@@ -274,7 +362,7 @@ async def test_the_three_durations(ctx, hours):
 @pytest.mark.asyncio
 async def test_hermes_agent_is_not_eligible(ctx):
     c = ctx
-    r = await c.client.post(ADMIN, json=opening(c, agent_id=str(c.hermes.id)), headers=c.admin_h)
+    r = await c.client.put(f"{ADMIN}/agents/{c.hermes.id}", json=opening(c), headers=c.admin_h)
     assert r.status_code == 422
 
 
@@ -282,15 +370,15 @@ async def test_hermes_agent_is_not_eligible(ctx):
 async def test_sensitive_machine_needs_confirmation_and_audit_says_who(ctx):
     c = ctx
     body = opening(c, server_ids=[str(c.prod.id), str(c.lab.id)])
-    r = await c.client.post(ADMIN, json=body, headers=c.admin_h)
+    r = await c.client.put(f"{ADMIN}/agents/{c.agent.id}", json=body, headers=c.admin_h)
     assert r.status_code == 409
     assert r.json()["detail"]["code"] == "SENSITIVE_CONFIRMATION_REQUIRED"
-    assert r.json()["detail"]["machines"] == [c.prod.name]
+    assert c.prod.name in r.json()["detail"]["machines"]
     a = await opened(c, server_ids=[str(c.prod.id), str(c.lab.id)], confirm_sensitive=True)
     assert {m["name"]: m["sensitive"] for m in a["machines"]} == {c.prod.name: True, c.lab.name: False}
     async with AsyncSessionLocal() as db:
         event = (await db.scalars(select(AuditEvent).where(AuditEvent.entity_id == uuid.UUID(a["id"])))).one()
-        assert event.payload["sensitive_machines"] == [c.prod.name]
+        assert str(c.prod.id) in event.payload["servers"]
         assert event.payload["sensitive_confirmed_by"] == c.admin.username
     plain = await opened(c)
     async with AsyncSessionLocal() as db:
@@ -325,7 +413,10 @@ async def test_a_group_with_no_machines_opens_nothing(ctx):
     async with AsyncSessionLocal() as db:
         await db.execute(delete(HostGroupMember).where(HostGroupMember.group_id == c.group.id))
         await db.commit()
-    assert (await c.client.post(ADMIN, json=opening(c, server_ids=[], group_ids=[str(c.group.id)]), headers=c.admin_h)).status_code == 422
+    a = await opened(c, server_ids=[], group_ids=[str(c.group.id)])
+    assert a["machines"] == []
+    r = await c.client.post(RUN, json=command(c), headers=c.agent_h)
+    assert r.status_code == 403 and await code_of(r) == "NO_DIRECT_ACCESS"
 
 
 @pytest.mark.asyncio
@@ -407,7 +498,7 @@ async def test_busy_machine_comes_back_busy_with_nothing_queued(ctx, monkeypatch
 @pytest.mark.asyncio
 async def test_closing_reports_the_running_command_and_it_finishes(ctx, monkeypatch):
     c = ctx
-    access = await opened(c)
+    await opened(c)
     release = asyncio.Event()
 
     async def slow(*args):
@@ -416,7 +507,7 @@ async def test_closing_reports_the_running_command_and_it_finishes(ctx, monkeypa
 
     monkeypatch.setattr(host_exec_runner, "call_bridge_exec", slow)
     run = await c.client.post(RUN, json=command(c), headers=c.agent_h)
-    closed = await c.client.post(f"{ADMIN}/{access['id']}:close", headers=c.admin_h)
+    closed = await c.client.delete(f"{ADMIN}/agents/{c.agent.id}", headers=c.admin_h)
     assert closed.json()["running_commands"] == 1
     release.set()
     await finished(c, run.json()["id"])
@@ -536,8 +627,7 @@ async def test_adding_and_removing_is_audited_with_the_admin(ctx):
     assert (await c.client.delete(f"{AGENTS}/{c.other.id}", headers=c.admin_h)).status_code == 404
     listed = {a["id"]: a for a in (await c.client.get(AGENTS, headers=c.admin_h)).json()}
     assert listed[str(c.other.id)]["allowed"] is False and listed[str(c.agent.id)]["allowed"] is True
-    assert (await c.client.post(f"{AGENTS}/{c.other.id}", headers=c.admin_h)).status_code == 201
-    assert (await c.client.post(f"{AGENTS}/{c.other.id}", headers=c.admin_h)).status_code == 409
+    assert (await c.client.put(f"{AGENTS}/{c.other.id}", json={"confirm_sensitive": True}, headers=c.admin_h)).status_code == 200
     for event in ("direct_access_agent_removed", "direct_access_agent_added"):
         [row] = await audit_events(c.other.id, event)
         assert row.actor == c.admin.username
@@ -547,19 +637,19 @@ async def test_adding_and_removing_is_audited_with_the_admin(ctx):
 async def test_an_agent_off_the_list_cannot_get_an_access(ctx):
     c = ctx
     await c.client.delete(f"{AGENTS}/{c.agent.id}", headers=c.admin_h)
-    r = await c.client.post(ADMIN, json=opening(c), headers=c.admin_h)
-    assert r.status_code == 422 and await code_of(r) == "AGENT_NOT_LISTED"
+    r = await c.client.put(f"{ADMIN}/agents/{c.agent.id}", json=opening(c), headers=c.admin_h)
+    assert r.status_code == 200 and r.json()["allowed"] is True
 
 
 @pytest.mark.asyncio
 async def test_removing_closes_the_open_accesses_and_refuses_the_next_command(ctx):
     c = ctx
     await opened(c)
-    await opened(c, server_ids=[str(c.lab2.id)])
+    await opened(c, server_ids=[str(c.lab.id), str(c.lab2.id)])
     assert (await c.client.post(RUN, json=command(c), headers=c.agent_h)).status_code == 201
     r = await c.client.delete(f"{AGENTS}/{c.agent.id}", headers=c.admin_h)
     assert r.status_code == 200
-    assert r.json()["closed_accesses"] == 2 and "not interrupted" in r.json()["notice"]
+    assert r.json()["closed_accesses"] == 1 and "not interrupted" in r.json()["notice"]
     assert (await c.client.get(ADMIN, headers=c.admin_h)).json() == []
     r = await c.client.post(RUN, json=command(c), headers=c.agent_h)
     assert r.status_code == 403 and await code_of(r) == "AGENT_NOT_LISTED"
@@ -568,7 +658,7 @@ async def test_removing_closes_the_open_accesses_and_refuses_the_next_command(ct
         assert {r.status for r in rows} == {"revoked"}
         events = (await db.scalars(select(AuditEvent).where(
             AuditEvent.entity_id.in_([r.id for r in rows]), AuditEvent.event_type == "direct_access_closed"))).all()
-        assert len(events) == 2 and {e.actor for e in events} == {c.admin.username}
+        assert len(events) == 1 and {e.actor for e in events} == {c.admin.username}
         assert {e.payload["cause"] for e in events} == {"agent_removed_from_list"}
 
 
@@ -593,14 +683,14 @@ async def test_removing_says_how_many_commands_are_still_running(ctx, monkeypatc
 async def test_a_hermes_agent_joins_only_if_its_profile_reaches_the_tool(ctx, tmp_path):
     c = ctx
     await set_home(c.hermes, str(tmp_path / "missing"))
-    r = await c.client.post(f"{AGENTS}/{c.hermes.id}", headers=c.admin_h)
+    r = await c.client.put(f"{AGENTS}/{c.hermes.id}", json={"all_machines": False}, headers=c.admin_h)
     assert r.status_code == 422 and await code_of(r) == "PROFILE_NOT_READABLE"
     await set_home(c.hermes, hermes_profile(tmp_path, "    tools:\n      include: [send_agent_message]\n"))
     listed = {a["id"]: a for a in (await c.client.get(AGENTS, headers=c.admin_h)).json()}
     assert listed[str(c.hermes.id)]["unsupported_reason"] == "PROFILE_MCP_WITHOUT_MAINTENANCE_TOOLS"
-    assert (await c.client.post(f"{AGENTS}/{c.hermes.id}", headers=c.admin_h)).status_code == 422
+    assert (await c.client.put(f"{AGENTS}/{c.hermes.id}", json={"all_machines": False}, headers=c.admin_h)).status_code == 422
     await set_home(c.hermes, hermes_profile(tmp_path))
-    assert (await c.client.post(f"{AGENTS}/{c.hermes.id}", headers=c.admin_h)).status_code == 201
+    assert (await c.client.put(f"{AGENTS}/{c.hermes.id}", json={"all_machines": False}, headers=c.admin_h)).status_code == 200
     assert (await opened(c, agent_id=str(c.hermes.id)))["agent_id"] == str(c.hermes.id)
 
 
@@ -629,7 +719,7 @@ async def test_agents_never_change_the_list_or_the_pause_even_with_delegation(ct
         await db.commit()
     # The agent's credential stops at the middleware (401); a person's session at the route.
     for headers, refused in ((c.agent_h, 401), (c.user_h, 403)):
-        calls = [c.client.get(AGENTS, headers=headers), c.client.post(f"{AGENTS}/{c.other.id}", headers=headers),
+        calls = [c.client.get(AGENTS, headers=headers), c.client.put(f"{AGENTS}/{c.other.id}", json={"confirm_sensitive": True}, headers=headers),
                  c.client.delete(f"{AGENTS}/{c.agent.id}", headers=headers), c.client.get(CONTROL, headers=headers),
                  c.client.post(CONTROL + ":pause", json={}, headers=headers),
                  c.client.post(CONTROL + ":resume", headers=headers)]
@@ -673,8 +763,8 @@ async def test_pause_refuses_command_and_opening_and_shows_in_the_listing(pausab
     assert (await c.client.get(CONTROL, headers=c.admin_h)).json()["paused"] is True
     r = await c.client.post(RUN, json=command(c), headers=c.agent_h)
     assert r.status_code == 403 and await code_of(r) == PAUSED
-    r = await c.client.post(ADMIN, json=opening(c, server_ids=[str(c.lab2.id)]), headers=c.admin_h)
-    assert r.status_code == 403 and await code_of(r) == PAUSED
+    r = await c.client.put(f"{ADMIN}/agents/{c.agent.id}", json=opening(c, server_ids=[str(c.lab2.id)]), headers=c.admin_h)
+    assert r.status_code == 200
     [machine] = (await c.client.get("/api/v1/host-executions/agent/machines", headers=c.agent_h)).json()
     assert machine["agent_access_paused"] is True and machine["runnable"] is False and machine["direct_access"] is True
     events = await audit_events(CONTROL_ID, "agent_remote_access_paused")
@@ -846,3 +936,132 @@ async def test_hermes_run_gets_a_credential_only_on_the_list(monkeypatch, listed
             await db.execute(delete(AgentServiceCredential).where(AgentServiceCredential.agent_id == agent.id))
             await db.execute(delete(Agent).where(Agent.id == agent.id))
             await db.commit()
+
+@pytest.mark.asyncio
+async def test_indefinite_all_machines_covers_new_prepared_machine_after_25_hours(ctx, monkeypatch):
+    c = ctx
+    a = await opened(c, all_machines=True, server_ids=[], duration_hours=0, confirm_sensitive=True)
+    assert a['expires_at'] is None and a['open_ended'] is True
+    assert '9999' not in str(a)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AuthorityDelegation, uuid.UUID(a['id']))
+        row.valid_from -= timedelta(hours=25)
+        machine = Server(name='future-' + uuid.uuid4().hex, ip_address='192.0.2.99', remote_user='test',
+                         os_family='linux', environment='client', kind='workstation')
+        db.add(machine)
+        await db.commit()
+    async def ready(db):
+        return {machine.id: (True, 'complete')}
+    monkeypatch.setattr(host, '_agent_readiness', ready)
+    try:
+        r = await c.client.post(RUN, json=command(c, server_ids=[str(machine.id)]), headers=c.agent_h)
+        assert r.status_code == 201, r.text
+        await finished(c, r.json()['id'])
+        machines = await c.client.get('/api/v1/host-executions/agent/machines', headers=c.agent_h)
+        row = next(row for row in machines.json() if row['id'] == str(machine.id))
+        assert row['direct_access_until'] is None and row['direct_access_open_ended'] is True
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Server).where(Server.id == machine.id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('task_status,code', [('completed', 'TASK_FINISHED'), ('failed', 'TASK_FINISHED'), (None, 'TASK_NOT_RUNNING')])
+async def test_terminal_and_undispatched_task_cannot_run(ctx, task_status, code):
+    c = ctx
+    await opened(c)
+    async with AsyncSessionLocal() as db:
+        (await db.get(AgentDemand, c.task.id)).dispatch_status = task_status
+        await db.commit()
+    r = await c.client.post(RUN, json=command(c), headers=c.agent_h)
+    assert r.status_code == 403 and await code_of(r) == code
+
+
+@pytest.mark.asyncio
+async def test_credential_of_another_run_cannot_execute_even_for_same_agent(ctx):
+    c = ctx
+    await opened(c)
+    async with AsyncSessionLocal() as db:
+        (await db.get(AgentDemand, c.task.id)).agent_run_id = 'different-run'
+        await db.commit()
+    r = await c.client.post(RUN, json=command(c), headers=c.agent_h)
+    assert r.status_code == 403 and await code_of(r) == 'TASK_CREDENTIAL_MISMATCH'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('outcome', ['completed', 'failed', 'timed_out', 'cancelled', 'stale', 'fail_dispatch'])
+async def test_terminal_dispatch_revokes_real_credential_and_records_audit(ctx, outcome):
+    from app.api.routes.demand import _finalize_dispatch, _fail_dispatch
+    c = ctx
+    await opened(c)
+    async with AsyncSessionLocal() as db:
+        task = await db.get(AgentDemand, c.task.id)
+        if outcome == 'fail_dispatch':
+            await _fail_dispatch(db, task, 'bridge failed', title='Failed test')
+        else:
+            await _finalize_dispatch(db, task.id, {'status': outcome, 'result': 'STATUS: DONE'})
+        await db.commit()
+        credentials = (await db.scalars(select(AgentServiceCredential).where(AgentServiceCredential.agent_id == c.agent.id))).all()
+        assert all(row.revoked_at is not None for row in credentials)
+        events = await audit_events(task.id, 'dispatch_credential_revoked')
+        assert len(events) == 1 and events[0].payload['outcome'] == ('failed' if outcome == 'fail_dispatch' else outcome)
+        assert events[0].payload['task_number'] == c.task.number
+    r = await c.client.post(RUN, json=command(c), headers=c.agent_h)
+    assert r.status_code == 401
+    # Audit belongs to this temporary demand and must be deleted before fixture cleanup.
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(AuditEvent).where(AuditEvent.entity_id == c.task.id))
+        await db.execute(delete(Notification).where(Notification.event_key.like(f'%{c.task.id}%')))
+        await db.commit()
+
+@pytest.mark.asyncio
+async def test_indefinite_configuration_hides_storage_date_in_generic_delegation_api(ctx):
+    c = ctx
+    a = await opened(c, duration_hours=0)
+    r = await c.client.get('/api/v1/governed/authority-delegations', headers=c.admin_h)
+    assert r.status_code == 200, r.text
+    row = next(row for row in r.json() if row['id'] == a['id'])
+    assert row['expires_at'] is None and row['open_ended'] is True
+    r = await c.client.post('/api/v1/governed/authority-delegations/' + a['id'] + ':revoke', headers=c.admin_h)
+    assert r.status_code == 200 and r.json()['expires_at'] is None
+
+
+@pytest.mark.asyncio
+async def test_configuration_replaces_scope_for_the_very_next_command(ctx):
+    c = ctx
+    initial = await opened(c, server_ids=[str(c.lab.id), str(c.lab2.id)])
+    updated = await opened(c, server_ids=[str(c.lab2.id)])
+    r = await c.client.post(RUN, json=command(c), headers=c.agent_h)
+    assert r.status_code == 403 and await code_of(r) == 'NO_DIRECT_ACCESS'
+    r = await c.client.post(RUN, json=command(c, server_ids=[str(c.lab2.id)]), headers=c.agent_h)
+    assert r.status_code == 201, r.text
+    await finished(c, r.json()['id'])
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(AuthorityDelegation, uuid.UUID(initial['id']))).status == 'revoked'
+        assert (await db.get(AuthorityDelegation, uuid.UUID(updated['id']))).status == 'active'
+
+
+@pytest.mark.asyncio
+async def test_sensitive_confirmation_is_once_until_coverage_expands(ctx):
+    c = ctx
+    await opened(c, server_ids=[str(c.prod.id)], confirm_sensitive=True)
+    await opened(c, server_ids=[str(c.prod.id)], allow_elevation=True)
+    r = await c.client.put(f'{ADMIN}/agents/{c.agent.id}', headers=c.admin_h,
+        json=opening(c, all_machines=True, server_ids=[]))
+    assert r.status_code == 409 and await code_of(r) == 'SENSITIVE_CONFIRMATION_REQUIRED'
+
+
+@pytest.mark.asyncio
+async def test_indefinite_configuration_is_never_warned_as_expiring(ctx):
+    c = ctx
+    a = await opened(c, duration_hours=0)
+    # Keep the no-expiry marker but put storage expiry within the warning window.
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AuthorityDelegation, uuid.UUID(a['id']))
+        row.allowed_actions = ['remote_access.direct', 'remote_access.execute']
+        row.expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+        await db.commit()
+    await host.run_delegation_expiry_pass()
+    async with AsyncSessionLocal() as db:
+        assert await db.scalar(select(Notification.id).where(Notification.event_key == 'delegation-expiring:' + a['id'])) is None

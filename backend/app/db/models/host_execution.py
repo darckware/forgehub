@@ -126,6 +126,7 @@ class HostExecutionResult(Base, TimestampMixin):
     exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     stdout: Mapped[str | None] = mapped_column(Text, nullable=True)
     stderr: Mapped[str | None] = mapped_column(Text, nullable=True)
+    output_expired: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     truncated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

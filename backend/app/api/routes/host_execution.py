@@ -116,14 +116,16 @@ def _counts_and_verdict(statuses: list[str]) -> tuple[HostExecutionCounts, str]:
 async def _summaries(db: AsyncSession, executions: list[HostExecution]) -> list[HostExecutionSummary]:
     ids = [e.id for e in executions]
     statuses: dict[uuid.UUID, list[str]] = {i: [] for i in ids}
+    expired_counts = {i: 0 for i in ids}
     if ids:
         rows = await db.execute(
-            select(HostExecutionResult.execution_id, HostExecutionResult.status).where(
+            select(HostExecutionResult.execution_id, HostExecutionResult.status, HostExecutionResult.output_expired).where(
                 HostExecutionResult.execution_id.in_(ids)
             )
         )
-        for execution_id, result_status in rows.all():
+        for execution_id, result_status, output_expired in rows.all():
             statuses[execution_id].append(result_status)
+            expired_counts[execution_id] += int(output_expired)
     agent_ids = {e.agent_id for e in executions if e.agent_id}
     names = {}
     if agent_ids:
@@ -133,6 +135,7 @@ async def _summaries(db: AsyncSession, executions: list[HostExecution]) -> list[
         summary = HostExecutionSummary.model_validate(execution)
         summary.counts, summary.verdict = _counts_and_verdict(statuses[execution.id])
         summary.agent_name = names.get(execution.agent_id)
+        summary.output_expired_count = expired_counts[execution.id]
         out.append(summary)
     return out
 
@@ -161,6 +164,7 @@ async def _detail(db: AsyncSession, execution: HostExecution) -> HostExecutionDe
         agent = await db.get(Agent, execution.agent_id)
         detail.agent_name = agent.name if agent else None
     detail.results = [HostExecutionResultOut.model_validate(r) for r in results]
+    detail.output_expired_count = sum(r.output_expired for r in results)
     detail.counts, detail.verdict = _counts_and_verdict([r.status for r in results])
     detail.follow_up_ids = follow_ups
     return detail
@@ -561,6 +565,10 @@ async def remote_context(db, principal, message_number=None):
     demand = await db.scalar(select(AgentDemand).where(AgentDemand.number == message_number))
     if not demand or demand.target_agent_id != principal.principal_id or demand.origin_type != "task":
         raise HTTPException(403, "Task is not addressed to you")
+    from app.core.remote_authority import require_running_remote_task
+    require_running_remote_task(demand)
+    from app.core.remote_authority import require_remote_task_credential
+    require_remote_task_credential(principal, demand)
     if demand.status == "archived":
         raise HTTPException(409, "Task is archived")
     project = await db.get(Project, demand.project_id) if demand.project_id else None
@@ -593,7 +601,8 @@ async def agent_list_machines(
             agent_access_paused=paused,
             status=readiness.get(s.id, (False, "unknown"))[1],
             direct_access=access is not None,
-            direct_access_until=access.expires_at if access else None,
+            direct_access_until=access.expires_at if access and not access.open_ended else None,
+            direct_access_open_ended=bool(access and access.open_ended),
             direct_allow_elevation=direct_access_for(direct, s.id, elevation=True) is not None,
         ))
     return out
@@ -632,7 +641,7 @@ async def agent_create_execution(
         raise HTTPException(status_code=404, detail="Script not found")
     servers, _ = await resolve_targets(db, payload.server_ids, [])
     agent = await db.get(Agent, principal.principal_id)
-    demand_id = await _check_against_task(db, agent, payload, script, servers)
+    demand_id = await _check_against_task(db, agent, payload, script, servers, principal=principal)
     from app.api.routes.maintenance_proposal import task_and_authority
     await task_and_authority(db, principal, payload.message_number, servers, script.risk, script)
     readiness = await _agent_readiness(db)
@@ -685,7 +694,7 @@ async def run_delegation_expiry_pass() -> int:
             select(AuthorityDelegation, Agent.name)
             .join(Agent, Agent.id == AuthorityDelegation.grantee_id)
             .where(AuthorityDelegation.grantee_type == "agent", AuthorityDelegation.status == "active",
-                   AuthorityDelegation.expires_at > now,
+                   AuthorityDelegation.expires_at > now, AuthorityDelegation.open_ended.is_(False),
                    AuthorityDelegation.expires_at <= now + timedelta(days=DELEGATION_WARN_DAYS))
         )).all()
         created = 0
@@ -709,7 +718,7 @@ TASK_NUMBER_MARK = "#<numero-da-tarefa>"
 
 
 async def _check_against_task(
-    db: AsyncSession, agent: Agent, payload: AgentExecutionCreate, script: HostScript, servers: list[Server]
+    db: AsyncSession, agent: Agent, payload: AgentExecutionCreate, script: HostScript, servers: list[Server], *, principal: ActorPrincipal
 ) -> uuid.UUID:
     """An agent maintains machines only on a Messages task addressed to it,
     and within what that task allowed: when it came from "Pedir ao agente",
@@ -719,9 +728,17 @@ async def _check_against_task(
 
     if payload.message_number is None:
         raise HTTPException(status_code=422, detail="Pass message_number: the Messages task this maintenance answers")
-    demand = (await db.execute(select(AgentDemand).where(AgentDemand.number == payload.message_number))).scalar_one_or_none()
+    # Hold authority through the operation's recording commit. Completion and
+    # reprocessing take an exclusive lock on this task, so they cannot revoke
+    # a run while an admitted operation is waiting on machine/config locks.
+    demand = (await db.execute(select(AgentDemand).where(AgentDemand.number == payload.message_number)
+        .with_for_update(read=True).execution_options(populate_existing=True))).scalar_one_or_none()
     if demand is None or demand.target_agent_id != agent.id or demand.origin_type != "task":
         raise HTTPException(status_code=403, detail=f"Message #{payload.message_number} is not a task addressed to you")
+    from app.core.remote_authority import require_running_remote_task
+    require_running_remote_task(demand)
+    from app.core.remote_authority import require_remote_task_credential
+    require_remote_task_credential(principal, demand)
     if demand.status == "archived":
         raise HTTPException(status_code=409, detail=f"Message #{payload.message_number} is archived")
     spec = (await db.execute(

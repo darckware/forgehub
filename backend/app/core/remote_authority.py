@@ -1,8 +1,8 @@
 """Machine-scoped remote authority. Empty scopes never grant access.
 
 Two separate actions. `remote_access.execute` runs library scripts and approved
-proposals. `remote_access.direct` runs any command, only through a temporary
-opening made by a human admin (api/routes/direct_access.py); neither implies
+proposals. `remote_access.direct` runs commands through the human-configured
+agent list (api/routes/direct_access.py); neither implies
 the other.
 
 Above both sits one switch (Marcelo, 2026-11-06: "a pausa bloqueia todos os
@@ -20,10 +20,13 @@ from app.core import agent_mcp
 from app.core.agent_profile_files import EXTERNAL_RUNTIMES
 from app.db.models.governance import AgentRemoteAccessControl, AuthorityDelegation, DELEGATION_RISK_ORDER
 from app.db.models.server import HostGroupMember
+from app.db.models.agent import Agent
 
 ACTION = "remote_access.execute"
 DIRECT_ACTION = "remote_access.direct"
-DIRECT_DURATIONS_HOURS = (1, 4, 24)
+DIRECT_DURATIONS_HOURS = (0, 1, 4, 24)
+# Storage only. Never serialize this sentinel to tools or screens.
+DIRECT_NO_EXPIRY = datetime(9999, 1, 1, tzinfo=timezone.utc)
 # Marcelo's rule (2026-11-06): only these environments skip the confirmation.
 # Everything else counts as sensitive, an unknown or blank value included.
 NON_SENSITIVE_ENVIRONMENTS = frozenset({"test", "dev", "lab"})
@@ -112,21 +115,31 @@ async def remote_delegations(db, agent_ids, product_id=None, project_id=None):
 
 
 async def direct_accesses(db, agent_id, lock=False):
-    """An agent's open direct accesses. `lock` holds them FOR SHARE until the
+    """An agent's active direct configurations. `lock` holds them FOR SHARE until the
     caller commits, so closing one waits for a command already being recorded
     and the next command sees it closed."""
+    agent_query = select(Agent).where(Agent.id == agent_id)
+    agent = await db.scalar(agent_query.with_for_update(read=True) if lock else agent_query)
+    if not agent or not agent.is_active or agent.status != "active" or not agent.direct_access_allowed:
+        return []
     query = _active_delegations([agent_id])
     if lock:
         query = query.with_for_update(read=True)
-    return [r for r in (await db.scalars(query)).all() if DIRECT_ACTION in r.allowed_actions and r.purpose]
+    return [r for r in (await db.scalars(query)).all() if DIRECT_ACTION in r.allowed_actions]
 
 
 def direct_access_for(rows, server_id, elevation=False):
-    """The access covering one machine, the longest-lasting first. Coverage is
-    `servers` only: an opening stores the group's members of that moment, so a
-    machine added to the group later never skips the sensitive confirmation."""
-    covering = [r for r in rows if str(server_id) in (r.servers or []) and (r.allow_elevation or not elevation)]
+    """The longest-lasting configuration covering a machine. Restricted groups
+    store a snapshot; all_machines includes newly prepared machines too."""
+    covering = [r for r in rows if (r.all_machines or str(server_id) in (r.servers or [])) and (r.allow_elevation or not elevation)]
     return max(covering, key=lambda r: r.expires_at, default=None)
+
+
+def direct_coverage_expands(previous, all_machines, server_ids):
+    """Whether this change needs a fresh human confirmation of coverage."""
+    if previous is not None and previous.all_machines:
+        return False
+    return all_machines or bool({str(s) for s in server_ids} - set(previous.servers if previous else []))
 
 
 async def require_direct(db, agent_id, servers, elevation=False, lock=False):
@@ -139,7 +152,7 @@ async def require_direct(db, agent_id, servers, elevation=False, lock=False):
     if denied := [s.name for s in servers if chosen[s.id] is None]:
         raise HTTPException(403, {"code": "ELEVATION_NOT_ALLOWED", "message": (
             "This command looks like elevation (sudo, su, docker...) and the access to "
-            f"{', '.join(denied)} was opened without it. Ask for a new opening with sudo/docker allowed.")})
+            f"{', '.join(denied)} was opened without it. Ask a human admin to change the agent configuration.")})
     return chosen
 
 
@@ -178,3 +191,20 @@ async def project_product_id(db, project):
         return None
     from app.db.models.product import ProductVersion
     return await db.scalar(select(ProductVersion.product_id).where(ProductVersion.id == project.product_version_id))
+
+
+def require_running_remote_task(demand):
+    """A remote task must still be the dispatched attempt addressed to the agent."""
+    if demand.dispatch_status in ("completed", "failed"):
+        raise HTTPException(403, {"code": "TASK_FINISHED", "message": "This task has finished; no command was sent"})
+    if demand.dispatch_status not in ("dispatched", "running"):
+        raise HTTPException(403, {"code": "TASK_NOT_RUNNING", "message": "This task has no running dispatch"})
+
+
+def require_remote_task_credential(principal, demand):
+    """A dispatch token can act only inside its own still-running task."""
+    require_running_remote_task(demand)
+    if (not demand.agent_run_id or principal.principal_id != demand.target_agent_id
+            or getattr(principal, "credential_label", None) != f"dispatch:{demand.agent_run_id}"):
+        raise HTTPException(403, {"code": "TASK_CREDENTIAL_MISMATCH",
+            "message": "Use the credential issued to this task dispatch; no command was sent"})

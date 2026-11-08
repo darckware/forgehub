@@ -180,6 +180,7 @@ class Settings(BaseSettings):
     # is reachable from the public internet (forgehub.darckware.net), and
     # the schema would publish every route's shape.
     ENVIRONMENT: str = "production"
+    HOST_OUTPUT_RETENTION_DAYS: int = 90
     TEST_LINUX_TARGET_HOST: str = ""
     TEST_LINUX_TARGET_KEY: str = ""
 

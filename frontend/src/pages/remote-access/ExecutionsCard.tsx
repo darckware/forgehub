@@ -113,6 +113,7 @@ export function ExecutionsCard() {
                     <TableCell className="text-xs">{e.target_summary ?? "—"}</TableCell>
                     <TableCell className="whitespace-nowrap text-xs">
                       {t("executions.countsLine", { ok: e.counts.succeeded, failed: e.counts.failed, skipped: e.counts.skipped, total: e.counts.total })}
+                      {!!e.output_expired_count && <p className="text-muted-foreground">{t("execution.outputExpired")}</p>}
                     </TableCell>
                     <TableCell><VerdictBadge verdict={e.verdict} /></TableCell>
                   </TableRow>

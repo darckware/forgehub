@@ -356,54 +356,50 @@ resume a claimed proposal after a bridge/backend restart. No Telegram approvals.
 
 Uma aprovação humana pode chegar horas depois do fim do run que propôs, e a credencial `agt_` desse run termina com ele. Por isso, aprovar cria uma nova tarefa do Messages para o agente que propôs (`open_run_task`, com `fixed_agent`), e a proposta passa a pertencer a ela. Só essa tarefa executa. O evento `approved` guarda a tarefa de origem em `origin_demand_id`. O agente não fica esperando: termina o run informando que aguarda aprovação, e a execução vem na tarefa nova.
 
-### Acesso direto temporário — 2026-11-06
+### Configuração de acesso por agente — 2026-11-08
 
-Decisão de Marcelo (opção A): no desenvolvimento e no suporte, um agente autorizado no painel roda
-os comandos que precisar pelo ForgeHub, sem aprovação por comando. O agente nunca recebe a chave
-SSH. A aprovação por hash continua para quem não tem acesso aberto, e nenhuma das duas ações
-implica a outra.
+A versão final do pedido de Marcelo substitui a abertura temporária avulsa. A regra vigente
+está em [REMOTE_ACCESS_RULE.md](REMOTE_ACCESS_RULE.md), especialmente itens 5 e 8–10.
 
-- **Abrir e encerrar:** só admin humano, em Acesso Remoto › Máquinas › Acesso direto
-  (`/api/v1/remote-access/direct`). Agente, máquinas ou grupo, motivo, finalidade, 1, 4 ou 24 h e
-  `sudo/docker` desmarcado. Só Claude, Codex e agy são elegíveis; Hermes aguarda decisão de Marcelo.
-- **Máquina sensível:** um clique de confirmação na mesma tela, registrado na auditoria. A regra está
-  só em `is_sensitive_machine`: fora de `test`, `dev` e `lab`, tudo é sensível.
-- **Grupo:** a abertura guarda as máquinas daquele momento. Máquina que entra depois no grupo não
-  fica coberta, para não pular a confirmação.
-- **Comando:** MCP `run_remote_command`, sempre com tarefa dirigida ao agente. Timeout padrão 120 s,
-  máximo 1800 s. Máquina ocupada volta como ocupada, sem fila. Tarefa longa roda em segundo plano no
-  servidor, com log, porque a rota oscila.
-- **Encerrar:** o próximo comando é recusado na hora. O que já roda termina sozinho ou no tempo limite
-  e a resposta diz quantos são. Sem acesso aberto, o agente também deixa de ler a saída dos seus
-  comandos; ela continua no histórico para o admin.
+`PUT /api/v1/remote-access/direct/agents/{id}` salva a configuração por admin humano. Reutiliza
+AuthorityDelegation para preservar vínculos e histórico. All-machines é explícito e cobre
+máquinas preparadas no futuro; seleções de grupos são snapshot. `duration_hours=0` usa marca
+open_ended e uma constante interna; APIs/MCP nunca mostram a data sentinela. Configurações
+antigas são revogadas na migração; agentes listados precisam confirmar a cobertura na tela.
 
-Limites conhecidos, para decisão de Marcelo:
+A interface expande o formulário na linha do agente, oferece 0/1/4/24 h, finalidade/motivo
+opcionais e sudo/docker desmarcado. A confirmação da ampliação sensível é auditada por
+usuário autenticado. Alterações valem para o próximo comando; operações em andamento
+seguem até concluir ou atingir timeout. A tela mostra prazo encerrado, escopo vazio,
+configuração pendente e aviso visual após sete dias, sem revogação automática.
 
-- `_ELEVATION` e `_SECRET` olham o texto. Aspas, variáveis ou base64 passam por eles, e também há
-  falso positivo (`cat docker.log`). O limite real é a conta da máquina: sem `allow_elevation` não há
-  garantia técnica de que o agente não elevou, se a conta tiver sudo.
-- Dentro do acesso, um comando pode gravar uma chave em `authorized_keys`, e essa porta sobrevive ao
-  encerramento. O registro fica no histórico, mas nada impede.
-- A máscara por padrão é o melhor esforço: pega bloco de chave privada, inclusive cortado, mas não
-  base64 solto.
-- A API de servidores só aceita `vps`, `semed` e `client`, logo hoje toda máquina cadastrada por ela
-  é sensível. Para existir máquina não sensível em produção, o `Literal` precisa aceitar os outros.
+O botão Pausar continua global para agentes em todos os caminhos ForgeHub; pessoas,
+agendamentos de pessoas e o terminal do Workspace mantêm o contrato anterior. A linha de
+controle ausente recusa acesso. Remover o agente revoga as configurações na mesma transação.
+Hermes só é elegível se seu MCP expõe as ferramentas e recebe a credencial do run; a tela
+explica perfis incompatíveis. A mesma credencial não autoriza operações noutra tarefa/run.
+A conclusão do run revoga a credencial com auditoria no mesmo commit da transição terminal.
 
-## Lista do acesso direto e pausa dos agentes (2026-11-06)
+Upload/download são ferramentas MCP nos dois servidores, autorizadas pelo backend e
+executadas no host-bridge por SSH. Conteúdo não vai em JSON e não é armazenado no histórico.
+Os arquivos são confinados ao workspace autorizado e à pasta própria do run; `.env`, chaves,
+configurações de agentes e symlinks de escape são recusados. Limite: 200 MiB. SHA-256 nas
+duas pontas, publicação por `.part` e rename, sobrescrita somente explícita. Windows retorna
+recusa clara; esta versão do transporte exige POSIX com coreutils. Ver módulo e testes do
+bridge para a lista efetiva de caminhos bloqueados e garantias de atomicidade.
 
-**Lista.** `Agent.direct_access_allowed`, editada na tela de Acesso Remoto só por admin humano. Abrir acesso oferece apenas a lista e o backend recusa os demais (`AGENT_NOT_LISTED`). Excluir um agente encerra os acessos abertos dele na mesma transação e o próximo comando é recusado. Comando em execução vai até o fim, e a resposta diz quantos seguem. Inclusão e exclusão ficam em `AuditEvent` com o admin autenticado.
+A rotina independente de retenção respeita background_workers_enabled, executa em lotes
+idempotentes e expira apenas stdout/stderr encerrados há mais de HOST_OUTPUT_RETENTION_DAYS
+(padrão 90). Os demais dados e os registros de auditoria são preservados. Histórico e MCP
+indicam output_expired, distinguindo conteúdo expirado de resultado originalmente vazio.
 
-**Pausa.** Uma linha em `agent_remote_access_control`, sem variável de ambiente nem reinício. É o bloqueio de todo acesso de agente às máquinas pelo ForgeHub: `run_remote_command`, `run_maintenance_script`, execução de proposta aprovada, `POST /host-executions/agent-requests`, abertura de acesso e agendamento de agente. Código `AGENT_REMOTE_ACCESS_PAUSED`.
+Publicação: revisar, backup/restauração, migrar e publicar artefatos exatos, atualizar o bridge
+antes de servir as novas rotas pelo backend, smoke autenticado e rollback. Não retomar operação
+incerta automaticamente. Segredos restritos têm implementação, ativação e rollback próprios
+no ForgeVault; não presumir que a publicação do ForgeHub já restringiu as chaves.
 
-- Não encerra nada. Acessos e aprovações mantêm o próprio prazo: o que não venceu volta a valer ao reativar, o que venceu não volta.
-- Comando em execução segue até o fim.
-- Pessoas, agendamentos de pessoas e o terminal SSH do Workspace não são afetados.
-- Criar proposta continua possível, porque não executa nada. Aprovar uma proposta durante a pausa gera a tarefa do agente, que é recusada: a proposta segue aprovada e a tarefa pode ser reprocessada depois de reativar, dentro do prazo.
-- Um agendamento de agente que vence durante a pausa dispara uma vez ao reativar.
-- A pausa não bloqueia SSH feito fora do ForgeHub. O bloqueio pelo cofre é outra etapa.
-
-**Concorrência.** Cada rota confere a pausa no início e de novo com a linha em `FOR SHARE` até o commit. Pausar pega a linha em `FOR UPDATE`, então espera o comando que está sendo gravado, e o seguinte já é recusado.
-
-**Hermes.** Um run normal agora recebe a credencial temporária. O Hermes filtra o ambiente dos MCP stdio (`_build_safe_env`) e descarta `FORGEHUB_AGENT_TOKEN_FILE`, mas mantém `XDG_*`, por isso o bridge usa `XDG_FORGEHUB_AGENT_TOKEN_FILE`. Nenhum perfil é alterado. O caminho restrito nunca recebe credencial. Perfis cujo MCP `forgehub` não expõe `run_remote_command` (Lara e Maia) aparecem como "ainda não suportado", sem opção de adicionar.
-
-**Publicação.** Reiniciar `forgehub-chat-bridge` antes do backend, para o run Hermes receber a variável. Com bridge antigo, o arquivo é criado e ignorado, e a ferramenta recusa.
+Limites: sudo/docker usa classificação textual e não substitui permissões do sistema remoto.
+A conta darckware pode ter poderes administrativos; comandos autorizados podem modificar
+acesso persistente. A auditoria e a revogação do run não desfazem efeitos de comandos anteriores.
+Agentes root na VPS continuam fora de um isolamento absoluto. Nunca declarar barreira absoluta
+para estas limitações.

@@ -498,3 +498,10 @@ class MaintenanceEntry(BaseModel):
     # A direct command: the access it came from and what that opening was for.
     direct_access_id: uuid.UUID | None = None
     direct_access_purpose: str | None = None
+    output_expired: bool = False
+    transfer_direction: Literal["upload", "download"] | None = None
+    transfer_local_path: str | None = None
+    transfer_remote_path: str | None = None
+    transfer_size: int | None = None
+    transfer_sha256: str | None = None
+    transfer_overwrite: bool | None = None
