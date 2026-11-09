@@ -101,7 +101,18 @@ async def analyze_messages(db, items: list[dict], related: list[dict], agents: l
         for domain in sorted({i["analysis_agent"] for i in items}):
             batch = [i for i in items if i["analysis_agent"] == domain]
             context = [r for r in related if r.get("analysis_agent") == domain][:MAX_RELATED]
-            payload = {"items": [_scrub(i) for i in batch], "related": [_scrub(r) for r in context],
+            expected_ids=[str(UUID(str(i["id"]))) for i in batch]
+            references = {ref for r in batch + context for ref in r.get("evidence_refs", [])
+                          if isinstance(ref,str) and re.fullmatch(
+                              r"(?:git:[0-9a-fA-F]{7,64}|(?:moodle|audit|message):[0-9a-fA-F-]{36})",ref)}
+            context_only=[]
+            for row in context:
+                entry=_scrub(row)
+                entry["reference_id"]=entry.pop("id")
+                context_only.append(entry)
+            payload = {"output_contract":{"message_ids":expected_ids,"count":len(batch),
+                                          "evidence_refs":sorted(references)},
+                       "items": [_scrub(i) for i in batch], "related": context_only,
                        "agents": [_scrub(a) for a in agents if a.get("analysis_agent") == domain][:20],
                        "availability": [_scrub(a) for a in availability if a.get("analysis_agent") == domain][:20]}
             content = json.dumps(payload, ensure_ascii=False, allow_nan=False)
@@ -109,7 +120,12 @@ async def analyze_messages(db, items: list[dict], related: list[dict], agents: l
                 raise ValueError("context too large")
             reply = await asyncio.wait_for(forgerouter_llm.chat(
                 db, domain, settings.PERSONAL_CONTEXT_MODEL,
-                [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": content}],
+                [{"role": "system", "content": SYSTEM_PROMPT+
+                  "\nEXACT OUTPUT CONTRACT: return exactly "+str(len(batch))+" objects, one per message_id in "+
+                  json.dumps(expected_ids)+". Never analyze related records as output targets: their reference_id is "
+                  "context only and can appear solely as related_message_id. evidence_refs must be a subset of "
+                  "output_contract.evidence_refs in the user data; use [] when that set is empty."},
+                 {"role": "user", "content": content}],
             ), timeout=90)
             if not isinstance(reply, str) or len(reply.encode()) > MAX_REPLY_BYTES:
                 raise ValueError("reply too large")
@@ -121,7 +137,6 @@ async def analyze_messages(db, items: list[dict], related: list[dict], agents: l
             expected = {str(UUID(str(i["id"]))) for i in batch}
             seen = [str(s.message_id) for s in parsed]
             allowed = expected | {str(UUID(str(r["id"]))) for r in context}
-            references = {str(ref) for r in batch + context for ref in r.get("evidence_refs", []) if isinstance(ref, str)}
             if set(seen) != expected or len(set(seen)) != len(seen):
                 raise ValueError("unknown or missing IDs")
             for proposal in parsed:

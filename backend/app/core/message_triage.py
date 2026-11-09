@@ -285,6 +285,8 @@ async def _apply(db,run_id,token,message_id,stamp,context_hash,versions,suggesti
                         applied="queued"
             if not proven and action not in ("none","queue"):
                 action="none"
+            if not proven and state=="processing" and applied!="queued":
+                state="waiting"
             await db.flush()
             await db.refresh(demand)
             final_context,final_versions=await context_stamp(db,demand,versions.get("related",{}),lock=True)

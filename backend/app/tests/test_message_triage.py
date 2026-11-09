@@ -343,6 +343,20 @@ async def test_ai_resolution_without_independent_proof_remains_waiting(triage_db
         AuditEvent.event_type == "message_work_resolved"))
 
 
+async def test_advisory_diagnosis_does_not_claim_processing_without_dispatch(triage_db):
+    from app.core import message_triage
+    from app.db.models.message_triage import MessageTriageResult
+    db,agent,run_ids=triage_db
+    row=await message(db,agent)
+    row_id=row.id
+    suggestion=advisory(row,status="processing",proposed_action="diagnose")
+    prepared=await prepared_application(db,agent,run_ids,row)
+    assert await message_triage._apply(db,*prepared,suggestion)
+    result=await db.get(MessageTriageResult,row_id)
+    assert result.operator_state=="waiting" and result.proposed_action=="none"
+    assert result.applied_action is None
+
+
 @pytest.mark.parametrize("category", ["authorization", "information"])
 async def test_ai_operator_decision_requires_independent_blocking_fact(triage_db, category):
     from app.core import message_triage
