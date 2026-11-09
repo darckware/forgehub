@@ -35,6 +35,7 @@ def context_revision_sql(related_ids=None):
                 .correlate(AgentDemand, MessageTriageResult).scalar_subquery())
 
     related = aliased(AgentDemand)
+    diagnostic_source=aliased(AgentDemand)
     if related_ids is None:
         keys = (select(cast(func.jsonb_object_keys(func.coalesce(
             MessageTriageResult.context_versions['related'], empty)), UUID(as_uuid=True)))
@@ -83,5 +84,10 @@ def context_revision_sql(related_ids=None):
         'deliveries': revisions(AuditEvent, AuditEvent.id, (AuditEvent.entity_id == AgentDemand.id)
             & AuditEvent.event_type.in_(('message_delivery_verified', 'message_work_resolved'))),
         'related': revisions(related, related.id, related_condition),
+        'diagnostic_source': revisions(diagnostic_source,diagnostic_source.id,
+                                      diagnostic_source.id==AgentDemand.failure_check_source_id),
+        'diagnostic_deliveries': revisions(AuditEvent,AuditEvent.id,
+            (AuditEvent.entity_id==AgentDemand.failure_check_source_id)
+            & AuditEvent.event_type.in_(('message_delivery_verified','message_work_resolved'))),
     }
     return func.jsonb_build_object(*(value for pair in parts.items() for value in pair))

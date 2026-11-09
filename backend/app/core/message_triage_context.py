@@ -70,6 +70,11 @@ async def context_stamp(db,demand,related_ids=(),*,lock=False):
     executor=await db.scalar(stmt(Agent,Agent.id==demand.target_agent_id)) if demand.target_agent_id else None
     task=await db.scalar(stmt(ProjectTask,ProjectTask.id==demand.origin_id)) if demand.origin_id else None
     execution=await db.scalar(stmt(TaskExecution,TaskExecution.id==demand.task_execution_id)) if demand.task_execution_id else None
+    diagnostic_source=await db.scalar(stmt(AgentDemand,AgentDemand.id==demand.failure_check_source_id)) if demand.failure_check_source_id else None
+    diagnostic_deliveries=(await db.scalars(select(AuditEvent.id).where(
+        AuditEvent.entity_id==demand.failure_check_source_id,
+        AuditEvent.event_type.in_(("message_delivery_verified","message_work_resolved")))
+        .order_by(AuditEvent.id))).all() if diagnostic_source else []
     related={}
     for rid in sorted({str(v) for v in related_ids}):
         import uuid
@@ -82,6 +87,8 @@ async def context_stamp(db,demand,related_ids=(),*,lock=False):
            "questions":sorted((_version(q) for q in questions),key=lambda q:str(q["id"])),
            "availability":_version(availability),"executor":_version(executor),"task":_version(task),"execution":_version(execution),
            "deliveries":[str(e.id) for e in deliveries],"related":related}
+    facts["diagnostic_source"]={"source":source_stamp(diagnostic_source),
+        "deliveries":[str(i) for i in diagnostic_deliveries]} if diagnostic_source else None
     from app.core.message_triage_revision import context_revision_sql
     facts["revision"]=await db.scalar(select(context_revision_sql(related_ids)).select_from(AgentDemand)
         .where(AgentDemand.id==demand.id))

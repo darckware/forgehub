@@ -83,6 +83,46 @@ async def test_delivery_veto_survives_disabled_triage_and_new_analysis(triage_db
         await ensure_task_dispatch_admissible(db, row)
 
 
+async def test_delivered_source_vetoes_diagnostic_and_resolves_it_as_obsolete(triage_db,monkeypatch):
+    from app.core.message_triage import check_admission, deterministic_analysis
+    db,agent,_=triage_db
+    source=await message(db,agent,dispatch_status="failed",dispatch_error="Old failed attempt")
+    source_id=source.id
+    db.add(AuditEvent(entity_type="agent_demand",entity_id=source_id,
+        event_type="message_delivery_verified",actor="operator",payload={
+            "content_hash":approval_fingerprint(source),"evidence_ref":"git:1234567","summary":"Independent delivery verified"}))
+    await db.commit()
+    child=await message(db,agent,failure_check_source_id=source_id)
+    monkeypatch.setattr(settings,"MESSAGE_TRIAGE_ENABLED",False)
+    with pytest.raises(WorkflowBlocked,match="delivered"):
+        await check_admission(db,child)
+    decision=await deterministic_analysis(db,child)
+    assert decision.status=="resolved" and decision.category=="obsolete" and decision.proposed_action=="resolve"
+    assert source.dispatch_status=="failed" and child.dispatch_status is None
+
+
+async def test_changed_diagnostic_source_invalidates_an_obsolete_decision(triage_db):
+    from app.core import message_triage
+    from app.db.models.message_triage import MessageTriageResult
+    db,agent,run_ids=triage_db
+    source=await message(db,agent,dispatch_status="failed",dispatch_error="Old failed attempt")
+    source_id=source.id
+    db.add(AuditEvent(entity_type="agent_demand",entity_id=source_id,
+        event_type="message_delivery_verified",actor="operator",payload={
+            "content_hash":approval_fingerprint(source),"evidence_ref":"git:1234567"}))
+    await db.commit()
+    child=await message(db,agent,failure_check_source_id=source_id)
+    child_id=child.id
+    chosen=await message_triage.deterministic_analysis(db,child)
+    prepared=await prepared_application(db,agent,run_ids,child)
+    async with AsyncSessionLocal() as other:
+        current=await other.get(AgentDemand,source_id)
+        current.body="Scope changed after the analysis snapshot"
+        await other.commit()
+    assert await message_triage._apply(db,*prepared,chosen)
+    assert await db.get(MessageTriageResult,child_id) is None
+
+
 async def test_self_feedback_becomes_history_without_changing_origin_failure(triage_db):
     from app.core.message_triage import deterministic_analysis
     db, agent, _ = triage_db

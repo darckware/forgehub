@@ -148,6 +148,14 @@ async def deterministic_analysis(db,demand):
         return proposal(demand,"resolved","delivered","Entrega comprovada",
             (delivery.payload or {}).get("summary") or "Há uma entrega verificada para este conteúdo.",
             "Não despachar novamente; consultar as evidências.","resolve",[(delivery.payload or {}).get("evidence_ref","")])
+    if demand.failure_check_source_id:
+        source=await db.get(AgentDemand,demand.failure_check_source_id,populate_existing=True)
+        source_delivery=await verified_delivery(db,source) if source else None
+        if source_delivery:
+            return proposal(demand,"resolved","obsolete","Diagnóstico superado pela entrega",
+                "A tarefa original tem entrega comprovada para o conteúdo atual.",
+                "Preservar o histórico; não executar um diagnóstico da falha antiga.","resolve",
+                [(source_delivery.payload or {}).get("evidence_ref","")])
     moodle=await db.scalar(select(MoodleApproval).where(MoodleApproval.message_id==demand.id))
     if (moodle and moodle.state=="finished" and moodle.outcome=="completed"
             and moodle.message_hash==approval_fingerprint(demand)
@@ -172,6 +180,11 @@ async def deterministic_analysis(db,demand):
 async def check_admission(db,demand):
     if await verified_delivery(db,demand):
         raise WorkflowBlocked("This work is already delivered; no new execution is permitted")
+    if demand.failure_check_source_id:
+        source=await db.scalar(select(AgentDemand).where(AgentDemand.id==demand.failure_check_source_id)
+            .with_for_update(read=True).execution_options(populate_existing=True))
+        if source and await verified_delivery(db,source):
+            raise WorkflowBlocked("The diagnostic source is already delivered; no new execution is permitted")
     if not settings.MESSAGE_TRIAGE_ENABLED:
         return
     result=await db.get(MessageTriageResult,demand.id,populate_existing=True)

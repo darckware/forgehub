@@ -60,6 +60,11 @@ async def failure_check_eligible(db: AsyncSession, source: AgentDemand) -> bool:
             or source.dispatch_status != "failed" or requires_reconciliation(source)
             or "ended as 'stale'" in (source.dispatch_error or "")):
         return False
+    # Delivery proof is permanent; rollback of presentation triage cannot reopen work.
+    from app.core.message_triage import verified_delivery
+
+    if await verified_delivery(db, source):
+        return False
     owner_id = source.from_agent_id or source.target_agent_id
     if owner_id is None or await db.get(Agent, owner_id) is None:
         return False

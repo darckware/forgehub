@@ -258,6 +258,25 @@ async def deliver_feedback(db: AsyncSession, demand: AgentDemand) -> bool:
         return False
     if demand.dispatch_status not in DEMAND_TERMINAL_DISPATCH_STATUSES:
         return False
+    # A verified external delivery supersedes the old failure alert. Keep the attempt
+    # as recorded, but discharge outstanding feedback before any child or channel effect.
+    if demand.feedback_sent_at is not None:
+        return False
+    from app.core.message_triage import verified_delivery
+
+    delivery = await verified_delivery(db, demand)
+    if delivery is not None:
+        from app.db.models.governance import AuditEvent
+
+        demand.feedback_sent_at = datetime.now(timezone.utc)
+        db.add(AuditEvent(entity_type="agent_demand", entity_id=demand.id,
+            event_type="message_feedback_superseded", actor="messages:feedback",
+            payload={"delivery_event_id": str(delivery.id),
+                     "evidence_ref": (delivery.payload or {}).get("evidence_ref"),
+                     "content_hash": (delivery.payload or {}).get("content_hash"),
+                     "dispatch_status": demand.dispatch_status,
+                     "dispatch_attempts": demand.dispatch_attempts}))
+        return True
     from app.core.demand_failure_check import failure_check_eligible
 
     if (demand.dispatch_status == "failed" and demand.from_agent_id is not None
