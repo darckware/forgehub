@@ -546,6 +546,8 @@ app.include_router(mission_board.router)
 app.include_router(environment.router)
 app.include_router(mission_cycle.router)
 app.include_router(agent_availability.router)
+from app.api.routes import message_triage  # noqa: E402
+app.include_router(message_triage.router)
 app.include_router(system_scope.router)
 # ---------------------------------------------------------------------------
 
@@ -1044,8 +1046,10 @@ async def _start_background_tasks() -> None:
 
     reset_scheduled_dispatch_signal()
     from app.core.host_output_retention import host_output_retention_loop
+    from app.core.message_triage import message_triage_loop
 
     workers = (
+        ("message-triage", message_triage_loop),
         ("tool-version-poll", _tool_version_poll_loop),
         ("scheduled-dispatch-poll", _scheduled_dispatch_poll_loop),
         ("dispatch-timeout-poll", _dispatch_timeout_poll_loop),

@@ -7,7 +7,7 @@
     "search": "Search missions",
     "withConflicts": "With conflicts",
     "withUncertain": "With uncertain",
-    "allStates": "All states",
+    "allStates": "All statuses",
     "error": "Could not load missions.",
     "columns": {
       "priority": "Priority",
@@ -24,7 +24,12 @@
       "lastDecision": "Last decision"
     },
     "contested": "Contested agents",
-    "contestedWinner": "wins by priority: {{name}}"
+    "contestedWinner": "wins by priority: {{name}}",
+    "statusFilter": "Mission statuses",
+    "clearSearch": "Clear search",
+    "noResults": "No missions match the filters.",
+    "noResultsHint": "Adjust the search or selected statuses.",
+    "clearFilters": "Clear filters"
   },
   "state": {
     "draft": "Draft",
@@ -239,7 +244,11 @@
     "discardDescription": "Unsaved changes will be lost.",
     "discard": "Discard",
     "invalid": "Check the required fields and allowed value ranges.",
-    "conflict": "The mission changed or this update is blocked. Reload the data and check its current state."
+    "conflict": "The mission changed or this update is blocked. Reload the data and check its current state.",
+    "productsLoadError": "Could not load products.",
+    "versionsLoadError": "Could not load product versions.",
+    "agentsLoadError": "Could not load agents.",
+    "recordLoadError": "Could not load this mission."
   },
   "team": {
     "title": "Agents by role",

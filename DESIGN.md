@@ -137,3 +137,13 @@ only an administrator-confirmed save grants scope. Display awaiting-configuratio
 scope, expiry, pause, unsupported runtime and unavailable inventory explicitly. Sensitive
 coverage confirmation names production/client coverage; edits invalidate that confirmation.
 Selected groups save current machines; all-machine scope includes future prepared machines.
+
+## Messages triage (2026-11-08)
+
+Personal agent work keeps the existing compact ledger, source groups, table overflow and
+inset details. The primary action is “Analisar e encaminhar”; archive remains secondary.
+Tasks and incubations default to operator decisions, with separate handling, waiting and resolved views.
+A row carries a short analysis, reason and next step; use the API's readable source context.
+Raw instructor identifiers stay in detailed evidence. The stable inline status region reports
+analysis loading, queued/running progress, completion and recoverable failure without moving
+the filters. Task next-check dates appear only for a scheduled wait; incubation owns maturation.

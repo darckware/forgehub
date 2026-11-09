@@ -2375,7 +2375,8 @@ async def _finalize_dispatch(
     if locked.dispatch_status == "failed":
         await deliver_feedback(db, locked)
         return None
-    if not locked.requires_response or locked.from_agent_id is None:
+    if (not locked.requires_response or locked.from_agent_id is None
+            or locked.from_agent_id == locked.target_agent_id):
         return None
 
     reply = AgentDemand(

@@ -598,7 +598,7 @@ async def test_exception_after_bridge_response_is_failed_without_automatic_retry
             await session.commit()
 
 
-async def test_reprocess_resets_failure_feedback_for_the_next_authorized_attempt(client: AsyncClient, agent):
+async def test_reprocess_resets_self_feedback_without_creating_return_tasks(client: AsyncClient, agent):
     demand_id = await _dispatched(agent, deadline_in=timedelta(minutes=-1))
     async with AsyncSessionLocal() as session:
         first = await session.get(AgentDemand, demand_id)
@@ -610,7 +610,7 @@ async def test_reprocess_resets_failure_feedback_for_the_next_authorized_attempt
         first_replies = list((await session.execute(
             select(AgentDemand).where(AgentDemand.reply_to_id == demand_id)
         )).scalars())
-        assert len(first_replies) == 1
+        assert first_replies == []
         assert (await session.get(AgentDemand, demand_id)).feedback_sent_at is not None
     await _mark_known_terminal(demand_id)
 
@@ -628,4 +628,6 @@ async def test_reprocess_resets_failure_feedback_for_the_next_authorized_attempt
         replies = list((await session.execute(
             select(AgentDemand).where(AgentDemand.reply_to_id == demand_id)
         )).scalars())
-        assert len(replies) == 2
+        assert replies == []
+        await session.refresh(retry)
+        assert retry.feedback_sent_at is not None

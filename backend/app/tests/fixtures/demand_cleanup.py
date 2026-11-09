@@ -4,6 +4,7 @@ from sqlalchemy import delete, or_, select, update
 from app.db.models.demand import AgentDemand
 from app.db.models.governance import AuditEvent
 from app.db.models.notification import Notification
+from app.db.models.moodle_approval import MoodleApproval
 
 
 async def cleanup_agent_demands(db, agent_ids):
@@ -14,6 +15,7 @@ async def cleanup_agent_demands(db, agent_ids):
     )))).all())
     if not ids:
         return
+    await db.execute(delete(MoodleApproval).where(MoodleApproval.message_id.in_(ids)))
     await db.execute(delete(Notification).where(or_(
         *(Notification.event_key.contains(str(demand_id)) for demand_id in ids),
     )))

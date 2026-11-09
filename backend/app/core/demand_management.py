@@ -6,8 +6,10 @@ from app.db.models.demand import AgentDemand
 from app.db.models.operations import AgentQuestion
 from app.db.models.moodle_approval import MoodleApproval
 from app.core.demand_workflow import requires_reconciliation as uncertain
+from app.db.models.message_triage import MessageTriageResult
+from app.core.message_triage_revision import context_revision_sql
 
-WORK_VIEWS = ("attention", "approval", "incubation", "failed", "queued", "running", "completed", "archived")
+WORK_VIEWS = ("decision", "processing", "waiting", "resolved", "attention", "approval", "incubation", "failed", "queued", "running", "completed", "archived")
 WORK_GROUPS = ("all", "tasks", "incubation")
 
 
@@ -43,7 +45,29 @@ def work_state_sql():
         (AgentDemand.origin_type == "incubation", "incubation"), else_="queued")
 
 
-def view_filter(view, state):
+def operator_state_sql():
+    question=exists(select(AgentQuestion.id).where(AgentQuestion.origin_demand_id==AgentDemand.id,
+        AgentQuestion.status=="pending",AgentQuestion.blocking.is_(True)))
+    current=and_(MessageTriageResult.message_id==AgentDemand.id,
+                 MessageTriageResult.source_updated_at==AgentDemand.updated_at,
+                 MessageTriageResult.context_versions["revision"]==context_revision_sql())
+    def analyzed(state):
+        return exists(select(MessageTriageResult.message_id).where(current,MessageTriageResult.operator_state==state))
+    return case(
+        (AgentDemand.status=="archived","resolved"),
+        (or_(question,and_(AgentDemand.requires_approval.is_(True),or_(
+            AgentDemand.approval_status.is_(None),AgentDemand.approval_status=="pending"))),"decision"),
+        (or_(AgentDemand.dispatch_status.in_(("dispatched","running")),and_(
+            AgentDemand.dispatch_status.is_(None),AgentDemand.agent_run_id.isnot(None))),"processing"),
+        (analyzed("resolved"),"resolved"),(analyzed("waiting"),"waiting"),
+        (AgentDemand.dispatch_status=="completed","resolved"),
+        (AgentDemand.origin_type=="incubation","waiting"),else_="processing")
+
+
+def view_filter(view, state, *, operator=None, demand=AgentDemand):
+    if view in ("decision","processing","waiting","resolved"):
+        operator = operator_state_sql() if operator is None else operator
+        return and_(demand.status!="archived",operator==view)
     if view == "attention":
         return state.in_(("approval", "question", "rejected", "uncertain", "failed", "overdue", "incubation"))
     if view == "approval":
@@ -51,7 +75,7 @@ def view_filter(view, state):
     if view == "failed":
         return state.in_(("failed", "uncertain"))
     if view == "incubation":
-        return and_(AgentDemand.status != "archived", AgentDemand.origin_type == "incubation")
+        return and_(demand.status != "archived", demand.origin_type == "incubation")
     return state == view
 
 
@@ -118,7 +142,18 @@ async def work_item(db, demand, state):
         else:
             actions.append(action)
     category = failure_category(demand)
+    from app.core.message_triage_context import context_stamp, display_context, source_stamp
+    analysis=await db.get(MessageTriageResult,demand.id)
+    if analysis:
+        context_fingerprint, _ = await context_stamp(db, demand, analysis.context_versions.get("related", {}).keys())
+        if (analysis.source_fingerprint != source_stamp(demand)
+                or analysis.context_fingerprint != context_fingerprint):
+            analysis = None
+    operator=await db.scalar(select(operator_state_sql()).select_from(AgentDemand).where(AgentDemand.id==demand.id))
     return {**DemandOut.model_validate(demand).model_dump(mode="json"), "work_state": state,
+        "operator_state":operator,"display_context":display_context(demand),
+        "analysis":{k:getattr(analysis,k) for k in ("category","summary","reason","recommendation",
+            "proposed_action","related_message_id","evidence_refs","analyzed_at","applied_action")} if analysis else None,
         "failure_category": category, "recovery_state": "reconciliation_required" if uncertain(demand) else
         "failed" if demand.dispatch_status == "failed" else "none",
         "allowed_actions": actions, "blocked_actions": blocked,
@@ -158,10 +193,24 @@ async def list_agent_work(db, *, view="attention", search="", agent_id=None, con
         filters.append(AgentDemand.created_at >= created_from)
     if created_to:
         filters.append(AgentDemand.created_at <= created_to)
-    counts = {name: int(await db.scalar(select(func.count()).select_from(AgentDemand).where(*filters, view_filter(name, state)))) for name in WORK_VIEWS}
+    # PostgreSQL materializes classification before any view predicate. The
+    # linked freshness expression is evaluated once per filtered demand in
+    # each of the count/page queries, regardless of the number of views.
+    classified = (select(AgentDemand.id, AgentDemand.status, AgentDemand.origin_type,
+        state.label("work_state"), operator_state_sql().label("operator_state"))
+        .where(*filters).cte("classified_agent_work").prefix_with("MATERIALIZED", dialect="postgresql"))
+    columns = classified.c
+
+    def classified_filter(name):
+        return view_filter(name, columns.work_state, operator=columns.operator_state, demand=columns)
+
+    count_row = (await db.execute(select(*(func.count().filter(classified_filter(name)).label(name)
+        for name in WORK_VIEWS)).select_from(classified))).mappings().one()
+    counts = {name: int(count_row[name]) for name in WORK_VIEWS}
     total = counts[view]
     page = min(page, max(1, (total + page_size - 1) // page_size))
-    rows = (await db.execute(select(AgentDemand, state.label("work_state")).where(*filters, view_filter(view, state))
+    rows = (await db.execute(select(AgentDemand, columns.work_state)
+        .join(classified, AgentDemand.id == columns.id).where(classified_filter(view))
         .order_by(AgentDemand.created_at.desc(), AgentDemand.id).offset((page - 1) * page_size).limit(page_size))).all()
     contexts = (await db.execute(select(AgentDemand.project_id, AgentDemand.context_area).where(*filters).distinct())).all()
     return {"items": [await work_item(db, demand, work_state) for demand, work_state in rows],

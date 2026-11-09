@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
@@ -19,7 +19,9 @@ export default function MissionsPage() {
   const { t } = useTranslation("missions");
   const admin = useAuthStore((s) => s.user?.is_admin === true);
   const [filters, setFilters] = useState<MissionFilters>({ states: [], q: "", hasConflicts: false, hasUncertain: false });
+  const searchInput = useRef<HTMLInputElement>(null);
   const query = useMissions(filters);
+  const hasFilters = Boolean(filters.q.trim() || filters.states.length || filters.hasConflicts || filters.hasUncertain);
   const items = query.data?.items ?? [];
   const toggleState = (state: string) => setFilters((f) => ({
     ...f, states: f.states.includes(state) ? f.states.filter((s) => s !== state) : [...f.states, state],
@@ -29,21 +31,22 @@ export default function MissionsPage() {
     <div className="space-y-4">
       <PageHeader title={t("list.title")} description={t("list.description")} actions={admin && <Link className={buttonVariants()} to="/missions/new">{t("form.createTitle")}</Link>} />
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-        <Input aria-label={t("list.search")} placeholder={t("list.search")} value={filters.q}
+        <Input ref={searchInput} aria-label={t("list.search")} placeholder={t("list.search")} value={filters.q}
           onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} className="sm:max-w-xs max-md:text-base" />
-        <div className="flex flex-wrap gap-1">
+        {filters.q && <Button variant="outline" onClick={() => { setFilters(f => ({ ...f, q: "" })); searchInput.current?.focus(); }}>{t("list.clearSearch")}</Button>}
+        <fieldset className="min-w-0 space-y-2"><legend className="text-sm font-medium">{t("list.statusFilter")}</legend><div className="flex flex-wrap gap-2">
+          <Button size="sm" variant={filters.states.length === 0 ? "default" : "outline"} aria-pressed={filters.states.length === 0} onClick={() => setFilters(f => ({ ...f, states: [] }))}>{t("list.allStates")}</Button>
           {STATES.map((state) => (
-            <button key={state} type="button" onClick={() => toggleState(state)} aria-pressed={filters.states.includes(state)}
-              className={cn("rounded-full border px-2 py-0.5 text-xs", filters.states.includes(state) && "border-primary bg-primary/10")}>
+            <Button key={state} size="sm" variant={filters.states.includes(state) ? "default" : "outline"} onClick={() => toggleState(state)} aria-pressed={filters.states.includes(state)}>
               {t(`state.${state}`)}
-            </button>
+            </Button>
           ))}
-        </div>
-        <label className="flex items-center gap-1 text-xs">
+        </div></fieldset>
+        <label className="flex min-h-10 items-center gap-2 text-sm">
           <input type="checkbox" checked={filters.hasConflicts} onChange={(e) => setFilters((f) => ({ ...f, hasConflicts: e.target.checked }))} />
           {t("list.withConflicts")}
         </label>
-        <label className="flex items-center gap-1 text-xs">
+        <label className="flex min-h-10 items-center gap-2 text-sm">
           <input type="checkbox" checked={filters.hasUncertain} onChange={(e) => setFilters((f) => ({ ...f, hasUncertain: e.target.checked }))} />
           {t("list.withUncertain")}
         </label>
@@ -60,8 +63,9 @@ export default function MissionsPage() {
         </div>
       ) : items.length === 0 ? (
         <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground" data-testid="missions-empty">
-          <p>{t("list.empty")}</p>
-          <p className="text-xs">{t("list.emptyHint")}</p>
+          <p>{t(hasFilters ? "list.noResults" : "list.empty")}</p>
+          <p className="mt-1 text-xs">{t(hasFilters ? "list.noResultsHint" : "list.emptyHint")}</p>
+          {hasFilters && <Button className="mt-3" size="sm" variant="outline" onClick={() => setFilters({ states: [], q: "", hasConflicts: false, hasUncertain: false })}>{t("list.clearFilters")}</Button>}
         </div>
       ) : (
         <>

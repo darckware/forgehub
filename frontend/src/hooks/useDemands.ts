@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { apiClient } from "@/lib/api";
@@ -163,7 +164,20 @@ export const demandSchema = z.object({
 
 export type Demand = z.infer<typeof demandSchema>;
 
+export interface AgentWorkAnalysis {
+  category: string; summary: string; reason: string; recommendation: string;
+  proposed_action: string; related_message_id: string | null; evidence_refs: string[];
+  analyzed_at: string; applied_action: string | null;
+}
+export interface AnalysisRun {
+  id: string; status: "queued" | "running" | "completed" | "failed";
+  total: number; processed: number; applied: number; summary: Record<string, unknown>;
+  error: string | null; created_at: string; started_at: string | null; finished_at: string | null;
+}
 export interface AgentWorkItem extends Demand {
+  operator_state?: "decision" | "processing" | "waiting" | "resolved";
+  display_context?: string;
+  analysis?: AgentWorkAnalysis | null;
   moodle_approval?: { request_id: string; message_id: string; state: string; outcome: string | null; direct: boolean } | null;
   work_state?: string;
   failure_category?: string | null;
@@ -175,7 +189,7 @@ export interface AgentWorkItem extends Demand {
 export interface AgentWorkPage {
   items: AgentWorkItem[]; total: number; page: number; page_size: number;
   counts: Record<string, number>;
-  contexts: { project_id: string | null; area: string | null }[];
+  contexts: { project_id: string | null; area: string | null; label?: string | null }[];
 }
 
 export function useAgentWork(filters: Record<string, string | number | undefined>, enabled = true) {
@@ -185,6 +199,38 @@ export function useAgentWork(filters: Record<string, string | number | undefined
     refetchInterval: 30_000,
     enabled,
   });
+}
+
+/** Analysis scope intentionally excludes list navigation and visible-row selection. */
+export function useAgentWorkAnalysis(scope: { agent_id?: string; context?: string }, enabled = true) {
+  const client = useQueryClient();
+  const key = [...demandKeys.all, "analysis", scope] as const;
+  const latest = useQuery({
+    queryKey: key, enabled, retry: false,
+    queryFn: ({ signal }) => apiClient.get<AnalysisRun | null>("/api/v1/demands/agent-work/analysis", { params: scope, signal }),
+  });
+  const id = latest.data?.id;
+  const job = useQuery({
+    queryKey: [...demandKeys.all, "analysis-run", id], enabled: enabled && Boolean(id), retry: false,
+    queryFn: ({ signal }) => apiClient.get<AnalysisRun>(`/api/v1/demands/agent-work/analysis/${id}`, { signal }),
+    initialData: latest.data ?? undefined,
+    refetchInterval: query => ["queued", "running"].includes(query.state.data?.status ?? "") ? 2_000 : false,
+    refetchIntervalInBackground: true,
+  });
+  const run = job.data ?? latest.data;
+  const invalidated = useRef(new Set<string>());
+  useEffect(() => {
+    if (!run || !["completed", "failed"].includes(run.status) || invalidated.current.has(run.id)) return;
+    invalidated.current.add(run.id);
+    void client.invalidateQueries({ queryKey: demandKeys.all, predicate: query => query.queryKey[1] !== "analysis" && query.queryKey[1] !== "analysis-run" });
+  }, [run, client]);
+  const start = useMutation({
+    mutationFn: () => apiClient.post<AnalysisRun>("/api/v1/demands/agent-work/analyze", scope),
+    onSuccess: result => { client.setQueryData([...demandKeys.all, "analysis-run", result.id], result); client.setQueryData(key, result); },
+  });
+  return { run, start, loading: latest.isLoading, unavailable: latest.isError || job.isError, error: start.error ?? job.error ?? latest.error,
+    busy: start.isPending || ["queued", "running"].includes(run?.status ?? ""),
+    refresh: () => { void latest.refetch(); if (id) void job.refetch(); } };
 }
 
 /** Entrada (2026-07-27, Marcelo: "a message é como se fosse uma carta, ela

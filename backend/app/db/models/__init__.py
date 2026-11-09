@@ -161,3 +161,4 @@ from app.db.models.environment import EnvironmentRelease  # noqa: F401
 from app.db.models.user_session import UserSession  # noqa: F401
 
 from app.db.models.maintenance_proposal import MaintenanceProposal  # noqa: F401
+from app.db.models.message_triage import MessageAnalysisRun, MessageTriageResult, MessageAnalysisItem  # noqa: F401

@@ -16,6 +16,9 @@ async def ensure_task_dispatch_admissible(db, demand):
     (§4.3). Both refuse with WorkflowBlocked, so a scheduled item stays queued."""
     from app.core.dispatch_targets import assert_targets_free
     from app.core.task_baseline_guard import assert_task_baseline_current
+    from app.core.message_triage import check_admission
+
+    await check_admission(db, demand)
 
     if demand.origin_type == "task" and demand.origin_id is not None:
         task = await db.get(ProjectTask, demand.origin_id)

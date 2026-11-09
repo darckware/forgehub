@@ -30,9 +30,9 @@ function item(overrides: Partial<Demand> = {}): Demand {
   } as Demand;
 }
 
-function open() {
+function open(entry = "/personal?tab=agent-work") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/personal?tab=agent-work"]}><AgentTasksTab /></MemoryRouter></QueryClientProvider>);
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[entry]}><AgentTasksTab /></MemoryRouter></QueryClientProvider>);
 }
 
 beforeEach(async () => {
@@ -45,6 +45,84 @@ beforeEach(async () => {
 });
 
 describe("operator deliberation", () => {
+  it("defaults incubations to operator decisions while preserving promotion", () => {
+    mocks.demands.mockReturnValue({ data: { items: [item({ origin_type: "incubation" })], total: 1, page: 1, counts: {}, contexts: [] } });
+    open(); fireEvent.click(screen.getByRole("tab", { name: "Incubações" }));
+    expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ group: "incubation", view: "decision" }), true);
+    expect((screen.getByRole("combobox", { name: "Situação" }) as HTMLSelectElement).value).toBe("decision");
+    expect(screen.getByRole("option", { name: "Em tratamento" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Precisam de atenção" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Revisar backup/ }));
+    expect(screen.getByRole("button", { name: "Transformar em tarefa" })).toBeInTheDocument();
+  });
+  it("preserves explicit legacy incubation URLs", () => {
+    open("/personal?tab=agent-work&workGroup=incubation&incubationView=attention");
+    expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ group: "incubation", view: "attention" }), true);
+    expect((screen.getByRole("combobox", { name: "Situação" }) as HTMLSelectElement).value).toBe("attention");
+  });
+  it("uses readable instructor context labels without changing filter identity", () => {
+    mocks.demands.mockReturnValue({ data: { items: [item()], total: 1, page: 1, counts: {}, contexts: [{ project_id: null, area: "instructor:bcaa8b44-418a-493d-a55b-f80aa3dbf79f" }] } });
+    open();
+    const option = screen.getByRole("option", { name: "Contexto de instrutor" });
+    expect(option).toHaveValue("area:instructor:bcaa8b44-418a-493d-a55b-f80aa3dbf79f");
+    expect(screen.queryByText(/bcaa8b44/)).not.toBeInTheDocument();
+  });
+  it("defaults to operator decisions", () => {
+    open();
+    expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ view: "decision" }), true);
+    expect(screen.getByRole("button", { name: "Analisar e encaminhar" })).toBeInTheDocument();
+  });
+  it("analyzes all pending work beyond page/search/date filters", async () => {
+    mocks.post.mockResolvedValue({ id: "job-1", status: "queued", total: 90, processed: 0, applied: 0 });
+    open("/personal?tab=agent-work&workAgent=agent-7&workContext=area:Backup&workPage=3&workSearch=backup&workFrom=2026-11-01");
+    const button = screen.getByRole("button", { name: "Analisar e encaminhar" });
+    await waitFor(() => expect(button).toBeEnabled()); fireEvent.click(button);
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith("/api/v1/demands/agent-work/analyze", { agent_id: "agent-7", context: "area:Backup" }));
+    expect(button).toBeDisabled();
+  });
+  it("recovers running progress and prevents duplicate starts", async () => {
+    vi.mocked(apiClient.get).mockImplementation(async url => url.includes("/analysis") ? { id: "job-1", status: "running", total: 90, processed: 26, applied: 8 } : []);
+    open(); expect(await screen.findByText(/26 de 90/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Analisar e encaminhar" })).toBeDisabled();
+  });
+  it("shows provider failure while keeping approvals available", async () => {
+    vi.mocked(apiClient.get).mockImplementation(async url => url.includes("/analysis") ? { id: "job-1", status: "failed", total: 90, processed: 26, applied: 8, error: "Provider unavailable" } : []);
+    open(); expect(await screen.findByText("Provider unavailable")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Analisar e encaminhar" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /Revisar backup/ }));
+    expect(screen.getByRole("button", { name: "Aprovar e liberar" })).toBeInTheDocument();
+  });
+  it("polls the durable job until completion and then releases the action", async () => {
+    let polls = 0;
+    vi.mocked(apiClient.get).mockImplementation(async url => {
+      if (url.endsWith("/analysis")) return { id: "poll-job", status: "running", total: 90, processed: 26, applied: 8 };
+      if (url.endsWith("/analysis/poll-job")) return { id: "poll-job", status: ++polls > 1 ? "completed" : "running", total: 90, processed: polls > 1 ? 90 : 26, applied: 8 };
+      return [];
+    });
+    open(); expect(await screen.findByText(/26 de 90/)).toBeInTheDocument();
+    expect(await screen.findByText(/Análise concluída · 90 de 90/, {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(polls).toBe(2);
+    expect(screen.getByRole("button", { name: "Analisar e encaminhar" })).toBeEnabled();
+  });
+  it("refreshes work after analysis completes and reports an empty scope honestly", async () => {
+    const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries");
+    vi.mocked(apiClient.get).mockImplementation(async url => url.includes("/analysis") ? { id: "empty-job", status: "completed", total: 0, processed: 0, applied: 0 } : []);
+    open(); expect(await screen.findByText(/Análise concluída · 0 de 0/)).toBeInTheDocument();
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["demands"] })));
+  });
+  it("shows an unavailable analysis service without suppressing operator decisions", async () => {
+    vi.mocked(apiClient.get).mockImplementation(async url => { if (url.includes("/analysis")) throw new Error("503"); return []; });
+    open(); expect(await screen.findByText(/Análise indisponível/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Analisar e encaminhar" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Revisar backup/ })).toBeInTheDocument();
+  });
+  it("presents a readable source and recommendation for waiting work", () => {
+    mocks.demands.mockReturnValue({ data: { items: [item({ operator_state: "waiting", display_context: "CoreTI · Atendimento", analysis: { summary: "A execução aguarda capacidade", reason: "Janela indisponível", recommendation: "Aguardar a próxima janela" }, dispatch_status: "failed", requires_approval: false, allowed_actions: ["archive"] } as Partial<Demand>)], total: 1, page: 1, counts: {}, contexts: [] } });
+    open(); expect(screen.getByText("CoreTI · Atendimento")).toBeInTheDocument();
+    expect(screen.getByText("Aguardar a próxima janela")).toBeInTheDocument();
+    expect(screen.getByText("Janela indisponível")).toBeInTheDocument();
+    expect(within(screen.getByRole("table")).getByText("Aguardando")).toBeInTheDocument();
+  });
   it("does not report zero decisions when their sources cannot load", () => {
     mocks.approvals.mockReturnValue({ isError: true }); mocks.questions.mockReturnValue({ isLoading: true });
     open();

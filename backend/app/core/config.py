@@ -403,6 +403,7 @@ class Settings(BaseSettings):
     # (Plano Integrado T.2) -- a loop would act on its own, with nobody having
     # asked, even though every integration it could reach is a stub (T.3).
     BACKGROUND_WORKERS_ENABLED: bool = True
+    MESSAGE_TRIAGE_ENABLED: bool = False
 
     @property
     def background_workers_enabled(self) -> bool:

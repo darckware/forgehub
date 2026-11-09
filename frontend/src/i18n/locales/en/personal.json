@@ -295,7 +295,11 @@
       "queued": "Queued",
       "running": "Running",
       "completed": "Completed",
-      "archived": "Archived"
+      "archived": "Archived",
+      "decision": "Your decision",
+      "processing": "Being handled",
+      "waiting": "Waiting",
+      "resolved": "Resolved"
     },
     "states": {
       "archived": "Archived",
@@ -308,7 +312,11 @@
       "running": "Running",
       "completed": "Processing completed",
       "queued": "Queued",
-      "question": "Awaiting an answer"
+      "question": "Awaiting an answer",
+      "decision": "Your decision",
+      "processing": "Being handled",
+      "waiting": "Waiting",
+      "resolved": "Resolved"
     },
     "actions": {
       "approve": "Approve and release",
@@ -432,7 +440,24 @@
     "viewPromotedTask": "View task #{{number}}",
     "reviewsTitle": "Completions to review",
     "questionsTitle": "Questions to answer",
-    "viewDetails": "View details"
+    "viewDetails": "View details",
+    "clearSearch": "Clear search",
+    "nextCheck": "Next check",
+    "recommendation": "Next step",
+    "relatedMessage": "Related message",
+    "analyzedAt": "Analyzed at",
+    "analysis": {
+      "start": "Analyze and route",
+      "scope": "Analyzes all pending work for the selected agent and context, including other pages. Search and dates do not limit the analysis.",
+      "loading": "Checking previous analysis…",
+      "unavailable": "Analysis is unavailable. Refresh its status before trying again. Decisions remain available.",
+      "failed": "Analysis could not finish. You can try again.",
+      "ready": "Ready to analyze pending work in this scope.",
+      "queued": "Analysis queued · {{processed}} of {{total}} checked",
+      "running": "Analyzing · {{processed}} of {{total}} checked · {{applied}} routed",
+      "completed": "Analysis completed · {{processed}} of {{total}} checked · {{applied}} routed"
+    },
+    "instructorContext": "Instructor context"
   },
   "location": {
     "title": "Current location",

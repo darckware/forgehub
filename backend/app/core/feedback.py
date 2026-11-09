@@ -261,6 +261,7 @@ async def deliver_feedback(db: AsyncSession, demand: AgentDemand) -> bool:
     from app.core.demand_failure_check import failure_check_eligible
 
     if (demand.dispatch_status == "failed" and demand.from_agent_id is not None
+            and demand.from_agent_id != demand.target_agent_id
             and not await failure_check_eligible(db, demand)):
         if demand.feedback_sent_at is None:
             marker = f"failure-feedback:{demand.id}:{demand.dispatch_attempts}"

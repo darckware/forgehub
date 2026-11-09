@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -72,7 +72,22 @@ function MissionEditor({ projectId }: { projectId?: string }) {
     finally { submitting.current = false; }
   }
   if (loading) return <p role="status">{t("form.loading")}</p>;
-  if (loadError) return <div role="alert" className="space-y-3"><p>{t("form.loadError")}</p><Button onClick={() => { initialized.current = null; void products.refetch(); void versions.refetch(); void agents.refetch(); if (projectId) void query.refetch(); }}>{t("board.retry")}</Button><Link to="/missions">{t("board.back")}</Link></div>;
+  if (loadError) return <div className="mx-auto max-w-4xl space-y-6">
+    <PageHeader title={t(projectId ? "form.editTitle" : "form.createTitle")} description={t("form.description")} />
+    <div role="alert" className="space-y-3 rounded-lg border p-4 text-sm">
+      <p>{t("form.loadError")}</p>
+      <ul className="list-inside list-disc space-y-1 text-muted-foreground">
+        {products.isError && <li>{t("form.productsLoadError")}</li>}
+        {versions.isError && <li>{t("form.versionsLoadError")}</li>}
+        {agents.isError && <li>{t("form.agentsLoadError")}</li>}
+        {query.isError && <li>{t("form.recordLoadError")}</li>}
+      </ul>
+      <div className="flex flex-wrap gap-3">
+        <Button onClick={() => { initialized.current = null; if (products.isError) void products.refetch(); if (versions.isError) void versions.refetch(); if (agents.isError) void agents.refetch(); if (projectId && query.isError) void query.refetch(); }}>{t("board.retry")}</Button>
+        <Link className={buttonVariants({ variant: "outline" })} to="/missions">{t("board.back")}</Link>
+      </div>
+    </div>
+  </div>;
   return <div className="mx-auto max-w-4xl space-y-6">
     <PageHeader title={t(projectId ? "form.editTitle" : "form.createTitle")} description={t("form.description")} actions={<Button variant="outline" onClick={leave}>{t("form.back")}</Button>} />
     {terminal && <p role="status" className="rounded-lg border p-4">{t("form.terminal")}</p>}

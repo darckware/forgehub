@@ -295,7 +295,11 @@
       "queued": "En cola",
       "running": "En ejecución",
       "completed": "Completadas",
-      "archived": "Archivadas"
+      "archived": "Archivadas",
+      "decision": "Tu decisión",
+      "processing": "En tratamiento",
+      "waiting": "En espera",
+      "resolved": "Resueltas"
     },
     "states": {
       "archived": "Archivada",
@@ -308,7 +312,11 @@
       "running": "En ejecución",
       "completed": "Procesamiento completado",
       "queued": "En cola",
-      "question": "Esperando respuesta"
+      "question": "Esperando respuesta",
+      "decision": "Tu decisión",
+      "processing": "En tratamiento",
+      "waiting": "En espera",
+      "resolved": "Resueltas"
     },
     "actions": {
       "approve": "Aprobar y liberar",
@@ -432,7 +440,24 @@
     "viewPromotedTask": "Ver tarea #{{number}}",
     "reviewsTitle": "Conclusiones para revisar",
     "questionsTitle": "Preguntas para responder",
-    "viewDetails": "Ver detalles"
+    "viewDetails": "Ver detalles",
+    "clearSearch": "Limpiar búsqueda",
+    "nextCheck": "Próxima comprobación",
+    "recommendation": "Próximo paso",
+    "relatedMessage": "Mensaje relacionado",
+    "analyzedAt": "Analizada el",
+    "analysis": {
+      "start": "Analizar y encaminar",
+      "scope": "Analiza todos los pendientes del agente y contexto seleccionados, incluidas otras páginas. La búsqueda y las fechas no limitan el análisis.",
+      "loading": "Consultando el análisis anterior…",
+      "unavailable": "Análisis no disponible. Actualiza su estado antes de intentarlo otra vez. Las decisiones siguen disponibles.",
+      "failed": "El análisis no pudo completarse. Puedes intentarlo de nuevo.",
+      "ready": "Listo para analizar los pendientes de este ámbito.",
+      "queued": "Análisis en cola · {{processed}} de {{total}} comprobadas",
+      "running": "Analizando · {{processed}} de {{total}} comprobadas · {{applied}} encaminadas",
+      "completed": "Análisis completado · {{processed}} de {{total}} comprobadas · {{applied}} encaminadas"
+    },
+    "instructorContext": "Contexto de instructor"
   },
   "location": {
     "title": "Ubicación actual",

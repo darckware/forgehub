@@ -99,7 +99,7 @@ async def _notifications_for(demand_id) -> list[Notification]:
         )
 
 
-async def test_failed_agent_request_receives_one_linked_feedback(agent):
+async def test_failed_self_request_keeps_feedback_on_original(agent):
     demand_id = await _finished(agent, channel="agent", status="failed")
     async with AsyncSessionLocal() as session:
         item = await session.get(AgentDemand, demand_id)
@@ -112,12 +112,7 @@ async def test_failed_agent_request_receives_one_linked_feedback(agent):
         replies = list((await session.execute(
             select(AgentDemand).where(AgentDemand.reply_to_id == demand_id)
         )).scalars())
-        assert len(replies) == 1
-        assert replies[0].target_agent_id == agent
-        assert replies[0].requires_response is False
-        assert replies[0].scheduled_at is None
-        assert replies[0].dispatch_status == "completed"
-        assert "/root/project/example" in replies[0].body
+        assert replies == []
         assert item.dispatch_status == "failed"
         assert item.feedback_sent_at is not None
 
@@ -496,7 +491,7 @@ async def test_eligible_failure_does_not_create_failure_note(agent):
         await session.rollback()
 
 
-async def test_failed_check_still_creates_failure_note(agent):
+async def test_failed_self_check_keeps_failure_on_original(agent):
     source_id = await _finished(agent, channel="agent", status="failed")
     check_id = await _finished(agent, channel="agent", status="failed")
     async with AsyncSessionLocal() as session:
@@ -505,11 +500,12 @@ async def test_failed_check_still_creates_failure_note(agent):
         await deliver_feedback(session, check)
         await session.flush()
         note = await session.scalar(select(AgentDemand).where(AgentDemand.reply_to_id == check_id))
-        assert note is not None and note.subject.startswith("Falha na tarefa #")
+        assert note is None
+        assert check.dispatch_status == "failed"
         await session.rollback()
 
 
-async def test_failed_mission_task_still_creates_failure_note(agent, monkeypatch):
+async def test_failed_self_mission_keeps_failure_on_original(agent, monkeypatch):
     async def is_mission(db, source):
         return True
 
@@ -520,5 +516,6 @@ async def test_failed_mission_task_still_creates_failure_note(agent, monkeypatch
         await deliver_feedback(session, demand)
         await session.flush()
         note = await session.scalar(select(AgentDemand).where(AgentDemand.reply_to_id == demand_id))
-        assert note is not None and note.subject.startswith("Falha na tarefa #")
+        assert note is None
+        assert demand.dispatch_status == "failed"
         await session.rollback()

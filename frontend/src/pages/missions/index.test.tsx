@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,6 +22,26 @@ beforeEach(async () => { await i18n.changeLanguage("pt-BR"); });
 afterEach(() => vi.restoreAllMocks());
 
 describe("missions list (M0.7)", () => {
+  it("makes all statuses explicit and lets operators reset selected filters", async () => {
+    const get = vi.spyOn(apiClient, "get").mockResolvedValue({ items: [], total: 0, page: 1, page_size: 25, contested_agents: [] });
+    open(); await screen.findByTestId("missions-empty");
+    const all = screen.getByRole("button", { name: "Todas as situações" });
+    expect(all).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Ativa" }));
+    expect(all).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Ativa" })).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(get).toHaveBeenLastCalledWith("/api/v1/missions", expect.objectContaining({ params: expect.objectContaining({ state: "active" }) })));
+    fireEvent.click(all);
+    await waitFor(() => expect(get).toHaveBeenLastCalledWith("/api/v1/missions", expect.objectContaining({ params: expect.objectContaining({ state: undefined }) })));
+  });
+  it("clears a nonempty search and distinguishes filtered emptiness", async () => {
+    vi.spyOn(apiClient, "get").mockResolvedValue({ items: [], total: 0, page: 1, page_size: 25, contested_agents: [] });
+    open(); await screen.findByTestId("missions-empty");
+    fireEvent.change(screen.getByRole("textbox", { name: "Buscar missão" }), { target: { value: "Sem correspondência" } });
+    expect(await screen.findByText("Nenhuma missão corresponde aos filtros.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Limpar busca" }));
+    expect(screen.getByRole("textbox", { name: "Buscar missão" })).toHaveValue("");
+  });
   it("loading", () => {
     vi.spyOn(apiClient, "get").mockReturnValue(new Promise(() => {}));
     open();

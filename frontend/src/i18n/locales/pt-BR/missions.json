@@ -7,7 +7,7 @@
     "search": "Buscar missão",
     "withConflicts": "Com conflitos",
     "withUncertain": "Com incertas",
-    "allStates": "Todos os estados",
+    "allStates": "Todas as situações",
     "error": "Não foi possível carregar as missões.",
     "columns": {
       "priority": "Prioridade",
@@ -24,7 +24,12 @@
       "lastDecision": "Última decisão"
     },
     "contested": "Agentes disputados",
-    "contestedWinner": "vence por prioridade: {{name}}"
+    "contestedWinner": "vence por prioridade: {{name}}",
+    "statusFilter": "Situações da missão",
+    "clearSearch": "Limpar busca",
+    "noResults": "Nenhuma missão corresponde aos filtros.",
+    "noResultsHint": "Ajuste a busca ou as situações selecionadas.",
+    "clearFilters": "Limpar filtros"
   },
   "state": {
     "draft": "Rascunho",
@@ -239,7 +244,11 @@
     "discardDescription": "As alterações não salvas serão perdidas.",
     "discard": "Descartar",
     "invalid": "Confira os campos obrigatórios e os limites dos valores informados.",
-    "conflict": "A missão mudou ou esta alteração está bloqueada. Recarregue os dados e confira o estado atual."
+    "conflict": "A missão mudou ou esta alteração está bloqueada. Recarregue os dados e confira o estado atual.",
+    "productsLoadError": "Não foi possível carregar os produtos.",
+    "versionsLoadError": "Não foi possível carregar as versões dos produtos.",
+    "agentsLoadError": "Não foi possível carregar os agentes.",
+    "recordLoadError": "Não foi possível carregar esta missão."
   },
   "team": {
     "title": "Agentes por função",

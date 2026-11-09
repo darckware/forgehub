@@ -24,7 +24,12 @@
       "lastDecision": "Última decisión"
     },
     "contested": "Agentes disputados",
-    "contestedWinner": "gana por prioridad: {{name}}"
+    "contestedWinner": "gana por prioridad: {{name}}",
+    "statusFilter": "Estados de la misión",
+    "clearSearch": "Limpiar búsqueda",
+    "noResults": "Ninguna misión coincide con los filtros.",
+    "noResultsHint": "Ajusta la búsqueda o los estados seleccionados.",
+    "clearFilters": "Limpiar filtros"
   },
   "state": {
     "draft": "Borrador",
@@ -239,7 +244,11 @@
     "discardDescription": "Se perderán los cambios sin guardar.",
     "discard": "Descartar",
     "invalid": "Revise los campos obligatorios y los límites de los valores.",
-    "conflict": "La misión cambió o esta modificación está bloqueada. Recargue los datos y revise el estado actual."
+    "conflict": "La misión cambió o esta modificación está bloqueada. Recargue los datos y revise el estado actual.",
+    "productsLoadError": "No se pudieron cargar los productos.",
+    "versionsLoadError": "No se pudieron cargar las versiones de los productos.",
+    "agentsLoadError": "No se pudieron cargar los agentes.",
+    "recordLoadError": "No se pudo cargar esta misión."
   },
   "team": {
     "title": "Agentes por función",

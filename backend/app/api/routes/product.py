@@ -167,6 +167,13 @@ async def list_products(db: AsyncSession = Depends(get_db)) -> list[Product]:
     return list(result.scalars().all())
 
 
+@router.get("/versions", response_model=list[ProductVersionOut])
+async def list_all_product_versions(db: AsyncSession = Depends(get_db)) -> list[ProductVersion]:
+    """Flat list of all versions across all products — used for comboboxes."""
+    result = await db.execute(select(ProductVersion).order_by(ProductVersion.created_at))
+    return list(result.scalars().all())
+
+
 @router.get("/{product_id}", response_model=ProductWithVersionsOut)
 async def get_product(product_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Product:
     result = await db.execute(
@@ -633,13 +640,6 @@ async def list_product_versions(
         .where(ProductVersion.product_id == product_id)
         .order_by(ProductVersion.created_at)
     )
-    return list(result.scalars().all())
-
-
-@router.get("/versions", response_model=list[ProductVersionOut])
-async def list_all_product_versions(db: AsyncSession = Depends(get_db)) -> list[ProductVersion]:
-    """Flat list of all versions across all products — used for comboboxes."""
-    result = await db.execute(select(ProductVersion).order_by(ProductVersion.created_at))
     return list(result.scalars().all())
 
 

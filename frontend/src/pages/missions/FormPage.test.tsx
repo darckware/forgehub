@@ -141,3 +141,18 @@ it("can release an existing member whose registered agent has become inactive", 
   fireEvent.click(releases[releases.length - 1]);
   await waitFor(() => expect(post).toHaveBeenCalledWith("/api/v1/missions/m/members:apply", expect.objectContaining({ operations: [{ op: "release", agent_id: "c" }] })));
 });
+
+it("identifies a failed version selector and recovers through retry", async () => {
+  const originalGet = vi.mocked(apiClient.get).getMockImplementation()!;
+  let unavailable = true;
+  vi.mocked(apiClient.get).mockImplementation(async path => {
+    if (path === "/api/v1/products/versions" && unavailable) throw new Error("422");
+    return originalGet(path) as never;
+  });
+  open();
+  expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível carregar as versões dos produtos.");
+  expect(screen.getByRole("link", { name: "Missões" })).toHaveAttribute("href", "/missions");
+  unavailable = false;
+  fireEvent.click(screen.getByRole("button", { name: "Tentar de novo" }));
+  expect(await screen.findByLabelText("Nome da missão")).toBeInTheDocument();
+});

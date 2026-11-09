@@ -295,7 +295,11 @@
       "queued": "Na fila",
       "running": "Em execução",
       "completed": "Concluídas",
-      "archived": "Arquivadas"
+      "archived": "Arquivadas",
+      "decision": "Sua decisão",
+      "processing": "Em tratamento",
+      "waiting": "Aguardando",
+      "resolved": "Resolvidas"
     },
     "states": {
       "archived": "Arquivada",
@@ -308,7 +312,11 @@
       "running": "Em execução",
       "completed": "Processamento concluído",
       "queued": "Na fila",
-      "question": "Aguardando resposta"
+      "question": "Aguardando resposta",
+      "decision": "Sua decisão",
+      "processing": "Em tratamento",
+      "waiting": "Aguardando",
+      "resolved": "Resolvidas"
     },
     "actions": {
       "approve": "Aprovar e liberar",
@@ -432,7 +440,24 @@
     "viewPromotedTask": "Ver tarefa #{{number}}",
     "reviewsTitle": "Conclusões para revisar",
     "questionsTitle": "Perguntas para responder",
-    "viewDetails": "Ver detalhes"
+    "viewDetails": "Ver detalhes",
+    "clearSearch": "Limpar busca",
+    "nextCheck": "Próxima verificação",
+    "recommendation": "Próximo passo",
+    "relatedMessage": "Mensagem relacionada",
+    "analyzedAt": "Analisada em",
+    "analysis": {
+      "start": "Analisar e encaminhar",
+      "scope": "Analisa todas as pendências do agente e contexto selecionados, incluindo outras páginas. A busca e as datas não limitam a análise.",
+      "loading": "Consultando análise anterior…",
+      "unavailable": "Análise indisponível. Atualize o estado antes de tentar novamente. As decisões continuam disponíveis.",
+      "failed": "A análise não foi concluída. Você pode tentar novamente.",
+      "ready": "Pronto para analisar as pendências neste escopo.",
+      "queued": "Análise na fila · {{processed}} de {{total}} verificadas",
+      "running": "Analisando · {{processed}} de {{total}} verificadas · {{applied}} encaminhadas",
+      "completed": "Análise concluída · {{processed}} de {{total}} verificadas · {{applied}} encaminhadas"
+    },
+    "instructorContext": "Contexto de instrutor"
   },
   "location": {
     "title": "Localização atual",

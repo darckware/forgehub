@@ -163,3 +163,18 @@ blocked; they do not generate more checks. Pending checks remain in execution tr
 scheduled time. Quota continuations use recognized provider reset + five minutes; approving one preserves
 that schedule. Existing authorization gates still apply. Linked messages/attachments are protected from
 deletion and excluded from bulk cleanup. The same dispatch/completion workers handle this flow.
+
+## Messages analysis and operator decisions (2026-11-08)
+
+Source: `docs/superpowers/specs/2026-11-08-messages-triage.md` and its API contract.
+The default task and incubation view is `decision`; `processing`, `waiting` and `resolved` separate system
+handling from genuine operator decisions. Legacy view URLs remain accepted. Moodle and
+incubation keep their current guarded flows. Instructor filter labels use readable context names while preserving the source key as the filter value. Failures alone never imply operator approval.
+
+“Analisar e encaminhar” submits only the selected agent/context scope. Page, search, date
+filters and checkboxes do not narrow that operation; inline copy states its all-pending scope.
+Reload recovers the latest durable job, active jobs poll every two seconds, duplicate starts
+are disabled, and terminal results refresh the demands/work cache. An unavailable job service
+preserves visible approvals and offers status recovery before another start. Analysis failure
+keeps partial progress/evidence and permits a new attempt. Status is announced in a stable
+live region. Source content remains source text; interface labels use pt-BR/en/es catalogs.

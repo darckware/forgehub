@@ -1682,6 +1682,15 @@ async def start_agent_run(
     return {"run_id": req.run_id, "status": "running", "runtime_type": "agy" if req.runtime_type == "antigravity" else req.runtime_type, "pid": proc.pid, "adapter_version": AGENT_RUN_ADAPTER_VERSION}
 
 
+@app.get("/v1/agent-runs/availability")
+async def native_agent_availability(x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    from datetime import timezone
+    from native_availability import observe_codex_availability
+    home=Path(os.environ.get("CODEX_HOME", str(Path.home()/".codex")))
+    return await asyncio.to_thread(observe_codex_availability,home,datetime.now(timezone.utc))
+
+
 @app.get("/v1/agent-runs/health")
 async def agent_runner_health(x_bridge_token: str | None = Header(default=None)) -> dict:
     _check_token(x_bridge_token)

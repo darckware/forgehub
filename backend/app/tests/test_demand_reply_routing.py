@@ -109,6 +109,18 @@ async def test_requires_response_false_only_records_result_no_new_message(agents
         assert original.dispatch_status == "completed"
 
 
+async def test_self_addressed_completion_keeps_result_without_return_message(agents):
+    agent_id, _ = agents
+    demand_id = await _create_dispatched(agent_id, agent_id, requires_response=True)
+    async with AsyncSessionLocal() as session:
+        reply = await _finalize_dispatch(session, demand_id, {"status": "completed", "output": "done\nSTATUS: DONE"})
+        await session.commit()
+        assert reply is None
+        original = await session.get(AgentDemand, demand_id)
+        assert original.dispatch_status == "completed"
+        assert original.dispatch_result.endswith("done\nSTATUS: DONE")
+
+
 async def test_requires_response_true_with_no_known_sender_still_only_records_result(agents):
     """Nothing to route a return message back to -- from_agent_id is None
     (a human/unregistered sender) -- so no return message is created even
