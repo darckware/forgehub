@@ -143,21 +143,48 @@ def test_resolve_rejects_unknown_and_ambiguous(base):
         pg.resolve_group("i")  # casa com os dois nomes
 
 
-def test_draft_sends_code_only_to_telegram_api_and_stores_hash(base):
+def _codigo(dados):
+    teclado = json.loads(dados["reply_markup"])["inline_keyboard"]
+    enviar, cancelar = teclado[0]
+    assert cancelar["callback_data"].startswith("wag:c:")
+    return re.fullmatch(r"wag:s:(\w{6}):(\d{6})", enviar["callback_data"]).groups()
+
+
+def test_draft_sends_buttons_only_to_telegram_api_and_stores_hash(base):
     enviados = []
     r = pg.draft("Família", "Chego às 13h", agora=5000.0, _urlopen=_fake_urlopen(enviados))
     url, dados = enviados[0]
     assert url == "https://api.telegram.org/bottok/sendMessage" and dados["chat_id"] == "42"
-    codigo = re.search(r"autorizo \w+ (\d{6})", dados["text"]).group(1)
-    assert "Chego às 13h" in dados["text"] and codigo not in json.dumps(r)
+    rid, codigo = _codigo(dados)
+    assert rid == r["rascunho"] and "Chego às 13h" in dados["text"]
+    assert codigo not in dados["text"] and "autorizo" not in dados["text"] and codigo not in json.dumps(r)
     salvo = json.loads(pg.RASCUNHOS.read_text())[r["rascunho"]]
     assert codigo not in json.dumps(salvo) and salvo["chat"] == CHAT
 
 
 def _preparar(base):
     enviados = []
-    r = pg.draft("Família", "Chego às 13h", agora=5000.0, _urlopen=_fake_urlopen(enviados))
-    return r["rascunho"], re.search(r"autorizo \w+ (\d{6})", enviados[0][1]["text"]).group(1)
+    pg.draft("Família", "Chego às 13h", agora=5000.0, _urlopen=_fake_urlopen(enviados))
+    return _codigo(enviados[0][1])
+
+
+def test_cancel_button_locks_the_draft(base):
+    rid, codigo = _preparar(base)
+    assert pg.cancel(rid, agora=5050.0)["grupo"] == "Família Ferreira"
+    calls = []
+    with pytest.raises(pg.GroupError, match="já usado"):
+        pg.send(rid, codigo, agora=5100.0, _runner=_runner(calls))
+    with pytest.raises(pg.GroupError, match="já usado"):
+        pg.cancel(rid)
+    assert calls == []
+
+
+def test_failed_telegram_notice_leaves_no_draft(base):
+    def recusa(req, timeout=0):
+        raise OSError("sem rede")
+    with pytest.raises(pg.GroupError, match="Falha ao avisar"):
+        pg.draft("Família", "oi", agora=5000.0, _urlopen=recusa)
+    assert json.loads(pg.RASCUNHOS.read_text()) == {}
 
 
 def test_send_with_right_code_sends_exact_text_once(base):
