@@ -1,6 +1,7 @@
 """Execution authorization is enforced at the runner boundary, not by UI buttons."""
 import hashlib
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
@@ -9,6 +10,8 @@ from sqlalchemy import select
 from app.db.models.demand import AgentDemand, INCUBATION_DEFAULT_MATURATION_DAYS
 from app.db.models.governance import AuditEvent
 from app.db.models.operations import AgentQuestion
+
+logger = logging.getLogger(__name__)
 
 
 # Written by confirm_inactive. Deliberately free of "uncertain": the outcome is
@@ -216,4 +219,18 @@ async def decide_demand(db, demand, payload, *, actor):
     await db.refresh(demand)
     if payload.action == "approve":
         wake_scheduled_dispatch()
+    elif payload.action == "reject":
+        await _tell_group_rejected(demand)
     return demand
+
+
+async def _tell_group_rejected(demand) -> None:
+    """A refused STI ADM approval: the person who asked hears it, as with a refused Moodle one."""
+    from app.core.instructor_group import GROUP_CHANNEL, REJECTED_REPLY, is_sti_approval, send_to_group
+
+    if demand.channel != GROUP_CHANNEL or not is_sti_approval(demand):
+        return
+    try:
+        await send_to_group(demand.channel_ref, REJECTED_REPLY, reply_to=demand.channel_message_id)
+    except Exception:
+        logger.warning("Could not tell the group about rejected #%s", demand.number)

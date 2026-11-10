@@ -37,7 +37,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.instructor_group import GROUP_CHANNEL, group_reply, needs_operator, record_reply, send_to_group
+from app.core.instructor_group import (
+    GROUP_CHANNEL, file_sti_approvals, group_reply, needs_operator, record_reply, send_to_group,
+)
 from app.db.models.agent import Agent
 from app.db.models.demand import (
     DEMAND_TERMINAL_DISPATCH_STATUSES,
@@ -331,6 +333,7 @@ async def deliver_feedback(db: AsyncSession, demand: AgentDemand) -> bool:
                 )
                 return False
         elif demand.channel == GROUP_CHANNEL:
+            await file_sti_approvals(db, demand)
             reply = group_reply(demand.dispatch_result, failed=failed, approved_run=demand.requires_approval)
             reply = await record_reply(db, demand, reply, demand.dispatch_result, failed=failed)
             if failed and reply:
