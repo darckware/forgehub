@@ -4319,11 +4319,15 @@ def _tmux_new_session(*args: str) -> subprocess.CompletedProcess:
     agents running inside them) along with it. Run inside a scope, the
     server lives outside the service's cgroup and survives restarts. If a
     server is already running, the client just exits and systemd collects
-    the empty scope. If systemd-run fails, fall back to plain tmux so a
+    the empty scope. Keep OOMPolicy=continue: an OOM victim in a build/test
+    process must not make systemd stop every unrelated pane and CLI in
+    the shared tmux scope. The kernel can still kill an individual process.
+    If systemd-run fails, fall back to plain tmux so a
     terminal still opens.
     """
     result = subprocess.run(
         ["systemd-run", "--scope", "--quiet", "--collect",
+         "--property=OOMPolicy=continue",
          "--description=ForgeHub terminal tmux server", "tmux", "new-session", *args],
         capture_output=True, text=True, timeout=10,
     )
