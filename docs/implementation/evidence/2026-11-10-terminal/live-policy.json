@@ -1,0 +1,7 @@
+{
+  "scope": "run-rd3988145f6534e1f96d82da8fab19fae.scope",
+  "OOMPolicy": "continue",
+  "tmux_server_pid": "2057311",
+  "panes_preserved": true,
+  "dropin": "/run/systemd/system/run-rd3988145f6534e1f96d82da8fab19fae.scope.d/50-forgehub-terminal-oom.conf"
+}

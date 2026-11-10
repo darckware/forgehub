@@ -1,0 +1,18 @@
+[
+  {
+    "width": 1440,
+    "names": true,
+    "states": true,
+    "dialog": true,
+    "focus_restored": true,
+    "no_destructive_posts": true
+  },
+  {
+    "width": 390,
+    "names": true,
+    "states": true,
+    "dialog": true,
+    "focus_restored": true,
+    "no_destructive_posts": true
+  }
+]

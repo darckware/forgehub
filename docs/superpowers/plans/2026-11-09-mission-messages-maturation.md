@@ -290,15 +290,20 @@ Depends on Tasks 5/8/9; retain the existing grant and audit systems.
 May ship independently before the larger implementation; do not bundle pending
 backend/frontend changes into this hotfix.
 
-- [ ] Qualify `OOMPolicy=continue` for future tmux scopes and the already-active
+- [x] Qualify `OOMPolicy=continue` for future tmux scopes and the already-active
   scope; preserve existing session/server PIDs while applying the live correction.
-- [ ] Deploy only reviewed bridge source, record rollback and verify active code
+- [x] Deploy only reviewed bridge source, record rollback and verify active code
   and policy. Never trigger real host OOM to test this fix.
 - [ ] Run heavy build/regression jobs sequentially and capture final exit/results.
 - [ ] Verify reconnect preserves the same tmux identity; distinguish kernel process
   termination from network detachment and selecting the wrong session on mobile.
-- [ ] Update the continuity checkpoint after the correction and before resuming
+- [x] Update the continuity checkpoint after the correction and before resuming
   the main implementation; source changes alone do not close this task.
+
+Qualification recorded on 2026-11-10: bridge release `terminal-oom-0343e23`,
+HTTP 200, live scope policy `continue`, unchanged server/pane PIDs, and a separate
+tmux socket with the same policy. No host OOM was induced. The later terminal-name
+request R21 is tracked in the [implementation checklist](../../implementation/2026-11-10-implementation-checklist.md).
 
 ## Acceptance scenario index
 
