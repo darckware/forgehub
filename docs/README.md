@@ -3,6 +3,7 @@
 ## Fluxo de Missões, Messages e Operação 24x7
 
 Para retomar a implementação após uma interrupção, comece pelo
+[checklist atualizado](implementation/2026-11-10-implementation-checklist.md) e pelo
 [checkpoint de continuidade](reports/2026-11-09-development-continuity.md): ele
 liga os pedidos de Marcelo ao plano, ao código preparado, às lacunas e ao estado
 real de publicação, incluindo os acréscimos posteriores à aprovação inicial.

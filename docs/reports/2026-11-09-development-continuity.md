@@ -1,8 +1,32 @@
 # Continuidade do desenvolvimento: Missões, Messages e Service Factory
 
-Atualizado em 2026-11-09, America/Sao_Paulo. Este é o ponto de retomada da
+Atualizado em 2026-11-10, America/Sao_Paulo. Este é o ponto de retomada da
 implementação, incluindo pedidos posteriores ao plano aprovado. Não é um
 relatório de conclusão nem uma autorização adicional.
+
+## Estado atualizado da retomada
+
+O [checklist de implementação](../implementation/2026-11-10-implementation-checklist.md)
+é a referência para entregas verificadas e pendências atuais. O
+[histórico cronológico](../implementation/2026-11-10-user-requirements-history.md)
+preserva os pedidos originais e posteriores das duas sessões. As seções abaixo
+mantêm o levantamento inicial, que não deve ser confundido com o estado atual.
+
+O hotfix do terminal foi publicado no bridge como `terminal-oom-0343e23`;
+a política do scope já ativo também foi corrigida, com PIDs preservados e saúde
+HTTP 200. O source foi incorporado a develop como `5cec84d`. Não houve publicação
+do restante do backend/frontend de Messages/Missões por esse hotfix.
+
+R21, acrescentado nesta retomada: identificar as sessões pelo nome das abas,
+mostrar UUID secundário e descrever conexão sem chamar trabalho desconectado de
+“órfão”. A implementação usa os metadados existentes. Publicado em 10/11 como
+`terminal-names-be4677f` (bridge) e `fh-be4677f` (frontend), incluindo a proteção
+OOM. O checklist registra testes, evidências e limites da validação.
+
+O código principal incompleto foi preservado e enviado ao remoto no checkpoint
+`c9cc7f4`, branch `checkpoint/messages-maturation-2026-11-10`. Esse snapshot não
+é um release aprovado; o worktree continua com suas alterações para retomar a
+qualificação, sem reset nem perda dos arquivos novos.
 
 ## Objetivo que deve sobreviver à sessão
 

@@ -1,0 +1,29 @@
+{
+  "time": "2026-11-10T11:58:03.941728+00:00",
+  "source_commit": "be4677f",
+  "frontend_image": "forgehub-frontend:fh-be4677f",
+  "image_id": "sha256:a54a5414f8b3e67f49b94392efa870c96e4e24128dbf112f153f296a1ba4d398",
+  "index_sha256": "6aa002367aa0fa9a3825aa723fc984ce1cddc7be521155ad77b087ee8a9023e4",
+  "proxy_health": "Protected auth endpoint HTTP 401 as expected; backend healthy",
+  "backend_preserved": true,
+  "rollback_command": [
+    "docker",
+    "compose",
+    "--project-name",
+    "forgehub",
+    "-f",
+    "/root/project/forgehub/docker-compose.yml",
+    "-f",
+    "/root/.forgehub/releases/messages-triage-c86227f/staged.override.yml",
+    "up",
+    "-d",
+    "--no-deps",
+    "--no-build",
+    "forgehub-frontend"
+  ],
+  "compose_files": [
+    "/root/project/forgehub/docker-compose.yml",
+    "/root/.forgehub/releases/messages-triage-c86227f/staged.override.yml",
+    "/root/.forgehub/releases/terminal-names-be4677f/frontend.override.yml"
+  ]
+}

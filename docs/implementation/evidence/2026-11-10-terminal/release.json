@@ -1,0 +1,12 @@
+{
+  "time": "2026-11-10T11:34:40.008206+00:00",
+  "commit": "be4677f",
+  "scope": "bridge-only",
+  "working_directory": "/root/.forgehub/releases/terminal-names-be4677f/forgehub/host-bridge",
+  "previous_directory": "/root/.forgehub/releases/terminal-oom-0343e23/forgehub/host-bridge",
+  "app_sha256": "bc55d359e1ea2fdc5ee6d819e377bc5b13921bf63ddff289c09165d56f6e6935",
+  "health": "HTTP 200",
+  "tmux_server_pid": "2057311",
+  "panes_preserved": true,
+  "rollback": "Remove /etc/systemd/system/forgehub-chat-bridge.service.d/zzzzz-terminal-names-release.conf; systemctl daemon-reload; systemctl restart forgehub-chat-bridge.service (verify no active runner first). Keep live scope OOM protection."
+}
