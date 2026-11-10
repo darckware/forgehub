@@ -1,5 +1,20 @@
 # ForgeHub — Mapa e Governança da Documentação
 
+## Fluxo de Missões, Messages e Operação 24x7
+
+Para retomar a implementação após uma interrupção, comece pelo
+[checkpoint de continuidade](reports/2026-11-09-development-continuity.md): ele
+liga os pedidos de Marcelo ao plano, ao código preparado, às lacunas e ao estado
+real de publicação, incluindo os acréscimos posteriores à aprovação inicial.
+
+O [fluxo operacional completo](architecture/MISSION_MESSAGES_OPERATING_FLOW.md)
+reúne responsabilidades, estados, decisões humanas, skills, execução por agentes e
+subagentes, paralelismo, recuperação, revisão, entrega e aprendizagem verificada.
+Inclui referências ao plano de amadurecimento, às evidências de implementação e
+à auditoria de lacunas. Consulte esse fluxo antes de evoluir a orquestração;
+comportamento planejado, código preparado e disponibilidade em produção são
+estados distintos.
+
 ## Estrutura da pasta `docs/`
 
 ```

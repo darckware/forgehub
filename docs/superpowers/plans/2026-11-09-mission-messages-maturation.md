@@ -10,6 +10,19 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-09-mission-messages-maturation.md`.
 
+## Continuity and later requirements
+
+Start recovery at [the continuity checkpoint](../../reports/2026-11-09-development-continuity.md).
+It maps the recovered user requirements R01–R20 to this plan, source evidence and
+remaining acceptance work. The seven tasks below predate additional requests for
+runtime-specific skills/commands, native delegation, verified learning, Service
+Factory routines, governed SSH execution and Workspace browser use (R12–R18).
+Those requests are analyzed in the operating-flow and gap reports; the recovery
+backlog below now preserves them as Tasks 8–12, pending refinement, implementation
+and review. Preserve them as outstanding scope; qualifying Tasks 1–7 alone does
+not prove full delivery. Task 13 covers the terminal interruption and continuity.
+The checkpoint also records the interrupted validation and terminal OOM fault.
+
 ## Global constraints
 
 - Strengthen the existing solution; no new general orchestrator, task registry, dispatcher or permission system.
@@ -171,6 +184,121 @@ is not evidence that workers resumed.
 - [ ] Negative tests: missing artifact checksum, forged matching caller metadata without trusted bytes, stale artifact/version, and evidence invalidated by approved-scope/content change must not establish dossier integrity or release acceptance. Reuse trusted stored-content/evidence verification; add only the bounded dossier guard needed when current metadata comparison is insufficient.
 - [ ] Review the complete qualification dossier. Publish exact reviewed artifacts with tested backup/restore and independently verifiable recovery steps; record actual enabled flags.
 - [ ] Enable only the qualified scope using existing controls; verify one real authorized flow and its state projections without synthetic production work. Keep unqualified manager autonomy disabled.
+
+## Later-request execution backlog
+
+Recorded during recovery on 2026-11-09. These packages preserve R12–R20 from
+Marcelo's later instructions; they were not part of the original two-review
+approval. They are pending work, not claims of implemented capabilities or
+permission to change agent profiles, shared skills or authority. Refine each
+package against the installed tools and current code before implementation;
+independent review remains required before publication.
+
+### Task 8: Contextual runtime contract and usable skills (R12/R14)
+
+**Existing anchors:** `core/agent_runs.py`, `core/task_skills.py`,
+`host-bridge/app.py:AgentRunRequest` / `_agent_run_command`, existing skill registry.
+Depends on Tasks 4–6 admission/context boundaries.
+
+- [ ] Inventory installed Claude/Codex/agy versions and actual supported modes;
+  resolve applicable skill contents, mandatory task requirements and grants.
+- [ ] Reproduce that mode/autonomy alone cannot express a requested strategy;
+  specify additive structured intent through the existing run boundary. Preserve
+  native authentication/model policy and existing clients; no model-generated shell.
+- [ ] Prepare one versioned runtime skill per CLI through the existing skill
+  owner/review process, without editing immutable shared skills or silently
+  installing instructions from task text.
+- [ ] Test missing/inaccessible mandatory skill, optional skill absence, stale
+  runtime capabilities, changed assignment/scope and unsupported requested mode.
+- [ ] Accept only when actual launch arguments and selected skill/capability
+  versions are traceable to the canonical run, and unsupported requests retain
+  work with an explicit reason rather than being ignored.
+
+### Task 9: Bounded native delegation and parallel execution (R13)
+
+**Existing anchors:** Task 8 runtime contract, existing Task/run identities,
+`core/dispatch_targets.py`, existing parent execution/budget fields. Depends on
+Tasks 5/8; use native runtime facilities only where actually supported.
+
+- [ ] Reproduce a requested executor/reviewer/supervisor or parallel strategy
+  that is lost in transport; bind objective, constraints, context, dependencies,
+  allowed checkout/files and acceptance evidence to each delegated package.
+- [ ] Qualify child count, parent budget/time, isolated writes, resource conflicts,
+  dependent ordering, parent interruption and result aggregation by runtime.
+- [ ] Verify child failure or contradictory evidence cannot produce parent success;
+  preserve one canonical delivery and required independent principal review.
+- [ ] Accept after an isolated delegated execution demonstrates integration and
+  verified results; a runtime flag or a prose instruction alone is insufficient.
+
+### Task 10: Evidence-based learning and durable context (R14/R20)
+
+**Existing anchors:** task skills, canonical context/baseline/evidence records,
+existing skill proposal/review process and this continuity checkpoint. Depends on
+Tasks 6–9 for effective execution provenance; no competing memory/task registry.
+
+- [ ] Reproduce lost scope/decisions across restart or compacted/delegated context;
+  qualify recovery from persisted objective, approved scope, decisions, artifacts,
+  unfinished work and first next action without a full conversation transcript.
+- [ ] Trace observation → reproducible evidence → reviewed lesson → versioned
+  skill proposal → qualified publication → subsequent observation/rollback.
+- [ ] Reject unverified model assertions, secret/private-context promotion,
+  incompatible runtime instructions and any lesson that grants authority.
+- [ ] Accept only after restart recovery retains later requirements and a reviewed
+  learning example is distinguishable from an unproven observation. Do not claim
+  elimination of hallucination.
+
+### Task 11: Service Factory and recurring service closure (R15/R16)
+
+**Existing anchors:** `api/routes/factory.py`, `api/routes/service_line.py`,
+`api/routes/operations.py`, `core/task_evidence.py`, routine occurrences and
+`Product.kind` / `Project.service_line_id`. Depends on Tasks 2/6/7.
+
+- [ ] Inventory existing service-line evidence adapters and reproduce unsupported
+  declared evidence, missing real service ownership and lost routine exceptions.
+- [ ] Qualify authorized opening, contextual execution, progress, documentation,
+  audit and exact software version or service-cycle delivery through existing APIs.
+- [ ] Cover missed/failed/budget-skipped occurrences, remediation and verification
+  of the original service; a later successful run must not erase the old exception.
+- [ ] Test software and a non-software service against their actual approved
+  criteria; do not impose software release gates on unrelated obligations.
+- [ ] Accept with end-to-end evidence that task completion, occurrence result,
+  service health and product/service version closure remain distinct and linked.
+
+### Task 12: Effective governed SSH and Workspace browser execution (R17/R18)
+
+**Existing anchors:** `api/routes/remote_access.py`, `core/remote_authority.py`,
+`api/routes/workspace_browser.py`, host bridge and existing browser automation.
+Depends on Tasks 5/8/9; retain the existing grant and audit systems.
+
+- [ ] Inventory the tools actually visible to each assigned runtime and reproduce
+  the gap between registered/browser availability and effective tool access.
+- [ ] Qualify run-scoped remote grants, pause/expiry/reassignment, permitted
+  operations, audit and uncertain outcomes without sending private keys to agents
+  or adding redundant approvals for already-authorized actions.
+- [ ] Qualify navigation, test evidence, documentation, consultation and data input
+  using the existing browser; protect the shared page against simultaneous actors
+  and honor human takeover and authenticated-context boundaries.
+- [ ] Test lost acknowledgements after remote effects/site submission; reconcile
+  before repetition, preserving exact task/run evidence.
+- [ ] Accept with isolated per-runtime execution evidence and explicit unsupported
+  capability handling; a common tool catalog is not proof of usable access.
+
+### Task 13: Stable terminal and interruption-safe validation (R19/R20)
+
+**Existing anchors:** `host-bridge/app.py:_tmux_new_session`,
+`host-bridge/tests/test_terminal_tmux.py`, active tmux scope, release evidence.
+May ship independently before the larger implementation; do not bundle pending
+backend/frontend changes into this hotfix.
+
+- [ ] Qualify `OOMPolicy=continue` for future tmux scopes and the already-active
+  scope; preserve existing session/server PIDs while applying the live correction.
+- [ ] Deploy only reviewed bridge source, record rollback and verify active code
+  and policy. Never trigger real host OOM to test this fix.
+- [ ] Run heavy build/regression jobs sequentially and capture final exit/results.
+- [ ] Verify reconnect preserves the same tmux identity; distinguish kernel process
+  termination from network detachment and selecting the wrong session on mobile.
+- [ ] Update the continuity checkpoint after the correction and before resuming
+  the main implementation; source changes alone do not close this task.
 
 ## Acceptance scenario index
 
