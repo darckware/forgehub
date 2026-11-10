@@ -32,6 +32,23 @@ def test_tmux_session_creation_uses_new_session_for_scope_and_fallback(monkeypat
     assert calls[1] == expected
 
 
+def test_terminal_scope_keeps_other_sessions_alive_after_child_oom(monkeypatch):
+    monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "test-token")
+    bridge = importlib.import_module("app")
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(bridge.subprocess, "run", fake_run)
+    bridge._tmux_new_session("-d", "-s", "forgehub-test")
+
+    # systemd defaults to OOMPolicy=stop for scopes: one OOM victim then
+    # terminates every pane and CLI sharing the tmux server's scope.
+    assert "--property=OOMPolicy=continue" in calls[0]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize('attached,command,children', [
     (True, 'bash', ''), (False, 'codex', ''), (False, 'bash', '456'),
