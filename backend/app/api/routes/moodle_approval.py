@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.core.deps import ActorPrincipal, get_actor_principal, get_current_user
 from app.core.demand_workflow import approval_fingerprint, record_transition
 from app.core.dispatch_signal import wake_scheduled_dispatch
-from app.core.instructor_group import GROUP_CHANNEL, REJECTED_REPLY, RESULT_NOTE, send_to_group
+from app.core.instructor_group import GROUP_CHANNEL, REJECTED_REPLY, result_note, send_to_group
 from app.core.moodle_proposal_verification import STUDENT_BATCH_FUNCTION, ProposalInvalid, student_batch_view, validate_proposal
 from app.db.base import get_db
 from app.db.models.agent import Agent
@@ -177,7 +177,7 @@ async def authorize(payload: AuthorizeIn, user: User = Depends(get_current_user)
                        f"e params_hash={link.params_hash}. Não altere os parâmetros nem repita a chamada.\n\n"
                        f"{payload.instruction}")
         if demand.channel == GROUP_CHANNEL:
-            demand.body += f"\n\n{RESULT_NOTE}"
+            demand.body += f"\n\n{result_note(demand.channel_ref)}"
         demand.command_text = None
         demand.requires_approval = True
         demand.approval_status = "approved"

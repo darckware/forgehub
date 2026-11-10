@@ -39,7 +39,7 @@ from app.api.schemas.demand import (
     DemandBulkIn,
 )
 from app.core import conversions
-from app.core.instructor_group import GROUP_CHANNEL, run_toolsets
+from app.core.instructor_group import GROUP_CHANNEL, is_sti_approval, run_toolsets
 from app.core.agent_runs import AgentRunDispatchError, dispatch_agent_run, poll_agent_run
 from app.core.config import settings
 from app.core.deps import get_current_admin
@@ -1546,7 +1546,13 @@ async def _execute_dispatch(
     demand.target_agent_id = target_agent_id
     demand.command_text = command_text
     try:
-        restriction = {"restricted_toolsets": run_toolsets(demand.requires_approval)} if demand.channel == GROUP_CHANNEL else {}
+        restriction = {}
+        if demand.channel == GROUP_CHANNEL:
+            from app.db.models.moodle_approval import MoodleApproval
+            moodle_linked = await db.scalar(select(MoodleApproval.id).where(MoodleApproval.message_id == demand.id)) is not None
+            restriction = {"restricted_toolsets": run_toolsets(
+                demand.requires_approval, demand.channel_ref, moodle_linked=moodle_linked,
+                sti_approval=is_sti_approval(demand) and demand.approval_status == "approved")}
         run = await dispatch_agent_run(run_id, agent, with_completion_contract(prompt), project_path, **restriction)
     except AgentRunDispatchError as exc:
         demand.dispatch_attempts = (demand.dispatch_attempts or 0) + 1

@@ -14,7 +14,8 @@ from app.core import personal_captures as capture
 from app.core.config import settings
 from app.core.dispatch_signal import wake_scheduled_dispatch
 from app.core.instructor_group import (
-    AUTHOR_HOURLY_LIMIT, GROUP_CHANNEL, HOURLY_LIMIT, OPEN_MINUTES, add_turn, capture_body, clean_author, conversation_key,
+    AUTHOR_HOURLY_LIMIT, GROUP_CHANNEL, HOURLY_LIMIT, OPEN_MINUTES, STI, add_turn, capture_body, clean_author,
+    conversation_key, conversation_phone, served_group, sti_capture_body,
 )
 from app.db.base import get_db
 from app.db.models.agent import Agent
@@ -70,14 +71,16 @@ async def capture_from_group(payload: GroupCaptureCreate, actor: str = Depends(p
 @router.post('/groups/instructor-requests', status_code=status.HTTP_201_CREATED)
 async def capture_instructor_request(payload: InstructorRequestIn, actor: str = Depends(personal_actor),
                                      db: AsyncSession = Depends(get_db)):
-    """A message of the instructors' group that called the Maia: it becomes a task, never a conversation."""
-    group = settings.MAIA_INSTRUCTOR_GROUP_ID
-    if not group:
+    """A message of a served group (SEMED CI Instrutor, SEMED STI ADM) that called the Maia: it
+    becomes a task, never a conversation."""
+    if not settings.MAIA_INSTRUCTOR_GROUP_ID and not settings.MAIA_STI_GROUP_ID:
         raise HTTPException(503, 'Instructor group is not configured')
-    if payload.group_id != group:
+    kind = served_group(payload.group_id)
+    if kind is None:
         raise HTTPException(403, 'This group is not served')
+    group = payload.group_id
     now = datetime.now(timezone.utc)
-    phone = payload.author_phone
+    phone = conversation_phone(group, payload.author_phone)
     if phone and payload.called:
         # Two first messages at once must not fail on the unique phone.
         await db.execute(pg_insert(InstructorConversation).values(id=uuid.uuid4(), phone=phone, turns=[])
@@ -97,7 +100,8 @@ async def capture_instructor_request(payload: InstructorRequestIn, actor: str = 
     since = now - timedelta(hours=1)
     recent = await db.scalar(select(func.count()).select_from(AgentDemand).where(
         AgentDemand.channel == GROUP_CHANNEL, AgentDemand.requires_approval.is_(False), AgentDemand.created_at >= since))
-    subject = f'Grupo CI Instrutor: pedido de {clean_author(payload.author)}'[:255]
+    label = 'CI Instrutor' if kind != STI else 'STI ADM'
+    subject = f'Grupo {label}: pedido de {clean_author(payload.author)}'[:255]
     sender = AgentDemand.context_area.like(f'instructor:{conversation.id}:%') if conversation is not None else AgentDemand.subject == subject
     own = await db.scalar(select(func.count()).select_from(AgentDemand).where(
         AgentDemand.channel == GROUP_CHANNEL, sender, AgentDemand.created_at >= since))
@@ -114,13 +118,17 @@ async def capture_instructor_request(payload: InstructorRequestIn, actor: str = 
     db.add(demand)
     await db.flush()
     await db.refresh(demand)
-    contact = await db.scalar(select(PersonalContact).where(PersonalContact.phone == phone)) if phone else None
-    unit = (contact.other_data or {}).get('casa_inovacao') if contact else None
     history = conversation.turns if conversation is not None else []
-    demand.body = capture_body(demand.number, payload.author, payload.text, payload.answering,
-                               unit if isinstance(unit, str) else None, history)
+    if kind == STI:
+        demand.body = sti_capture_body(demand.number, payload.author, payload.text, payload.answering, history)
+    else:
+        author_phone = payload.author_phone
+        contact = await db.scalar(select(PersonalContact).where(PersonalContact.phone == author_phone)) if author_phone else None
+        unit = (contact.other_data or {}).get('casa_inovacao') if contact else None
+        demand.body = capture_body(demand.number, payload.author, payload.text, payload.answering,
+                                   unit if isinstance(unit, str) else None, history)
     if conversation is not None:
-        conversation.turns = add_turn(conversation.turns, 'Instrutor', payload.text)
+        conversation.turns = add_turn(conversation.turns, 'Participante' if kind == STI else 'Instrutor', payload.text)
     await db.commit()
     wake_scheduled_dispatch()
     return {'number': demand.number}

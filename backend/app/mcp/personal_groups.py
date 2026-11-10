@@ -8,10 +8,12 @@ Leitura: o plugin `maia-whatsapp-grupos` do perfil grava cada mensagem de grupo 
 só leem esses arquivos.
 
 Envio: nunca direto. `personal_whatsapp_group_draft` guarda o texto exato e manda ao Marcelo, pelo
-bot da Maia no Telegram, um código de 6 dígitos. O código vai pela API do Telegram e **não** pelo
-`hermes send`, que espelha a mensagem na sessão da Maia: assim ela não tem como ver o código e só
-envia se o Marcelo digitá-lo para ela. `personal_whatsapp_group_send` confere código (guardado só
-como hash), validade (30 min), uso único e o hash do texto, e então envia.
+bot da Maia no Telegram, o texto com os botões ✅ Enviar e ❌ Cancelar (2026-11-10: "o processo de
+liberar via código fica ruim para digitar"). A mensagem vai pela API do Telegram e **não** pelo
+`hermes send`, que espelha a mensagem na sessão da Maia: assim ela nunca vê o código de 6 dígitos,
+que só existe dentro do botão. O clique é tratado pelo plugin `maia_telegram_aprovacoes` do
+perfil (só do dono, no chat privado), que chama `send`: confere código (guardado só como hash),
+validade (30 min), uso único e o hash do texto, e então envia. A Maia não envia nada sozinha.
 """
 
 from __future__ import annotations
@@ -280,13 +282,22 @@ def _env_maia() -> dict[str, str]:
     return env
 
 
-def _avisar_marcelo(texto: str, _urlopen=None) -> None:
+def botoes(rid: str, codigo: str) -> list[list[dict[str, str]]]:
+    """O código vai só no botão: o plugin do perfil reconhece `wag:s:<rascunho>:<código>`."""
+    return [[{"text": "✅ Enviar ao grupo", "callback_data": f"wag:s:{rid}:{codigo}"},
+             {"text": "❌ Cancelar", "callback_data": f"wag:c:{rid}"}]]
+
+
+def _avisar_marcelo(texto: str, _urlopen=None, teclado=None) -> None:
     """Direto pela API do Telegram (bot da Maia → Marcelo), sem passar pela sessão da Maia."""
     env = _env_maia()
     token, chat = env.get("TELEGRAM_BOT_TOKEN"), env.get("TELEGRAM_HOME_CHANNEL")
     if not token or not chat:
         raise GroupError("Não consigo avisar o Marcelo no Telegram (bot da Maia não configurado); envio não preparado.")
-    dados = urllib.parse.urlencode({"chat_id": chat, "text": texto}).encode()
+    campos = {"chat_id": chat, "text": texto}
+    if teclado:
+        campos["reply_markup"] = json.dumps({"inline_keyboard": teclado}, ensure_ascii=False)
+    dados = urllib.parse.urlencode(campos).encode()
     req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage", data=dados, method="POST")
     try:
         with (_urlopen or urllib.request.urlopen)(req, timeout=20) as resp:
@@ -313,14 +324,35 @@ def draft(ref: str, texto: str, agora: float | None = None, _urlopen=None) -> di
     sal = secrets.token_hex(8)
     rascunhos[rid] = {"chat": chat, "grupo": nome, "texto": texto, "texto_hash": _hash(texto, sal), "sal": sal,
                       "codigo_hash": _hash(codigo, sal), "expira_ts": agora + VALIDADE_S, "tentativas": 0, "usado": False}
-    _avisar_marcelo(
-        f"🔐 Autorização de envio em grupo do WhatsApp\nGrupo: {nome}\nRascunho: {rid}\n\nTexto exato:\n{texto}\n\n"
-        f"Para autorizar, diga à Maia: autorizo {rid} {codigo}\nVale por 30 minutos e só para este texto. "
-        "Se não quiser enviar, ignore.", _urlopen=_urlopen)
+    env = _env_maia()
+    if not env.get("TELEGRAM_BOT_TOKEN") or not env.get("TELEGRAM_HOME_CHANNEL"):
+        raise GroupError("Não consigo avisar o Marcelo no Telegram (bot da Maia não configurado); envio não preparado.")
+    # Gravado antes do aviso: um clique rápido precisa achar o rascunho.
     _gravar_json(RASCUNHOS, rascunhos)
+    try:
+        _avisar_marcelo(
+            f"🔐 Envio em grupo do WhatsApp\nGrupo: {nome}\nRascunho: {rid}\n\nTexto exato:\n{texto}\n\n"
+            "Toque em ✅ Enviar ao grupo para mandar este texto, ou em ❌ Cancelar. "
+            "Vale por 30 minutos e só para este texto.", _urlopen=_urlopen, teclado=botoes(rid, codigo))
+    except GroupError:
+        rascunhos.pop(rid, None)
+        _gravar_json(RASCUNHOS, rascunhos)
+        raise
     return {"rascunho": rid, "grupo": nome, "texto": texto,
-            "proximo_passo": "O Marcelo recebeu o texto e um código no Telegram. Só envie com "
-                             "personal_whatsapp_group_send quando ele lhe disser o código."}
+            "proximo_passo": "O Marcelo recebeu o texto no Telegram com os botões Enviar e Cancelar. "
+                             "O envio acontece pelo botão, sem você: não peça código nem chame "
+                             "personal_whatsapp_group_send. Diga só que o rascunho está aguardando o toque dele."}
+
+
+def cancel(rid: str, agora: float | None = None) -> dict[str, Any]:
+    """Botão ❌ Cancelar: o rascunho fica usado e nada é enviado."""
+    rascunhos = _ler_json(RASCUNHOS, {})
+    r = rascunhos.get(str(rid or "").strip())
+    if not r or r.get("usado"):
+        raise GroupError("Rascunho inexistente ou já usado.")
+    r["usado"], r["cancelado_ts"] = True, agora or time.time()
+    _gravar_json(RASCUNHOS, rascunhos)
+    return {"cancelado": True, "grupo": r["grupo"]}
 
 
 def send(rid: str, codigo: str, agora: float | None = None, _runner=None) -> dict[str, Any]:
@@ -458,12 +490,13 @@ def register(mcp, api_call=None) -> None:
     @mcp.tool()
     async def personal_whatsapp_group_draft(grupo: str, texto: str) -> dict[str, Any]:
         """Prepara uma mensagem para um grupo do WhatsApp — SOMENTE quando o Marcelo pedir nesta conversa
-        do Telegram. Nada é enviado: o Marcelo recebe o texto exato e um código no Telegram; o envio só
-        acontece com personal_whatsapp_group_send e o código que ELE lhe disser."""
+        do Telegram. Nada é enviado por você: o Marcelo recebe o texto exato no Telegram com os botões
+        ✅ Enviar ao grupo e ❌ Cancelar, e o envio acontece quando ele toca. Não peça código."""
         return _safe(draft, grupo, texto)
 
     @mcp.tool()
     async def personal_whatsapp_group_send(rascunho: str, codigo: str) -> dict[str, Any]:
-        """Envia ao grupo o rascunho autorizado. `codigo` é o que o Marcelo digitou para você (ex.:
-        "autorizo a1b2c3 123456" → rascunho a1b2c3, código 123456). Nunca tente adivinhar o código."""
+        """Não use no fluxo normal: o Marcelo confirma o envio pelo botão do Telegram e o código não
+        aparece para ninguém. Só se ele digitar explicitamente "autorizo <rascunho> <código>".
+        Nunca tente adivinhar o código."""
         return _safe(send, rascunho, codigo)
