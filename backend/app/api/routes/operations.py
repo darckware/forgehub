@@ -1012,6 +1012,16 @@ async def ask_question(
     pass (every minute), or at 07:00 when asked in the quiet window."""
     _require_bridge(x_bridge_token)
     asker = await _agent_by_slug_or_404(db, payload.agent)
+    from app.core.command_receipts import begin_command, record_command, request_hash
+    from app.core.deps import ActorPrincipal
+    principal = ActorPrincipal(principal_type="agent", principal_id=asker.id, display_name=asker.name)
+    body_hash = request_hash("operations.ask_question", {
+        "agent_id": str(asker.id), **payload.model_dump(mode="json", exclude={"agent"}),
+    })
+    if payload.idempotency_key:
+        replay = await begin_command(db, principal, payload.idempotency_key, "operations.ask_question", body_hash)
+        if replay is not None:
+            return replay
     origin_demand_id = None
     if payload.origin_message_number is not None:
         origin_demand_id = (
@@ -1023,9 +1033,12 @@ async def ask_question(
         db, asker, question=payload.question, context=payload.context, recommendation=payload.recommendation,
         blocking=payload.blocking, urgent=payload.urgent, origin_demand_id=origin_demand_id,
     )
+    out = await _question_out(db, question)
+    if payload.idempotency_key:
+        record_command(db, principal, payload.idempotency_key, "operations.ask_question", body_hash, 201,
+                       out, target_type="agent_question", target_id=question.id)
     await db.commit()
-    await db.refresh(question)
-    return await _question_out(db, question)
+    return out
 
 
 @router.get("/agent-questions", response_model=list[QuestionOut])
@@ -1069,7 +1082,6 @@ async def relay_answer(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Question #{number} was not sent through {payload.agent!r}'s Telegram",
         )
-    _assert_pending(question)
     await agent_questions.record_answer(
         db, question, payload.answer, via="telegram", by=f"marcelo (via {relay.profile_slug})"
     )
@@ -1092,8 +1104,9 @@ async def list_questions(
     return [await _question_out(db, q) for q in rows.scalars()]
 
 
-async def _question_or_404(db: AsyncSession, question_id: uuid.UUID) -> AgentQuestion:
-    question = await db.get(AgentQuestion, question_id)
+async def _question_or_404(db: AsyncSession, question_id: uuid.UUID, *, lock: bool = False) -> AgentQuestion:
+    query = select(AgentQuestion).where(AgentQuestion.id == question_id).execution_options(populate_existing=True)
+    question = await db.scalar(query.with_for_update() if lock else query)
     if question is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
     return question
@@ -1107,7 +1120,6 @@ async def answer_question(
     admin=Depends(get_current_admin),
 ) -> QuestionOut:
     question = await _question_or_404(db, question_id)
-    _assert_pending(question)
     await agent_questions.record_answer(
         db, question, payload.answer, via="screen", by=getattr(admin, "username", None) or "marcelo"
     )
@@ -1121,7 +1133,7 @@ async def cancel_question(
     _admin=Depends(get_current_admin),
 ) -> QuestionOut:
     """Withdraw a question that no longer needs an answer. Kept, never deleted."""
-    question = await _question_or_404(db, question_id)
+    question = await _question_or_404(db, question_id, lock=True)
     _assert_pending(question)
     question.status = "cancelled"
     await db.commit()

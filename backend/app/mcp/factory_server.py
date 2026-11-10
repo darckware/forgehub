@@ -648,6 +648,29 @@ async def submit_project_plan(
 
 
 @mcp.tool()
+async def request_mission_acceptance(project_id: str, idempotency_key: str) -> dict[str, Any]:
+    """Request human acceptance of the current verified mission dossier.
+    Requires mission.orchestrate; never approves. Evidence, reviews and actual
+    document bytes are checked again when Marcelo decides in ForgeHub.
+    """
+    data, replayed = await _mission_write(f"/api/v1/missions/{project_id}/acceptance:request",
+                                         {"idempotency_key": idempotency_key})
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def decide_mission_criterion(project_id: str, criterion_id: str, status: str,
+    evidence_ref: str, reason: str, idempotency_key: str) -> dict[str, Any]:
+    """Assigned independent verifier records proven/failed acceptance criterion.
+    Proven requires accepted linked tasks. This never accepts the mission;
+    final mission acceptance is reserved to Marcelo.
+    """
+    data, replayed = await _mission_write(f"/api/v1/missions/{project_id}/criteria/{criterion_id}:decide",
+        {"status": status, "evidence_ref": evidence_ref, "reason": reason, "idempotency_key": idempotency_key})
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
 async def get_my_mission_role(project_id: str) -> dict[str, Any]:
     """Your own role in a mission (or internal project) you are an active
     member of: role, can_review, responsibilities, the orchestrator, your
@@ -843,6 +866,7 @@ async def mission_decide(
     proposal_id: str | None = None,
     task_id: str | None = None,
     params: dict[str, Any] | None = None,
+    expected_context_version: int | None = None,
 ) -> dict[str, Any]:
     """Take one decision of the mission cycle, recorded in the mission timeline
     with your reason (refusals are recorded too, with the guard's code).
@@ -854,9 +878,13 @@ async def mission_decide(
     default_reversible, answer_by, dependent_task_ids) | pause (reason
     'blocked:<kind>') | defer. Pass the proposal_id you act on. Everything goes
     through the existing guarded routes; nothing here approves a plan or
-    baseline, accepts, cancels or publishes."""
+    baseline, accepts, cancels or publishes. For new agent decisions, pass
+    expected_context_version from get_mission_cycle.context_version.version
+    (0 if no version exists). Keep it unchanged when retrying the same key."""
     body: dict[str, Any] = {"action": action, "reason": reason, "idempotency_key": idempotency_key,
                             "params": params or {}}
+    if expected_context_version is not None:
+        body["expected_context_version"] = expected_context_version
     for key, value in (("cycle_id", cycle_id), ("proposal_id", proposal_id), ("task_id", task_id)):
         if value:
             body[key] = value
@@ -868,17 +896,21 @@ async def mission_decide(
 async def defer_mission_proposal(
     project_id: str, cycle_id: str, proposal_id: str, reason: str, idempotency_key: str,
     task_id: str | None = None,
+    expected_context_version: int | None = None,
 ) -> dict[str, Any]:
     """Record that you deliberately did not act on a proposal this cycle, and why."""
     return await mission_decide(project_id, "defer", reason, idempotency_key, cycle_id=cycle_id,
-                                proposal_id=proposal_id, task_id=task_id)
+                                proposal_id=proposal_id, task_id=task_id,
+                                expected_context_version=expected_context_version)
 
 
 @mcp.tool()
-async def pause_mission(project_id: str, reason: str, idempotency_key: str, cycle_id: str | None = None) -> dict[str, Any]:
+async def pause_mission(project_id: str, reason: str, idempotency_key: str, cycle_id: str | None = None,
+                        expected_context_version: int | None = None) -> dict[str, Any]:
     """Pause a mission only when it is blocked: `reason` must start with
     'blocked:' (e.g. 'blocked:deadline'). Resuming is Marcelo's."""
-    return await mission_decide(project_id, "pause", reason, idempotency_key, cycle_id=cycle_id)
+    return await mission_decide(project_id, "pause", reason, idempotency_key, cycle_id=cycle_id,
+                                expected_context_version=expected_context_version)
 
 
 @mcp.tool()

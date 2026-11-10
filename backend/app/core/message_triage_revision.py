@@ -36,6 +36,7 @@ def context_revision_sql(related_ids=None):
 
     related = aliased(AgentDemand)
     diagnostic_source=aliased(AgentDemand)
+    reply_source=aliased(AgentDemand)
     if related_ids is None:
         keys = (select(cast(func.jsonb_object_keys(func.coalesce(
             MessageTriageResult.context_versions['related'], empty)), UUID(as_uuid=True)))
@@ -65,7 +66,11 @@ def context_revision_sql(related_ids=None):
 
     parts = {
         'moodle': revisions(MoodleApproval, MoodleApproval.id, MoodleApproval.message_id == AgentDemand.id),
-        'questions': revisions(AgentQuestion, AgentQuestion.id, AgentQuestion.origin_demand_id == AgentDemand.id),
+        'questions': revisions(AgentQuestion, AgentQuestion.id, or_(
+            AgentQuestion.origin_demand_id == AgentDemand.id, AgentQuestion.reply_demand_id == AgentDemand.id)),
+        'reply_source': revisions(reply_source, reply_source.id, reply_source.id == AgentDemand.reply_to_id),
+        'reply_moodle': revisions(MoodleApproval, MoodleApproval.id,
+                                  MoodleApproval.message_id == AgentDemand.reply_to_id),
         'availability': revisions(AgentAvailability, AgentAvailability.agent_id,
                                   AgentAvailability.agent_id == AgentDemand.target_agent_id),
         'availability_active': exists(select(AgentAvailability.agent_id).where(

@@ -275,5 +275,17 @@
     },
     "reset": "Reset role editor",
     "unsaved": "Save the role or reset its editor before saving the mission details."
+  },
+  "acceptance": {
+    "title": "Mission acceptance",
+    "loading": "Loading acceptance request…",
+    "error": "Could not load the acceptance request.",
+    "recorded": "Decision recorded.",
+    "missing": "The orchestrator has not requested acceptance yet.",
+    "submitted": "Requested by {{name}}. Delivery will be checked again when you decide.",
+    "hash": "Dossier SHA-256:",
+    "reason": "Reason for acceptance or requested changes",
+    "approve": "Accept mission",
+    "return": "Request changes"
   }
 }

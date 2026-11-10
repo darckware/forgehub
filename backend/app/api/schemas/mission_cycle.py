@@ -46,6 +46,7 @@ class DecisionIn(BaseModel):
     cycle_id: uuid.UUID | None = None
     proposal_id: str | None = Field(default=None, max_length=32)
     task_id: uuid.UUID | None = None
+    expected_context_version: int | None = Field(default=None, ge=0)
     params: DecisionParams = Field(default_factory=DecisionParams)
 
 

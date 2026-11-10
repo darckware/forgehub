@@ -180,8 +180,16 @@ def record_command(
 
 async def run_command_receipt_retention(db: AsyncSession) -> int:
     """Delete receipts older than 30 days. Hard delete: a receipt only answers
-    "did I already do this?" for a retry window; the AuditEvent is the record."""
+    "did I already do this?" for a retry window; live question identities are retained."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=RECEIPT_RETENTION_DAYS)
-    result = await db.execute(delete(AgentCommandReceipt).where(AgentCommandReceipt.created_at < cutoff))
+    from app.db.models.operations import AgentQuestion
+    # A human decision may arrive months later. Its original request identity
+    # remains live as long as the canonical question does.
+    live_question = select(AgentQuestion.id).where(
+        AgentQuestion.id == AgentCommandReceipt.target_id,
+        AgentCommandReceipt.target_type == "agent_question",
+        AgentCommandReceipt.command == "operations.ask_question").exists()
+    result = await db.execute(delete(AgentCommandReceipt).where(
+        AgentCommandReceipt.created_at < cutoff, ~live_question))
     await db.commit()
     return result.rowcount or 0

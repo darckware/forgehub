@@ -194,6 +194,18 @@ async def _correction_reason(db: AsyncSession, task_id: uuid.UUID) -> tuple[str,
     return source, row_id, text
 
 
+def plain_task_body(task: ProjectTask) -> str:
+    """Shared canonical task instructions outside the mission context contract."""
+    parts = [f"Task #{task.number}: {task.title}"]
+    if task.description:
+        parts.append(task.description)
+    if task.plan_brief:
+        parts.append(f"Plano/abordagem:\n{task.plan_brief}")
+    parts.append(f"Tipo: {task.task_type} | Prioridade: {task.priority} | Status atual: {task.status}")
+    parts.append(EVIDENCE_INSTRUCTION)
+    return "\n\n".join(parts)
+
+
 async def build_mission_dispatch_context(
     db: AsyncSession,
     task: ProjectTask,

@@ -57,7 +57,7 @@ from app.db.models.project import Project
 from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
 
 COMPLETION_TARGET_STATUSES = ("done", "deployed")
-EVIDENCE_PREFIXES = ("git", "file", "db")
+EVIDENCE_PREFIXES = ("git", "file", "db", "host")
 MISSION_MAINLINE = "develop"
 
 COMPLETION_NO_EXECUTION = "COMPLETION_NO_EXECUTION"

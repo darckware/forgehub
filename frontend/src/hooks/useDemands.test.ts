@@ -13,6 +13,21 @@ function row(overrides: Partial<Demand>): Demand {
 }
 
 describe("execution tracking", () => {
+  it("keeps authorized executor waits in execution before their first attempt", () => {
+    const waiting = row({ target_agent_id: "agent-b", from_agent_id: "agent-b", dispatch_status: null, dispatch_attempts: 0, message_labels: ["awaiting_executor", "quota_unavailable"], execution_wait_reason: "quota" });
+    expect(isExecutionOpen(waiting)).toBe(true);
+    expect(executionStage(waiting)).toBe("awaitingExecutor");
+    expect(isIncomingItem(waiting, "agent-b")).toBe(false);
+    expect(computeInboxTotalCount([waiting])).toBe(0);
+    expect(computeInboxTotalCount([{ ...waiting, target_agent_id: null, from_agent_id: null }])).toBe(0);
+    expect(isExecutionOpen({ ...waiting, status: "archived" })).toBe(false);
+    expect(isExecutionOpen({ ...waiting, dispatch_status: "completed" })).toBe(false);
+  });
+  it("does not move unclassified new tasks into execution", () => {
+    const pending = row({ dispatch_status: null, dispatch_attempts: 0, message_labels: ["authorization_pending"] });
+    expect(isExecutionOpen(pending)).toBe(false);
+    expect(executionStage(pending)).toBeNull();
+  });
   it.each(["dispatched", "running", "failed"] as const)("keeps %s attempts in execution until completion is accepted", dispatch_status => {
     expect(isExecutionOpen(row({ dispatch_status }))).toBe(true);
     expect(isExecutionOpen(row({ dispatch_status, status: "archived" }))).toBe(false);

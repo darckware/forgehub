@@ -5,6 +5,15 @@ import { ConfirmDialog } from "./confirm-dialog";
 
 
 describe("ConfirmDialog", () => {
+  it("uses the right-side placement without changing modal focus and Escape behavior", () => {
+    const onCancel = vi.fn();
+    render(<ConfirmDialog open placement="right" readOnly title="Legend" cancelLabel="Close" onConfirm={() => undefined} onCancel={onCancel} />);
+    const dialog = screen.getByRole("dialog", { name: "Legend" });
+    expect(dialog).toHaveAttribute("data-placement", "right");
+    expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
   it("provides a single focused dismissal for read-only details", () => {
     const onCancel = vi.fn();
     const onConfirm = vi.fn();

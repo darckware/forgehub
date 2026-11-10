@@ -271,6 +271,9 @@ export function useDecideGovernedApproval() {
       client.invalidateQueries({ queryKey: ["concept"] });
       client.invalidateQueries({ queryKey: ["blueprint"] });
       client.invalidateQueries({ queryKey: ["notifications"] });
+      client.invalidateQueries({ queryKey: ["missions"] });
+      client.invalidateQueries({ queryKey: ["mission-board"] });
+      client.invalidateQueries({ queryKey: ["mission-timeline"] });
     },
   });
 }

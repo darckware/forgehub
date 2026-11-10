@@ -164,6 +164,7 @@ class QuestionAskIn(BaseModel):
     # The Messages #number the agent was running when it asked, if any: the
     # answer task points back at it (reply_to_id).
     origin_message_number: int | None = None
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=140)
 
 
 class QuestionAnswerIn(BaseModel):

@@ -136,6 +136,13 @@ async def assign_task(
     principal: ActorPrincipal = Depends(get_actor_principal),
     db: AsyncSession = Depends(get_db),
 ):
+    return await _assign_task(project_id, task_id, payload, principal, db)
+
+
+async def _assign_task(
+    project_id: uuid.UUID, task_id: uuid.UUID, payload: TaskAssignIn,
+    principal: ActorPrincipal, db: AsyncSession, *, commit: bool = True,
+):
     """Assign (or reassign) a mission task to an agent with an active executor
     membership in the task's project. Replacing an active assignment also needs
     mission.orchestrate; the previous one is released, never deleted. The
@@ -184,7 +191,10 @@ async def assign_task(
                             task_status=task.status, changed=False)
         record_command(db, principal, payload.idempotency_key, command, body_hash, 200, out.model_dump(mode="json"),
                        target_type="task_assignment", target_id=same.id)
-        await db.commit()
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
         return out
     if active and principal.principal_type == "agent":
         source, delegation = await _authorize(db, principal, mission, ORCHESTRATE_ACTION, task_project_id, task.id)
@@ -212,7 +222,10 @@ async def assign_task(
                         previous_assignment_id=previous_id, task_status=task.status, changed=True)
     record_command(db, principal, payload.idempotency_key, command, body_hash, 201, out.model_dump(mode="json"),
                    target_type="task_assignment", target_id=assignment.id)
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
     return out
 
 
@@ -240,6 +253,13 @@ async def request_task_review(
     payload: ReviewRequestIn,
     principal: ActorPrincipal = Depends(get_actor_principal),
     db: AsyncSession = Depends(get_db),
+):
+    return await _request_task_review(project_id, task_id, payload, principal, db)
+
+
+async def _request_task_review(
+    project_id: uuid.UUID, task_id: uuid.UUID, payload: ReviewRequestIn,
+    principal: ActorPrincipal, db: AsyncSession, *, commit: bool = True,
 ):
     """Open a pending review of a verified execution and send the reviewer a
     Messages Task (origin = the task, no execution of its own, through the
@@ -322,7 +342,10 @@ async def request_task_review(
                            status=review.status, demand_id=demand.id, demand_number=demand.number)
     record_command(db, principal, payload.idempotency_key, command, body_hash, 201, out.model_dump(mode="json"),
                    target_type="task_execution_review", target_id=review.id)
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
     wake_scheduled_dispatch()
     return out
 
@@ -338,6 +361,13 @@ async def return_task_for_correction(
     payload: TaskReturnIn,
     principal: ActorPrincipal = Depends(get_actor_principal),
     db: AsyncSession = Depends(get_db),
+):
+    return await _return_task_for_correction(project_id, task_id, payload, principal, db)
+
+
+async def _return_task_for_correction(
+    project_id: uuid.UUID, task_id: uuid.UUID, payload: TaskReturnIn,
+    principal: ActorPrincipal, db: AsyncSession, *, commit: bool = True,
 ):
     """Send a delivery back: an open review becomes changes_requested with the
     reason as feedback (else the reason is recorded as
@@ -395,5 +425,8 @@ async def return_task_for_correction(
                         review_status=open_review.status if open_review else None)
     record_command(db, principal, payload.idempotency_key, command, body_hash, 200, out.model_dump(mode="json"),
                    target_type="project_task", target_id=task.id)
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
     return out

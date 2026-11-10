@@ -55,6 +55,26 @@ describe("operator deliberation", () => {
     fireEvent.click(screen.getByRole("button", { name: /Revisar backup/ }));
     expect(screen.getByRole("button", { name: "Transformar em tarefa" })).toBeInTheDocument();
   });
+  it("shows and answers the exact blocking question in incubation and Moodle destinations", () => {
+    const question = { id: "question-42", number: 42, agent_id: "agent-1", agent_name: "Athos", relay_agent_id: null,
+      relay_agent_name: null, question: "Which destination should I use?", context: "Current task", recommendation: null,
+      blocking: true, urgent: false, status: "pending", notify_after: "2026-11-09T00:00:00Z", telegram_sent_at: null,
+      telegram_error: null, answer: null, answered_at: null, answered_via: null, answered_by: null, reply_demand_id: null,
+      origin_demand_id: "work-1", created_at: "2026-11-09T00:00:00Z" };
+    mocks.questions.mockReturnValue({ data: [question], isLoading: false, isError: false });
+    open("/personal?tab=agent-work&workGroup=incubation&incubationView=decision&questionId=question-42");
+    const questionCard = screen.getByText("Which destination should I use?").closest("section");
+    expect(questionCard).toHaveAttribute("id", "operator-question-question-42");
+    expect(within(questionCard!).getByRole("button", { name: "Responder" })).toBeInTheDocument();
+  });
+  it("keeps the question answer path visible in Moodle approvals", () => {
+    mocks.questions.mockReturnValue({ data: [{ id: "question-43", number: 43, agent_id: "agent-1", agent_name: "Athos",
+      question: "Confirm the Moodle scope?", blocking: true, status: "pending", origin_demand_id: "work-1", created_at: "2026-11-09T00:00:00Z" }], isLoading: false, isError: false });
+    open("/personal?tab=agent-work&workGroup=moodle&questionId=question-43");
+    const questionCard = screen.getByText("Confirm the Moodle scope?").closest("section");
+    expect(questionCard).toHaveAttribute("id", "operator-question-question-43");
+    expect(within(questionCard!).getByRole("button", { name: "Responder" })).toBeInTheDocument();
+  });
   it("preserves explicit legacy incubation URLs", () => {
     open("/personal?tab=agent-work&workGroup=incubation&incubationView=attention");
     expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ group: "incubation", view: "attention" }), true);

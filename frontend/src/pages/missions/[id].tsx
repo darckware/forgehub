@@ -2,6 +2,7 @@ import { Link, useParams } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
 import { useTranslation } from "react-i18next";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { MissionAcceptance } from "@/components/missions/MissionAcceptance";
 import { MissionExecutionsBoard } from "@/components/missions/MissionExecutionsBoard";
 import { useMissionExecutionsViewModel } from "@/hooks/useMissionExecutionsViewModel";
 
@@ -33,5 +34,5 @@ export default function MissionDetailPage() {
       </div>
     );
   }
-  return <div className="space-y-4">{admin && <div className="flex justify-end"><Link className={buttonVariants({ variant: "outline" })} to={`/missions/${projectId}/edit`}>{t("form.editTitle")}</Link></div>}<MissionExecutionsBoard vm={vm} /></div>;
+  return <div className="space-y-4">{admin && <div className="flex justify-end"><Link className={buttonVariants({ variant: "outline" })} to={`/missions/${projectId}/edit`}>{t("form.editTitle")}</Link></div>}{vm.board?.mission.state === "awaiting_acceptance" && projectId && <MissionAcceptance projectId={projectId} canAct={admin} />}<MissionExecutionsBoard vm={vm} /></div>;
 }

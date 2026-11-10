@@ -7,6 +7,7 @@ import { Button } from "./button";
 
 interface ConfirmDialogProps {
   open: boolean;
+  placement?: "center" | "right";
   title?: string;
   description?: string;
   confirmLabel?: string;
@@ -27,6 +28,7 @@ interface ConfirmDialogProps {
 
 export function ConfirmDialog({
   open,
+  placement = "center",
   title,
   description,
   confirmLabel,
@@ -115,7 +117,8 @@ export function ConfirmDialog({
   return createPortal(
     <div
       ref={dialogRef}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className={cn("fixed inset-0 z-50 flex", placement === "right" ? "items-stretch justify-end" : "items-center justify-center p-4")}
+      data-placement={placement}
       aria-modal="true"
       role="dialog"
       aria-labelledby={titleId}
@@ -131,14 +134,16 @@ export function ConfirmDialog({
 
       <div
         className={cn(
-          "relative z-10 max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card shadow-2xl",
-          "motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95 motion-safe:duration-150",
+          "relative z-10 w-full max-w-lg border border-border bg-card shadow-2xl",
+          placement === "right" ? "flex h-dvh max-h-dvh flex-col overflow-hidden" : "max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-xl",
+          "motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150",
+          placement === "center" && "motion-safe:zoom-in-95",
         )}
       >
-        <div className={cn("h-1 w-full rounded-t-xl", variant === "destructive" ? "bg-destructive/80" : "bg-amber-500/80")} />
+        <div className={cn("h-1 w-full shrink-0 rounded-t-xl", variant === "destructive" ? "bg-destructive/80" : "bg-amber-500/80")} />
 
-        <div className="p-6">
-          <div className="flex items-start gap-4">
+        <div className={cn("p-6", placement === "right" && "flex min-h-0 flex-1 flex-col")}>
+          <div className="flex shrink-0 items-start gap-4">
             <div className={cn(
               "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
               variant === "destructive" ? "bg-destructive/10" : "bg-amber-500/10",
@@ -161,8 +166,9 @@ export function ConfirmDialog({
                 </p>
               )}
             </div>
-            {closeLabel && !readOnly && (
+            {closeLabel && (!readOnly || placement === "right") && (
               <Button
+                ref={readOnly && placement === "right" ? cancelRef : undefined}
                 type="button"
                 size="icon"
                 variant="ghost"
@@ -176,7 +182,7 @@ export function ConfirmDialog({
             )}
           </div>
 
-          {children && <div className="mt-4">{children}</div>}
+          {children && <div className={cn("mt-4", placement === "right" && "min-h-0 flex-1 overflow-y-auto pr-1")}>{children}</div>}
 
           {error && (
             <p role="alert" className="mt-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -184,7 +190,7 @@ export function ConfirmDialog({
             </p>
           )}
 
-          <div className="mt-6 flex justify-end gap-3">
+          {!(readOnly && placement === "right" && closeLabel) && <div className="mt-6 flex shrink-0 justify-end gap-3">
             <Button
               ref={cancelRef}
               type="button"
@@ -206,7 +212,7 @@ export function ConfirmDialog({
               {loading && <Loader2 className="mr-1.5 h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" />}
               {confirmLabel}
             </Button>}
-          </div>
+          </div>}
         </div>
       </div>
     </div>,

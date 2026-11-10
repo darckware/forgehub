@@ -12,7 +12,7 @@ from sqlalchemy import and_, func, or_, select
 from app.api.schemas.message_triage import TriageSuggestion
 from app.core.completion_report import parse_completion_status
 from app.core.config import settings
-from app.core.demand_workflow import WorkflowBlocked, approval_fingerprint, ensure_workflow_allowed, requires_reconciliation
+from app.core.demand_workflow import WorkflowBlocked, approval_fingerprint, dispatch_intent_fingerprint, ensure_workflow_allowed, requires_reconciliation
 from app.core.evidence_bridge import verify_on_host
 from app.core.message_triage_context import POLICY_VERSION, context_stamp, domain_for, prompt_item, source_stamp
 from app.db.base import AsyncSessionLocal
@@ -60,7 +60,71 @@ def candidate_query(agent_id=None,context=None):
     return select(AgentDemand).where(AgentDemand.status!="archived",AgentDemand.consolidated_into_id.is_(None),
         or_(AgentDemand.dispatch_status.is_(None),AgentDemand.dispatch_status=="failed",
             and_(AgentDemand.reply_to_id.isnot(None),AgentDemand.dispatch_status=="completed",
-                 AgentDemand.from_agent_id==AgentDemand.target_agent_id)),*scope_filters(agent_id,context))
+                 AgentDemand.from_agent_id==AgentDemand.target_agent_id),
+            and_(AgentDemand.failure_check_source_id.isnot(None),AgentDemand.dispatch_status=="completed")),
+        *scope_filters(agent_id,context))
+
+
+async def reconcile_queued_demand(db, demand, *, now=None):
+    """Release only an unchanged automatic quota wait after availability clears.
+
+    This reconciles persisted intent; the existing reservation remains the
+    sole boundary that can start an executor. Deliberate schedules, changed
+    work, uncertain attempts and delivered work are never made runnable here.
+    """
+    from app.core.agent_availability import unavailable_until
+    from app.core.demand_dispatch_guard import ensure_task_dispatch_admissible
+    from app.core.demand_workflow import record_transition
+
+    instant = now or datetime.now(timezone.utc)
+    if (demand.status == "archived" or demand.consolidated_into_id is not None
+            or demand.origin_type != "task" or demand.dispatch_status is not None
+            or demand.agent_run_id is not None):
+        return "unchanged"
+    if demand.target_agent_id is None:
+        return "waiting"
+    event = await db.scalar(select(AuditEvent).where(
+        AuditEvent.entity_type == "agent_demand", AuditEvent.entity_id == demand.id,
+        AuditEvent.event_type == "demand_reprocess", AuditEvent.actor == "forgehub:usage-limit",
+    ).order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()).limit(1))
+    payload = (event.payload or {}) if event else {}
+    if payload.get("automatic_wait_reason") != "quota":
+        return "unchanged"
+    expected_schedule = payload.get("automatic_resume_at")
+    expected_hash = payload.get("content_hash")
+    expected_target = payload.get("target_agent_id")
+    if (not expected_schedule or not expected_hash or not expected_target
+            or demand.scheduled_at is None
+            or demand.scheduled_at != datetime.fromisoformat(expected_schedule)
+            or expected_hash not in {approval_fingerprint(demand), dispatch_intent_fingerprint(demand)}):
+        return "unchanged"
+    if await verified_delivery(db, demand):
+        demand.scheduled_at = None
+        db.add(AuditEvent(entity_type="agent_demand", entity_id=demand.id,
+            event_type="message_quota_wait_delivery_veto", actor="system",
+            payload={"source_event_id": str(event.id), "content_hash": expected_hash}))
+        return "resolved"
+    until = await unavailable_until(db, demand.target_agent_id, instant)
+    if until is not None and until > instant:
+        return "waiting"
+    try:
+        await ensure_workflow_allowed(db, demand)
+        await ensure_task_dispatch_admissible(db, demand)
+    except WorkflowBlocked:
+        return "waiting"
+    from app.api.routes.demand import _ensure_demand_dependencies_satisfied
+    from app.core.task_dependencies import TaskDependenciesBlocked
+    try:
+        await _ensure_demand_dependencies_satisfied(db, demand)
+    except TaskDependenciesBlocked:
+        return "waiting"
+    previous = demand.scheduled_at
+    demand.scheduled_at = instant
+    record_transition(db, demand, "quota_wait_released", actor="system", extra={
+        "source_event_id": str(event.id), "previous_schedule": previous.isoformat(),
+        "content_hash": expected_hash, "target_agent_id": expected_target,
+    })
+    return "ready"
 
 
 async def enqueue_analysis(db,*,actor,agent_id=None,context=None):
@@ -148,7 +212,7 @@ async def deterministic_analysis(db,demand):
         return proposal(demand,"resolved","delivered","Entrega comprovada",
             (delivery.payload or {}).get("summary") or "Há uma entrega verificada para este conteúdo.",
             "Não despachar novamente; consultar as evidências.","resolve",[(delivery.payload or {}).get("evidence_ref","")])
-    if demand.failure_check_source_id:
+    if demand.failure_check_source_id and not demand.origin_id and not demand.task_execution_id:
         source=await db.get(AgentDemand,demand.failure_check_source_id,populate_existing=True)
         source_delivery=await verified_delivery(db,source) if source else None
         if source_delivery:
@@ -156,6 +220,11 @@ async def deterministic_analysis(db,demand):
                 "A tarefa original tem entrega comprovada para o conteúdo atual.",
                 "Preservar o histórico; não executar um diagnóstico da falha antiga.","resolve",
                 [(source_delivery.payload or {}).get("evidence_ref","")])
+        if demand.dispatch_status=="completed" and parse_completion_status(demand.dispatch_result or "")=="DONE":
+            return proposal(demand,"resolved","diagnosis","Diagnóstico concluído",
+                "O diagnóstico terminou com relatório válido; isso não encerra a tarefa original.",
+                "Consultar o relatório no histórico e acompanhar separadamente a origem.","resolve",
+                [f"message:{demand.id}"])
     moodle=await db.scalar(select(MoodleApproval).where(MoodleApproval.message_id==demand.id))
     if (moodle and moodle.state=="finished" and moodle.outcome=="completed"
             and moodle.message_hash==approval_fingerprint(demand)
@@ -257,8 +326,9 @@ async def _apply(db,run_id,token,message_id,stamp,context_hash,versions,suggesti
             if proven and proven.proposed_action in ("resolve","archive_notice"):
                 applied=proven.proposed_action
                 demand.scheduled_at=None
+                demand.status="archived"
+                demand.decision_reason=proven.reason
                 if applied=="archive_notice":
-                    demand.status="archived"
                     demand.decision_reason="Retorno ao próprio agente preservado no histórico da origem."
                 elif not await verified_delivery(db,demand):
                     db.add(AuditEvent(entity_type="agent_demand",entity_id=demand.id,event_type="message_work_resolved",
@@ -271,7 +341,7 @@ async def _apply(db,run_id,token,message_id,stamp,context_hash,versions,suggesti
             elif action=="queue":
                 # New, already-authorized work only. Failed/partial attempts,
                 # incubations and proposals are never reprocessed by model output.
-                if demand.origin_type!="task" or demand.dispatch_status is not None or demand.reply_to_id:
+                if demand.origin_type!="task" or demand.dispatch_status is not None:
                     state,action="waiting","none"
                 else:
                     try:
@@ -353,6 +423,37 @@ async def _analyze_with_lease(run_id, token, analysis):
         await asyncio.gather(task,return_exceptions=True)
 
 
+async def _enrich_decision_advice(db, run_id, token, message_id, stamp, context_hash, versions, suggestion):
+    """Enrich explanations only after rechecking the same pending human decision."""
+    run = await db.scalar(select(MessageAnalysisRun).where(MessageAnalysisRun.id == run_id)
+        .with_for_update().execution_options(populate_existing=True))
+    if not run or run.status != "running" or run.lease_token != token or run.lease_until <= now():
+        await db.rollback()
+        return False
+    demand = await db.scalar(select(AgentDemand).where(AgentDemand.id == message_id)
+        .with_for_update().execution_options(populate_existing=True))
+    result = await db.get(MessageTriageResult, message_id, populate_existing=True)
+    if (demand is None or source_stamp(demand) != stamp or demand.status == "archived"
+            or result is None or result.analysis_run_id != run_id):
+        await db.rollback()
+        return True
+    current_hash, _ = await context_stamp(db, demand, versions.get("related", {}), lock=True)
+    proven = await deterministic_analysis(db, demand)
+    if current_hash != context_hash or proven is None or proven.status != "decision":
+        await db.rollback()
+        return True
+    # The model never supplies state, category, action, destination, links or
+    # evidence here. Those stay with the already-applied deterministic result.
+    for field in ("summary", "reason", "recommendation"):
+        setattr(result, field, getattr(suggestion, field))
+    result.analyzed_at = now()
+    db.add(AuditEvent(entity_type="agent_demand", entity_id=message_id,
+        event_type="message_decision_advice_enriched", actor="messages:triage",
+        payload={"run_id": str(run_id), "source_hash": stamp, "context_hash": context_hash}))
+    await db.commit()
+    return True
+
+
 async def process_next_analysis():
     from app.core.message_triage_analysis import analyze_messages
     async with AsyncSessionLocal() as db:
@@ -392,8 +493,18 @@ async def process_next_analysis():
                     linked=[r.id for r in candidates]
                     context_hash,versions=await context_stamp(db,demand,linked)
                     prepared.append((message_id,source_stamp(demand),context_hash,versions,proven))
-                    if proven is None and domain:
-                        items.append(prompt_item(demand,domain))
+                    if domain and (proven is None or proven.status == "decision"):
+                        entry = prompt_item(demand,domain)
+                        if proven is not None:
+                            questions = list((await db.scalars(select(AgentQuestion).where(
+                                AgentQuestion.origin_demand_id == demand.id,
+                                AgentQuestion.status == "pending", AgentQuestion.blocking.is_(True),
+                            ).order_by(AgentQuestion.created_at, AgentQuestion.id).limit(5))).all())
+                            entry["questions"] = [{"id": str(q.id), "question": q.question,
+                                "context": q.context, "recommendation": q.recommendation,
+                                "blocking": q.blocking} for q in questions]
+                            entry["requested_decision"] = proven.category
+                        items.append(entry)
                         related.extend(prompt_item(r,domain) for r in candidates)
                     elif proven is None:
                         prepared[-1]=(*prepared[-1][:-1],proposal(demand,"waiting","review",
@@ -415,6 +526,9 @@ async def process_next_analysis():
                         async with AsyncSessionLocal() as apply_db:
                             if not await _apply(apply_db,run_id,token,message_id,stamp,context_hash,versions,proven):
                                 return True
+                        if (proven is not None and proven.status == "decision" and stamp is not None
+                                and any(i["id"] == str(message_id) for i in items)):
+                            remaining.append(entry)
                     else:
                         remaining.append(entry)
                 prepared=remaining
@@ -429,11 +543,12 @@ async def process_next_analysis():
                     continue
             suggestions={p.message_id:p for p in proposals}
             for message_id,stamp,context_hash,versions,proven in prepared:
-                suggestion=proven or suggestions.get(message_id)
+                suggestion=suggestions.get(message_id) if proven and proven.status == "decision" else proven or suggestions.get(message_id)
                 async with AsyncSessionLocal() as db:
                     if suggestion is None and stamp is not None:
                         raise ValueError("Missing analysis")
-                    if not await _apply(db,run_id,token,message_id,stamp,context_hash,versions,suggestion):
+                    apply = _enrich_decision_advice if proven and proven.status == "decision" else _apply
+                    if not await apply(db,run_id,token,message_id,stamp,context_hash,versions,suggestion):
                         return True  # lease fenced; this worker must not keep analysing/applying
         if model_failed:
             raise ValueError("Contextual provider unavailable")

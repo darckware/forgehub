@@ -131,6 +131,8 @@ async def verify_evidence(db: AsyncSession, execution: TaskExecution) -> tuple[b
     if ":" not in ref:
         return None, f"evidence_ref has no recognized prefix: {ref!r}"
     prefix, _, rest = ref.partition(":")
+    if prefix == "host":
+        return await _check_host_evidence(db, execution, rest)
     try:
         if prefix == "file":
             return await _check_file_evidence(db, execution, rest)
@@ -144,6 +146,37 @@ async def verify_evidence(db: AsyncSession, execution: TaskExecution) -> tuple[b
         ok, reason = await _check_db_evidence(db, entity_type, entity_id)
         return ok, reason
     return None, f"evidence_ref has an unrecognized prefix: {prefix!r}"
+
+
+async def _check_host_evidence(db: AsyncSession, execution: TaskExecution, value: str) -> tuple[bool | None, str]:
+    """Verify audited remote effects for this exact attempt, not service acceptance."""
+    from app.db.models.demand import AgentDemand
+    from app.db.models.host_execution import HostExecution, HostExecutionResult
+
+    try:
+        host_id = uuid.UUID(value)
+    except ValueError:
+        return False, "host evidence requires an execution UUID"
+    host = await db.get(HostExecution, host_id, populate_existing=True)
+    if host is None:
+        return False, "host execution does not exist"
+    demand = await db.get(AgentDemand, host.agent_demand_id, populate_existing=True) if host.agent_demand_id else None
+    if (demand is None or demand.task_execution_id != execution.id
+            or demand.origin_type != "task" or demand.origin_id != execution.task_id):
+        return False, "host execution is not bound to this canonical task attempt"
+    if host.status == "running":
+        return None, "host execution is still running"
+    if host.status != "completed":
+        return False, "host execution did not complete"
+    results = list((await db.scalars(select(HostExecutionResult).where(
+        HostExecutionResult.execution_id == host_id).execution_options(populate_existing=True))).all())
+    if not results:
+        return False, "host execution has no machine results"
+    if any(r.status in {"pending", "running"} for r in results):
+        return None, "host machine results are still pending"
+    if any(r.status != "succeeded" or r.exit_code != 0 for r in results):
+        return False, "not every target machine succeeded with exit code zero"
+    return True, "audited host execution succeeded for this exact task attempt; service acceptance remains separate"
 
 
 async def run_evidence_verification_pass(db: AsyncSession) -> None:

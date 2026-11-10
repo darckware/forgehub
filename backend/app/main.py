@@ -72,6 +72,7 @@ from app.api.routes import (
     mission_cycle,
     agent_availability,
     mission_records,
+    mission_acceptance,
     mission_board,
     environment,
     notifications,
@@ -540,6 +541,7 @@ app.include_router(operations.router)
 app.include_router(orchestration.router)
 app.include_router(mission.router)
 app.include_router(mission_records.router)
+app.include_router(mission_acceptance.router)
 app.include_router(mission_plan.router)
 app.include_router(mission_task.router)
 app.include_router(mission_board.router)

@@ -586,3 +586,19 @@ async def test_feedback_rechecks_archive_after_another_session_updates_it(recove
     assert failed.status == "archived"
     assert await db.scalar(select(AgentDemand.id).where(AgentDemand.reply_to_id == demand_id)) is None
     assert await db.scalar(select(Notification.id).where(Notification.event_key.like(f"%{demand_id}%"))) is None
+
+
+async def test_stale_runtime_requires_reconciliation_before_another_attempt(recovery_db):
+    from app.api.routes import demand as routes
+    from app.core.demand_workflow import requires_reconciliation
+    db, demand, _ = recovery_db
+    demand.dispatch_status = "running"
+    demand.dispatch_error = None
+    original_run = demand.agent_run_id
+    await db.commit()
+    await routes._finalize_dispatch(db, demand.id, {"status": "stale", "error": "Runner restarted; outcome unavailable"})
+    await db.commit()
+    await db.refresh(demand)
+    assert demand.agent_run_id == original_run
+    assert requires_reconciliation(demand)
+    assert demand.scheduled_at is None

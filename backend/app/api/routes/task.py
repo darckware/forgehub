@@ -467,6 +467,10 @@ async def update_task(
     authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> ProjectTask:
+    return await _update_task(task_id, payload, authorization, db)
+
+
+async def _update_task(task_id, payload, authorization, db, *, commit=True):
     task = await _get_task_or_404(db, task_id)
     await _authorize_agent_task_update(db, task, authorization)
 
@@ -542,12 +546,15 @@ async def update_task(
             task.completed_at = datetime.now(timezone.utc)
         db.add(completion_audit_event(task, completion_target, principal, proof, via="patch_task"))
 
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
     await db.refresh(task)
     await _attach_project_ids(db, [task])
     await _attach_task_health(db, [task])
     await attach_required_skill_ids(db, [task])
-    if data.get("status") in ("done", "deployed"):
+    if commit and data.get("status") in ("done", "deployed"):
         from app.core.dispatch_signal import wake_scheduled_dispatch
         wake_scheduled_dispatch()
     return task
@@ -787,7 +794,8 @@ async def _evidence_scope(db: AsyncSession, task: ProjectTask) -> tuple[set[uuid
     return projects, scope | {task.id}
 
 
-async def _assert_evidence_in_scope(db: AsyncSession, task: ProjectTask, evidence: list[str]) -> None:
+async def _assert_evidence_in_scope(db: AsyncSession, task: ProjectTask, evidence: list[str],
+                                    execution_id: uuid.UUID | None = None) -> None:
     """§5.7: each ref is git:<sha>, file:<relative path inside the project> or
     db:<type>:<uuid> naming a row of this task's own scope. Anything else is
     422 (EVIDENCE_INVALID for the format, EVIDENCE_OUT_OF_SCOPE otherwise)."""
@@ -810,6 +818,18 @@ async def _assert_evidence_in_scope(db: AsyncSession, task: ProjectTask, evidenc
             parts = rest.split("/")
             if rest.startswith(("/", "~")) or "\\" in rest or ".." in parts or "" in parts or "." in parts:
                 refuse("EVIDENCE_OUT_OF_SCOPE", ref, "file evidence is a normalized path relative to the project")
+        elif prefix == "host":
+            from app.db.models.host_execution import HostExecution
+            from app.db.models.demand import AgentDemand
+            try:
+                host_id = uuid.UUID(rest)
+            except ValueError:
+                refuse("EVIDENCE_INVALID", ref, "host evidence requires an execution UUID")
+            host = await db.get(HostExecution, host_id)
+            demand = await db.get(AgentDemand, host.agent_demand_id) if host and host.agent_demand_id else None
+            if (execution_id is None or demand is None or demand.task_execution_id != execution_id
+                    or demand.origin_type != "task" or demand.origin_id != task.id):
+                refuse("EVIDENCE_OUT_OF_SCOPE", ref, "Host evidence must belong to this exact task attempt")
         elif prefix == "db":
             entity_type, _, entity_id = rest.partition(":")
             model = DB_EVIDENCE_ENTITIES.get(entity_type)
@@ -898,7 +918,7 @@ async def report_task_execution(
                                          "message": f"The execution is {execution.status}; open a new attempt",
                                          "execution_status": execution.status})
     evidence = [ref.strip() for ref in payload.evidence]
-    await _assert_evidence_in_scope(db, task, evidence)
+    await _assert_evidence_in_scope(db, task, evidence, execution.id)
 
     previous_status = execution.status
     execution.status = payload.status
@@ -1453,7 +1473,6 @@ async def _dispatch_task_by_id(
     from app.core.agent_runs import AgentRunDispatchError
     from app.core.dispatch_targets import assert_task_targets_free
     from app.core.mission_dispatch import (
-        EVIDENCE_INSTRUCTION,
         build_mission_dispatch_context,
         in_flight_error,
         task_run_in_flight,
@@ -1587,35 +1606,11 @@ async def _dispatch_task_by_id(
         context_manifest.append({"source": "mission_context_version", "id": str(pack.id),
                                  "version": pack.version, "hash": pack.content_hash})
     else:
-        body_parts = [f"Task #{task.number}: {task.title}"]
-        if task.description:
-            body_parts.append(task.description)
-        if task.plan_brief:
-            body_parts.append(f"Plano/abordagem:\n{task.plan_brief}")
-        body_parts.append(
-            f"Tipo: {task.task_type} | Prioridade: {task.priority} | Status atual: {task.status}"
-        )
-        # Evidência (Fase 1 da governança em camadas): pede ao agente que declare
-        # de forma estruturada o que comprova o trabalho, para o verificador
-        # automático (core/task_evidence.py) cruzar contra a realidade em vez de
-        # aceitar só a narrativa da resposta.
-        body_parts.append(EVIDENCE_INSTRUCTION)
-        body = "\n\n".join(body_parts)
+        from app.core.mission_dispatch import plain_task_body
+        body = plain_task_body(task)
 
-    count_result = await db.execute(
-        select(TaskExecution.id).where(TaskExecution.task_id == task.id)
-    )
-    attempt_number = len(count_result.all()) + 1
-    execution = TaskExecution(
-        task_id=task.id,
-        assignment_id=assignment_id,
-        attempt_number=attempt_number,
-        executor_type="agent",
-        status="pending" if scheduled else "running",
-        started_at=None if scheduled else now,
-    )
-    db.add(execution)
-    await db.flush()  # atribui execution.id antes do demand referenciá-lo
+    from app.core.task_attempts import create_task_attempt
+    execution = await create_task_attempt(db, task.id, assignment_id, started_at=None if scheduled else now)
 
     demand = AgentDemand(
         from_agent="forgehub",

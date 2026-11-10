@@ -275,5 +275,17 @@
     },
     "reset": "Limpiar edición de función",
     "unsaved": "Guarde la función o limpie su edición antes de guardar los datos de la misión."
+  },
+  "acceptance": {
+    "title": "Aceptación de la misión",
+    "loading": "Cargando solicitud de aceptación…",
+    "error": "No se pudo cargar la solicitud de aceptación.",
+    "recorded": "Decisión registrada.",
+    "missing": "El orquestador aún no ha solicitado la aceptación.",
+    "submitted": "Solicitada por {{name}}. La entrega se verificará de nuevo al decidir.",
+    "hash": "SHA-256 del dossier:",
+    "reason": "Motivo de aceptación o devolución",
+    "approve": "Aceptar misión",
+    "return": "Solicitar correcciones"
   }
 }

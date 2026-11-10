@@ -123,6 +123,46 @@ async def test_changed_diagnostic_source_invalidates_an_obsolete_decision(triage
     assert await db.get(MessageTriageResult,child_id) is None
 
 
+@pytest.mark.parametrize("report",["DONE","PARTIAL"])
+async def test_completed_diagnostic_archival_preserves_unresolved_original(triage_db,report):
+    from app.core import message_triage
+    db,agent,run_ids=triage_db
+    source=await message(db,agent,dispatch_status="failed",dispatch_error="Original problem persists")
+    source_id=source.id
+    child=await message(db,agent,failure_check_source_id=source_id,dispatch_status="completed",
+        dispatch_result=f"Diagnostic report only.\nSTATUS: {report} | evidence: recorded report")
+    child_id=child.id
+    chosen=await message_triage.deterministic_analysis(db,child)
+    if report=="PARTIAL":
+        assert chosen is None
+        return
+    assert chosen.status=="resolved" and chosen.category=="diagnosis"
+    prepared=await prepared_application(db,agent,run_ids,child)
+    assert await message_triage._apply(db,*prepared,chosen)
+    current=await db.get(AgentDemand,child_id,populate_existing=True)
+    original=await db.get(AgentDemand,source_id,populate_existing=True)
+    assert current.status=="archived" and current.dispatch_status=="completed"
+    assert original.status!="archived" and original.dispatch_status=="failed"
+    assert await message_triage.verified_delivery(db,original) is None
+
+
+async def test_verified_delivery_leaves_active_inbox_without_rewriting_attempt(triage_db):
+    from app.core import message_triage
+    db,agent,run_ids=triage_db
+    row=await message(db,agent,dispatch_status="failed",dispatch_error="Old failure",dispatch_result="Old report")
+    row_id=row.id
+    db.add(AuditEvent(entity_type="agent_demand",entity_id=row_id,event_type="message_delivery_verified",
+        actor="operator",payload={"content_hash":approval_fingerprint(row),"evidence_ref":"git:1234567"}))
+    await db.commit()
+    chosen=await message_triage.deterministic_analysis(db,row)
+    prepared=await prepared_application(db,agent,run_ids,row)
+    assert await message_triage._apply(db,*prepared,chosen)
+    row=await db.get(AgentDemand,row_id,populate_existing=True)
+    assert row.status=="archived" and row.decision_reason
+    assert row.dispatch_status=="failed" and row.dispatch_error=="Old failure" and row.dispatch_result=="Old report"
+    assert await message_triage.verified_delivery(db,row)
+
+
 async def test_self_feedback_becomes_history_without_changing_origin_failure(triage_db):
     from app.core.message_triage import deterministic_analysis
     db, agent, _ = triage_db
@@ -456,3 +496,74 @@ async def test_answered_blocking_question_invalidates_decision_and_visible_analy
         await db.rollback()
         await db.execute(delete(AgentQuestion).where(AgentQuestion.id == question_id))
         await db.commit()
+
+
+@pytest.mark.parametrize("source_approval_pending", [False, True])
+async def test_executable_answer_uses_queue_without_granting_source_approval(triage_db, monkeypatch, source_approval_pending):
+    from app.core import message_triage
+    from app.db.models.message_triage import MessageTriageResult
+    from app.db.models.operations import AgentQuestion
+    db, agent, run_ids = triage_db
+    source = await message(db, agent, requires_approval=source_approval_pending,
+        approval_status="pending" if source_approval_pending else None)
+    source_id = source.id
+    answer = await message(db, agent, reply_to_id=source_id)
+    answer_id = answer.id
+    question = AgentQuestion(agent_id=agent, origin_demand_id=source_id, reply_demand_id=answer_id,
+        question="Qual formato?", answer="CSV", blocking=True, status="answered",
+        answered_at=datetime.now(timezone.utc), notify_after=datetime.now(timezone.utc))
+    db.add(question)
+    await db.commit()
+    question_id = question.id
+    try:
+        if source_approval_pending:
+            from app.core.demand_workflow import ensure_workflow_allowed
+            with pytest.raises(WorkflowBlocked, match="original task authorization"):
+                await ensure_workflow_allowed(db, answer)
+        prepared = await prepared_application(db, agent, run_ids, answer)
+        assert await message_triage._apply(db, *prepared,
+            advisory(SimpleNamespace(id=answer_id), status="processing", category="ready", proposed_action="queue"))
+        result = await db.get(MessageTriageResult, answer_id, populate_existing=True)
+        assert result.operator_state == ("waiting" if source_approval_pending else "processing")
+        assert result.applied_action == (None if source_approval_pending else "queued")
+        source = await db.get(AgentDemand, source_id, populate_existing=True)
+        if source_approval_pending: assert source.approval_status == "pending"
+        assert source.agent_run_id is None
+        if not source_approval_pending:
+            monkeypatch.setattr(settings, "MESSAGE_TRIAGE_ENABLED", True)
+            current = await db.get(AgentDemand, answer_id, populate_existing=True)
+            await message_triage.check_admission(db, current)
+            source.body = "Changed original scope after the answer was analyzed"
+            await db.commit()
+            with pytest.raises(WorkflowBlocked, match="Analysis has changed"):
+                await message_triage.check_admission(db, current)
+    finally:
+        await db.execute(delete(AgentQuestion).where(AgentQuestion.id == question_id))
+        await db.commit()
+
+
+async def test_nested_continuation_cannot_bypass_original_approval(triage_db):
+    from app.core.demand_workflow import ensure_workflow_allowed
+    db, agent, _ = triage_db
+    original = await message(db, agent, requires_approval=True, approval_status="pending")
+    intermediate = await message(db, agent, reply_to_id=original.id)
+    continuation = await message(db, agent, reply_to_id=intermediate.id)
+    with pytest.raises(WorkflowBlocked, match="original task authorization"):
+        await ensure_workflow_allowed(db, continuation)
+
+
+@pytest.mark.parametrize("cycle", [False, True])
+async def test_source_graph_distinguishes_shared_ancestor_from_cycle(triage_db, cycle):
+    from app.core.demand_workflow import ensure_workflow_allowed
+    db, agent, _ = triage_db
+    original = await message(db, agent)
+    left = await message(db, agent, reply_to_id=original.id)
+    right = await message(db, agent, failure_check_source_id=original.id)
+    continuation = await message(db, agent, reply_to_id=left.id, failure_check_source_id=right.id)
+    if cycle:
+        original.reply_to_id = continuation.id
+        await db.commit()
+        with pytest.raises(WorkflowBlocked, match="Cyclic original task context"):
+            await ensure_workflow_allowed(db, continuation)
+    else:
+        await ensure_workflow_allowed(db, continuation)

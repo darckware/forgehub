@@ -7,10 +7,10 @@
   "expandAllGroups": "Expand all groups",
   "collapseAllGroups": "Collapse all groups",
   "backlogFolder": "Incubation",
-  "runningFolder": "Running",
+  "runningFolder": "Execution",
   "failedFolder": "Failed",
   "emptyBacklogMessage": "No thoughts incubating right now.",
-  "emptyRunningMessage": "Nothing dispatched/running right now.",
+  "emptyRunningMessage": "No tasks running or awaiting an executor.",
   "emptyFailedMessage": "No dispatch has failed so far.",
   "newNoteButton": "New message",
   "emptyArchivedFolderMessage": "",
@@ -80,7 +80,8 @@
       "awaitingVerification": "Awaiting verification",
       "needsCorrection": "Awaiting correction",
       "blocked": "Blocked",
-      "queuedRetry": "Awaiting retry"
+      "queuedRetry": "Awaiting retry",
+      "awaitingExecutor": "Awaiting executor"
     }
   },
   "sendToOutgoing": {
@@ -238,5 +239,146 @@
     "openFailedSource": "View original attempt #{{number}}",
     "openFailureCheck": "View check #{{number}}",
     "originalRequest": "View original request"
+  },
+  "messageLabels": {
+    "legendTitle": "Label legend",
+    "legendDescription": "Labels are automatic, follow system facts and explain each message’s next step.",
+    "assigned": "Message labels",
+    "close": "Close",
+    "authority": "Only a real human authorization or decision links to Personal. Waiting for an executor, quota or service does not request another approval. Each message shows up to three labels.",
+    "waitUntil": "Next check: {{date}}",
+    "destinations": {
+      "agent_tasks": "Personal · Agent tasks",
+      "incubations": "Personal · Incubations",
+      "moodle_approvals": "Personal · Moodle approvals"
+    },
+    "items": {
+      "analysis_pending": {
+        "label": "Awaiting analysis",
+        "description": "The system still needs to analyze the context and determine the next step."
+      },
+      "authorization_pending": {
+        "label": "Awaiting your authorization",
+        "description": "A human authorization is pending. Open the linked workflow to review the content and decide."
+      },
+      "decision_pending": {
+        "label": "Awaiting your decision",
+        "description": "A real question or choice requires your response in the linked workflow."
+      },
+      "awaiting_executor": {
+        "label": "Awaiting executor",
+        "description": "The work is already authorized and awaits executor capacity or availability. No new approval is needed."
+      },
+      "quota_unavailable": {
+        "label": "Quota unavailable",
+        "description": "The executor quota is unavailable. This wait does not require new human authorization."
+      },
+      "executor_busy": {
+        "label": "Executor busy",
+        "description": "The executor is busy. The system keeps the work in the existing queue."
+      },
+      "executor_unavailable": {
+        "label": "Executor unavailable",
+        "description": "The executor is unavailable; the reason and next check appear when known."
+      },
+      "executor_unassigned": {
+        "label": "Executor unassigned",
+        "description": "The work awaits assignment to an eligible executor."
+      },
+      "awaiting_information": {
+        "label": "Awaiting information",
+        "description": "Information is missing. Human input is required only when a decision destination is linked."
+      },
+      "awaiting_dependency": {
+        "label": "Awaiting dependency",
+        "description": "Another task or prerequisite must finish before this work can continue."
+      },
+      "awaiting_service": {
+        "label": "Awaiting service",
+        "description": "An external or operational service blocks progress. This is distinct from a quota wait."
+      },
+      "scheduled": {
+        "label": "Scheduled",
+        "description": "Execution has a recorded schedule; it has not necessarily started."
+      },
+      "ready": {
+        "label": "Ready to route",
+        "description": "The system identified eligible work, subject to dispatch checks."
+      },
+      "running": {
+        "label": "Running",
+        "description": "An execution attempt is in progress."
+      },
+      "awaiting_verification": {
+        "label": "Awaiting verification",
+        "description": "The outcome must be verified before completing the work or repeating execution."
+      },
+      "uncertain_execution": {
+        "label": "Uncertain execution",
+        "description": "The outcome or process activity is uncertain. Reconcile before repeating execution."
+      },
+      "needs_correction": {
+        "label": "Needs correction",
+        "description": "The attempt ended without completing the work and needs correction. It does not imply a pending human approval."
+      },
+      "delivery_verified": {
+        "label": "Delivery verified",
+        "description": "A delivery was verified against evidence for the current content. Previous attempt outcomes remain unchanged."
+      },
+      "completed": {
+        "label": "Completed",
+        "description": "The owning workflow recorded the work as completed. Completing a diagnosis does not complete the original task."
+      },
+      "possible_duplicate": {
+        "label": "Possible duplicate",
+        "description": "Analysis suggests a relationship with another item. Closure or merging requires verified evidence and identity."
+      },
+      "possible_obsolete": {
+        "label": "Possibly obsolete",
+        "description": "Analysis suggests the item may no longer be relevant. This is not proof of completion or permission to delete."
+      },
+      "obsolete": {
+        "label": "Obsolete",
+        "description": "The owning workflow recorded the item as superseded. History remains preserved."
+      },
+      "informational_feedback": {
+        "label": "Informational feedback",
+        "description": "This message records information or feedback without creating authorization or another execution."
+      },
+      "missing_context": {
+        "label": "Missing context",
+        "description": "Source, objective or execution context is missing for safe routing."
+      },
+      "archived": {
+        "label": "Archived",
+        "description": "The message was archived and its history preserved. This does not prove completion, a successful attempt or delivery of the original task."
+      }
+    },
+    "groups": {
+      "incoming": {
+        "title": "Incoming",
+        "description": "Received work that has not entered execution."
+      },
+      "outgoing": {
+        "title": "Outgoing",
+        "description": "Routed work that has not entered execution."
+      },
+      "incubations": {
+        "title": "Incubations",
+        "description": "Ideas and parked work. Analysis does not authorize implementation."
+      },
+      "execution": {
+        "title": "Execution",
+        "description": "Includes open attempts and authorized work awaiting an executor. Waiting and active execution are distinct states."
+      },
+      "completed": {
+        "title": "Completed",
+        "description": "Completed outcomes and verified deliveries; evidence remains linked to the work."
+      },
+      "archived": {
+        "title": "Archive",
+        "description": "Preserved history. Archiving does not complete, cancel or authorize execution."
+      }
+    }
   }
 }

@@ -223,10 +223,17 @@ async def record_conditions(db: AsyncSession, mission: ProjectMission) -> list[d
 
 async def dossier_items(db: AsyncSession, mission: ProjectMission) -> list[dict[str, Any]]:
     """verifying -> awaiting_acceptance: a dossier registered during this verifying stay."""
-    found = await db.scalar(select(MissionDossier.id).where(
+    found = await db.scalar(select(MissionDossier).where(
         MissionDossier.mission_project_id == mission.project_id,
         MissionDossier.created_at >= mission.state_changed_at,
-    ).limit(1))
+    ).order_by(MissionDossier.created_at.desc(), MissionDossier.id.desc()).limit(1))
     if found is None:
         return [_item("DOSSIER_MISSING", "No dossier artifact version registered during the current verifying stay")]
+    from app.core.mission_dossier import DossierUnverifiable, verify_dossier
+    try:
+        matches = await verify_dossier(db, mission.project_id, found.artifact_version_id, found.file_sha256)
+    except DossierUnverifiable as exc:
+        return [_item("DOSSIER_CONTENT_UNVERIFIABLE", str(exc))]
+    if not matches:
+        return [_item("DOSSIER_CONTENT_CHANGED", "Dossier bytes changed since registration")]
     return []

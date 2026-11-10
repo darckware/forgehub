@@ -7,10 +7,10 @@
   "expandAllGroups": "Expandir todos os grupos",
   "collapseAllGroups": "Recolher todos os grupos",
   "backlogFolder": "Incubação",
-  "runningFolder": "Em execução",
+  "runningFolder": "Execução",
   "failedFolder": "Falhas",
   "emptyBacklogMessage": "Nenhum pensamento em incubação no momento.",
-  "emptyRunningMessage": "Nenhum disparo em execução no momento.",
+  "emptyRunningMessage": "Nenhuma tarefa em execução ou aguardando executor.",
   "emptyFailedMessage": "Nenhum disparo falhou até agora.",
   "newNoteButton": "Nova mensagem",
   "emptyArchivedFolderMessage": "",
@@ -80,7 +80,8 @@
       "awaitingVerification": "Aguardando verificação",
       "needsCorrection": "Aguardando correção",
       "blocked": "Bloqueada",
-      "queuedRetry": "Aguardando nova tentativa"
+      "queuedRetry": "Aguardando nova tentativa",
+      "awaitingExecutor": "Aguardando executor"
     }
   },
   "sendToOutgoing": {
@@ -238,5 +239,146 @@
     "openFailedSource": "Ver tentativa original #{{number}}",
     "openFailureCheck": "Ver checagem #{{number}}",
     "originalRequest": "Ver pedido original"
+  },
+  "messageLabels": {
+    "legendTitle": "Legenda das etiquetas",
+    "legendDescription": "As etiquetas são automáticas, seguem os fatos do sistema e explicam o próximo passo de cada mensagem.",
+    "assigned": "Etiquetas da mensagem",
+    "close": "Fechar",
+    "authority": "Só uma autorização ou decisão humana real leva a Pessoal. Esperar por executor, cota ou serviço não pede nova aprovação. Até três etiquetas aparecem por mensagem.",
+    "waitUntil": "Próxima verificação: {{date}}",
+    "destinations": {
+      "agent_tasks": "Pessoal · Tarefas dos agentes",
+      "incubations": "Pessoal · Incubações",
+      "moodle_approvals": "Pessoal · Aprovações Moodle"
+    },
+    "items": {
+      "analysis_pending": {
+        "label": "Aguardando análise",
+        "description": "O sistema ainda precisa analisar o contexto e definir o encaminhamento."
+      },
+      "authorization_pending": {
+        "label": "Aguardando sua autorização",
+        "description": "Existe uma autorização humana pendente. Abra o destino indicado para revisar o conteúdo e decidir."
+      },
+      "decision_pending": {
+        "label": "Aguardando sua decisão",
+        "description": "Uma pergunta ou escolha real precisa da sua resposta no destino indicado."
+      },
+      "awaiting_executor": {
+        "label": "Aguardando executor",
+        "description": "O trabalho já está autorizado e aguarda capacidade ou disponibilidade do executor. Não precisa de nova aprovação."
+      },
+      "quota_unavailable": {
+        "label": "Sem cota disponível",
+        "description": "A cota do executor está indisponível. A espera não significa nova autorização humana."
+      },
+      "executor_busy": {
+        "label": "Executor ocupado",
+        "description": "O executor está ocupado. O sistema mantém o trabalho na fila existente."
+      },
+      "executor_unavailable": {
+        "label": "Executor indisponível",
+        "description": "O executor não está disponível; o motivo e a próxima verificação aparecem quando conhecidos."
+      },
+      "executor_unassigned": {
+        "label": "Executor não definido",
+        "description": "O trabalho aguarda a definição de um executor elegível."
+      },
+      "awaiting_information": {
+        "label": "Aguardando informações",
+        "description": "Faltam informações para continuar. Só exige resposta humana quando há um destino de decisão indicado."
+      },
+      "awaiting_dependency": {
+        "label": "Aguardando dependência",
+        "description": "Outro trabalho ou requisito precisa ser concluído antes da continuidade."
+      },
+      "awaiting_service": {
+        "label": "Aguardando serviço",
+        "description": "Um serviço externo ou operacional impede a continuidade. Isso é diferente de falta de cota."
+      },
+      "scheduled": {
+        "label": "Agendada",
+        "description": "A execução possui um horário registrado; isso não indica que já começou."
+      },
+      "ready": {
+        "label": "Pronta para encaminhar",
+        "description": "O sistema identificou trabalho elegível para encaminhamento, sujeito às verificações do despacho."
+      },
+      "running": {
+        "label": "Em execução",
+        "description": "Existe uma tentativa de execução em andamento."
+      },
+      "awaiting_verification": {
+        "label": "Aguardando verificação",
+        "description": "O resultado precisa ser verificado antes de concluir o trabalho ou repetir a execução."
+      },
+      "uncertain_execution": {
+        "label": "Execução incerta",
+        "description": "Não há confirmação suficiente do resultado ou da atividade do processo. Não repita a execução sem reconciliar."
+      },
+      "needs_correction": {
+        "label": "Precisa de correção",
+        "description": "A tentativa terminou sem concluir o trabalho e precisa de correção. Não significa aprovação humana pendente."
+      },
+      "delivery_verified": {
+        "label": "Entrega verificada",
+        "description": "Uma entrega foi verificada com evidência vinculada ao conteúdo atual. Isso não altera o resultado de tentativas anteriores."
+      },
+      "completed": {
+        "label": "Concluída",
+        "description": "O trabalho foi registrado como concluído pelo fluxo responsável. Concluir um diagnóstico não conclui a tarefa original."
+      },
+      "possible_duplicate": {
+        "label": "Possível duplicata",
+        "description": "A análise sugere relação com outro item. Sem prova e identidade confirmadas, não autoriza encerrar ou mesclar."
+      },
+      "possible_obsolete": {
+        "label": "Possivelmente obsoleta",
+        "description": "A análise sugere que o item pode ter perdido a utilidade. A sugestão não prova conclusão nem autoriza exclusão."
+      },
+      "obsolete": {
+        "label": "Obsoleta",
+        "description": "O fluxo responsável registrou que o item foi superado. O histórico continua preservado."
+      },
+      "informational_feedback": {
+        "label": "Retorno informativo",
+        "description": "Esta mensagem registra uma informação ou retorno, sem criar autorização ou nova execução."
+      },
+      "missing_context": {
+        "label": "Contexto incompleto",
+        "description": "Faltam dados de origem, objetivo ou execução para um encaminhamento seguro."
+      },
+      "archived": {
+        "label": "Arquivada",
+        "description": "A mensagem foi arquivada e seu histórico foi preservado. Isso não prova conclusão, sucesso da tentativa nem entrega da tarefa original."
+      }
+    },
+    "groups": {
+      "incoming": {
+        "title": "Entrada",
+        "description": "Trabalho recebido que ainda não entrou em execução."
+      },
+      "outgoing": {
+        "title": "Saída",
+        "description": "Trabalho encaminhado que ainda não entrou em execução."
+      },
+      "incubations": {
+        "title": "Incubações",
+        "description": "Ideias e trabalho estacionado. A análise não autoriza iniciar sua implementação."
+      },
+      "execution": {
+        "title": "Execução",
+        "description": "Inclui tentativas abertas e trabalho já autorizado que aguarda executor. Espera e execução ativa são estados diferentes."
+      },
+      "completed": {
+        "title": "Concluídas",
+        "description": "Resultados concluídos e entregas verificadas; a prova permanece vinculada ao trabalho."
+      },
+      "archived": {
+        "title": "Arquivo",
+        "description": "Histórico preservado. Arquivar não conclui, cancela nem autoriza executar uma mensagem."
+      }
+    }
   }
 }

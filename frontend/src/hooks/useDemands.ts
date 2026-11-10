@@ -53,11 +53,13 @@ export type DemandAttachment = z.infer<typeof attachmentSchema>;
  * remains open for correction or verification; it is never a live process. */
 export function isExecutionOpen(demand: Demand): boolean {
   return demand.status !== "archived" &&
-    (["dispatched", "running", "failed"].includes(demand.dispatch_status ?? "") ||
+    ((demand.dispatch_status === null && (demand.message_labels ?? []).includes("awaiting_executor")) ||
+      ["dispatched", "running", "failed"].includes(demand.dispatch_status ?? "") ||
       (demand.dispatch_status === null && ((demand.dispatch_attempts ?? 0) > 0 || Boolean(demand.failure_check_source_id))));
 }
 
 export function executionStage(demand: Demand): string | null {
+  if (isExecutionOpen(demand) && (demand.message_labels ?? []).includes("awaiting_executor")) return "awaitingExecutor";
   if (demand.dispatch_status === null && isExecutionOpen(demand)) return "queuedRetry";
   if (demand.dispatch_status !== "failed") return demand.dispatch_status;
   const reason = demand.dispatch_error ?? "";
@@ -72,6 +74,13 @@ export function isRetentionEligible(demand: Demand): boolean {
 
 export const demandSchema = z.object({
   id: z.string(),
+  message_labels: z.array(z.string()).default([]),
+  execution_wait_reason: z.enum(["quota", "busy", "unavailable", "unassigned"]).nullable().default(null),
+  execution_wait_until: z.string().nullable().default(null),
+  classification_summary: z.string().nullable().default(null),
+  operator_destination: z.enum(["agent_tasks", "incubations", "moodle_approvals"]).nullable().default(null),
+  operator_decision: z.enum(["authorization", "question"]).nullable().default(null),
+  operator_question_id: z.string().nullable().default(null),
   failure_check_source_id: z.string().nullable().default(null),
   // Human-readable display number (#1, #2, ...) -- reference an existing
   // message as another item's origin by typing this instead of its UUID.
@@ -290,12 +299,17 @@ export function isIncomingItem(d: Demand, agentId: string): boolean {
  * every "how many incoming" badge in the app must read from -- see
  * isIncomingItem's docstring for why this stopped being safe to
  * approximate with a broader "status=new" count (2026-07-28). */
+export function isSystemInboxItem(demand: Demand): boolean {
+  return demand.status !== "archived" && demand.origin_type !== "incubation" &&
+    demand.dispatch_status === null && !demand.target_agent_id && !demand.from_agent_id && !isExecutionOpen(demand);
+}
+
 export function computeInboxTotalCount(demands: Demand[]): number {
   let total = 0;
   for (const d of demands) {
     if (d.status === "archived" || d.origin_type === "incubation") continue;
     if (!d.target_agent_id) {
-      if (!d.from_agent_id && d.dispatch_status === null) total += 1;
+      if (isSystemInboxItem(d)) total += 1;
     } else if (isIncomingItem(d, d.target_agent_id)) {
       total += 1;
     }

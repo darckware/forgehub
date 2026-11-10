@@ -390,6 +390,7 @@ class AgentDemand(Base, TimestampMixin):
     # by hand. Left set after the fact as a historical record -- dispatch_status
     # moving off NULL is what stops the loop from re-dispatching it.
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    executor_wait_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Keeps the agent when it runs out of quota (a review's reviewer, for one);
     # see core/agent_failover.py.
     fixed_agent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
@@ -463,6 +464,10 @@ class AgentDemand(Base, TimestampMixin):
     notice_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     __table_args__ = (
+        Index("ix_demand_executor_wait_scan", text("executor_wait_checked_at ASC NULLS FIRST"),
+              "scheduled_at", "number", postgresql_where=text(
+                  "dispatch_status IS NULL AND agent_run_id IS NULL AND origin_type = 'task' "
+                  "AND status != 'archived' AND scheduled_at IS NOT NULL")),
         Index("uq_agent_demands_failure_check_source", "failure_check_source_id", unique=True),
         CheckConstraint("failure_check_source_id IS NULL OR failure_check_source_id <> id", name="ck_demands_check_not_self"),
         CheckConstraint(f"status IN {DEMAND_STATUSES}", name="ck_agent_demands_status"),

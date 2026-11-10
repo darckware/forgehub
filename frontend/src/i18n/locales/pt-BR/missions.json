@@ -275,5 +275,17 @@
     },
     "reset": "Limpar edição da função",
     "unsaved": "Salve a função ou limpe sua edição antes de salvar os dados da missão."
+  },
+  "acceptance": {
+    "title": "Aceite da missão",
+    "loading": "Carregando pedido de aceite…",
+    "error": "Não foi possível carregar o pedido de aceite.",
+    "recorded": "Decisão registrada.",
+    "missing": "O orquestrador ainda não solicitou o aceite.",
+    "submitted": "Solicitado por {{name}}. A entrega será conferida novamente ao decidir.",
+    "hash": "SHA-256 do dossiê:",
+    "reason": "Motivo do aceite ou da devolução",
+    "approve": "Aceitar missão",
+    "return": "Solicitar correções"
   }
 }

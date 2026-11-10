@@ -362,11 +362,16 @@ async def test_task_environment_written_only_while_planning(world):
 
 
 @pytest.mark.asyncio
-async def test_dossier_gates_awaiting_acceptance(world):
+async def test_dossier_gates_awaiting_acceptance(world, tmp_path, monkeypatch):
     mission = await world.create_mission()
     project_id = mission["project_id"]
     world.mission_ids.append(project_id)
-    good = "a" * 64
+    import hashlib
+    from app.core import mission_documents
+    from app.db.models.project import Project
+    monkeypatch.setattr(mission_documents, "MISSION_DOCS_ROOT", tmp_path)
+    content = b"Reviewed delivery dossier"
+    good = hashlib.sha256(content).hexdigest()
     doc = str(await _doc(world, checksum=f"sha256:{good}"))
     async with world.client() as client:
         early = await client.post(f"/api/v1/missions/{project_id}/dossier",
@@ -383,13 +388,27 @@ async def test_dossier_gates_awaiting_acceptance(world):
         refused = await client.post(f"/api/v1/missions/{project_id}/dossier",
                                     json={"artifact_version_id": doc, "file_sha256": good})
     assert refused.status_code == 403
+    async with AsyncSessionLocal() as db:
+        project = await db.get(Project, uuid.UUID(project_id))
+        relative = f"missions/{mission_documents.project_slug(project.name)}/dossie-de-validacao.md"
+        (await db.get(ArtifactVersion, uuid.UUID(doc))).location_uri = relative
+        await db.commit()
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True)
     async with world.client() as client:
+        missing = await client.post(f"/api/v1/missions/{project_id}/dossier",
+                                    json={"artifact_version_id": doc, "file_sha256": good})
+        assert _code(missing) == "DOSSIER_CONTENT_UNVERIFIABLE"
+        path.write_bytes(content)
         mismatch = await client.post(f"/api/v1/missions/{project_id}/dossier",
                                      json={"artifact_version_id": doc, "file_sha256": "b" * 64})
         registered = await client.post(f"/api/v1/missions/{project_id}/dossier",
                                        json={"artifact_version_id": doc, "file_sha256": good.upper()})
     assert _code(mismatch) == "DOSSIER_HASH_MISMATCH"
     assert registered.status_code == 201 and registered.json()["file_sha256"] == good
+    path.write_bytes(b"changed after registration")
+    assert "DOSSIER_CONTENT_CHANGED" in _codes(await _transition(world, project_id, "awaiting_acceptance"))
+    path.write_bytes(content)
     assert (await _transition(world, project_id, "awaiting_acceptance")).status_code == 200
 
     # A dossier from an earlier verifying stay doesn't count for a new one.

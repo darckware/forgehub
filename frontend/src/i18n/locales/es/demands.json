@@ -7,10 +7,10 @@
   "expandAllGroups": "Expandir todos los grupos",
   "collapseAllGroups": "Contraer todos los grupos",
   "backlogFolder": "Incubación",
-  "runningFolder": "Correr",
+  "runningFolder": "Ejecución",
   "failedFolder": "Falló",
   "emptyBacklogMessage": "No hay pensamientos incubando ahora mismo.",
-  "emptyRunningMessage": "Nada enviado/running en este momento.",
+  "emptyRunningMessage": "No hay tareas en ejecución ni en espera de ejecutor.",
   "emptyFailedMessage": "Ningún despacho ha fallado hasta ahora.",
   "newNoteButton": "Nueva nota",
   "emptyArchivedFolderMessage": "",
@@ -80,7 +80,8 @@
       "awaitingVerification": "Pendiente de verificación",
       "needsCorrection": "Pendiente de corrección",
       "blocked": "Bloqueada",
-      "queuedRetry": "Pendiente de reintento"
+      "queuedRetry": "Pendiente de reintento",
+      "awaitingExecutor": "En espera de ejecutor"
     }
   },
   "sendToOutgoing": {
@@ -238,5 +239,146 @@
     "openFailedSource": "Ver intento original #{{number}}",
     "openFailureCheck": "Ver comprobación #{{number}}",
     "originalRequest": "Ver solicitud original"
+  },
+  "messageLabels": {
+    "legendTitle": "Leyenda de etiquetas",
+    "legendDescription": "Las etiquetas son automáticas, reflejan los hechos del sistema y explican el siguiente paso de cada mensaje.",
+    "assigned": "Etiquetas del mensaje",
+    "close": "Cerrar",
+    "authority": "Solo una autorización o decisión humana real enlaza a Personal. Esperar ejecutor, cuota o servicio no requiere otra aprobación. Cada mensaje muestra hasta tres etiquetas.",
+    "waitUntil": "Próxima comprobación: {{date}}",
+    "destinations": {
+      "agent_tasks": "Personal · Tareas de los agentes",
+      "incubations": "Personal · Incubaciones",
+      "moodle_approvals": "Personal · Aprobaciones Moodle"
+    },
+    "items": {
+      "analysis_pending": {
+        "label": "Pendiente de análisis",
+        "description": "El sistema aún debe analizar el contexto y determinar el siguiente paso."
+      },
+      "authorization_pending": {
+        "label": "Pendiente de tu autorización",
+        "description": "Hay una autorización humana pendiente. Abre el destino indicado para revisar el contenido y decidir."
+      },
+      "decision_pending": {
+        "label": "Pendiente de tu decisión",
+        "description": "Una pregunta o decisión real requiere tu respuesta en el destino indicado."
+      },
+      "awaiting_executor": {
+        "label": "En espera de ejecutor",
+        "description": "El trabajo ya está autorizado y espera capacidad o disponibilidad del ejecutor. No requiere otra aprobación."
+      },
+      "quota_unavailable": {
+        "label": "Sin cuota disponible",
+        "description": "La cuota del ejecutor no está disponible. Esta espera no requiere otra autorización humana."
+      },
+      "executor_busy": {
+        "label": "Ejecutor ocupado",
+        "description": "El ejecutor está ocupado. El sistema conserva el trabajo en la cola existente."
+      },
+      "executor_unavailable": {
+        "label": "Ejecutor no disponible",
+        "description": "El ejecutor no está disponible; el motivo y la próxima comprobación se muestran cuando se conocen."
+      },
+      "executor_unassigned": {
+        "label": "Ejecutor sin asignar",
+        "description": "El trabajo espera la asignación de un ejecutor habilitado."
+      },
+      "awaiting_information": {
+        "label": "En espera de información",
+        "description": "Falta información. Solo requiere respuesta humana cuando se indica un destino de decisión."
+      },
+      "awaiting_dependency": {
+        "label": "En espera de dependencia",
+        "description": "Otro trabajo o requisito debe completarse antes de continuar."
+      },
+      "awaiting_service": {
+        "label": "En espera de servicio",
+        "description": "Un servicio externo u operativo impide continuar. Es distinto de una espera por cuota."
+      },
+      "scheduled": {
+        "label": "Programada",
+        "description": "La ejecución tiene un horario registrado; esto no indica que haya comenzado."
+      },
+      "ready": {
+        "label": "Lista para encaminar",
+        "description": "El sistema identificó trabajo habilitado, sujeto a las comprobaciones del despacho."
+      },
+      "running": {
+        "label": "En ejecución",
+        "description": "Hay un intento de ejecución en curso."
+      },
+      "awaiting_verification": {
+        "label": "En espera de verificación",
+        "description": "El resultado debe verificarse antes de completar el trabajo o repetir la ejecución."
+      },
+      "uncertain_execution": {
+        "label": "Ejecución incierta",
+        "description": "El resultado o la actividad del proceso es incierto. Reconcilia antes de repetir la ejecución."
+      },
+      "needs_correction": {
+        "label": "Necesita corrección",
+        "description": "El intento terminó sin completar el trabajo y necesita corrección. No implica una aprobación humana pendiente."
+      },
+      "delivery_verified": {
+        "label": "Entrega verificada",
+        "description": "Se verificó una entrega con evidencia del contenido actual. Los resultados de intentos anteriores se conservan."
+      },
+      "completed": {
+        "label": "Completada",
+        "description": "El flujo responsable registró el trabajo como completado. Completar un diagnóstico no completa la tarea original."
+      },
+      "possible_duplicate": {
+        "label": "Posible duplicado",
+        "description": "El análisis sugiere relación con otro elemento. Cerrar o combinar requiere evidencia e identidad verificadas."
+      },
+      "possible_obsolete": {
+        "label": "Posiblemente obsoleta",
+        "description": "El análisis sugiere que el elemento puede haber perdido vigencia. No prueba su finalización ni autoriza eliminarlo."
+      },
+      "obsolete": {
+        "label": "Obsoleta",
+        "description": "El flujo responsable registró el elemento como reemplazado. Se conserva el historial."
+      },
+      "informational_feedback": {
+        "label": "Respuesta informativa",
+        "description": "Este mensaje registra información o una respuesta sin crear autorización ni otra ejecución."
+      },
+      "missing_context": {
+        "label": "Contexto incompleto",
+        "description": "Faltan datos de origen, objetivo o ejecución para un encaminamiento seguro."
+      },
+      "archived": {
+        "label": "Archivada",
+        "description": "El mensaje fue archivado y se conservó su historial. Esto no prueba finalización, éxito del intento ni entrega de la tarea original."
+      }
+    },
+    "groups": {
+      "incoming": {
+        "title": "Entrada",
+        "description": "Trabajo recibido que aún no entró en ejecución."
+      },
+      "outgoing": {
+        "title": "Salida",
+        "description": "Trabajo encaminado que aún no entró en ejecución."
+      },
+      "incubations": {
+        "title": "Incubaciones",
+        "description": "Ideas y trabajo aplazado. El análisis no autoriza iniciar su implementación."
+      },
+      "execution": {
+        "title": "Ejecución",
+        "description": "Incluye intentos abiertos y trabajo autorizado en espera de ejecutor. Espera y ejecución activa son estados distintos."
+      },
+      "completed": {
+        "title": "Completadas",
+        "description": "Resultados completados y entregas verificadas; la evidencia permanece vinculada al trabajo."
+      },
+      "archived": {
+        "title": "Archivo",
+        "description": "Historial conservado. Archivar no completa, cancela ni autoriza ejecutar un mensaje."
+      }
+    }
   }
 }

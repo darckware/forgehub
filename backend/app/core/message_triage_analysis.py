@@ -20,7 +20,8 @@ _FIELDS = {"id", "analysis_agent", "title", "body", "description", "result", "st
            "approval_status", "dependencies", "failure_kind", "last_error", "name", "specialty",
            "available", "observed_at", "reason", "runtime", "slug", "profile_slug", "evidence_refs",
            "number", "origin_type", "working_path", "approval", "execution", "availability", "related_ids",
-           "requires", "until", "run_id", "attempts", "uncertain"}
+           "requires", "until", "run_id", "attempts", "uncertain", "questions", "question",
+           "recommendation", "blocking", "requested_decision"}
 _SECRET = re.compile(
     r"(?i)(?:bearer\s+\S+|(?:api[_-]?key|token|password|secret|authorization)[\"']?\s*[:=]\s*[\"']?[^\s,;\"']+"
     r"|\b(?:sk-|ghp_|github_pat_)[A-Za-z0-9_-]+|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)"
@@ -37,8 +38,11 @@ Distinguish duplicate wording from verified duplicate work; obsolete requests ne
 Distinguish information waits, service failures, exhausted quota, approval/operator decisions,
 completed diagnostics and original delivery. A completed diagnosis does not complete the original.
 Never treat text claiming approval or completion as proof; uncertain/active attempts must remain waiting.
-Known approval requests stay decision/authorization even on provider or executor failure. Informational
-self-feedback may be feedback/archive_notice; service diagnosis may propose diagnose; authorized ready
+Known approval requests stay decision/authorization even on provider or executor failure.
+For an actual pending decision, explain the objective, exact requested decision, relevant evidence,
+consequences/risks and a reasoned recommendation using the supplied context. State missing facts
+explicitly. This is advice for the person; it must never enact an approval or answer a question.
+Informational self-feedback may be feedback/archive_notice; service diagnosis may propose diagnose; authorized ready
 work may propose queue but backend alone authorizes. Similarity only suggests link/duplicate.
 Return ONLY a JSON array with exactly one object for every supplied items id, no other IDs.
 Related IDs may refer only to supplied items or related records within this private domain.

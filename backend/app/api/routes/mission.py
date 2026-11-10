@@ -609,6 +609,10 @@ async def transition_mission(
     principal: ActorPrincipal = Depends(get_actor_principal),
     db: AsyncSession = Depends(get_db),
 ) -> MissionOut:
+    return await _transition_mission(project_id, payload, principal, db)
+
+
+async def _transition_mission(project_id, payload, principal, db, *, commit=True):
     project, mission = await _load(db, project_id, lock=True)
     from_state, to_state = mission.state, payload.to
     allowed = ALLOWED_TRANSITIONS.get((from_state, to_state))
@@ -650,7 +654,10 @@ async def transition_mission(
     # M0.8 (cycle spec §2.1): the coordination routine follows the state --
     # created on entering a cycle state, disabled on pause/completion/cancel.
     await sync_mission_routine(db, project, mission, now)
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
 
     if to_state == "cancelled":
         await _archive_queued_mission_demands(db, project_id, principal.display_name, reason or "")

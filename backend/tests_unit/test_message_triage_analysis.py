@@ -40,6 +40,23 @@ async def test_private_batches_redact_and_minimize_context(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_pending_question_is_scrubbed_and_remains_untrusted_user_data(monkeypatch):
+    row = item("maia", questions=[{"id": str(uuid.uuid4()), "question": "Qual formato? token=secret-value",
+        "context": "Contact a@example.org", "recommendation": "CSV", "blocking": True}])
+    async def chat(db, slug, model, messages, **kwargs):
+        assert slug == "maia"
+        payload = json.loads(messages[1]["content"])
+        question = payload["items"][0]["questions"][0]
+        assert "secret-value" not in messages[1]["content"]
+        assert "a@example.org" not in messages[1]["content"]
+        assert question["recommendation"] == "CSV" and question["blocking"] is True
+        assert "Qual formato?" not in messages[0]["content"]
+        return json.dumps([suggestion(row)])
+    monkeypatch.setattr(analysis.forgerouter_llm, "chat", chat)
+    assert len(await analysis.analyze_messages(None, [row], [], [], [])) == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("bad", ["invalid", "missing", "duplicate", "unknown", "related", "extra", "category", "fenced"])
 async def test_invalid_output_fails_closed(monkeypatch, bad):
     row = item()

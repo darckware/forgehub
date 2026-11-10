@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import {
   AlertCircle,
+  Tags,
   Archive,
   ArrowUpRight,
   BarChart3,
@@ -25,6 +26,9 @@ import {
   XCircle,
   ChevronLeft,
 } from "lucide-react";
+import { MessageLabels, MessageOperatorLink } from "./MessageLabels";
+import { MessageLabelsLegend } from "./MessageLabelsLegend";
+import { visibleMessageLabels } from "@/lib/messageLabels";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -52,6 +56,7 @@ import {
   isRetentionEligible,
   downloadDemandAttachment,
   isIncomingItem,
+  isSystemInboxItem,
   canReprocess,
   DISPATCH_MAX_ATTEMPTS,
   useArchiveDemands,
@@ -401,6 +406,7 @@ function ReadingPane({
           <span>· {formatTimestamp(demand.created_at, i18n.language)}</span>
         </div>
         <DemandContextPanel demand={demand} demands={allDemands} projectName={projectName} onOpen={onOpen} />
+        <div className="mt-3"><MessageLabels demand={demand} detail /></div>
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <Button size="sm" variant="outline" className="gap-1.5" onClick={onEdit}>
             <Pencil className="h-3.5 w-3.5" /> {t("editButton")}
@@ -565,6 +571,7 @@ function DemandListRow({
 }) {
   const { t, i18n } = useTranslation("demands");
   return (
+    <div className="border-b border-border/50">
     <button
       type="button"
       draggable
@@ -574,7 +581,7 @@ function DemandListRow({
       }}
       onClick={onSelect}
       className={cn(
-        "flex w-full flex-col gap-0.5 border-b border-border/50 px-3 py-2.5 text-left transition-colors",
+        "flex w-full flex-col gap-1.5 px-3 py-2.5 text-left transition-colors",
         selected ? "bg-accent" : "hover:bg-accent/40"
       )}
     >
@@ -584,7 +591,7 @@ function DemandListRow({
           <span className={cn("truncate text-sm", demand.status === "new" ? "font-semibold" : "font-medium")}>
             {demand.from_agent}
           </span>
-          {isExecutionOpen(demand) && demand.dispatch_status !== "dispatched" && demand.dispatch_status !== "running" && (
+          {visibleMessageLabels(demand.message_labels).length === 0 && isExecutionOpen(demand) && demand.dispatch_status !== "dispatched" && demand.dispatch_status !== "running" && (
             <Badge variant="warning" className="shrink-0 px-1.5 py-0 text-[10px]">
               {t(`dispatch.status.${executionStage(demand)}`)}
             </Badge>
@@ -613,16 +620,20 @@ function DemandListRow({
       <span className="truncate text-xs text-muted-foreground">
         <span className="text-muted-foreground/70">#{demand.number}</span> {demand.subject}
       </span>
+      <MessageLabels demand={demand} />
       {demand.attachments.length > 0 && (
         <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
           <Paperclip className="h-3 w-3" /> {demand.attachments.length}
         </span>
       )}
     </button>
+    <div className="px-3 pb-1"><MessageOperatorLink demand={demand} /></div>
+    </div>
   );
 }
 
 export default function DemandsPage() {
+  const [legendOpen, setLegendOpen] = useState(false);
   const { t } = useTranslation("demands");
   const [params, setParams] = useSearchParams();
   const contextFilter = params.get("context") ?? "all";
@@ -747,9 +758,10 @@ export default function DemandsPage() {
     if (item.status === "archived") setFolder({ kind: "archived", groupId: item.group_id, agentId: null });
     else if (item.origin_type === "incubation") setFolder({ kind: "incubation" });
     else if (isExecutionOpen(item)) setFolder({ kind: "running" });
-    else if (item.dispatch_status === "completed") setFolder({ kind: "completed", agentId: null });
+    else if (item.dispatch_status === "completed") setFolder({ kind: "completed", agentId: item.target_agent_id ?? NO_AGENT_ID });
     else if (item.dispatch_status) setFolder({ kind: "running" });
-    else setFolder({ kind: "inbox", agentId: null });
+    else if (isOutboxItem(item)) setFolder({ kind: "outbox", agentId: item.from_agent_id ?? NO_AGENT_ID });
+    else setFolder({ kind: "inbox", agentId: item.target_agent_id ?? NO_AGENT_ID });
   }, [messageParam, demands]);
 
   /** Every message the current filters admit, before the folder cut. This is
@@ -778,10 +790,10 @@ export default function DemandsPage() {
       // badge it doesn't belong to.
       if (folder.agentId === null)
         return all.filter(
-          (d) => d.status !== "archived" && d.origin_type !== "incubation" && ((d.dispatch_status === null && !d.target_agent_id && !d.from_agent_id) || isIncomingItem(d, d.target_agent_id ?? ""))
+          (d) => isSystemInboxItem(d) || isIncomingItem(d, d.target_agent_id ?? "")
         );
       if (folder.agentId === NO_AGENT_ID)
-        return all.filter((d) => d.status !== "archived" && d.origin_type !== "incubation" && d.dispatch_status === null && !d.target_agent_id && !d.from_agent_id);
+        return all.filter(isSystemInboxItem);
       return all.filter((d) => isIncomingItem(d, folder.agentId!));
     }
     if (folder.kind === "outbox") {
@@ -841,7 +853,7 @@ export default function DemandsPage() {
     return counts;
   }, [visible]);
   const adminInboxCount = useMemo(
-    () => visible.filter((d) => d.status !== "archived" && d.origin_type !== "incubation" && d.dispatch_status === null && !d.target_agent_id && !d.from_agent_id).length,
+    () => visible.filter(isSystemInboxItem).length,
     [visible]
   );
   /** Root badge for the Incoming tree -- must match exactly what selecting
@@ -1093,6 +1105,7 @@ export default function DemandsPage() {
         }}
         onCancel={() => setReprocessConfirm(false)}
       />
+      <MessageLabelsLegend open={legendOpen} onClose={() => setLegendOpen(false)} />
       {/* Header on the same two columns as the content below it: the title
           column is exactly the folder tree's width (w-80), so the filters
           start where the reading pane starts instead of floating over the
@@ -1224,6 +1237,7 @@ export default function DemandsPage() {
           >
             <ChevronsUpDown className="h-4 w-4" />
           </Button>
+          <Button size="icon" variant="outline" className="ml-auto h-8 w-8" aria-label={t("messageLabels.legendTitle")} title={t("messageLabels.legendTitle")} onClick={() => setLegendOpen(true)}><Tags className="h-4 w-4" /></Button>
           <Button size="icon" className="h-8 w-8" onClick={openCompose} title={t("newNoteButton")}>
             <Plus className="h-4 w-4" />
           </Button>

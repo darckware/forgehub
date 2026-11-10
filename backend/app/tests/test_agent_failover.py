@@ -62,9 +62,9 @@ def test_protected_work_keeps_its_agent(field):
 async def world():
     suffix = uuid.uuid4().hex[:8]
     limited = Agent(id=uuid.uuid4(), name=f"Limitado {suffix}", profile_slug=f"lim-{suffix}",
-                    runtime_type="codex", autonomous_runs=True)
+                    runtime_type="codex", autonomous_runs=True, default_role="developer")
     free = Agent(id=uuid.uuid4(), name=f"Livre {suffix}", profile_slug=f"liv-{suffix}",
-                 runtime_type="codex", autonomous_runs=True)
+                 runtime_type="codex", autonomous_runs=True, default_role="developer")
     hermes = Agent(id=uuid.uuid4(), name=f"Hermes {suffix}", profile_slug=f"her-{suffix}", runtime_type="hermes")
     demand_ids: list[uuid.UUID] = []
     async with AsyncSessionLocal() as db:
@@ -112,8 +112,13 @@ async def test_only_external_agents_are_replaced(world):
         assert chosen.runtime_type in ("codex", "agy", "claude")
 
 
-async def _pass(monkeypatch) -> list[uuid.UUID]:
+async def _pass(monkeypatch, expected_demand_ids: set[uuid.UUID] | None = None) -> list[uuid.UUID]:
     started: list[uuid.UUID] = []
+
+    # These tests assert ordinary due-message failover. Quota-wait recovery
+    # has its own isolated fixture in test_executor_wait_recovery.py.
+    async def leave_quota_wait_unchanged(_db, _demand, *, now=None):
+        return "unchanged"
 
     async def fake_slots(_db):
         return 20
@@ -122,6 +127,8 @@ async def _pass(monkeypatch) -> list[uuid.UUID]:
         return set()
 
     async def fake_dispatch(_db, demand, target_agent_id, _command):
+        if expected_demand_ids is not None and demand.id not in expected_demand_ids:
+            return
         started.append(target_agent_id)
         demand.dispatch_status = "dispatched"
         demand.agent_run_id = str(uuid.uuid4())
@@ -129,6 +136,7 @@ async def _pass(monkeypatch) -> list[uuid.UUID]:
     monkeypatch.setattr(demand_routes, "_dispatch_slots", fake_slots)
     monkeypatch.setattr(demand_routes, "_agents_already_running", fake_busy)
     monkeypatch.setattr(demand_routes, "_execute_dispatch", fake_dispatch)
+    monkeypatch.setattr("app.core.message_triage.reconcile_queued_demand", leave_quota_wait_unchanged)
     async with AsyncSessionLocal() as db:
         await demand_routes.run_scheduled_dispatch_pass(db)
     return started
@@ -137,7 +145,7 @@ async def _pass(monkeypatch) -> list[uuid.UUID]:
 @pytest.mark.asyncio
 async def test_queued_work_moves_off_the_limited_agent(world, monkeypatch):
     row = await world.message(world.limited)
-    await _pass(monkeypatch)
+    await _pass(monkeypatch, {row.id})
     async with AsyncSessionLocal() as db:
         fresh = await db.get(AgentDemand, row.id)
     assert fresh.target_agent_id != world.limited.id
@@ -147,7 +155,7 @@ async def test_queued_work_moves_off_the_limited_agent(world, monkeypatch):
 @pytest.mark.asyncio
 async def test_a_review_waits_for_its_own_agent(world, monkeypatch):
     row = await world.message(world.limited, fixed_agent=True)
-    await _pass(monkeypatch)
+    await _pass(monkeypatch, {row.id})
     async with AsyncSessionLocal() as db:
         fresh = await db.get(AgentDemand, row.id)
     assert fresh.target_agent_id == world.limited.id
@@ -256,13 +264,13 @@ async def test_a_fixed_agent_message_waits_for_the_reset_and_then_runs(world, mo
     assert notice.severity == "warning"
 
     # Before the reset: not due, and the pass leaves it alone.
-    assert await _pass(monkeypatch) == []
+    assert await _pass(monkeypatch, {fresh.id}) == []
     # Due, but the agent is still out of quota: skipped, no attempt spent.
     async with AsyncSessionLocal() as db:
         row = await db.get(AgentDemand, fresh.id)
         row.scheduled_at = datetime.now(timezone.utc) - timedelta(minutes=1)
         await db.commit()
-    assert await _pass(monkeypatch) == []
+    assert await _pass(monkeypatch, {fresh.id}) == []
     async with AsyncSessionLocal() as db:
         row = await db.get(AgentDemand, fresh.id)
         assert row.dispatch_attempts == 1 and row.target_agent_id == world.limited.id
@@ -271,7 +279,7 @@ async def test_a_fixed_agent_message_waits_for_the_reset_and_then_runs(world, mo
         await db.rollback()
     # After the reset: it runs, on the same agent.
     await _no_availability_row(world.limited)
-    assert await _pass(monkeypatch) == [world.limited.id]
+    assert await _pass(monkeypatch, {fresh.id}) == [world.limited.id]
 
 
 @pytest.mark.asyncio
@@ -286,7 +294,7 @@ async def test_a_failure_check_waits_for_the_reset(world):
 async def test_without_fixed_agent_the_failover_is_unchanged(world, monkeypatch):
     fresh, reset = await _finish_on_a_limit(world)
     assert fresh.dispatch_status is None and fresh.dispatch_error is None and fresh.scheduled_at < reset
-    await _pass(monkeypatch)
+    await _pass(monkeypatch, {fresh.id})
     async with AsyncSessionLocal() as db:
         assert (await db.get(AgentDemand, fresh.id)).target_agent_id != world.limited.id
 

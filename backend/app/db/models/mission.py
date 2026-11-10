@@ -82,7 +82,7 @@ MISSION_DECISION_ACTIONS = (
     "integrate", "reverify", "ask_marcelo", "pause", "defer", "undo", "lock",
     "unlock", "advance_planning",
 )
-MISSION_DECISION_STATUSES = ("applied", "refused", "deferred", "undone")
+MISSION_DECISION_STATUSES = ("pending", "applied", "refused", "deferred", "undone")
 
 # Planning records (§2.6, M0.0b).
 PRINCIPAL_TYPES = ("user", "agent")

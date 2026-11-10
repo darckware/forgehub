@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MoodleApprovalPanel } from "./MoodleApprovalPanel";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { useAgentTasksViewModel, workState } from "@/hooks/useAgentTasksViewModel";
@@ -16,6 +16,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 export function AgentTasksTab() {
   const { t, i18n } = useTranslation("personal");
   const vm = useAgentTasksViewModel();
+  const location = useLocation();
+  const questionId = new URLSearchParams(location.search).get("questionId");
   const [governed, setGoverned] = useState<{ id: string; decision: "approved" | "rejected" } | null>(null);
   const [comments, setComments] = useState("");
   const [question, setQuestion] = useState<{ id: string; text: string } | null>(null);
@@ -29,16 +31,35 @@ export function AgentTasksTab() {
   const date = (value: string | null) => value ? new Intl.DateTimeFormat(i18n.language, { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "—";
   const actionLabel = (name: string) => name === "approve" && (vm.confirmation?.item ?? selected)?.origin_type === "incubation"
     ? t("agentTasks.promote") : t(`agentTasks.actions.${name}`);
+  useEffect(() => {
+    if (!questionId || vm.questionsLoading) return;
+    const target = document.getElementById(`operator-question-${questionId}`);
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView?.({ block: "center" });
+  }, [questionId, vm.questionsLoading, vm.questions]);
+  const questionSection = (vm.questionsLoading || vm.questionsError || vm.questions.length > 0) ? <section aria-label={t("agentTasks.questionsTitle")} className="space-y-3">
+    <h3 className="font-semibold">{vm.questionsError || vm.questionsLoading ? t("agentTasks.questionsTitle") : t("agentTasks.questionsHeading", { count: vm.questions.length })}</h3>
+    {vm.questionsError && <p role="alert">{t("agentTasks.questionsError")}</p>}
+    {vm.questions.map(item => <section id={`operator-question-${item.id}`} tabIndex={-1} key={item.id} className="space-y-2 rounded-md border p-4 focus-visible:outline focus-visible:outline-2">
+      <h3 className="font-medium">{t("agentTasks.questionTitle")} #{item.number} · {item.agent_name} · {item.id}</h3>
+      {item.origin_demand_id ? <Link className="text-sm underline" to={`/demands?message=${item.origin_demand_id}`}>{t("agentTasks.questionTask")}</Link> : <p className="text-sm text-muted-foreground">{t("agentTasks.questionUnlinked")}</p>}
+      <p className="text-xs text-muted-foreground">{date(item.created_at)}</p>
+      <p className="whitespace-pre-wrap text-sm">{item.question}</p>
+      {item.context && <p className="whitespace-pre-wrap text-sm text-muted-foreground">{item.context}</p>}
+      <Button size="sm" onClick={() => { setQuestion({ id: item.id, text: item.question }); setAnswer(""); vm.answerQuestion.reset(); }}>{t("agentTasks.answer")}</Button>
+    </section>)}
+  </section> : null;
   const groups = <div role="tablist" aria-label={t("agentTasks.groupLabel")} className="flex flex-wrap gap-2">
     {(["moodle", "incubation", "tasks"] as const).map(group => <Button key={group} role="tab" aria-selected={vm.group === group}
       variant={vm.group === group ? "default" : "outline"} onClick={() => vm.setGroup(group)}>{t(`agentTasks.groups.${group}`)}</Button>)}
   </div>;
 
-  if (vm.group === "moodle") return <div className="space-y-4 pt-4">{groups}<MoodleApprovalPanel /></div>;
+  if (vm.group === "moodle") return <div className="space-y-4 pt-4">{groups}{questionSection}<MoodleApprovalPanel /></div>;
 
   return <div className="space-y-4 pt-4">
     {groups}
     <p className="text-sm text-muted-foreground">{t(`agentTasks.groupDescriptions.${vm.group}`)}</p>
+    {questionSection}
     <div className="space-y-2">
       <Button aria-busy={vm.analysis.busy} disabled={vm.analysis.busy || vm.analysis.loading || vm.analysis.unavailable} onClick={() => vm.analysis.start.mutate()}>{t("agentTasks.analysis.start")}</Button>
       <p className="text-xs text-muted-foreground">{t("agentTasks.analysis.scope")}</p>
@@ -159,16 +180,6 @@ export function AgentTasksTab() {
       <p className="text-sm text-muted-foreground">{request.requested_by_name} · {date(request.created_at)}</p>
       <div className="flex gap-2"><Button size="sm" onClick={() => { setGoverned({ id: request.id, decision: "approved" }); setComments(""); vm.decideApproval.reset(); }}>{t("agentTasks.approveCompletion")}</Button>
         <Button size="sm" variant="outline" onClick={() => { setGoverned({ id: request.id, decision: "rejected" }); setComments(""); vm.decideApproval.reset(); }}>{t("agentTasks.requestRevision")}</Button></div>
-    </section>)}
-    {vm.group === "tasks" && ["decision", "attention", "approval"].includes(vm.view) && <h3 className="font-semibold">{vm.questionsError || vm.questionsLoading ? t("agentTasks.questionsTitle") : t("agentTasks.questionsHeading", { count: vm.questions.length })}</h3>}
-    {vm.group === "tasks" && vm.questionsError && <p role="alert">{t("agentTasks.questionsError")}</p>}
-    {vm.group === "tasks" && ["decision", "attention", "approval"].includes(vm.view) && vm.questions.map(item => <section key={item.id} className="space-y-2 rounded-md border p-4">
-      <h3 className="font-medium">{t("agentTasks.questionTitle")} #{item.number} · {item.agent_name}</h3>
-      {item.origin_demand_id ? <Link className="text-sm underline" to={`/demands?message=${item.origin_demand_id}`}>{t("agentTasks.questionTask")}</Link> : <p className="text-sm text-muted-foreground">{t("agentTasks.questionUnlinked")}</p>}
-      <p className="text-xs text-muted-foreground">{date(item.created_at)}</p>
-      <p className="whitespace-pre-wrap text-sm">{item.question}</p>
-      {item.context && <p className="whitespace-pre-wrap text-sm text-muted-foreground">{item.context}</p>}
-      <Button size="sm" onClick={() => { setQuestion({ id: item.id, text: item.question }); setAnswer(""); vm.answerQuestion.reset(); }}>{t("agentTasks.answer")}</Button>
     </section>)}
     <ConfirmDialog open={Boolean(vm.confirmation)} title={action ? actionLabel(action) : ""}
       description={vm.confirmation ? `#${vm.confirmation.item.number} · ${vm.confirmation.item.subject}` : undefined}

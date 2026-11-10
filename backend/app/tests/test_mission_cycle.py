@@ -90,6 +90,14 @@ async def _decide(world, mission, headers, action, reason="cycle decision", task
                   cycle_id=None, key=None, **params):
     body = {"action": action, "reason": reason, "idempotency_key": key or _key(world),
             "params": {k: (str(v) if isinstance(v, (uuid.UUID, datetime)) else v) for k, v in params.items()}}
+    if headers:
+        versions = getattr(world, "decision_context_versions", {})
+        if body["idempotency_key"] not in versions:
+            async with AsyncSessionLocal() as db:
+                context = await mission_cycle.latest_context_version(db, mission.project_id)
+                versions[body["idempotency_key"]] = context.version if context else 0
+        world.decision_context_versions = versions
+        body["expected_context_version"] = versions[body["idempotency_key"]]
     if task_id:
         body["task_id"] = str(task_id)
     if proposal_id:

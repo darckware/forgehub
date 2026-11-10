@@ -105,7 +105,7 @@ def test_the_view_shows_what_marcelo_checks_and_never_the_birth_date():
     assert "17/01/2014" not in json.dumps(view, ensure_ascii=False) and "date_of_birth" not in json.dumps(view)
 
 
-async def test_a_wrong_hash_answers_409_and_the_owner_list_hides_the_birth_date(client, request_row, tmp_path, monkeypatch):
+async def test_a_wrong_hash_answers_409_and_the_owner_list_hides_the_birth_date(client, request_row, tmp_path, monkeypatch):  # noqa: F811 -- imported fixtures
     from app.api.routes import moodle_approval
     from app.core.security import create_access_token
     from app.db.base import AsyncSessionLocal

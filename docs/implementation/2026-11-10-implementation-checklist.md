@@ -114,3 +114,26 @@ Filenest/ECO047 que não fazem parte da publicação pontual do terminal.
 Depois de cada etapa, registrar decisão, arquivos/commit, comando e resultado,
 estado real de publicação, pendências e primeira próxima ação. Preservar os
 pedidos posteriores e as decisões, sem reduzir o objetivo ao que já passou.
+
+## Retomada de finalização — 10/11, validação em andamento
+
+- [x] Reproduzir e corrigir regressões de admissão: preservar tarefas comuns,
+  exigir elegibilidade de missão quando aplicável e usar a execução vinculada.
+- [x] Cancelamento do runtime só se torna final após observar a saída do processo;
+  processo resistente a TERM permanece identificado como ativo.
+- [x] Resultado `stale` preserva identidade e exige reconciliação antes de repetir.
+- [x] Evidência `host:<uuid>` verifica vínculo à tentativa canônica e resultado
+  de todas as máquinas; admite relatório apenas da tentativa correspondente.
+- [x] Implementar pedido de aceite, decisão de critério e decisão humana pelo
+  mecanismo existente de governança; conferir SHA-256 real e contrato da entrega.
+- [x] Seleção de backend: 17 testes passaram; UI: 47 testes em 4 arquivos passaram.
+- [x] Ruff configurado passou. Regressão backend anterior: 2.140 passaram, 21
+  ignorados e 1 falhou; a falha de auditoria de credencial foi corrigida e seu
+  cenário passou na seleção de 17. Ainda falta repetir a suíte integral.
+- [ ] Qualificar concorrência/recuperação do aceite, migration e ponta a ponta.
+- [ ] Executar novamente regressão integral, build e navegador da integração.
+- [ ] Revisão final, publicação da integração e conferência do release servido.
+
+A política de aceite foi aplicada **somente ao banco isolado de testes**.
+A integração continua sem deploy; o release pontual do terminal permanece ativo.
+T8–T12 permanecem no plano e não foram concluídas por esta seleção de testes.

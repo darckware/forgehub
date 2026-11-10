@@ -1576,6 +1576,8 @@ def _monitor_agent_run(run_id: str, proc: subprocess.Popen, max_seconds: int, cr
         run = _agent_runs.get(run_id)
         if run is None:
             return
+        if run.get("cancel_requested"):
+            state = "cancelled"
         run.update(
             {
                 "status": state,
@@ -1753,14 +1755,14 @@ async def cancel_agent_run(
         pid = proc.pid if proc is not None else run.get("pid")
         if not pid or run["status"] != "running":
             return {"run_id": run_id, "status": run["status"]}
+        run["cancel_requested"] = True
+        run["heartbeat_at"] = datetime.now().isoformat()
+        _persist_agent_run(run_id)
+        # Signalling is not termination evidence. Keep the process/run identity
+        # until the monitor observes exit; recovered runs remain reconcilable.
         with contextlib.suppress(ProcessLookupError):
             os.killpg(pid, signal.SIGTERM)
-        run["status"] = "cancelled"
-        run["finished_at"] = datetime.now().isoformat()
-        run["heartbeat_at"] = datetime.now().isoformat()
-        run.pop("process", None)
-        _persist_agent_run(run_id)
-    return {"run_id": run_id, "status": "cancelled"}
+        return {"run_id": run_id, "status": run["status"], "cancel_requested": True}
 
 
 def _configure_claude_forgerouter(project_dir: Path, enabled: bool, api_key: str) -> str:

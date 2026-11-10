@@ -23,7 +23,8 @@ from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import httpx
-from sqlalchemy import select
+from fastapi import HTTPException
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -243,15 +244,32 @@ async def record_answer(
     by: str,
     dispatch_at: datetime | None = None,
 ) -> AgentDemand:
-    """Store the answer and hand it to the asker as a Messages Task. The
-    caller has already checked the question is still pending. Commits."""
+    """Lock and recheck the question, then commit one answer/continuation.
+
+    Identical repeated answers recover the existing task; conflicting answers
+    or cancelled questions remain blocked. Caller checks relay/operator authority.
+    """
     # Local import: demand.py's routes module imports a lot; keep this
     # module importable from main.py's loops without pulling it in early.
     from app.api.routes.demand import create_demand_and_notify
     from app.api.schemas.demand import DemandSubmitIn
 
+    from app.core.dispatch_targets import DISPATCH_ADMISSION_LOCK
+    # Keep the same lock order as canonical dispatch/attempt allocation.
+    await db.execute(select(func.pg_advisory_xact_lock(DISPATCH_ADMISSION_LOCK)))
+    question = await db.scalar(select(AgentQuestion).where(AgentQuestion.id == question.id)
+        .with_for_update().execution_options(populate_existing=True))
+    if question is None:
+        raise HTTPException(404, "Question not found")
+    normalized_answer = answer.strip()
+    if question.status == "answered" and question.answer == normalized_answer and question.reply_demand_id:
+        previous = await db.get(AgentDemand, question.reply_demand_id)
+        if previous is not None:
+            return previous
+    if question.status != "pending":
+        raise HTTPException(409, f"Question #{question.number} is already {question.status}; reconcile its recorded answer")
     now = datetime.now(timezone.utc)
-    question.answer = answer.strip()
+    question.answer = normalized_answer
     question.answered_at = now
     question.answered_via = via
     question.answered_by = by
@@ -274,6 +292,39 @@ async def record_answer(
         notify=False,
     )
     demand.reply_to_id = question.origin_demand_id
+    if question.origin_demand_id:
+        from app.core.mission import project_id_for_task_source
+        from app.core.task_attempts import create_task_attempt
+        from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
+
+        source = await db.get(AgentDemand, question.origin_demand_id, populate_existing=True)
+        previous = await db.get(TaskExecution, source.task_execution_id) if source and source.task_execution_id else None
+        task_id = source.origin_id if source and source.origin_type == "task" else None
+        task_id = task_id or (previous.task_id if previous else None)
+        task = await db.scalar(select(ProjectTask).where(ProjectTask.id == task_id)
+            .with_for_update().execution_options(populate_existing=True)) if task_id else None
+        if task is not None:
+            demand.origin_id = task.id
+            demand.project_id = await project_id_for_task_source(db, task.planning_item_id, task.change_request_id)
+            demand.working_path = source.working_path
+            demand.mission_context_version_id = source.mission_context_version_id
+            demand.fixed_agent = True
+            if task.status in {"done", "deployed", "cancelled"}:
+                from app.db.models.governance import AuditEvent
+                demand.status = "archived"
+                demand.scheduled_at = None
+                demand.decision_reason = "Resposta preservada no histórico; a tarefa de origem já foi encerrada."
+                db.add(AuditEvent(entity_type="agent_demand", entity_id=demand.id,
+                    event_type="question_answer_recorded_for_closed_task", actor=by,
+                    payload={"question_id": str(question.id), "task_id": str(task.id),
+                             "source_message_id": str(source.id), "task_status": task.status}))
+            else:
+                assignment_id = previous.assignment_id if previous else await db.scalar(select(TaskAssignment.id).where(
+                    TaskAssignment.task_id == task.id, TaskAssignment.agent_id == asker.id,
+                    TaskAssignment.status == "active").order_by(TaskAssignment.created_at.desc()).limit(1))
+                execution = await create_task_attempt(db, task.id, assignment_id)
+                execution.runtime_session_ref = str(demand.id)
+                demand.task_execution_id = execution.id
     question.reply_demand_id = demand.id
     db.add(
         Notification(

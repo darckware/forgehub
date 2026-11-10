@@ -35,6 +35,15 @@ def approval_fingerprint(demand: AgentDemand) -> str:
     return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
 
 
+def dispatch_intent_fingerprint(demand: AgentDemand) -> str:
+    """Hash the authorized work independently of its currently assigned executor."""
+    content = {key: str(getattr(demand, key, None)) for key in (
+        "subject", "body", "origin_type", "origin_id", "from_agent_id", "working_path",
+        "project_id", "command_text", "requires_response", "channel", "channel_ref",
+    )}
+    return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
+
+
 def assert_execution_allowed(demand: AgentDemand) -> None:
     if demand.status == "archived" or demand.consolidated_into_id is not None:
         raise WorkflowBlocked("Archived or consolidated work cannot be executed; open its current summary")
@@ -78,8 +87,20 @@ def record_transition(db, demand, action, *, actor="system", extra=None):
 async def ensure_workflow_allowed(db, demand):
     assert_execution_allowed(demand)
     await _ensure_context_authorizations(db, demand)
-    if demand.failure_check_source_id is not None:
-        source = await db.get(AgentDemand, demand.failure_check_source_id)
+    # A continuation/diagnosis does not inherit missing source authorization.
+    # Refresh persisted source facts even if selection already loaded them.
+    sources = {i for i in (demand.failure_check_source_id, demand.reply_to_id) if i is not None}
+    pending = [(i, frozenset({demand.id})) for i in sorted(sources, key=str)]
+    checked = set()
+    while pending:
+        source_id, ancestors = pending.pop()
+        if source_id in ancestors:
+            raise WorkflowBlocked("Cyclic original task context must be reconciled before execution")
+        if source_id in checked:
+            continue
+        if len(checked) >= 32:
+            raise WorkflowBlocked("Original task context exceeds the bounded review limit; consolidate its verified context")
+        source = await db.get(AgentDemand, source_id, populate_existing=True)
         if source is None:
             raise WorkflowBlocked("The original task context is unavailable")
         if source.requires_approval and (
@@ -87,6 +108,9 @@ async def ensure_workflow_allowed(db, demand):
         ):
             raise WorkflowBlocked("The original task authorization is no longer valid")
         await _ensure_context_authorizations(db, source)
+        checked.add(source_id)
+        next_sources = {i for i in (source.failure_check_source_id, source.reply_to_id) if i is not None}
+        pending.extend((i, ancestors | {source_id}) for i in sorted(next_sources, key=str))
 
 
 async def _ensure_context_authorizations(db, demand):

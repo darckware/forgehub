@@ -281,6 +281,20 @@ class DemandOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    message_labels: list[Literal[
+        "analysis_pending", "authorization_pending", "decision_pending", "awaiting_executor",
+        "quota_unavailable", "executor_busy", "executor_unavailable", "executor_unassigned",
+        "awaiting_information", "awaiting_dependency", "awaiting_service", "scheduled", "ready",
+        "running", "awaiting_verification", "uncertain_execution", "needs_correction",
+        "delivery_verified", "completed", "archived", "possible_duplicate", "possible_obsolete", "obsolete",
+        "informational_feedback", "missing_context",
+    ]] = Field(default_factory=list, max_length=3)
+    execution_wait_reason: Literal["quota", "busy", "unavailable", "unassigned"] | None = None
+    execution_wait_until: datetime | None = None
+    classification_summary: str | None = None
+    operator_destination: Literal["agent_tasks", "incubations", "moodle_approvals"] | None = None
+    operator_decision: Literal["authorization", "question"] | None = None
+    operator_question_id: uuid.UUID | None = None
     fixed_agent: bool = False
     failure_check_source_id: uuid.UUID | None = None
     number: int

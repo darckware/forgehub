@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 # The mission states a cycle runs in: planning conducts P1-P8 (§3.5), the
 # others execute (§3.4). Paused/completed/cancelled disable the routine.
 CYCLE_STATES = ("planning", "active", "verifying")
-WATCHED_STATES = ("active", "verifying")
+WATCHED_STATES = CYCLE_STATES
 CYCLE_SCHEDULE = "*/30 * * * *"
 CYCLE_DEADLINE_MINUTES = 20
 MISSION_CYCLE_MAX_GAP = timedelta(minutes=30)
@@ -81,7 +81,8 @@ _CONFLICT_FILE = re.compile(r"^\s*(?:CONFLICT \([^)]*\): (?:Merge conflict in )?
 ROUTINE_INSTRUCTIONS = (
     "Conduza um ciclo de decisão desta missão. Chame get_mission_cycle(project_id) e decida somente pelas "
     "ferramentas de missão (mission_decide e as ferramentas de tarefa), sempre com cycle_id, motivo e "
-    "idempotency_key. As propostas são fatos calculados pelo backend; os guards revalidam tudo. Você "
+    "idempotency_key e expected_context_version da versão lida (0 se não houver versão). Preserve esses "
+    "valores ao repetir a mesma solicitação. As propostas são fatos calculados pelo backend; os guards revalidam tudo. Você "
     "nunca aprova plano ou baseline, nunca decide item sinalizado, nunca aceita, cancela ou publica em "
     "produção. Pergunte ao Marcelo (ask_marcelo) só quando houver dúvida de verdade. Termine com a linha "
     "STATUS."
@@ -203,17 +204,18 @@ async def _cycle_locked(db: AsyncSession, project_id: uuid.UUID, now: datetime) 
 
 async def request_mission_cycle(
     db: AsyncSession, project_id: uuid.UUID, reason: str, source_ref: str | None = None,
-    now: datetime | None = None,
+    now: datetime | None = None, *, commit: bool = True,
 ) -> str:
     """Run one cycle now (the run-now path). Returns `started`,
     `rerun_requested` (a cycle is open: exactly one more after it) or
     `dropped` (mission not in a cycle state, cycle locked, or no routine --
-    recorded, never queued). Commits."""
+    recorded, never queued). With commit=False the caller owns commit and wake."""
     from app.api.routes.operations import COORDINATOR_SLUG, _materialize_occurrence
     from app.core.dispatch_signal import wake_scheduled_dispatch
 
     now = now or utcnow()
-    mission = await db.get(ProjectMission, project_id)
+    mission = await db.scalar(select(ProjectMission).where(ProjectMission.project_id == project_id)
+                              .with_for_update().execution_options(populate_existing=True))
     routine = await mission_routine(db, project_id) if mission is not None else None
     if mission is None or mission.state not in CYCLE_STATES or routine is None or not routine.enabled \
             or await _cycle_locked(db, project_id, now):
@@ -221,19 +223,22 @@ async def request_mission_cycle(
             db.add(AuditEvent(entity_type="mission", entity_id=project_id, event_type="mission_cycle_event_dropped",
                               actor="forgehub", payload={"reason": reason, "source_ref": source_ref,
                                                           "state": mission.state}))
-            await db.commit()
+            if commit:
+                await db.commit()
         return "dropped"
     if await open_cycle_run(db, routine) is not None:
         mission.cycle_rerun_requested = True
-        await db.commit()
+        if commit:
+            await db.commit()
         return "rerun_requested"
     coordinator = (await db.execute(select(Agent).where(Agent.profile_slug == COORDINATOR_SLUG))).scalar_one_or_none()
     run = await _materialize_occurrence(db, routine, now, now, coordinator)
     run.detail = f"cycle requested: {reason}"[:1000]
     db.add(run)
     mission.cycle_rerun_requested = False
-    await db.commit()
-    wake_scheduled_dispatch()
+    if commit:
+        await db.commit()
+        wake_scheduled_dispatch()
     return "started"
 
 
@@ -316,12 +321,18 @@ async def run_mission_cycle_pass(db: AsyncSession, now: datetime | None = None,
             since = mission.cycle_event_cursor or mission.state_changed_at
             events = await detect_events(db, mission, since, now, routine)
             mission.cycle_event_cursor = now
-            await db.commit()
             if events:
                 reason = "events: " + ", ".join(events[:20])
             if reason:
-                outcome = await request_mission_cycle(db, project_id, reason, source_ref="cycle-pass", now=now)
+                outcome = await request_mission_cycle(db, project_id, reason, source_ref="cycle-pass", now=now,
+                                                      commit=False)
+                await db.commit()
+                if outcome == "started":
+                    from app.core.dispatch_signal import wake_scheduled_dispatch
+                    wake_scheduled_dispatch()
                 summary[outcome].append(str(project_id))
+            else:
+                await db.commit()
         except Exception:
             await db.rollback()
             logger.exception("Mission cycle pass failed for %s", project_id)
@@ -332,14 +343,14 @@ async def run_mission_cycle_pass(db: AsyncSession, now: datetime | None = None,
 # ---------------------------------------------------------------------------
 # Watchdog (§3.4 item 4)
 # ---------------------------------------------------------------------------
-async def _in_flight_or_scheduled(db: AsyncSession, task_ids: list[uuid.UUID]) -> bool:
+async def _in_flight_or_scheduled(db: AsyncSession, task_ids: list[uuid.UUID]) -> set[uuid.UUID]:
     if not task_ids:
-        return False
-    return bool(await db.scalar(select(func.count(AgentDemand.id)).where(
+        return set()
+    return set((await db.scalars(select(AgentDemand.origin_id).where(
         AgentDemand.origin_type == "task", AgentDemand.origin_id.in_(task_ids), AgentDemand.status != "archived",
         or_(AgentDemand.dispatch_status.in_(("dispatched", "running")),
             and_(AgentDemand.dispatch_status.is_(None), AgentDemand.scheduled_at.is_not(None))),
-    )))
+    ))).all())
 
 
 async def watchdog_findings(db: AsyncSession, mission: ProjectMission, now: datetime) -> list[dict[str, Any]]:
@@ -361,18 +372,30 @@ async def watchdog_findings(db: AsyncSession, mission: ProjectMission, now: date
 
     tasks = await mission_scope_tasks(db, mission.project_id)
     open_ids = [t.id for t in tasks.values() if t.status not in TERMINAL_TASK]
-    if open_ids and not await _in_flight_or_scheduled(db, open_ids):
-        reasoned = await db.scalar(select(func.count(MissionDecision.id)).where(
+    if open_ids:
+        asked = list((await db.scalars(select(MissionDecision).join(
+            AgentQuestion, MissionDecision.question_id == AgentQuestion.id).where(
             MissionDecision.mission_project_id == mission.project_id,
-            MissionDecision.action.in_(("defer", "ask_marcelo", "pause")),
-            MissionDecision.status.in_(("applied", "deferred")),
-            MissionDecision.created_at > now - MISSION_CYCLE_MAX_GAP,
-        ))
-        open_question = await db.scalar(select(func.count(AgentQuestion.id))
-            .join(MissionDecision, MissionDecision.question_id == AgentQuestion.id).where(
-            MissionDecision.mission_project_id == mission.project_id, AgentQuestion.status == "pending"))
-        if not reasoned and not open_question:
-            findings.append({"code": "MISSION_IDLE_WITHOUT_REASON", "open_tasks": len(open_ids)})
+            MissionDecision.action == "ask_marcelo", MissionDecision.status == "applied",
+            AgentQuestion.status == "pending"))).all())
+        held_by_question, _ = await _open_questions(db, asked)
+        unattended = [task_id for task_id in open_ids if task_id not in held_by_question]
+        busy = await _in_flight_or_scheduled(db, unattended)
+        unattended = [task_id for task_id in unattended if task_id not in busy]
+        if unattended:
+            decisions = list((await db.scalars(select(MissionDecision).where(
+                MissionDecision.mission_project_id == mission.project_id,
+                MissionDecision.action.in_(("defer", "pause")),
+                MissionDecision.status.in_(("applied", "deferred")),
+                MissionDecision.created_at > now - MISSION_CYCLE_MAX_GAP,
+            ))).all())
+            # An explicit mission-wide defer remains a legitimate reason.
+            global_hold = any(d.task_id is None for d in decisions)
+            held_by_decision = {d.task_id for d in decisions if d.task_id is not None}
+            unexplained = [task_id for task_id in unattended if task_id not in held_by_decision]
+            if unexplained and not global_hold:
+                findings.append({"code": "MISSION_IDLE_WITHOUT_REASON", "open_tasks": len(unexplained),
+                                 "task_ids": sorted(str(task_id) for task_id in unexplained)})
     return findings
 
 
@@ -386,7 +409,7 @@ async def run_mission_cycle_watchdog(db: AsyncSession, now: datetime | None = No
         query = query.where(ProjectMission.project_id.in_(project_ids))
     bucket = int(now.timestamp() // MISSION_CYCLE_MAX_GAP.total_seconds())
     alerts: list[dict[str, Any]] = []
-    for mission in list((await db.execute(query.order_by(ProjectMission.project_id))).scalars()):
+    for mission in list((await db.execute(query.order_by(ProjectMission.project_id).with_for_update(skip_locked=True))).scalars()):
         for finding in await watchdog_findings(db, mission, now):
             key = f"mission-cycle:{finding['code']}:{mission.project_id}:{bucket}"
             if await db.scalar(select(Notification.id).where(Notification.event_key == key).limit(1)) is None:
@@ -395,8 +418,16 @@ async def run_mission_cycle_watchdog(db: AsyncSession, now: datetime | None = No
                 db.add(Notification(source="system", severity="warning", title=title,
                                     message=f"{finding['code']} — missão {mission.project_id}",
                                     event_key=key, occurred_at=now))
+            if finding["code"] == "MISSION_CYCLE_GAP":
+                routine = await mission_routine(db, mission.project_id)
+                if routine and routine.enabled and await open_cycle_run(db, routine) is None:
+                    finding["recovery"] = await request_mission_cycle(db, mission.project_id,
+                        "24x7 detected a missing mission cycle", source_ref="watchdog", now=now, commit=False)
             alerts.append({"project_id": str(mission.project_id), **finding})
     await db.commit()
+    if any(f.get("recovery") == "started" for f in alerts):
+        from app.core.dispatch_signal import wake_scheduled_dispatch
+        wake_scheduled_dispatch()
     return alerts
 
 

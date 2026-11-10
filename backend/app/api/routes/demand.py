@@ -18,7 +18,7 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.demand import (
@@ -43,7 +43,7 @@ from app.core.instructor_group import GROUP_CHANNEL, run_toolsets
 from app.core.agent_runs import AgentRunDispatchError, dispatch_agent_run, poll_agent_run
 from app.core.config import settings
 from app.core.deps import get_current_admin
-from app.core.demand_workflow import WorkflowBlocked, assert_execution_allowed, ensure_workflow_allowed, invalidate_changed_approval, requires_reconciliation, record_transition
+from app.core.demand_workflow import WorkflowBlocked, assert_execution_allowed, dispatch_intent_fingerprint, ensure_workflow_allowed, invalidate_changed_approval, requires_reconciliation, record_transition
 from app.core.demand_dispatch_guard import ensure_task_dispatch_admissible, reserve_dispatch
 from app.core.completion_report import (
     completion_failure_reason,
@@ -514,7 +514,7 @@ async def list_pending_for_agent(
     agent: str,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
-) -> list[AgentDemand]:
+) -> list[DemandOut]:
     """Public path (bridge-token, see main.py's _PUBLIC_API_PATHS) for an
     agent's own cron/loop to pull its unprocessed inbox mail. Most Hermes
     profiles have no runtime_type and so can never be reached by the
@@ -580,7 +580,8 @@ async def list_pending_for_agent(
     await db.commit()
     for demand in pending:
         await db.refresh(demand)
-    return pending
+    from app.core.message_classification import annotated_demands
+    return await annotated_demands(db, pending)
 
 
 @router.get("/for-agent", response_model=list[DemandOut])
@@ -595,7 +596,7 @@ async def list_for_agent(
     limit: int = 50,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
-) -> list[AgentDemand]:
+) -> list[DemandOut]:
     """An agent's own messages, filtered, **without consuming anything**.
 
     Deliberately separate from /pending, which is a queue: pulling there
@@ -668,7 +669,8 @@ async def list_for_agent(
         max(1, min(limit, 200))
     )
     result = await db.execute(query)
-    return list(result.scalars().all())
+    from app.core.message_classification import annotated_demands
+    return await annotated_demands(db, list(result.scalars().all()))
 
 
 async def _get_owned_incubation_or_error(
@@ -719,6 +721,10 @@ async def reprocess_demand(
     many times this was tried, and resetting it would turn the limit below
     into something that can never be reached.
     """
+    return await _reprocess_demand(demand_id, db)
+
+
+async def _reprocess_demand(demand_id, db, *, commit=True):
     demand = await _get_demand_or_404(db, demand_id, lock=True)
     assert_execution_allowed(demand)
     if demand.dispatch_status != "failed":
@@ -745,7 +751,10 @@ async def reprocess_demand(
     demand.notice_sent = False
     demand.feedback_sent_at = None
     demand.scheduled_at = datetime.now(timezone.utc)
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
     await db.refresh(demand)
     return demand
 
@@ -845,12 +854,13 @@ async def consolidate_messages(payload: DemandConsolidateIn, db: AsyncSession = 
 @router.get("", response_model=list[DemandOut])
 async def list_demands(
     status_filter: str | None = None, db: AsyncSession = Depends(get_db)
-) -> list[AgentDemand]:
+) -> list[DemandOut]:
     query = select(AgentDemand).order_by(AgentDemand.created_at.desc())
     if status_filter is not None:
         query = query.where(AgentDemand.status == status_filter)
     result = await db.execute(query)
-    return list(result.scalars().all())
+    from app.core.message_classification import annotated_demands
+    return await annotated_demands(db, list(result.scalars().all()))
 
 
 @router.get("/agent-work")
@@ -947,7 +957,7 @@ async def delete_demand_group(group_id: uuid.UUID, db: AsyncSession = Depends(ge
 
 
 @router.get("/{demand_id}", response_model=DemandOut)
-async def get_demand(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> AgentDemand:
+async def get_demand(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> DemandOut:
     """A single message. Added 2026-07-26 to close a real hole in the
     resource: it only ever exposed GET on the collection, so anything that
     wanted the current state of *one* message -- an agent checking whether
@@ -955,7 +965,9 @@ async def get_demand(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -
     response -- had to download every demand in the system and filter
     client-side. Registered after every literal-path route above
     (/pending, /groups, ...) so those aren't swallowed by {demand_id}."""
-    return await _get_demand_or_404(db, demand_id)
+    from app.core.message_classification import annotated_demands
+    row = await _get_demand_or_404(db, demand_id)
+    return (await annotated_demands(db, [row]))[0]
 
 
 @router.patch("/{demand_id}", response_model=DemandOut)
@@ -1712,6 +1724,10 @@ async def _revoke_dispatch_credential(db, demand, outcome):
             event_type="dispatch_credential_revoked", actor="system",
             payload={"run_id": demand.agent_run_id, "credential_id": str(credential.id),
                 "task_number": demand.number, "outcome": outcome}))
+    # Sessions disable autoflush: a second failure handler in this transaction
+    # must observe the revocation instead of appending a duplicate audit event.
+    if rows:
+        await db.flush()
 
 
 async def _fail_dispatch(
@@ -1943,6 +1959,36 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
     fires it through the same path a manual dispatch takes. scheduled_at
     itself is left set afterward as a historical record."""
     now = datetime.now(timezone.utc)
+    # Reconcile only bounded, system-created future quota waits before the
+    # ordinary due+assigned selection. This recovers an early quota reset or
+    # operator-cleared limit without disturbing deliberate schedules.
+    from app.core.message_triage import reconcile_queued_demand
+    from app.db.models.governance import AuditEvent
+    automatic_quota_wait = select(AuditEvent.id).where(
+        AuditEvent.entity_type == "agent_demand", AuditEvent.entity_id == AgentDemand.id,
+        AuditEvent.event_type == "demand_reprocess", AuditEvent.actor == "forgehub:usage-limit",
+        AuditEvent.payload["automatic_wait_reason"].astext == "quota",
+    ).exists()
+    waiting = list((await db.scalars(select(AgentDemand).where(
+        AgentDemand.scheduled_at > now, AgentDemand.dispatch_status.is_(None),
+        AgentDemand.agent_run_id.is_(None), AgentDemand.origin_type == "task",
+        AgentDemand.status != "archived",
+        automatic_quota_wait,
+    ).order_by(AgentDemand.executor_wait_checked_at.asc().nullsfirst(),
+               AgentDemand.scheduled_at, AgentDemand.number).limit(200)
+        .with_for_update(skip_locked=True))).all())
+    recovered = False
+    for waiting_demand in waiting:
+        outcome = await reconcile_queued_demand(db, waiting_demand, now=now)
+        recovered = recovered or outcome in {"ready", "resolved"}
+    if waiting:
+        # Reconciliation bookkeeping is not an edit to task content. Preserve
+        # updated_at so checking a wait does not invalidate contextual advice.
+        await db.execute(update(AgentDemand).where(AgentDemand.id.in_([d.id for d in waiting])).values(
+            executor_wait_checked_at=now, updated_at=AgentDemand.updated_at,
+        ).execution_options(synchronize_session=False))
+    if recovered or waiting:
+        await db.commit()
     result = await db.execute(
         select(AgentDemand).where(
             AgentDemand.scheduled_at.isnot(None),
@@ -2224,6 +2270,13 @@ async def _finalize_dispatch(
 
     run_status = run.get("status")
     await _revoke_dispatch_credential(db, locked, run_status or "failed")
+    if run_status == "stale":
+        # A missing process after runner recovery says nothing about earlier
+        # effects. Preserve the attempt and require reconciliation before replay.
+        await _fail_dispatch(db, locked, RECONCILIATION_REQUIRED_ERROR,
+                             title=f"Dispatch outcome uncertain: {locked.subject}")
+        locked.scheduled_at = None
+        return None
     historical = locked.status == "archived" or locked.consolidated_into_id is not None
     reply_body = _extract_run_result_text(run)
     # Terminal: completed / failed / timed_out / cancelled / stale. A clean
@@ -2255,14 +2308,21 @@ async def _finalize_dispatch(
             # that keeps its agent is due after the reset. The date holds it
             # even when a reconciliation recorded no unavailability.
             from app.core.demand_workflow import record_transition
-            record_transition(db, locked, "reprocess", actor="forgehub:usage-limit")
+            resume_at = datetime.now(timezone.utc)
+            if not can_switch(locked):
+                resume_at = max(resume_at, limit_until + RESCHEDULE_MARGIN)
+            record_transition(db, locked, "reprocess", actor="forgehub:usage-limit", extra={
+                "automatic_wait_reason": "quota", "automatic_resume_at": resume_at.isoformat(),
+                "quota_reset_at": limit_until.isoformat(),
+                    "content_hash": dispatch_intent_fingerprint(locked),
+                "target_agent_id": str(locked.target_agent_id),
+            })
             locked.dispatch_status = None
             locked.agent_run_id = None
             locked.dispatch_error = None
             locked.dispatch_deadline_at = None
-            locked.scheduled_at = datetime.now(timezone.utc)
+            locked.scheduled_at = resume_at
             if not can_switch(locked):
-                locked.scheduled_at = max(locked.scheduled_at, limit_until + RESCHEDULE_MARGIN)
                 # Cleared when the next run starts (_execute_dispatch).
                 locked.dispatch_error = (
                     f"Waiting for the agent's usage limit to reset at {describe_reset(limit_until)}; "

@@ -54,11 +54,19 @@ async def reserve_dispatch(db, demand, target_agent_id, command_text):
         raise WorkflowBlocked(f"AGENT_UNAVAILABLE: until {until.isoformat()}")
     current.target_agent_id = target_agent_id
     current.command_text = command_text
+    from app.core.agent_failover import executor_eligibility
+    eligibility = await executor_eligibility(db, current, target_agent_id)
+    if eligibility:
+        raise WorkflowBlocked({"code": "EXECUTOR_NOT_ELIGIBLE", "reasons": eligibility})
     await ensure_workflow_allowed(db, current)
     await ensure_task_dispatch_admissible(db, current)
     await _ensure_demand_dependencies_satisfied(db, current)
     if not Path((current.working_path or "").strip()).is_absolute():
         raise AgentRunDispatchError("An explicit absolute working directory is required")
+    from app.core.question_continuations import prepare_answer_context
+    await prepare_answer_context(db, current)
+    # A separately required approval remains bound to the actual final body.
+    await ensure_workflow_allowed(db, current)
     current.agent_run_id = str(uuid.uuid4())
     current.dispatched_at = datetime.now(timezone.utc)
     current.dispatch_deadline_at = current.dispatched_at + timedelta(minutes=DISPATCH_TIMEOUT_MINUTES)

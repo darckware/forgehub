@@ -50,7 +50,8 @@ from app.api.schemas.mission_cycle import (
     UndoIn,
 )
 from app.core.agent_availability import classify_infra_failure
-from app.core.command_receipts import enforce_command_limits, limit_command_body, require_mission_tools
+from app.core.command_receipts import (begin_command, enforce_command_limits, limit_command_body,
+                                       record_command, request_hash, require_mission_tools)
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
 from app.core.mission import mission_error
 from app.core.mission_cycle import (
@@ -58,6 +59,7 @@ from app.core.mission_cycle import (
     assert_cycle_unlocked,
     build_cycle,
     mission_routine,
+    latest_context_version,
     open_cycle_run,
     open_locks,
     write_context_version,
@@ -176,6 +178,19 @@ async def _record_refused(db: AsyncSession, decision_id: uuid.UUID, fields: dict
     already committed the row (e.g. a reservation that then failed), it turns
     refused; otherwise a refused row is inserted on its own."""
     existing = await db.get(MissionDecision, decision_id)
+    if existing is not None and existing.status == "pending" and existing.action in {"dispatch", "schedule"}:
+        from app.db.models.command_receipt import AgentCommandReceipt
+        inner = await db.scalar(select(AgentCommandReceipt).where(
+            AgentCommandReceipt.principal_type == fields["actor_type"],
+            AgentCommandReceipt.principal_id == fields["actor_id"],
+            AgentCommandReceipt.idempotency_key == f"cycle:{fields['idempotency_key']}",
+            AgentCommandReceipt.command == "task.dispatch",
+        ))
+        demand = await db.get(AgentDemand, inner.target_id) if inner and inner.target_type == "agent_demand" else None
+        if demand is not None and demand.agent_run_id:
+            existing.facts = {**(existing.facts or {}), "recovery_reason": code[:60]}
+            await db.commit()
+            return
     if existing is not None:
         existing.status, existing.refusal_code = "refused", code[:60]
     else:
@@ -195,14 +210,33 @@ async def decide(
     enforce_command_limits(principal)
     _project, mission = await _load(db, project_id)
     source, delegation = await _authorize_cycle(db, principal, mission)
+    body_hash = request_hash("mission.decide", {"project_id": project_id, **payload.model_dump(mode="json")})
+    receipt = await begin_command(db, principal, payload.idempotency_key, "mission.decide", body_hash)
+    if receipt is not None:
+        return receipt
     replay = (await db.execute(select(MissionDecision).where(
         MissionDecision.actor_type == principal.principal_type, MissionDecision.actor_id == principal.principal_id,
         MissionDecision.idempotency_key == payload.idempotency_key))).scalar_one_or_none()
     if replay is not None:
-        if replay.action != payload.action or replay.mission_project_id != project_id:
+        if (replay.action != payload.action or replay.mission_project_id != project_id
+                or (replay.facts or {}).get("request_hash") != body_hash):
             raise mission_error(409, "IDEMPOTENCY_KEY_REUSED", "This key was used for another decision")
+        if replay.status == "pending" or (replay.status == "applied" and "context_version" not in (replay.facts or {})):
+            effect = await _recover_dispatch_effect(db, replay, payload, principal)
+            out = await _complete_decision(db, replay, effect, project_id, payload, principal, source, body_hash)
+            return JSONResponse(status_code=200, content=out.model_dump(mode="json"),
+                                headers={"Idempotent-Replay": "true"})
         return JSONResponse(status_code=200, content=_decision_out(replay).model_dump(mode="json"),
                             headers={"Idempotent-Replay": "true"})
+    if principal.principal_type == "agent" and payload.expected_context_version is None:
+        raise mission_error(409, "CONTEXT_VERSION_REQUIRED",
+                            "Read get_mission_cycle and pass expected_context_version for a new agent decision")
+    if payload.expected_context_version is not None:
+        current_context = await latest_context_version(db, project_id)
+        current_version = current_context.version if current_context else 0
+        if current_version != payload.expected_context_version:
+            raise mission_error(409, "CONTEXT_VERSION_STALE", "Read the current mission context before deciding",
+                                expected=payload.expected_context_version, current=current_version)
     if mission.autonomy_level != "N0":
         raise mission_error(409, "AUTONOMY_NOT_N0", "Onda 1 runs every mission at N0")
     await assert_cycle_unlocked(db, mission, principal, payload.task_id)
@@ -212,7 +246,7 @@ async def decide(
     if payload.task_id is not None:
         task, task_project_id = await mt._scope_task(db, mission, payload.task_id)
 
-    facts: dict[str, Any] = {}
+    facts: dict[str, Any] = {"request_hash": body_hash}
     if payload.proposal_id:
         cycle = await build_cycle(db, mission)
         proposal = next((p for p in cycle["proposals"] if p["proposal_id"] == payload.proposal_id), None)
@@ -222,7 +256,7 @@ async def decide(
         if proposal["action"] != payload.action and payload.action != "defer":
             raise mission_error(422, "PROPOSAL_ACTION_MISMATCH", "The decision's action differs from the proposal's",
                                 proposal_action=proposal["action"])
-        facts = {"proposal_id": proposal["proposal_id"], "reason_code": proposal["reason_code"],
+        facts = {**facts, "proposal_id": proposal["proposal_id"], "reason_code": proposal["reason_code"],
                  **proposal["reason_facts"]}
 
     fields = dict(
@@ -234,7 +268,7 @@ async def decide(
         idempotency_key=payload.idempotency_key,
     )
     decision_id = uuid.uuid4()
-    db.add(MissionDecision(id=decision_id, status="deferred" if payload.action == "defer" else "applied", **fields))
+    db.add(MissionDecision(id=decision_id, status="pending", **fields))
     await db.flush()
     try:
         effect = await _apply(db, payload, principal, mission, task, task_project_id, run, authorization)
@@ -245,6 +279,11 @@ async def decide(
         raise HTTPException(exc.status_code, detail={**detail, "decision_id": str(decision_id)}) from exc
 
     decision = await db.get(MissionDecision, decision_id, populate_existing=True)
+    return await _complete_decision(db, decision, effect, project_id, payload, principal, source, body_hash)
+
+
+async def _complete_decision(db, decision, effect, project_id, payload, principal, source, body_hash):
+    decision.status = "deferred" if payload.action == "defer" else "applied"
     decision.facts = {**(decision.facts or {}), **effect.pop("facts", {})}
     for key, value in effect.items():
         setattr(decision, key, value)
@@ -252,7 +291,7 @@ async def decide(
     db.add(AuditEvent(
         entity_type="mission", entity_id=project_id, event_type=f"mission_decision_{payload.action}",
         actor=principal.display_name,
-        payload={"decision_id": str(decision_id), "reason": decision.reason, "status": decision.status,
+        payload={"decision_id": str(decision.id), "reason": decision.reason, "status": decision.status,
                  "principal_type": principal.principal_type, "principal_id": str(principal.principal_id),
                  "authority_source": source, "cycle_id": str(decision.cycle_id) if decision.cycle_id else None,
                  "task_id": str(decision.task_id) if decision.task_id else None,
@@ -262,9 +301,37 @@ async def decide(
     pack = await write_context_version(db, mission, f"decision {payload.action}: {decision.reason}",
                                        actor_type=principal.principal_type, actor_id=principal.principal_id)
     decision.facts = {**decision.facts, "context_version": pack.version}
+    record_command(db, principal, payload.idempotency_key, "mission.decide", body_hash, 201,
+                   _decision_out(decision), target_type="mission", target_id=project_id)
     await db.commit()
     await db.refresh(decision)
+    from app.core.dispatch_signal import wake_scheduled_dispatch
+    wake_scheduled_dispatch()
     return _decision_out(decision)
+
+
+async def _recover_dispatch_effect(db, decision, payload, principal):
+    """Recover committed dispatch identity without invoking any execution route."""
+    from app.db.models.command_receipt import AgentCommandReceipt
+
+    if payload.action not in {"dispatch", "schedule"}:
+        raise mission_error(409, "DECISION_RECOVERY_REQUIRED", "Reconcile the recorded action before retrying")
+    inner = await db.scalar(select(AgentCommandReceipt).where(
+        AgentCommandReceipt.principal_type == principal.principal_type,
+        AgentCommandReceipt.principal_id == principal.principal_id,
+        AgentCommandReceipt.idempotency_key == _inner_key(payload),
+        AgentCommandReceipt.command == "task.dispatch",
+    ))
+    demand = await db.get(AgentDemand, inner.target_id) if inner and inner.target_type == "agent_demand" else None
+    if (demand is None or decision.task_id is None or demand.origin_type != "task"
+            or demand.origin_id != decision.task_id
+            or (inner.response_body or {}).get("demand_id") != str(demand.id)):
+        raise mission_error(409, "DECISION_RECOVERY_REQUIRED", "The committed dispatch identity is unavailable")
+    return {"demand_id": demand.id, "facts": {
+        "scheduled_at": demand.scheduled_at.isoformat() if payload.action == "schedule" and demand.scheduled_at else None,
+        "demand_number": demand.number, "recovered_from_receipt": str(inner.id),
+        "context_version_id": str(demand.mission_context_version_id) if demand.mission_context_version_id else None,
+    }}
 
 
 def _inner_key(payload: DecisionIn) -> str:
@@ -322,8 +389,8 @@ async def _apply(
         previous = await db.scalar(select(TaskAssignment.agent_id).where(
             TaskAssignment.task_id == task.id, TaskAssignment.status == "active")
             .order_by(TaskAssignment.created_at.desc()).limit(1))
-        out = await mt.assign_task(project_id, task.id, TaskAssignIn(
-            agent_id=agent_id, reason=payload.reason, idempotency_key=_inner_key(payload)), principal, db)
+        out = await mt._assign_task(project_id, task.id, TaskAssignIn(
+            agent_id=agent_id, reason=payload.reason, idempotency_key=_inner_key(payload)), principal, db, commit=False)
         return {"facts": {"previous_agent_id": str(previous) if previous else None, "agent_id": str(agent_id),
                           "assignment_id": str(out.assignment_id)}}
 
@@ -334,17 +401,17 @@ async def _apply(
         replaced = None
         if params.replace_review_id is not None:
             replaced = await _fail_infra_review(db, task, params.replace_review_id)
-        out = await mt.request_task_review(project_id, task.id, ReviewRequestIn(
+        out = await mt._request_task_review(project_id, task.id, ReviewRequestIn(
             execution_id=execution_id, reviewer_agent_id=reviewer, idempotency_key=_inner_key(payload)),
-            principal, db)
+            principal, db, commit=False)
         return {"review_id": out.review_id, "demand_id": out.demand_id,
                 "facts": {"reviewer_agent_id": str(reviewer), "replaced_review": replaced}}
 
     if action == "return":
         task = _require_task(task)
         execution_id = _require(params.execution_id, "execution_id")
-        out = await mt.return_task_for_correction(project_id, task.id, TaskReturnIn(
-            execution_id=execution_id, reason=payload.reason, idempotency_key=_inner_key(payload)), principal, db)
+        out = await mt._return_task_for_correction(project_id, task.id, TaskReturnIn(
+            execution_id=execution_id, reason=payload.reason, idempotency_key=_inner_key(payload)), principal, db, commit=False)
         return {"review_id": out.review_id, "facts": {"execution_id": str(execution_id),
                                                        "task_status": out.task_status}}
 
@@ -354,11 +421,11 @@ async def _apply(
         demand = await db.get(AgentDemand, demand_id)
         if demand is None or demand.origin_type != "task" or demand.origin_id != task.id:
             raise mission_error(404, "DEMAND_NOT_FOUND", "The demand is not a run of this task")
-        from app.api.routes.demand import reprocess_demand
+        from app.api.routes.demand import _reprocess_demand
 
         await mt._authorize(db, principal, mission, mt.ASSIGN_ACTION, task_project_id, task.id)
         try:
-            await reprocess_demand(demand_id, db)
+            await _reprocess_demand(demand_id, db, commit=False)
         except HTTPException as exc:
             code = "RETRY_LIMIT_REACHED" if "times" in str(exc.detail) else (
                 "RECONCILIATION_REQUIRED" if "uncertain" in str(exc.detail) else "NOT_REPROCESSABLE")
@@ -389,15 +456,15 @@ async def _apply(
         return await _ask_marcelo(db, payload, mission, run)
 
     if action == "pause":
-        from app.api.routes.mission import transition_mission
+        from app.api.routes.mission import _transition_mission
 
         reason = payload.reason.strip()
         if not reason.startswith("blocked:"):
             raise mission_error(403, "ORCHESTRATOR_PAUSE_ONLY_WHEN_BLOCKED",
                                 "The cycle pauses a mission only when blocked (reason 'blocked:...')")
         current = await db.get(ProjectMission, project_id)
-        await transition_mission(project_id, MissionTransitionIn(
-            to="paused", reason=reason, expected_row_version=current.row_version), principal, db)
+        await _transition_mission(project_id, MissionTransitionIn(
+            to="paused", reason=reason, expected_row_version=current.row_version), principal, db, commit=False)
         return {"facts": {"paused": True}}
 
     # defer: a recorded non-action (§2.3 item 3).
@@ -447,9 +514,8 @@ async def _integrate(
     mainline: completed through PATCH /tasks/{id} (the completion guard runs
     again and audits the principal). Not yet: the executor -- never the
     reviewer -- gets an integration Messages Task; nothing is published."""
-    from app.api.routes.task import update_task
+    from app.api.routes.task import _update_task
     from app.api.schemas.task import ProjectTaskUpdate
-    from app.core.dispatch_signal import wake_scheduled_dispatch
     from app.core.mission_dispatch import task_run_in_flight
     from app.core.task_completion_guard import (
         COMPLETION_NOT_INTEGRATED,
@@ -477,7 +543,7 @@ async def _integrate(
             raise mission_error(409, exc.code, exc.message) from exc
         integrated = False
     if integrated:
-        await update_task(task.id, ProjectTaskUpdate(status="done"), authorization, db)
+        await _update_task(task.id, ProjectTaskUpdate(status="done"), authorization, db, commit=False)
         return {"facts": {"integrated": True, "task_status": "done", "execution_id": str(execution.id)}}
 
     executor_id = await resolve_executor_agent_id(db, execution)
@@ -496,8 +562,6 @@ async def _integrate(
     )
     db.add(demand)
     await db.flush()
-    await db.commit()
-    wake_scheduled_dispatch()
     return {"demand_id": demand.id, "facts": {"integrated": False, "executor_agent_id": str(executor_id),
                                               "demand_number": demand.number, "execution_id": str(execution.id)}}
 
@@ -597,7 +661,7 @@ async def undo_decision(
         facts["archived_demand_number"] = demand.number
     elif original.action == "reassign" and (original.facts or {}).get("previous_agent_id"):
         task = await db.get(ProjectTask, original.task_id)
-        await mt.assign_task(project_id, task.id, TaskAssignIn(
+        await mt._assign_task(project_id, task.id, TaskAssignIn(
             agent_id=uuid.UUID(original.facts["previous_agent_id"]), reason=f"Undo: {payload.reason}",
             idempotency_key=f"undo:{original.id}"), principal, db)
         facts["reassigned_back_to"] = original.facts["previous_agent_id"]

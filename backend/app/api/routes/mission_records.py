@@ -461,6 +461,13 @@ async def register_dossier(
     if recorded is not None and recorded != file_sha256:
         raise mission_error(409, "DOSSIER_HASH_MISMATCH",
                             "file_sha256 differs from the artifact version's recorded checksum")
+    from app.core.mission_dossier import DossierUnverifiable, verify_dossier
+    try:
+        matches = await verify_dossier(db, project_id, artifact_version.id, file_sha256)
+    except DossierUnverifiable as exc:
+        raise mission_error(409, "DOSSIER_CONTENT_UNVERIFIABLE", str(exc)) from exc
+    if not matches:
+        raise mission_error(409, "DOSSIER_HASH_MISMATCH", "Dossier bytes differ from the registered hash")
     dossier = MissionDossier(mission_project_id=project_id, artifact_version_id=artifact_version.id,
                              file_sha256=file_sha256, registered_by_type=principal.principal_type,
                              registered_by_id=principal.principal_id, registered_by=principal.display_name)
