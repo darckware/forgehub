@@ -31,12 +31,13 @@ export function AgentTasksTab() {
   const date = (value: string | null) => value ? new Intl.DateTimeFormat(i18n.language, { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "—";
   const actionLabel = (name: string) => name === "approve" && (vm.confirmation?.item ?? selected)?.origin_type === "incubation"
     ? t("agentTasks.promote") : t(`agentTasks.actions.${name}`);
+  const linkedQuestionId = vm.questions.find(item => item.id === questionId)?.id;
   useEffect(() => {
-    if (!questionId || vm.questionsLoading) return;
-    const target = document.getElementById(`operator-question-${questionId}`);
+    if (!linkedQuestionId) return;
+    const target = document.getElementById(`operator-question-${linkedQuestionId}`);
     target?.focus({ preventScroll: true });
     target?.scrollIntoView?.({ block: "center" });
-  }, [questionId, vm.questionsLoading, vm.questions]);
+  }, [linkedQuestionId]);
   const questionSection = (vm.questionsLoading || vm.questionsError || vm.questions.length > 0) ? <section aria-label={t("agentTasks.questionsTitle")} className="space-y-3">
     <h3 className="font-semibold">{vm.questionsError || vm.questionsLoading ? t("agentTasks.questionsTitle") : t("agentTasks.questionsHeading", { count: vm.questions.length })}</h3>
     {vm.questionsError && <p role="alert">{t("agentTasks.questionsError")}</p>}

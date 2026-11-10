@@ -73,7 +73,12 @@ describe("operator deliberation", () => {
     open("/personal?tab=agent-work&workGroup=moodle&questionId=question-43");
     const questionCard = screen.getByText("Confirm the Moodle scope?").closest("section");
     expect(questionCard).toHaveAttribute("id", "operator-question-question-43");
-    fireEvent.click(within(questionCard!).getByRole("button", { name: "Responder" }));
+    const trigger = within(questionCard!).getByRole("button", { name: "Responder" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(trigger).toHaveFocus();
+    fireEvent.click(trigger);
     const dialog = screen.getByRole("dialog");
     fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "Use o ambiente de teste" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Responder" }));
