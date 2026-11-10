@@ -64,8 +64,6 @@ async def _governing_mission(db, task: ProjectTask, missions: list[ProjectMissio
 
 
 async def assert_task_baseline_current(db, task: ProjectTask) -> None:
-    from app.core.plan_baseline import mission_content_part, task_content_hash
-
     missions = await task_missions(db, task)
     if not missions:
         return
@@ -76,6 +74,13 @@ async def assert_task_baseline_current(db, task: ProjectTask) -> None:
             "MISSION_NOT_ACTIVE", f"The mission is {mission.state}; only an active or verifying mission dispatches",
             task, **mission_ref,
         )
+    await assert_task_baseline_matches(db, task, mission)
+
+
+async def assert_task_baseline_matches(db, task: ProjectTask, mission: ProjectMission) -> None:
+    """Validate the frozen scope separately from whether dispatch is allowed now."""
+    from app.core.plan_baseline import mission_content_part, task_content_hash
+    mission_ref = {"mission_project_id": str(mission.project_id)}
     baseline = await db.get(PlanBaseline, mission.current_baseline_id) if mission.current_baseline_id else None
     if baseline is None:
         raise TaskBaselineBlocked("TASK_NOT_IN_BASELINE", "The mission has no approved baseline", task, **mission_ref)
@@ -112,3 +117,18 @@ async def assert_task_baseline_current(db, task: ProjectTask) -> None:
             "TASK_CONTENT_CHANGED", "The task (or the mission brief/criteria) changed after the baseline was approved",
             task, **mission_ref,
         )
+
+
+async def lock_writable_delivery_task(db, task_id):
+    """Serialize writes with acceptance and protect formally accepted delivery."""
+    task = await db.scalar(select(ProjectTask).where(ProjectTask.id == task_id)
+        .with_for_update().execution_options(populate_existing=True))
+    accepted = await db.scalar(select(ProjectMission.project_id).join(
+        PlanBaselineItem, PlanBaselineItem.baseline_id == ProjectMission.current_baseline_id).where(
+            PlanBaselineItem.task_id == task_id, ProjectMission.state == "completed",
+            ProjectMission.acceptance_request_id.is_not(None)).limit(1))
+    if accepted is not None:
+        raise TaskBaselineBlocked("ACCEPTED_DELIVERY_IMMUTABLE",
+            "This task belongs to a formally accepted delivery; reopen the mission first", task,
+            mission_project_id=str(accepted))
+    return task

@@ -11,7 +11,7 @@ from app.api.routes.mission_records import _authorize_manager, _membership
 from app.core.command_receipts import begin_command, enforce_command_limits, limit_command_body, record_command, request_hash
 from app.core.deps import ActorPrincipal, get_actor_principal
 from app.core.mission import _criterion_task_ids, mission_error, utcnow
-from app.core.mission_acceptance import open_acceptance
+from app.core.mission_acceptance import assert_criterion_evidence, open_acceptance
 from app.core.mission_plan import mission_scope_tasks
 from app.core.task_completion_guard import assert_task_completion_allowed, resolve_executor_agent_id
 from app.db.base import get_db
@@ -77,8 +77,11 @@ async def decide_criterion(project_id: uuid.UUID, criterion_id: uuid.UUID, paylo
     tasks = await mission_scope_tasks(db, project_id)
     if not linked or any(tid not in tasks for tid in linked):
         raise mission_error(409, "CRITERION_TASK_SCOPE_INVALID", "Criterion tasks must belong to the mission")
+    from app.core.task_baseline_guard import assert_task_baseline_matches, lock_writable_delivery_task
     for tid in sorted(linked, key=str):
-        task = tasks[tid]
+        task = await lock_writable_delivery_task(db, tid)
+        if task is None:
+            raise mission_error(409, "CRITERION_TASK_SCOPE_INVALID", "A linked task disappeared")
         latest = await db.scalar(select(TaskExecution).where(TaskExecution.task_id == tid)
                                  .order_by(TaskExecution.attempt_number.desc()).limit(1))
         if not human and latest and await resolve_executor_agent_id(db, latest) == principal.principal_id:
@@ -86,7 +89,10 @@ async def decide_criterion(project_id: uuid.UUID, criterion_id: uuid.UUID, paylo
         if payload.status == "proven":
             if task.status not in ("done", "deployed"):
                 raise mission_error(409, "CRITERION_TASK_NOT_ACCEPTED", "Linked tasks must be accepted before proving the criterion")
+            await assert_task_baseline_matches(db, task, mission)
             await assert_task_completion_allowed(db, task, "done")
+    if payload.status == "proven":
+        await assert_criterion_evidence(db, [tasks[tid] for tid in sorted(linked, key=str)], payload.evidence_ref.strip())
     criterion.status, criterion.evidence_ref = payload.status, payload.evidence_ref.strip()
     criterion.decided_by, criterion.decided_at = principal.display_name, utcnow()
     mission.row_version += 1

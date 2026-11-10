@@ -1027,6 +1027,10 @@ async def update_demand(
         demand.origin_id = origin_id
     if "requires_response" in data:
         demand.requires_response = data["requires_response"]
+    if "scheduled_at" in data:
+        from app.core.message_triage import current_executor_wait_intent, record_executor_wait_intent
+        if await current_executor_wait_intent(db, demand):
+            record_executor_wait_intent(db, demand, authorized=False)
     if "scheduled_at" in data and data["scheduled_at"] != demand.scheduled_at:
         # Once a dispatch has happened, "Send at" is history, not a knob:
         # the scheduled-send loop only ever picks up items with
@@ -1962,18 +1966,20 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
     # Reconcile only bounded, system-created future quota waits before the
     # ordinary due+assigned selection. This recovers an early quota reset or
     # operator-cleared limit without disturbing deliberate schedules.
-    from app.core.message_triage import reconcile_queued_demand
+    from app.core.message_triage import executor_wait_intent_query, reconcile_queued_demand
     from app.db.models.governance import AuditEvent
     automatic_quota_wait = select(AuditEvent.id).where(
         AuditEvent.entity_type == "agent_demand", AuditEvent.entity_id == AgentDemand.id,
         AuditEvent.event_type == "demand_reprocess", AuditEvent.actor == "forgehub:usage-limit",
         AuditEvent.payload["automatic_wait_reason"].astext == "quota",
     ).exists()
+    authorized_wait = (executor_wait_intent_query(AgentDemand.id)
+        .with_only_columns(AuditEvent.payload["state"].astext).correlate(AgentDemand).scalar_subquery() == "authorized")
     waiting = list((await db.scalars(select(AgentDemand).where(
-        AgentDemand.scheduled_at > now, AgentDemand.dispatch_status.is_(None),
-        AgentDemand.agent_run_id.is_(None), AgentDemand.origin_type == "task",
+        AgentDemand.dispatch_status.is_(None), AgentDemand.agent_run_id.is_(None), AgentDemand.origin_type == "task",
         AgentDemand.status != "archived",
-        automatic_quota_wait,
+        ((AgentDemand.scheduled_at > now) & automatic_quota_wait) |
+        (AgentDemand.scheduled_at.is_(None) & authorized_wait),
     ).order_by(AgentDemand.executor_wait_checked_at.asc().nullsfirst(),
                AgentDemand.scheduled_at, AgentDemand.number).limit(200)
         .with_for_update(skip_locked=True))).all())

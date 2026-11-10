@@ -54,7 +54,15 @@ export function AgentTasksTab() {
       variant={vm.group === group ? "default" : "outline"} onClick={() => vm.setGroup(group)}>{t(`agentTasks.groups.${group}`)}</Button>)}
   </div>;
 
-  if (vm.group === "moodle") return <div className="space-y-4 pt-4">{groups}{questionSection}<MoodleApprovalPanel /></div>;
+  const questionDialog = (<ConfirmDialog open={Boolean(question)} title={t("agentTasks.questionTitle")} description={question?.text} variant="default"
+      confirmLabel={t("agentTasks.answer")} loading={vm.answerQuestion.isPending} error={vm.answerQuestion.error?.message} confirmDisabled={!answer.trim()}
+      onCancel={() => { if (!vm.answerQuestion.isPending) setQuestion(null); }}
+      onConfirm={() => { if (question) vm.answerQuestion.mutate({ id: question.id, answer }, { onSuccess: () => setQuestion(null) }); }}>
+      <label className="block space-y-1 text-sm">{t("agentTasks.answer")}<Textarea className="resize-none" value={answer} onChange={e => setAnswer(e.target.value)} /></label>
+    </ConfirmDialog>
+  );
+
+  if (vm.group === "moodle") return <div className="space-y-4 pt-4">{groups}{questionSection}<MoodleApprovalPanel />{questionDialog}</div>;
 
   return <div className="space-y-4 pt-4">
     {groups}
@@ -209,11 +217,6 @@ export function AgentTasksTab() {
       onConfirm={() => { if (governed) vm.decideApproval.mutate({ requestId: governed.id, decision: governed.decision, comments }, { onSuccess: () => setGoverned(null) }); }}>
       <label className="block space-y-1 text-sm">{t("agentTasks.reason")}<Textarea className="resize-none" value={comments} onChange={e => setComments(e.target.value)} /></label>
     </ConfirmDialog>
-    <ConfirmDialog open={Boolean(question)} title={t("agentTasks.questionTitle")} description={question?.text} variant="default"
-      confirmLabel={t("agentTasks.answer")} loading={vm.answerQuestion.isPending} error={vm.answerQuestion.error?.message} confirmDisabled={!answer.trim()}
-      onCancel={() => { if (!vm.answerQuestion.isPending) setQuestion(null); }}
-      onConfirm={() => { if (question) vm.answerQuestion.mutate({ id: question.id, answer }, { onSuccess: () => setQuestion(null) }); }}>
-      <label className="block space-y-1 text-sm">{t("agentTasks.answer")}<Textarea className="resize-none" value={answer} onChange={e => setAnswer(e.target.value)} /></label>
-    </ConfirmDialog>
+    {questionDialog}
   </div>;
 }

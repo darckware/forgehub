@@ -130,7 +130,11 @@ pedidos posteriores e as decisões, sem reduzir o objetivo ao que já passou.
 - [x] Ruff configurado passou. Regressão backend anterior: 2.140 passaram, 21
   ignorados e 1 falhou; a falha de auditoria de credencial foi corrigida e seu
   cenário passou na seleção de 17. Ainda falta repetir a suíte integral.
-- [ ] Qualificar concorrência/recuperação do aceite, migration e ponta a ponta.
+- [x] Regressão completa do checkpoint: 2.147 passaram, 21 ignorados.
+- [x] Revisão independente identificou dez falhas importantes; os casos foram
+  reproduzidos e o passe dirigido após correção passou: 135 backend, 29 UI.
+  Veja [achados e evidências](../reports/2026-11-10-mission-release-review.md).
+- [ ] Qualificar migrations e ponta a ponta no candidato que incorpora a Maia.
 - [ ] Executar novamente regressão integral, build e navegador da integração.
 - [ ] Revisão final, publicação da integração e conferência do release servido.
 

@@ -623,6 +623,10 @@ async def update_execution_review(
     db: AsyncSession = Depends(get_db),
 ) -> TaskExecutionReview:
     review = await _get_or_404(db, TaskExecutionReview, review_id, "Review")
+    from app.core.task_baseline_guard import lock_writable_delivery_task
+    execution = await db.get(TaskExecution, review.execution_id)
+    await lock_writable_delivery_task(db, execution.task_id)
+    await db.refresh(review)
     # changes_requested is final too: after a return for correction the fix is
     # a new execution with a new review, never the old review flipped to
     # approved (which would complete the task with no new run).
@@ -860,6 +864,7 @@ async def refresh_execution_review(
         raise HTTPException(status_code=409, detail="Final review decision is immutable")
     if not review.runtime_session_ref:
         raise HTTPException(status_code=409, detail="Review has no CLI run reference")
+    observed_run_ref = review.runtime_session_ref
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             response = await client.get(
@@ -870,6 +875,13 @@ async def refresh_execution_review(
             run = response.json()
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"Review refresh failed: {exc}") from exc
+
+    from app.core.task_baseline_guard import lock_writable_delivery_task
+    reviewed_execution = await db.get(TaskExecution, review.execution_id)
+    await lock_writable_delivery_task(db, reviewed_execution.task_id)
+    await db.refresh(review)
+    if review.runtime_session_ref != observed_run_ref or review.status in REVIEW_DECIDED_STATUSES:
+        raise HTTPException(409, "The review changed during the runner check")
 
     if run.get("status") == "running":
         return review

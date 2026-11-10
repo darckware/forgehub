@@ -467,7 +467,7 @@ class AgentDemand(Base, TimestampMixin):
         Index("ix_demand_executor_wait_scan", text("executor_wait_checked_at ASC NULLS FIRST"),
               "scheduled_at", "number", postgresql_where=text(
                   "dispatch_status IS NULL AND agent_run_id IS NULL AND origin_type = 'task' "
-                  "AND status != 'archived' AND scheduled_at IS NOT NULL")),
+                  "AND status != 'archived'")),
         Index("uq_agent_demands_failure_check_source", "failure_check_source_id", unique=True),
         CheckConstraint("failure_check_source_id IS NULL OR failure_check_source_id <> id", name="ck_demands_check_not_self"),
         CheckConstraint(f"status IN {DEMAND_STATUSES}", name="ck_agent_demands_status"),

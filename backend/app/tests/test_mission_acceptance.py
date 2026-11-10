@@ -3,6 +3,7 @@
 import hashlib
 import uuid
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import delete, select
 
@@ -147,3 +148,79 @@ async def test_changed_task_contract_refuses_acceptance(cw, accepted_delivery):
         response = await client.post(f"/api/v1/governed/approval-requests/{request_id}:decide",
             json={"decision": "approved", "comments": "Attempt", "idempotency_key": _key(cw)})
     assert response.status_code == 409, response.text
+
+
+@pytest.mark.parametrize("foreign", [False, True])
+async def test_nonexistent_criterion_evidence_cannot_be_proven(cw, accepted_delivery, foreign):
+    from app.db.models.mission import MissionAcceptanceCriterion
+    evidence_task_id = (await accepted_delivery[0].task("Unrelated task")).id if foreign else uuid.uuid4()
+    async with AsyncSessionLocal() as db:
+        mission = await db.get(ProjectMission, accepted_delivery[0].project_id)
+        mission.state = "active"
+        criterion = await db.scalar(select(MissionAcceptanceCriterion).where(
+            MissionAcceptanceCriterion.mission_project_id == mission.project_id))
+        criterion_id = criterion.id
+        await db.commit()
+    async with cw.client() as client:
+        response = await client.post(f"/api/v1/missions/{accepted_delivery[0].project_id}/criteria/{criterion_id}:decide",
+            json={"status": "proven", "evidence_ref": f"db:project_task:{evidence_task_id}",
+                  "reason": "Claim without actual evidence", "idempotency_key": _key(cw)})
+    assert response.status_code in (409, 422), response.text
+
+
+async def test_concurrent_acceptance_decisions_record_one_effect(cw, accepted_delivery):
+    import asyncio
+    request_id = await _request(cw, accepted_delivery)
+    async with cw.client() as client:
+        responses = await asyncio.gather(*[
+            client.post(f"/api/v1/governed/approval-requests/{request_id}:decide",
+                json={"decision": decision, "comments": "Concurrent decision", "idempotency_key": _key(cw)})
+            for decision in ("approved", "changes_requested")])
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    async with AsyncSessionLocal() as db:
+        records = (await db.scalars(select(ApprovalDecisionRecord).where(
+            ApprovalDecisionRecord.approval_request_id == uuid.UUID(request_id)))).all()
+        assert len(records) == 1
+
+
+async def test_contract_changed_before_request_cannot_reuse_old_acceptance_proof(cw, accepted_delivery):
+    from app.core.mission_plan import mission_scope_tasks
+    async with AsyncSessionLocal() as db:
+        tasks = await mission_scope_tasks(db, accepted_delivery[0].project_id)
+        next(iter(tasks.values())).description = "New contract predating acceptance request"
+        await db.commit()
+    mission, orch, _, _ = accepted_delivery
+    async with cw.client(orch) as client:
+        result = await client.post(f"/api/v1/missions/{mission.project_id}/acceptance:request",
+            json={"idempotency_key": _key(cw)})
+    assert result.status_code == 409, result.text
+
+
+async def test_acceptance_serializes_with_task_reopening(cw, accepted_delivery, monkeypatch):
+    import asyncio
+    from app.core import mission_acceptance
+    from app.core.mission_plan import mission_scope_tasks
+    request_id = await _request(cw, accepted_delivery)
+    async with AsyncSessionLocal() as db:
+        task_id = next(iter(await mission_scope_tasks(db, accepted_delivery[0].project_id)))
+    inspected, release = asyncio.Event(), asyncio.Event()
+    original = mission_acceptance.delivery_snapshot
+    async def gated(*args):
+        value = await original(*args)
+        inspected.set()
+        await release.wait()
+        return value
+    monkeypatch.setattr(mission_acceptance, "delivery_snapshot", gated)
+    async with cw.client() as client:
+        acceptance = asyncio.create_task(client.post(f"/api/v1/governed/approval-requests/{request_id}:decide",
+            json={"decision": "approved", "comments": "Serialized delivery", "idempotency_key": _key(cw)}))
+        await asyncio.wait_for(inspected.wait(), 5)
+        reopening = asyncio.create_task(client.patch(f"/api/v1/tasks/{task_id}", json={"status": "in_progress"}))
+        await asyncio.sleep(.1)
+        try:
+            assert not reopening.done(), "Task reopen must wait until acceptance leaves its checked snapshot"
+        finally:
+            release.set()
+            accepted, reopened = await asyncio.gather(acceptance, reopening)
+    assert accepted.status_code == 200, accepted.text
+    assert reopened.status_code == 409, reopened.text

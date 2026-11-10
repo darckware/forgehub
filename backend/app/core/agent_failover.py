@@ -123,11 +123,19 @@ async def executor_eligibility(db: AsyncSession, demand: AgentDemand, candidate_
     # Preserve an unchanged common-project assignment; substitution and review
     # still require the explicit project contract rather than inferred rights.
     from app.core.task_baseline_guard import task_missions
-    governed = bool(await task_missions(db, task)) if task is not None else False
+    missions = await task_missions(db, task) if task is not None else []
+    governed = bool(missions)
     if project_id is not None and (governed or review is not None or candidate_id != demand.target_agent_id):
-        member = await db.scalar(select(ProjectAgentMembership).where(
-            ProjectAgentMembership.project_id == project_id, ProjectAgentMembership.agent_id == candidate_id,
-            ProjectAgentMembership.status == "active").execution_options(populate_existing=True))
+        membership_query = select(ProjectAgentMembership).where(
+            ProjectAgentMembership.agent_id == candidate_id, ProjectAgentMembership.status == "active")
+        if review is not None:
+            # Review assignment already names the authorized membership; a
+            # coordinating mission can review a linked executor project's task.
+            membership_query = membership_query.where(ProjectAgentMembership.id == review.reviewer_membership_id,
+                ProjectAgentMembership.project_id.in_([project_id, *(m.project_id for m in missions)]))
+        else:
+            membership_query = membership_query.where(ProjectAgentMembership.project_id == project_id)
+        member = await db.scalar(membership_query.execution_options(populate_existing=True))
         today = date.today()
         if (member is None or (member.valid_from and member.valid_from > today)
                 or (member.valid_to and member.valid_to < today)):

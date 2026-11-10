@@ -242,3 +242,38 @@ async def test_integration_queue_and_outer_decision_roll_back_together(cw, tmp_p
     async with AsyncSessionLocal() as db:
         assert await db.scalar(select(AgentDemand.id).where(AgentDemand.channel_ref == f"integrate:{task.id}")) is None
     assert wakes == []
+
+
+@pytest.mark.asyncio
+async def test_successful_event_pass_advances_cursor_and_does_not_repeat(cw, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    mission = await _active_with_routine(cw)
+    instant = datetime.now(timezone.utc)
+    observed = []
+    async def events(_db, _mission, since, now, _routine):
+        observed.append(since)
+        return ["task outcome"] if since < instant else []
+    async def watchdog(*_args): return []
+    monkeypatch.setattr(mission_cycle, "detect_events", events)
+    monkeypatch.setattr(mission_cycle, "run_mission_cycle_watchdog", watchdog)
+    async with AsyncSessionLocal() as db:
+        first = await mission_cycle.run_mission_cycle_pass(db, instant, [mission.project_id])
+        second = await mission_cycle.run_mission_cycle_pass(db, instant + timedelta(seconds=1), [mission.project_id])
+    assert str(mission.project_id) in first["started"]
+    assert second["started"] == second["rerun_requested"] == []
+    assert observed[1] == instant
+
+
+@pytest.mark.asyncio
+async def test_different_commands_cannot_consume_the_same_context_version(cw):
+    import asyncio
+    from app.tests.test_mission_cycle import _key
+    mission = await _active_with_routine(cw)
+    async with AsyncSessionLocal() as db:
+        context = await mission_cycle.latest_context_version(db, mission.project_id)
+        version = context.version if context else 0
+    async with cw.client() as client:
+        responses = await asyncio.gather(*[client.post(f"/api/v1/missions/{mission.project_id}/decisions",
+            json={"action": "defer", "reason": "Concurrent intent", "expected_context_version": version,
+                  "idempotency_key": _key(cw)}) for _ in range(2)])
+    assert sorted(response.status_code for response in responses) == [201, 409], [r.text for r in responses]

@@ -319,3 +319,12 @@ usuário é preservada como recebida, sem completar seu sentido por inferência.
 > </image>
 > [Image #1] , preciso controlar com o nome das abas e não orfão, desa forma tenho como idenficaar as sessções que estou usando
 
+### Retomada atual · pedidos posteriores preservados
+
+> Preciso saber o que falta para terminar as implementações na integração da missão
+
+> finaliza
+
+Esses pedidos mantêm o escopo integral R01–R21 e a obrigação de checklist,
+correção, qualificação e deploy. Não autorizam tratar testes parciais como entrega
+completa nem descartar as implementações posteriores T8–T12.

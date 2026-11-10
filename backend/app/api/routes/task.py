@@ -131,6 +131,14 @@ async def _get_task_or_404(db: AsyncSession, task_id: uuid.UUID) -> ProjectTask:
     return task
 
 
+async def _get_writable_task(db, task_id):
+    from app.core.task_baseline_guard import lock_writable_delivery_task
+    task = await lock_writable_delivery_task(db, task_id)
+    if task is None:
+        raise HTTPException(404, "Task not found")
+    return task
+
+
 async def _authorize_agent_task_update(
     db: AsyncSession,
     task: ProjectTask,
@@ -471,7 +479,7 @@ async def update_task(
 
 
 async def _update_task(task_id, payload, authorization, db, *, commit=True):
-    task = await _get_task_or_404(db, task_id)
+    task = await _get_writable_task(db, task_id)
     await _authorize_agent_task_update(db, task, authorization)
 
     data = payload.model_dump(exclude_unset=True)
@@ -562,7 +570,7 @@ async def _update_task(task_id, payload, authorization, db, *, commit=True):
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_task(task_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
-    task = await _get_task_or_404(db, task_id)
+    task = await _get_writable_task(db, task_id)
     await db.delete(task)
     await db.commit()
 
@@ -618,7 +626,7 @@ async def _ensure_no_pending_task_approval(db: AsyncSession, task_id: uuid.UUID)
 async def create_task_execution(
     task_id: uuid.UUID, payload: TaskExecutionCreate, db: AsyncSession = Depends(get_db)
 ) -> TaskExecution:
-    task = await _get_task_or_404(db, task_id)
+    task = await _get_writable_task(db, task_id)
     await ensure_task_dependencies_satisfied(db, task_id)
 
     if payload.assignment_id is not None:
@@ -712,6 +720,7 @@ async def update_task_execution(
     if authorization and authorization.lower().startswith("bearer agt_"):
         raise HTTPException(403, detail={"code": "USE_REPORT_TASK_EXECUTION",
                                          "message": "An agent reports an execution with :report, never this PATCH"})
+    await _get_writable_task(db, task_id)
     execution = await db.get(TaskExecution, execution_id)
     if execution is None or execution.task_id != task_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution not found")

@@ -228,6 +228,16 @@ async def decide(
                                 headers={"Idempotent-Replay": "true"})
         return JSONResponse(status_code=200, content=_decision_out(replay).model_dump(mode="json"),
                             headers={"Idempotent-Replay": "true"})
+    # A different idempotency key must not consume the same context version.
+    # External starts commit a pending decision with their reservation, so a
+    # later command can see that fence without holding a lock across the start.
+    _project, mission = await _load(db, project_id, lock=True)
+    source, delegation = await _authorize_cycle(db, principal, mission)
+    pending = await db.scalar(select(MissionDecision.id).where(
+        MissionDecision.mission_project_id == project_id, MissionDecision.status == "pending").limit(1))
+    if pending is not None:
+        raise mission_error(409, "MISSION_DECISION_IN_FLIGHT", "Recover the pending decision before making another",
+                            decision_id=str(pending))
     if principal.principal_type == "agent" and payload.expected_context_version is None:
         raise mission_error(409, "CONTEXT_VERSION_REQUIRED",
                             "Read get_mission_cycle and pass expected_context_version for a new agent decision")

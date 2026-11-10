@@ -8,7 +8,7 @@ import { apiClient } from "@/lib/api";
 import type { Demand } from "@/hooks/useDemands";
 import { AgentTasksTab } from "./AgentTasksTab";
 
-const mocks = vi.hoisted(() => ({ demands: vi.fn(), post: vi.fn(), approvals: vi.fn(), questions: vi.fn() }));
+const mocks = vi.hoisted(() => ({ demands: vi.fn(), post: vi.fn(), approvals: vi.fn(), questions: vi.fn(), answerQuestion: vi.fn() }));
 vi.mock("@/hooks/useDemands", async importOriginal => ({ ...await importOriginal<object>(), useAgentWork: mocks.demands }));
 vi.mock("@/hooks/useAgent", () => ({ useAgents: () => ({ data: [] }), useStreamTelegramImprovePrompt: () => vi.fn() }));
 vi.mock("@/hooks/useProject", () => ({ useProjects: () => ({ data: [] }) }));
@@ -17,7 +17,7 @@ vi.mock("@/hooks/useGovernance", () => ({
   useGovernedApprovalRequests: mocks.approvals,
   useDecideGovernedApproval: () => ({ reset: vi.fn() }),
 }));
-vi.mock("@/hooks/useOperationsViewModel", () => ({ useOperationsViewModel: () => ({ questions: mocks.questions(), answerQuestion: { reset: vi.fn() } }) }));
+vi.mock("@/hooks/useOperationsViewModel", () => ({ useOperationsViewModel: () => ({ questions: mocks.questions(), answerQuestion: { reset: vi.fn(), mutate: mocks.answerQuestion } }) }));
 vi.mock("@/components/Markdown", () => ({ Markdown: ({ content }: { content: string }) => <div>{content}</div> }));
 
 function item(overrides: Partial<Demand> = {}): Demand {
@@ -73,7 +73,11 @@ describe("operator deliberation", () => {
     open("/personal?tab=agent-work&workGroup=moodle&questionId=question-43");
     const questionCard = screen.getByText("Confirm the Moodle scope?").closest("section");
     expect(questionCard).toHaveAttribute("id", "operator-question-question-43");
-    expect(within(questionCard!).getByRole("button", { name: "Responder" })).toBeInTheDocument();
+    fireEvent.click(within(questionCard!).getByRole("button", { name: "Responder" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "Use o ambiente de teste" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Responder" }));
+    expect(mocks.answerQuestion).toHaveBeenCalledWith({ id: "question-43", answer: "Use o ambiente de teste" }, expect.anything());
   });
   it("preserves explicit legacy incubation URLs", () => {
     open("/personal?tab=agent-work&workGroup=incubation&incubationView=attention");

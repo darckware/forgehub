@@ -90,3 +90,28 @@ async def test_author_cannot_become_independent_reviewer_at_admission(cw):
         demand = await db.get(AgentDemand, demand_id)
         reasons = await executor_eligibility(db, demand, mission.executor)
         assert "EXECUTOR_CANNOT_REVIEW_OWN_WORK" in {r["code"] for r in reasons}
+
+
+@pytest.mark.asyncio
+async def test_linked_task_can_use_mission_only_review_membership(cw):
+    from app.db.models.mission import MissionProjectLink
+    from app.db.models.orchestration import TaskExecutionReview
+    from app.tests.test_mission_base import _task, _assign
+    from app.tests.test_mission_cycle import _verified_execution
+    mission = await _mission(cw)
+    project = await cw.common_project()
+    project_id = uuid.UUID(project["id"])
+    reviewer = await cw.agent("mission-only-reviewer")
+    member = await _member(mission.project_id, reviewer, role="reviewer", can_review=True)
+    task = await _task(project_id, "Linked delivery")
+    executor_member = await _member(project_id, mission.executor)
+    await _assign(task.id, mission.executor, executor_member)
+    execution = await _verified_execution(task, f"db:project_task:{task.id}")
+    demand_id = await _queued_demand(task, reviewer, "/root/project/test")
+    async with AsyncSessionLocal() as db:
+        db.add(MissionProjectLink(mission_project_id=mission.project_id, executor_project_id=project_id, linked_by="test"))
+        db.add(TaskExecutionReview(execution_id=execution, reviewer_membership_id=member,
+            status="pending", runtime_session_ref=str(demand_id)))
+        await db.commit()
+        reasons = await executor_eligibility(db, await db.get(AgentDemand, demand_id), reviewer)
+        assert reasons == [], reasons

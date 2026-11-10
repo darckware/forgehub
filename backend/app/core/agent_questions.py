@@ -295,12 +295,22 @@ async def record_answer(
     if question.origin_demand_id:
         from app.core.mission import project_id_for_task_source
         from app.core.task_attempts import create_task_attempt
+        from app.db.models.orchestration import TaskExecutionReview
         from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
 
         source = await db.get(AgentDemand, question.origin_demand_id, populate_existing=True)
-        previous = await db.get(TaskExecution, source.task_execution_id) if source and source.task_execution_id else None
-        task_id = source.origin_id if source and source.origin_type == "task" else None
-        task_id = task_id or (previous.task_id if previous else None)
+        review = await db.scalar(select(TaskExecutionReview).where(
+            TaskExecutionReview.runtime_session_ref == str(source.id))) if source else None
+        if review is None and source is not None:
+            from app.db.models.governance import AuditEvent
+            recorded_review = await db.scalar(select(AuditEvent.payload["review_id"].astext).where(
+                AuditEvent.event_type.in_(("review_requested", "review_continuation_created")),
+                AuditEvent.payload["demand_id"].astext == str(source.id)).limit(1))
+            if recorded_review:
+                review = await db.get(TaskExecutionReview, uuid.UUID(recorded_review))
+        previous_id = review.execution_id if review else (source.task_execution_id if source else None)
+        previous = await db.get(TaskExecution, previous_id) if previous_id else None
+        task_id = previous.task_id if previous else (source.origin_id if source and source.origin_type == "task" else None)
         task = await db.scalar(select(ProjectTask).where(ProjectTask.id == task_id)
             .with_for_update().execution_options(populate_existing=True)) if task_id else None
         if task is not None:
@@ -309,7 +319,12 @@ async def record_answer(
             demand.working_path = source.working_path
             demand.mission_context_version_id = source.mission_context_version_id
             demand.fixed_agent = True
-            if task.status in {"done", "deployed", "cancelled"}:
+            if review is not None:
+                review = await db.scalar(select(TaskExecutionReview).where(TaskExecutionReview.id == review.id)
+                    .with_for_update().execution_options(populate_existing=True))
+            review_closed = review is not None and (review.status not in {"pending", "running"}
+                                                    or review.runtime_session_ref != str(source.id))
+            if review_closed or task.status in {"done", "deployed", "cancelled"}:
                 from app.db.models.governance import AuditEvent
                 demand.status = "archived"
                 demand.scheduled_at = None
@@ -318,6 +333,15 @@ async def record_answer(
                     event_type="question_answer_recorded_for_closed_task", actor=by,
                     payload={"question_id": str(question.id), "task_id": str(task.id),
                              "source_message_id": str(source.id), "task_status": task.status}))
+            elif review is not None:
+                # Keep the reviewed attempt and its reviewer identity. Only
+                # the run carrying the review's remaining work changes.
+                review.runtime_session_ref = str(demand.id)
+                demand.body = source.body + "\n\n" + compose_answer_message(question)
+                from app.db.models.governance import AuditEvent
+                db.add(AuditEvent(entity_type="project_task", entity_id=task.id, event_type="review_continuation_created",
+                    actor=by, payload={"review_id": str(review.id), "demand_id": str(demand.id),
+                                       "source_message_id": str(source.id), "question_id": str(question.id)}))
             else:
                 assignment_id = previous.assignment_id if previous else await db.scalar(select(TaskAssignment.id).where(
                     TaskAssignment.task_id == task.id, TaskAssignment.agent_id == asker.id,

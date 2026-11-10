@@ -567,3 +567,37 @@ async def test_source_graph_distinguishes_shared_ancestor_from_cycle(triage_db, 
             await ensure_workflow_allowed(db, continuation)
     else:
         await ensure_workflow_allowed(db, continuation)
+
+
+async def test_unscheduled_authorized_wait_recovers_without_analysis_or_event(triage_db, monkeypatch):
+    from app.core import message_triage
+    from app.api.routes import demand as routes
+    from app.db.models.mission_cycle import AgentAvailability
+    db, agent, run_ids = triage_db
+    row = await message(db, agent)
+    row_id = row.id
+    available = AgentAvailability(agent_id=agent, unavailable_until=datetime.now(timezone.utc) + timedelta(hours=1),
+        reason="test quota", recorded_by="test")
+    db.add(available)
+    await db.commit()
+    prepared = await prepared_application(db, agent, run_ids, row)
+    await message_triage._apply(db, *prepared, advisory(SimpleNamespace(id=row_id), status="processing", category="ready", proposed_action="queue"))
+    await db.refresh(row)
+    assert row.scheduled_at is None
+    await db.delete(available)
+    await db.commit()
+    monkeypatch.setattr(settings, "MESSAGE_TRIAGE_ENABLED", False)
+    starts = []
+    async def slots(_db): return 10
+    async def busy(_db): return set()
+    async def dispatch(_db, current, target, _command):
+        if current.id == row_id:
+            starts.append(current.id)
+            current.dispatch_status = "dispatched"
+            current.agent_run_id = "recovered"
+    monkeypatch.setattr(routes, "_dispatch_slots", slots)
+    monkeypatch.setattr(routes, "_agents_already_running", busy)
+    monkeypatch.setattr(routes, "_execute_dispatch", dispatch)
+    await routes.run_scheduled_dispatch_pass(db)
+    await routes.run_scheduled_dispatch_pass(db)
+    assert starts == [row_id]

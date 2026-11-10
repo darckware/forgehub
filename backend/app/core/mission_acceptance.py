@@ -4,6 +4,7 @@ Uses the existing governed approval ledger; callers own the transaction.
 """
 from datetime import datetime, timedelta, timezone
 
+from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.core.governed_approval import _expire, canonical_hash
@@ -11,6 +12,8 @@ from app.core.mission import _criteria, _criterion_task_ids, mission_error
 from app.core.mission_dossier import DossierUnverifiable, verify_dossier
 from app.core.mission_plan import mission_scope_tasks
 from app.core.plan_baseline import mission_content_part, task_content_part
+from app.core.task_baseline_guard import assert_task_baseline_matches
+from app.core.task_evidence import verify_evidence
 from app.core.task_completion_guard import assert_task_completion_allowed
 from app.db.models.governance import (
     ApprovalDecisionRecord, ApprovalRequest, AuditEvent, AuthorityDelegation,
@@ -19,12 +22,38 @@ from app.db.models.governance import (
 from app.db.models.mission import MissionDossier, ProjectMission
 from app.db.models.orchestration import TaskExecutionReview
 from app.db.models.project import ChangeRequest, Project
-from app.db.models.task import TaskExecution
+from app.db.models.task import ProjectTask, TaskExecution
 
 
 def require_human(principal):
     if principal.principal_type != "user" or not principal.is_admin:
         raise mission_error(403, "ACCEPTANCE_RESERVED_TO_MARCELO", "Only an administrator can accept a mission")
+
+
+async def assert_criterion_evidence(db, tasks, ref):
+    """A criterion reference must be verifiable in at least one linked attempt."""
+    from app.api.routes.task import _assert_evidence_in_scope
+    for task in tasks:
+        execution = await db.scalar(select(TaskExecution).where(TaskExecution.task_id == task.id)
+            .order_by(TaskExecution.attempt_number.desc()).limit(1))
+        if execution is None:
+            continue
+        if ref.startswith("db:project_task:") and ref != f"db:project_task:{task.id}":
+            continue
+        if ref.startswith("db:planning_item:") and ref != f"db:planning_item:{task.planning_item_id}":
+            continue
+        if ref.startswith("db:change_request:") and ref != f"db:change_request:{task.change_request_id}":
+            continue
+        try:
+            await _assert_evidence_in_scope(db, task, [ref], execution.id)
+        except HTTPException as exc:
+            if exc.status_code != 422:
+                raise
+            continue
+        ok, _ = await verify_evidence(db, execution, evidence_ref=ref)
+        if ok is True:
+            return
+    raise mission_error(409, "CRITERION_EVIDENCE_UNVERIFIED", "Criterion evidence must be verified within a linked task attempt")
 
 
 async def delivery_snapshot(db, mission, dossier):
@@ -43,6 +72,12 @@ async def delivery_snapshot(db, mission, dossier):
     tasks = await mission_scope_tasks(db, mission.project_id)
     if not tasks or any(tid not in tasks for ids in linked.values() for tid in ids):
         raise mission_error(409, "ACCEPTANCE_TASK_SCOPE_INVALID", "Criterion tasks must belong to this mission")
+    # Task writers take the same row lock before reading or changing delivery.
+    locked = (await db.scalars(select(ProjectTask).where(ProjectTask.id.in_(tasks))
+        .order_by(ProjectTask.id).with_for_update().execution_options(populate_existing=True))).all()
+    if len(locked) != len(tasks):
+        raise mission_error(409, "ACCEPTANCE_TASK_SCOPE_INVALID", "A delivery task disappeared")
+    tasks = {task.id: task for task in locked}
     proofs = []
     for task in sorted(tasks.values(), key=lambda row: str(row.id)):
         if task.status == "cancelled":
@@ -53,7 +88,11 @@ async def delivery_snapshot(db, mission, dossier):
             continue
         if task.status not in ("done", "deployed"):
             raise mission_error(409, "ACCEPTANCE_TASK_OPEN", "Every delivery task must be accepted", task_id=str(task.id))
+        await assert_task_baseline_matches(db, task, mission)
         proof = await assert_task_completion_allowed(db, task, "done")
+        if any(c.verifier_agent_id == proof.executor_agent_id and proof.executor_agent_id is not None
+               and task.id in linked[c.id] for c in criteria):
+            raise mission_error(409, "VERIFIER_IS_EXECUTOR", "Criterion verification must remain independent")
         open_review = await db.scalar(select(TaskExecutionReview.id).join(
             TaskExecution, TaskExecution.id == TaskExecutionReview.execution_id).where(
                 TaskExecution.task_id == task.id, TaskExecutionReview.status == "changes_requested",
@@ -61,6 +100,8 @@ async def delivery_snapshot(db, mission, dossier):
         if open_review:
             raise mission_error(409, "ACCEPTANCE_REVIEW_OPEN", "The current delivery still has requested changes")
         proofs.append([str(task.id), task.status, str(proof.execution_id), proof.evidence_ref, str(proof.review_id)])
+    for criterion in criteria:
+        await assert_criterion_evidence(db, [tasks[tid] for tid in sorted(linked[criterion.id], key=str)], criterion.evidence_ref)
     return canonical_hash({"baseline": mission.current_baseline_id, "brief": mission.brief_artifact_id,
         "dossier": [dossier.id, dossier.artifact_version_id, dossier.file_sha256], "tasks": proofs,
         "mission_contract": await mission_content_part(db, mission),

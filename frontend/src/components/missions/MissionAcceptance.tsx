@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { errorMessage } from "@/hooks/useMissionExecutionsViewModel";
 import { useTranslation } from "react-i18next";
 import { useDecideGovernedApproval, useGovernedApprovalRequests } from "@/hooks/useGovernance";
 import { Button } from "@/components/ui/button";
@@ -29,7 +30,7 @@ export function MissionAcceptance({ projectId, canAct }: { projectId: string; ca
             <Button variant="outline" disabled={!reason.trim() || decide.isPending} onClick={() => { decide.reset(); setDecision("changes_requested"); }}>{t("acceptance.return")}</Button></div>
           <ConfirmDialog open={decision !== null} variant="default" title={t("acceptance.title")}
             confirmLabel={t(decision === "approved" ? "acceptance.approve" : "acceptance.return")}
-            loading={decide.isPending} error={decide.error?.message}
+            loading={decide.isPending} error={decide.error ? errorMessage(decide.error) : undefined}
             onCancel={() => { if (!decide.isPending) setDecision(null); }}
             onConfirm={() => { if (decision) decide.mutate({ requestId: request.id, decision, comments: reason.trim() },
               { onSuccess: () => { setDecision(null); setDone(true); } }); }}>

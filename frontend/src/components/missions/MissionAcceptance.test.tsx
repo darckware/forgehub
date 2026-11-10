@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
 import i18n from "@/i18n";
-import { apiClient } from "@/lib/api";
+import { ApiError, apiClient } from "@/lib/api";
 import { MissionAcceptance } from "./MissionAcceptance";
 
 function open(canAct = true) {
@@ -29,6 +29,18 @@ describe("mission acceptance", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Aceitar missão" }));
     await waitFor(() => expect(post).toHaveBeenCalledWith("/api/v1/governed/approval-requests/request-1:decide",
       expect.objectContaining({ decision: "approved", comments: "Entregas conferidas" })));
+  });
+  it("preserves the reason and shows the guard refusal for retry", async () => {
+    vi.spyOn(apiClient, "get").mockResolvedValue([request]);
+    vi.spyOn(apiClient, "post").mockRejectedValue(new ApiError("Request failed", 409,
+      { detail: { code: "DOSSIER_CONTENT_CHANGED", message: "Dossier changed" } }));
+    open();
+    await screen.findByText("abc123");
+    fireEvent.change(screen.getByLabelText("Motivo do aceite ou da devolução"), { target: { value: "Conferir" } });
+    fireEvent.click(screen.getByRole("button", { name: "Aceitar missão" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Aceitar missão" }));
+    expect(await screen.findByText("DOSSIER_CONTENT_CHANGED: Dossier changed")).toBeInTheDocument();
+    expect(screen.getByLabelText("Motivo do aceite ou da devolução")).toHaveValue("Conferir");
   });
   it("keeps a viewer read only", async () => {
     vi.spyOn(apiClient, "get").mockResolvedValue([request]);

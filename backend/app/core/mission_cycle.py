@@ -311,27 +311,33 @@ async def run_mission_cycle_pass(db: AsyncSession, now: datetime | None = None,
     summary: dict[str, Any] = {"started": [], "rerun_requested": [], "dropped": [], "alerts": []}
     for project_id in list((await db.execute(query.order_by(ProjectMission.project_id))).scalars()):
         try:
-            mission = await db.get(ProjectMission, project_id)
+            mission = await db.scalar(select(ProjectMission).where(ProjectMission.project_id == project_id)
+                .with_for_update().execution_options(populate_existing=True))
+            if mission is None or mission.state not in CYCLE_STATES:
+                await db.rollback()
+                continue
             routine = await mission_routine(db, project_id)
             if routine is None or not routine.enabled:
+                await db.rollback()
                 continue
             reason: str | None = None
             if mission.cycle_rerun_requested and await open_cycle_run(db, routine) is None:
                 reason = "rerun requested by an event during the previous cycle"
             since = mission.cycle_event_cursor or mission.state_changed_at
             events = await detect_events(db, mission, since, now, routine)
-            mission.cycle_event_cursor = now
             if events:
                 reason = "events: " + ", ".join(events[:20])
             if reason:
                 outcome = await request_mission_cycle(db, project_id, reason, source_ref="cycle-pass", now=now,
                                                       commit=False)
+                mission.cycle_event_cursor = max(now, since)
                 await db.commit()
                 if outcome == "started":
                     from app.core.dispatch_signal import wake_scheduled_dispatch
                     wake_scheduled_dispatch()
                 summary[outcome].append(str(project_id))
             else:
+                mission.cycle_event_cursor = max(now, since)
                 await db.commit()
         except Exception:
             await db.rollback()

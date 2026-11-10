@@ -134,7 +134,7 @@ async def _load(db: AsyncSession, project_id: uuid.UUID, *, lock: bool = False) 
     project = await db.get(Project, project_id)
     stmt = select(ProjectMission).where(ProjectMission.project_id == project_id)
     if lock:
-        stmt = stmt.with_for_update()
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
     mission = (await db.execute(stmt)).scalar_one_or_none()
     if project is None or mission is None or project.project_type != "mission":
         raise mission_error(404, "MISSION_NOT_FOUND", "Mission not found")

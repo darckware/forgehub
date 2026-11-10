@@ -120,12 +120,13 @@ async def _check_db_evidence(db: AsyncSession, entity_type: str, entity_id: str)
     return True, f"{entity_type} {entity_id} exists"
 
 
-async def verify_evidence(db: AsyncSession, execution: TaskExecution) -> tuple[bool | None, str]:
+async def verify_evidence(db: AsyncSession, execution: TaskExecution, *,
+                          evidence_ref: str | None = None) -> tuple[bool | None, str]:
     """Returns (True, reason) verified, (False, reason) failed, or
     (None, reason) when the ref is absent/unparseable -- stays in "reported"
     for manual verification rather than being silently treated as either
     outcome."""
-    ref = (execution.evidence_ref or "").strip()
+    ref = ((execution.evidence_ref if evidence_ref is None else evidence_ref) or "").strip()
     if not ref:
         return None, "no evidence_ref declared"
     if ":" not in ref:

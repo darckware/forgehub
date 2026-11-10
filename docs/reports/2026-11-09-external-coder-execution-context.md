@@ -137,3 +137,21 @@ Evaluate success by accepted delivery and elapsed time, including queue wait,
 execution, review and corrections; track duplicate execution, rework, stalled
 tasks and resource use. Agree numerical targets from operational evidence,
 instead of inventing thresholds or maximizing worker count.
+
+## Installed runtime inventory, 2026-11-10
+
+Read-only CLI inspection confirmed Codex 0.167.0, Claude Code 2.1.322 and agy
+1.5.3. Codex exposes `exec --strict-config` and configurable sandbox modes;
+Claude exposes native `--agents`, permission modes and `--max-budget-usd`; agy
+exposes session `--settings`, `--mode` and `--sandbox`. This inventory establishes
+installed interfaces, not qualified delegated execution. The canonical dispatch
+request still needs T8's structured capability/skill contract before T9 can be
+marked complete. No native model invocation or credential change was performed
+for this inspection.
+
+Deployment preflight also found a newer Maia backend release `fh-e836bc5`.
+Integrate current develop changes before any mission release; do not restore an
+older backend image as the new production artifact. Verified production flags:
+workers=true, triage=false, mission_cycle=false, mission_tools=true. The tmux
+scope remains active with OOMPolicy=continue. These are observations, not an
+instruction to enable the manager.

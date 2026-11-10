@@ -65,8 +65,28 @@ def candidate_query(agent_id=None,context=None):
         *scope_filters(agent_id,context))
 
 
+def executor_wait_intent_query(demand_id):
+    return select(AuditEvent).where(AuditEvent.entity_type == "agent_demand", AuditEvent.entity_id == demand_id,
+        AuditEvent.event_type == "executor_wait_intent").order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()).limit(1)
+
+
+async def current_executor_wait_intent(db, demand):
+    event = await db.scalar(executor_wait_intent_query(demand.id))
+    payload = (event.payload or {}) if event else {}
+    if payload.get("state") == "authorized" and payload.get("content_hash") == dispatch_intent_fingerprint(demand):
+        return event
+    return None
+
+
+def record_executor_wait_intent(db, demand, *, authorized):
+    db.add(AuditEvent(entity_type="agent_demand", entity_id=demand.id, event_type="executor_wait_intent",
+        actor="messages:triage" if authorized else "api", payload={
+            "state": "authorized" if authorized else "revoked", "content_hash": dispatch_intent_fingerprint(demand),
+        }))
+
+
 async def reconcile_queued_demand(db, demand, *, now=None):
-    """Release only an unchanged automatic quota wait after availability clears.
+    """Release an unchanged authorized executor wait after availability clears.
 
     This reconciles persisted intent; the existing reservation remains the
     sole boundary that can start an executor. Deliberate schedules, changed
@@ -83,23 +103,30 @@ async def reconcile_queued_demand(db, demand, *, now=None):
         return "unchanged"
     if demand.target_agent_id is None:
         return "waiting"
-    event = await db.scalar(select(AuditEvent).where(
-        AuditEvent.entity_type == "agent_demand", AuditEvent.entity_id == demand.id,
-        AuditEvent.event_type == "demand_reprocess", AuditEvent.actor == "forgehub:usage-limit",
-    ).order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()).limit(1))
-    payload = (event.payload or {}) if event else {}
-    if payload.get("automatic_wait_reason") != "quota":
-        return "unchanged"
-    expected_schedule = payload.get("automatic_resume_at")
-    expected_hash = payload.get("content_hash")
-    expected_target = payload.get("target_agent_id")
-    if (not expected_schedule or not expected_hash or not expected_target
-            or demand.scheduled_at is None
-            or demand.scheduled_at != datetime.fromisoformat(expected_schedule)
-            or expected_hash not in {approval_fingerprint(demand), dispatch_intent_fingerprint(demand)}):
-        return "unchanged"
+    if demand.scheduled_at is None:
+        event = await current_executor_wait_intent(db, demand)
+        if event is None:
+            return "unchanged"
+        expected_hash, expected_target = event.payload["content_hash"], str(demand.target_agent_id)
+    else:
+        event = await db.scalar(select(AuditEvent).where(
+            AuditEvent.entity_type == "agent_demand", AuditEvent.entity_id == demand.id,
+            AuditEvent.event_type == "demand_reprocess", AuditEvent.actor == "forgehub:usage-limit",
+        ).order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()).limit(1))
+        payload = (event.payload or {}) if event else {}
+        if payload.get("automatic_wait_reason") != "quota":
+            return "unchanged"
+        expected_schedule = payload.get("automatic_resume_at")
+        expected_hash = payload.get("content_hash")
+        expected_target = payload.get("target_agent_id")
+        if (not expected_schedule or not expected_hash or not expected_target
+                or demand.scheduled_at != datetime.fromisoformat(expected_schedule)
+                or expected_hash not in {approval_fingerprint(demand), dispatch_intent_fingerprint(demand)}):
+            return "unchanged"
     if await verified_delivery(db, demand):
         demand.scheduled_at = None
+        if event.event_type == "executor_wait_intent":
+            record_executor_wait_intent(db, demand, authorized=False)
         db.add(AuditEvent(entity_type="agent_demand", entity_id=demand.id,
             event_type="message_quota_wait_delivery_veto", actor="system",
             payload={"source_event_id": str(event.id), "content_hash": expected_hash}))
@@ -108,6 +135,11 @@ async def reconcile_queued_demand(db, demand, *, now=None):
     if until is not None and until > instant:
         return "waiting"
     try:
+        from app.core.agent_failover import executor_eligibility
+        if not demand.from_agent_id or not (demand.working_path or "").startswith("/"):
+            return "waiting"
+        if await executor_eligibility(db, demand, demand.target_agent_id):
+            return "waiting"
         await ensure_workflow_allowed(db, demand)
         await ensure_task_dispatch_admissible(db, demand)
     except WorkflowBlocked:
@@ -120,8 +152,8 @@ async def reconcile_queued_demand(db, demand, *, now=None):
         return "waiting"
     previous = demand.scheduled_at
     demand.scheduled_at = instant
-    record_transition(db, demand, "quota_wait_released", actor="system", extra={
-        "source_event_id": str(event.id), "previous_schedule": previous.isoformat(),
+    record_transition(db, demand, "quota_wait_released" if previous else "executor_wait_released", actor="system", extra={
+        "source_event_id": str(event.id), "previous_schedule": previous.isoformat() if previous else None,
         "content_hash": expected_hash, "target_agent_id": expected_target,
     })
     return "ready"
@@ -254,7 +286,7 @@ async def check_admission(db,demand):
             .with_for_update(read=True).execution_options(populate_existing=True))
         if source and await verified_delivery(db,source):
             raise WorkflowBlocked("The diagnostic source is already delivered; no new execution is permitted")
-    if not settings.MESSAGE_TRIAGE_ENABLED:
+    if not settings.MESSAGE_TRIAGE_ENABLED or await current_executor_wait_intent(db, demand):
         return
     result=await db.get(MessageTriageResult,demand.id,populate_existing=True)
     if result is None or result.source_fingerprint!=source_stamp(demand):
@@ -353,11 +385,14 @@ async def _apply(db,run_id,token,message_id,stamp,context_hash,versions,suggesti
                         task=await db.get(ProjectTask,demand.origin_id) if demand.origin_id else None
                         if task:
                             await assert_task_baseline_current(db,task)
-                        agent=await db.get(Agent,demand.target_agent_id)
-                        available=await db.get(AgentAvailability,demand.target_agent_id) if demand.target_agent_id else None
-                        if not agent or not agent.is_active or agent.status!="active" or not agent.runtime_type or not demand.from_agent_id or not (demand.working_path or "").startswith("/"):
+                        if not demand.from_agent_id or not (demand.working_path or "").startswith("/"):
                             raise WorkflowBlocked("Execution context is incomplete")
-                        if available and available.unavailable_until>now():
+                        agent=await db.get(Agent,demand.target_agent_id) if demand.target_agent_id else None
+                        available=await db.get(AgentAvailability,demand.target_agent_id) if demand.target_agent_id else None
+                        if (not agent or not agent.is_active or agent.status!="active" or not agent.runtime_type
+                                or (available and available.unavailable_until>now())):
+                            if demand.scheduled_at is None and await current_executor_wait_intent(db, demand) is None:
+                                record_executor_wait_intent(db, demand, authorized=True)
                             raise WorkflowBlocked("Awaiting executor availability")
                     except WorkflowBlocked:
                         state,action="waiting","none"

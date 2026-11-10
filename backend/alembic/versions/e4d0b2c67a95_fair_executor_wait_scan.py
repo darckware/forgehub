@@ -15,7 +15,7 @@ def upgrade():
                     [sa.text("executor_wait_checked_at ASC NULLS FIRST"), "scheduled_at", "number"],
                     schema="company", postgresql_where=sa.text(
                         "dispatch_status IS NULL AND agent_run_id IS NULL AND origin_type = 'task' "
-                        "AND status != 'archived' AND scheduled_at IS NOT NULL"))
+                        "AND status != 'archived'"))
 
 
 def downgrade():
