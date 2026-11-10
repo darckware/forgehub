@@ -38,7 +38,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.instructor_group import (
-    GROUP_CHANNEL, file_sti_approvals, group_reply, needs_operator, record_reply, send_to_group,
+    GROUP_CHANNEL, REPLY_BLOCK, STI, clean_reply, file_sti_approvals, group_reply, needs_operator, record_reply,
+    send_to_group, served_group,
 )
 from app.db.models.agent import Agent
 from app.db.models.demand import (
@@ -140,6 +141,38 @@ async def _deliver_notification(db: AsyncSession, demand: AgentDemand, *, title:
             occurred_at=datetime.now(timezone.utc),
         )
     )
+
+
+def _group_failure_text(demand: AgentDemand) -> str:
+    """What Marcelo reads on Telegram. No run report: it can carry usernames that encode a birth
+    date, and Telegram keeps the history. The details stay in Tarefas dos agentes."""
+    group = "STI ADM" if served_group(demand.channel_ref) == STI else "CI Instrutor"
+    lines = [f"⚠️ Pedido aprovado do grupo {group} teve problema: #{demand.number}",
+             f"Assunto: {demand.subject}",
+             f"Motivo: {(demand.dispatch_error or 'a execução terminou com erro.')[:400]}"]
+    planned = REPLY_BLOCK.findall(demand.dispatch_result or "")
+    reply = clean_reply(planned[-1]) if planned else ""
+    if reply:
+        lines.append(f"A Maia ia responder ao grupo: \"{reply[:500]}\"")
+    lines += ["", "Nada foi enviado ao grupo. Confira em Pessoal > Tarefas dos agentes; para avisar o grupo, "
+                  "peça à Maia uma mensagem e confirme pelo botão."]
+    return "\n".join(lines)
+
+
+async def _tell_owner_group_failure(demand: AgentDemand) -> bool:
+    """Through the Maia's bot to the owner's chat (the same one the Moodle buttons use)."""
+    chat = settings.MOODLE_APPROVAL_TELEGRAM_CHAT_ID
+    if not chat:
+        logger.warning("Group failure #%s: no owner Telegram configured; the alert stays in ForgeHub", demand.number)
+        return True
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            _bridge_messages_url(),
+            json={"target": f"telegram:{chat}", "message": _group_failure_text(demand), "profile": "maia"},
+            headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN},
+        )
+        response.raise_for_status()
+    return True
 
 
 async def _deliver_telegram(db: AsyncSession, demand: AgentDemand) -> bool:
@@ -351,6 +384,12 @@ async def deliver_feedback(db: AsyncSession, demand: AgentDemand) -> bool:
                     demand.number,
                 )
                 return False
+        elif demand.channel == GROUP_CHANNEL and failed and demand.requires_approval:
+            # Marcelo, 2026-11-10: an approved group request that ran into a problem goes to his
+            # Telegram, not to the group. Only a run that finished well answers the group.
+            await _deliver_notification(db, demand, title=title)
+            if not await _tell_owner_group_failure(demand):
+                return False  # The alert is recorded; the sweep tries Telegram again.
         elif demand.channel == GROUP_CHANNEL:
             await file_sti_approvals(db, demand)
             reply = group_reply(demand.dispatch_result, failed=failed, approved_run=demand.requires_approval)
