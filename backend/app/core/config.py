@@ -224,6 +224,8 @@ class Settings(BaseSettings):
     MOODLE_TELEGRAM_DECISION_SECRET: str = ""
     # WhatsApp id of the instructors' group the Maia captures from. Empty closes it.
     MAIA_INSTRUCTOR_GROUP_ID: str = ""
+    # WhatsApp id of SEMED STI ADM (CoreTI, SAEDAS and Moodle, 2026-11-10). Empty closes it.
+    MAIA_STI_GROUP_ID: str = ""
     MOODLE_APPROVAL_FORM_URL: str = ""
 
     # HMAC secret the agent runtimes sign their activity webhooks with
