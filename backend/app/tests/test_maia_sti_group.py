@@ -207,3 +207,79 @@ async def test_an_approved_task_keeps_its_approval_valid(world, sti, monkeypatch
     assert ig.run_toolsets(item.requires_approval, item.channel_ref, sti_approval=True) == "coreti,saedas"
     assert demand_routes is not None
     await _clean_sti()
+
+
+class _Bridge:
+    """Records what reaches the chat bridge (Telegram) from feedback."""
+    def __init__(self, fail=False):
+        self.posted, self.fail = [], fail
+
+    def __call__(self, **_):
+        return self
+
+    async def __aenter__(self): return self
+    async def __aexit__(self, *_): ...
+
+    async def post(self, url, json, headers):
+        self.posted.append(json)
+        if self.fail:
+            raise feedback.httpx.ConnectError("bridge down")
+        return type("R", (), {"raise_for_status": lambda s: None})()
+
+
+async def _approved_run(world, status, result, error=None, group=GROUP):
+    async with AsyncSessionLocal() as db:
+        demand = AgentDemand(subject="Moodle: solicitação de aprovação", body="b", origin_type="task", from_agent="maia",
+                             channel=ig.GROUP_CHANNEL, channel_ref=group, channel_message_id="3EB0OK",
+                             requires_approval=True, approval_status="approved", dispatch_status=status,
+                             dispatch_result=result, dispatch_error=error, target_agent_id=world["maia_id"])
+        db.add(demand)
+        await db.commit()
+        return demand.id
+
+
+@pytest.mark.asyncio
+async def test_an_approved_run_that_went_well_answers_the_group(world, monkeypatch):
+    sent, bridge = AsyncMock(), _Bridge()
+    monkeypatch.setattr(feedback, "send_to_group", sent)
+    monkeypatch.setattr(feedback.httpx, "AsyncClient", bridge)
+    monkeypatch.setattr(settings, "MOODLE_APPROVAL_TELEGRAM_CHAT_ID", "108")
+    demand_id = await _approved_run(world, "completed", "[GRUPO]Cadastro concluído.[/GRUPO]\nSTATUS: DONE")
+    async with AsyncSessionLocal() as db:
+        assert await feedback.deliver_feedback(db, await db.get(AgentDemand, demand_id)) is True
+    sent.assert_awaited_once_with(GROUP, "Cadastro concluído.", reply_to="3EB0OK")
+    assert bridge.posted == []
+
+
+@pytest.mark.asyncio
+async def test_an_approved_run_with_a_problem_goes_to_marcelos_telegram_not_the_group(world, sti, monkeypatch):
+    sent, bridge = AsyncMock(), _Bridge()
+    monkeypatch.setattr(feedback, "send_to_group", sent)
+    monkeypatch.setattr(feedback.httpx, "AsyncClient", bridge)
+    monkeypatch.setattr(settings, "MOODLE_APPROVAL_TELEGRAM_CHAT_ID", "108")
+    demand_id = await _approved_run(
+        world, "failed", "joao01012017 criado\n[GRUPO]Cadastro feito, falta a turma.[/GRUPO]\nSTATUS: PARTIAL",
+        error="The agent reported STATUS: PARTIAL; the work is not finished.", group=STI)
+    async with AsyncSessionLocal() as db:
+        demand = await db.get(AgentDemand, demand_id)
+        assert await feedback.deliver_feedback(db, demand) is True
+        await db.commit()
+        assert await db.scalar(select(Notification).where(Notification.event_key.like(f"demand-feedback:{demand_id}:%")))
+    sent.assert_not_awaited()
+    [message] = bridge.posted
+    assert message["target"] == "telegram:108" and message["profile"] == "maia"
+    text = message["message"]
+    assert f"#{demand.number}" in text and "STI ADM" in text and "PARTIAL" in text
+    assert "Cadastro feito, falta a turma." in text and "joao01012017" not in text and "Nada foi enviado ao grupo" in text
+
+
+@pytest.mark.asyncio
+async def test_a_telegram_outage_keeps_the_failure_owed(world, monkeypatch):
+    monkeypatch.setattr(feedback, "send_to_group", AsyncMock())
+    monkeypatch.setattr(feedback.httpx, "AsyncClient", _Bridge(fail=True))
+    monkeypatch.setattr(settings, "MOODLE_APPROVAL_TELEGRAM_CHAT_ID", "108")
+    demand_id = await _approved_run(world, "failed", "", error="boom")
+    async with AsyncSessionLocal() as db:
+        demand = await db.get(AgentDemand, demand_id)
+        assert await feedback.deliver_feedback(db, demand) is False
+        assert demand.feedback_sent_at is None
