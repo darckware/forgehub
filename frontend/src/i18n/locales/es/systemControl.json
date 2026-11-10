@@ -115,7 +115,7 @@
     "title": "Sesiones de terminal",
     "liveCount_one": "{{count}} sesión tmux activa",
     "liveCount_other": "{{count}} sesiones tmux activas",
-    "description": "Todas las sesiones tmux forgehub-* activas en el host, aunque no tengan una pestaña abierta en Workspace. Una pestaña cerrada por un fallo del navegador o una recarga fuera del botón de cierre de Workspace puede dejar la sesión activa; termínala aquí para liberar recursos. Esta lista se lee directamente del host.",
+    "description": "Las sesiones activas muestran los mismos nombres que las pestañas del Workspace. Sin conexión significa que no hay ningún navegador conectado; los procesos pueden seguir ejecutándose. Cerrar una sesión también termina sus procesos.",
     "loading": "Cargando sesiones…",
     "killFailed": "No se pudo terminar la sesión",
     "killTitle": "¿Terminar esta sesión de terminal?",
@@ -126,11 +126,16 @@
     "created": "Creada",
     "lastActivity": "Última actividad",
     "attached": "Conectada",
-    "orphaned": "Huérfana",
     "openNamed": "Abrir sesión {{id}} en Workspace",
     "open": "Abrir en Workspace",
     "killNamed": "Terminar sesión {{id}}",
-    "empty": "No hay sesiones de terminal activas."
+    "empty": "No hay sesiones de terminal activas.",
+    "unnamed": "Terminal sin nombre",
+    "disconnected": "Sin conexión",
+    "namesFailed": "No se pudieron cargar los nombres de las pestañas. Actualiza las sesiones para volver a intentarlo.",
+    "loadFailed": "No se pudieron consultar las sesiones del terminal. Intenta actualizar.",
+    "refresh": "Actualizar sesiones",
+    "killDescriptionNamed": "Termina la sesión «{{name}}» y todos los procesos que se ejecutan en ella. Esta acción no se puede deshacer."
   },
   "chatSessions": {
     "title": "Sesiones de chat",

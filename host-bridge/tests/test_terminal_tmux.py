@@ -82,3 +82,11 @@ async def test_inactivity_cleanup_is_disabled_without_explicit_timeout(monkeypat
     monkeypatch.setattr(bridge, 'TERMINAL_INACTIVITY_TIMEOUT_SECONDS', 0)
     await bridge._start_terminal_inactivity_sweep()
     assert bridge._terminal_inactivity_sweep_task is None
+
+
+@pytest.mark.parametrize("clients,expected", [("0", False), ("1", True), ("2", True)])
+def test_terminal_connection_accepts_multiple_browser_clients(monkeypatch, clients, expected):
+    monkeypatch.setenv("FORGEHUB_BRIDGE_TOKEN", "test-token")
+    bridge = importlib.import_module("app")
+    monkeypatch.setattr(bridge, "_tmux", lambda *args: CompletedProcess(args, 0, f"forgehub-test\t100\t200\t{clients}\n", ""))
+    assert bridge._list_forgehub_tmux_sessions()[0]["attached"] is expected

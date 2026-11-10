@@ -115,7 +115,7 @@
     "title": "Terminal Sessions",
     "liveCount_one": "{{count}} live tmux session",
     "liveCount_other": "{{count}} live tmux sessions",
-    "description": "Every live forgehub-* tmux session on the host, even without an open Workspace tab. A tab closed by a browser crash or reload outside the Workspace close button can leave its session running indefinitely; end it here to free resources. This list is read directly from the host.",
+    "description": "Active sessions use the same names as Workspace tabs. Disconnected means no browser is attached; processes may still be running. Ending a session also ends its processes.",
     "loading": "Loading sessions…",
     "killFailed": "Failed to kill session",
     "killTitle": "Kill this terminal session?",
@@ -126,11 +126,16 @@
     "created": "Created",
     "lastActivity": "Last activity",
     "attached": "Attached",
-    "orphaned": "Orphaned",
     "openNamed": "Open session {{id}} in Workspace",
     "open": "Open in Workspace",
     "killNamed": "Kill session {{id}}",
-    "empty": "No live terminal sessions."
+    "empty": "No live terminal sessions.",
+    "unnamed": "Unnamed terminal",
+    "disconnected": "Disconnected",
+    "namesFailed": "Could not load tab names. Refresh sessions to try again.",
+    "loadFailed": "Could not load terminal sessions. Try refreshing.",
+    "refresh": "Refresh sessions",
+    "killDescriptionNamed": "Ends the session “{{name}}” and all processes running in it. This cannot be undone."
   },
   "chatSessions": {
     "title": "Chat Sessions",

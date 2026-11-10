@@ -147,3 +147,14 @@ A row carries a short analysis, reason and next step; use the API's readable sou
 Raw instructor identifiers stay in detailed evidence. The stable inline status region reports
 analysis loading, queued/running progress, completion and recoverable failure without moving
 the filters. Task next-check dates appear only for a scheduled wait; incubation owns maturation.
+
+
+## Terminal session identity (2026-11-10)
+
+System Control identifies terminal sessions by the persisted Workspace tab name,
+with the tmux UUID as secondary technical detail. Reopening retains both identity
+and name. Connection state describes browser attachment only: a disconnected
+terminal can still run work. Never label a detached session orphaned or infer it
+is safe to terminate. Destructive confirmation names the selected session and
+explains that its processes will end. Reuse terminal metadata hooks, shared table,
+badge, button and confirmation owners; names do not create another session registry.

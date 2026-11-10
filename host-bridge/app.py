@@ -4390,7 +4390,7 @@ def _list_forgehub_tmux_sessions() -> list[dict]:
                 "session_id": name[len("forgehub-") :],
                 "created_at": int(created),
                 "last_activity_at": int(activity),
-                "attached": attached == "1",
+                "attached": int(attached) > 0,
             }
         )
     return sessions
