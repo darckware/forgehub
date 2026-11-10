@@ -22,7 +22,7 @@ import {
   useSystemControlStatus,
   useTrashStatus,
 } from "@/hooks/useSystemControl";
-import { useKillTerminalSession, useTerminalSessions } from "@/hooks/useTerminalBrowse";
+import { useKillTerminalSession, useTerminalMetadata, useTerminalSessions } from "@/hooks/useTerminalBrowse";
 import {
   useChatSessionsHostStatus,
   useDeleteChatSessionHostStatus,
@@ -89,7 +89,9 @@ export default function SystemControlPage() {
   const [confirmingEmptyTrash, setConfirmingEmptyTrash] = useState(false);
   const [deletingCategory, setDeletingCategory] = useState<string | null>(null);
 
-  const { data: terminalSessions, isLoading: terminalSessionsLoading } = useTerminalSessions();
+  const { data: terminalSessions, isLoading: terminalSessionsLoading, isError: terminalSessionsError, refetch: refreshTerminalSessions } = useTerminalSessions();
+  const { data: terminalMetadata, isError: terminalMetadataError, refetch: refreshTerminalMetadata } = useTerminalMetadata();
+  const terminalLabel = (id: string) => terminalMetadata?.[id]?.label?.trim() || t("terminal.unnamed");
   const killTerminalSession = useKillTerminalSession();
   const [killingSession, setKillingSession] = useState<string | null>(null);
 
@@ -669,6 +671,11 @@ export default function SystemControlPage() {
           <p className="text-[11px] text-muted-foreground">
             {t("terminal.description")}
           </p>
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => { void refreshTerminalSessions(); void refreshTerminalMetadata(); }}>
+            <RefreshCw className="h-4 w-4" /> {t("terminal.refresh")}
+          </Button>
+          {terminalMetadataError && <p role="alert" className="text-sm text-destructive">{t("terminal.namesFailed")}</p>}
+          {terminalSessionsError && <p role="alert" className="text-sm text-destructive">{t("terminal.loadFailed")}</p>}
           {terminalSessionsLoading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> {t("terminal.loading")}
@@ -682,7 +689,7 @@ export default function SystemControlPage() {
           <ConfirmDialog
             open={killingSession !== null}
             title={t("terminal.killTitle")}
-            description={t("terminal.killDescription")}
+            description={t("terminal.killDescriptionNamed", { name: terminalLabel(killingSession ?? "") })}
             confirmLabel={t("terminal.kill")}
             loading={killTerminalSession.isPending}
             onConfirm={() => {
@@ -692,7 +699,7 @@ export default function SystemControlPage() {
             }}
             onCancel={() => setKillingSession(null)}
           />
-          {!terminalSessionsLoading && (
+          {!terminalSessionsLoading && !terminalSessionsError && (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -706,10 +713,13 @@ export default function SystemControlPage() {
               <TableBody>
                 {(terminalSessions?.sessions ?? []).map((s) => (
                   <TableRow key={s.session_id}>
-                    <TableCell className="font-mono text-xs">{s.session_id}</TableCell>
+                    <TableCell className="max-w-sm">
+                      <p className="break-words text-sm font-medium">{terminalLabel(s.session_id)}</p>
+                      <p className="break-all font-mono text-[11px] text-muted-foreground">{s.session_id}</p>
+                    </TableCell>
                     <TableCell>
                       <Badge variant={s.attached ? "success" : "outline"}>
-                        {s.attached ? t("terminal.attached") : t("terminal.orphaned")}
+                        {s.attached ? t("terminal.attached") : t("terminal.disconnected")}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-xs">{formatUnixDateTime(s.created_at)}</TableCell>
@@ -720,11 +730,11 @@ export default function SystemControlPage() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
-                          aria-label={t("terminal.openNamed", { id: s.session_id })}
+                          aria-label={t("terminal.openNamed", { id: terminalLabel(s.session_id) })}
                           title={t("terminal.open")}
                           onClick={() =>
                             navigate("/workspace", {
-                              state: { openSession: { id: s.session_id, label: s.session_id.slice(0, 8) } },
+                              state: { openSession: { id: s.session_id, label: terminalLabel(s.session_id) } },
                             })
                           }
                         >
@@ -734,8 +744,8 @@ export default function SystemControlPage() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 text-destructive"
-                          aria-label={t("terminal.killNamed", { id: s.session_id })}
-                          title={t("terminal.killNamed", { id: s.session_id })}
+                          aria-label={t("terminal.killNamed", { id: terminalLabel(s.session_id) })}
+                          title={t("terminal.killNamed", { id: terminalLabel(s.session_id) })}
                           onClick={() => setKillingSession(s.session_id)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
