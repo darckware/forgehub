@@ -34,6 +34,7 @@ integral**.
   preparado em `/tmp/forgehub-skill-1.3.0.md`, mas `/root/.codex/skills/forgehub/SKILL.md`
   está fora das raízes graváveis desta sessão; a gravação foi recusada. A Skill
   instalada permanece na versão anterior até uma sessão com acesso a esse caminho.
+  Patch versionado: [forgehub-skill-v1.3.0.patch](../architecture/forgehub-skill-v1.3.0.patch).
 
 - [x] Recuperar a falha da regressão interrompida: backend completo passou,
   **2.175 passed, 21 skipped** (`/tmp/fh-mission-fc67cea-backend.log`).
