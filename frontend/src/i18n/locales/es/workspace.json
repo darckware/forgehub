@@ -100,6 +100,7 @@
     "touchInputOpen": "Abrir la barra de mecanografía",
     "touchInputClose": "Cerrar la barra de mecanografía",
     "touchPaste": "Pegar del portapapeles",
+    "touchCtrl": "Ctrl: toque y escriba una letra",
     "touchPastePrompt": "Pegue el texto aquí:",
     "touchImage": "Insertar imagen",
     "touchImageError": "No se pudo enviar la imagen: {{error}}",
