@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { Terminal } from "@xterm/xterm";
@@ -11,6 +11,7 @@ import { JumpToBottomButton } from "@/components/JumpToBottomButton";
 import { ApiError, apiClient, getToken } from "@/lib/api";
 import { attachTerminalImeInput } from "@/lib/terminalImeInput";
 import { uploadExplorerFile } from "@/hooks/useFileExplorer";
+import { ctrlByte } from "@/lib/terminalCtrlKey";
 import {
   copyTerminalText,
   findLastHttpUrl,
@@ -87,15 +88,33 @@ const WHEEL_DOWN_RE = /\x1b\[<65;/g;
 
 /** Keys a phone keyboard can't produce, sent as the raw bytes a real
  * terminal would. Shift+Tab is Claude Code's mode switch. */
-const TOUCH_KEYS: { label: string; data: string; aria: string }[] = [
+type TouchKey =
+  | { label: string; data: string; aria: string }
+  | { label: string; action: "ctrl" | "paste"; aria: string };
+
+const TOUCH_KEYS: TouchKey[] = [
   { label: "Esc", data: "\x1b", aria: "Escape" },
   { label: "Tab", data: "\t", aria: "Tab" },
   { label: "⇧Tab", data: "\x1b[Z", aria: "Shift+Tab" },
+  // Sticky: the next character typed in the bar goes out as Ctrl+<char>.
+  { label: "Ctrl", action: "ctrl", aria: "Ctrl" },
   { label: "^C", data: "\x03", aria: "Ctrl+C" },
+  // ^V pastes the phone's clipboard rather than sending the 0x16 byte:
+  // Ctrl+V inside the terminal reads the server's clipboard, and the VPS
+  // has none.
+  { label: "^V", action: "paste", aria: "Ctrl+V" },
+  // Clear the line, search history, Claude Code's detailed transcript.
+  { label: "^U", data: "\x15", aria: "Ctrl+U" },
+  { label: "^R", data: "\x12", aria: "Ctrl+R" },
+  { label: "^O", data: "\x0f", aria: "Ctrl+O" },
   { label: "↑", data: "\x1b[A", aria: "Up" },
   { label: "↓", data: "\x1b[B", aria: "Down" },
   { label: "←", data: "\x1b[D", aria: "Left" },
   { label: "→", data: "\x1b[C", aria: "Right" },
+  // What xterm sends for Home/End in normal cursor mode; tmux, readline and
+  // Claude Code all read these.
+  { label: "Home", data: "\x1b[H", aria: "Home" },
+  { label: "End", data: "\x1b[F", aria: "End" },
   { label: "⏎", data: "\r", aria: "Enter" },
 ];
 
@@ -124,6 +143,7 @@ function TerminalTouchInput({
 }) {
   const { t } = useTranslation("workspace");
   const [text, setText] = useState("");
+  const [ctrlArmed, setCtrlArmed] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [imageStatus, setImageStatus] = useState<"idle" | "uploading" | "error">("idle");
   const [imageError, setImageError] = useState<string | null>(null);
@@ -160,35 +180,36 @@ function TerminalTouchInput({
   return (
     <div className="shrink-0 space-y-1.5 border-t border-border bg-background p-1.5">
       <div className="flex gap-1 overflow-x-auto">
-        {TOUCH_KEYS.map((key) => (
-          <Fragment key={key.aria}>
+        {TOUCH_KEYS.map((key) => {
+          const armed = "action" in key && key.action === "ctrl" && ctrlArmed;
+          return (
             <button
+              key={key.aria}
               type="button"
               aria-label={key.aria}
+              aria-pressed={"action" in key && key.action === "ctrl" ? ctrlArmed : undefined}
+              title={"action" in key && key.action === "ctrl" ? t("terminal.touchCtrl") : "action" in key ? t("terminal.touchPaste") : undefined}
               // Keeps focus (and the phone keyboard) in the textarea.
               onPointerDown={(e) => e.preventDefault()}
-              onClick={() => send(key.data)}
-              className="h-8 min-w-[2.5rem] shrink-0 rounded-md border border-border bg-muted px-2 font-mono text-xs text-foreground active:bg-accent"
+              onClick={() => {
+                if ("data" in key) {
+                  setCtrlArmed(false);
+                  send(key.data);
+                } else if (key.action === "ctrl") {
+                  setCtrlArmed((on) => !on);
+                } else {
+                  setCtrlArmed(false);
+                  paste();
+                }
+              }}
+              className={`h-8 min-w-[2.5rem] shrink-0 rounded-md border px-2 font-mono text-xs active:bg-accent ${
+                armed ? "border-primary bg-primary text-primary-foreground" : "border-border bg-muted text-foreground"
+              }`}
             >
               {key.label}
             </button>
-            {/* ^V, beside ^C, pastes the phone's clipboard rather than sending
-                the 0x16 byte: Ctrl+V inside the terminal reads the server's
-                clipboard, and the VPS has none. */}
-            {key.aria === "Ctrl+C" && (
-              <button
-                type="button"
-                aria-label="Ctrl+V"
-                title={t("terminal.touchPaste")}
-                onPointerDown={(e) => e.preventDefault()}
-                onClick={paste}
-                className="h-8 min-w-[2.5rem] shrink-0 rounded-md border border-border bg-muted px-2 font-mono text-xs text-foreground active:bg-accent"
-              >
-                ^V
-              </button>
-            )}
-          </Fragment>
-        ))}
+          );
+        })}
         <button
           type="button"
           aria-label={t("terminal.jumpToBottom")}
@@ -230,7 +251,23 @@ function TerminalTouchInput({
       <div className="flex items-end gap-1.5">
         <textarea
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            const value = e.target.value;
+            // Ctrl armed: a phone keyboard delivers the next key as text (its
+            // keydown is often "Unidentified"), so the inserted character is
+            // read here, sent as Ctrl+<char>, and kept out of the bar.
+            if (ctrlArmed && value.length > text.length) {
+              const end = e.target.selectionStart ?? value.length;
+              const inserted = value.slice(end - (value.length - text.length), end);
+              const byte = ctrlByte(inserted.charAt(0));
+              setCtrlArmed(false);
+              if (byte !== null) {
+                send(byte);
+                return;
+              }
+            }
+            setText(value);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();

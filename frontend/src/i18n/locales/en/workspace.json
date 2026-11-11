@@ -100,6 +100,7 @@
     "touchInputOpen": "Open typing bar",
     "touchInputClose": "Close typing bar",
     "touchPaste": "Paste from clipboard",
+    "touchCtrl": "Ctrl: tap, then type a letter",
     "touchPastePrompt": "Paste the text here:",
     "touchImage": "Insert image",
     "touchImageError": "Couldn't upload the image: {{error}}",
