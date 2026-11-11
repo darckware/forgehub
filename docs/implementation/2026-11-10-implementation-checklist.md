@@ -6,6 +6,53 @@ Objetivo: preservar todo o contexto e concluir o amadurecimento de Missões,
 Messages, Operação 24x7 e Service Factory até a entrega verificada. O plano não
 se limita ao subconjunto já implementado.
 
+## Retomada de implementação — 11/11/2026
+
+Esta seção substitui as linhas históricas de T8–T12 abaixo para o candidato
+atual. Os registros anteriores permanecem como histórico; implementação em
+código não equivale a aceite operacional.
+
+- [x] Implementar T8: intenção de runtime contextual, skills obrigatórias
+  verificadas por hash/versão, grants no despacho, contexto de subagentes e
+  recusa tipada quando o contrato não pode ser satisfeito.
+- [x] Implementar T9: delegação nativa limitada ao Codex CLI compatível,
+  read-only/plan, concorrência e profundidade limitadas, rastreio separado e
+  isolamento das ferramentas MCP mutáveis; inventário verificado pelo CLI.
+- [x] Implementar T10 parcial: propostas de aprendizagem ligadas à execução
+  aceita, evidência e revisão independente; reconstrução administrativa do
+  contexto após falha/incerteza. Propostas seguem para revisão do responsável.
+- [x] Implementar T11: preservar exceções de rotinas perdidas/falhas e bloquear
+  publicação até aceite humano e prova por tarefa, sem confundir o ciclo da
+  Service Factory com release de software.
+- [x] Implementar T12 parcial: navegador isolado por tarefa/run, autoridade e
+  grants revalidados, replay idempotente, cerca para resultado incerto,
+  takeover/observação/confirmação administrativa e proteção das rotas globais.
+  Smoke real do broker CDP em Chromium descartável, apenas em fixture local.
+- [x] Commit `357e985` e integração de `develop` em `0ccd21a`; branch
+  `feat/messages-triage` publicado e rastreando `origin/feat/messages-triage`.
+- [x] Build de produção do frontend, TypeScript e catálogos pt-BR/en/es passaram;
+  Ruff e `git diff --check` passaram. Host Bridge: 84 testes focados passaram.
+- [x] Backend integral: 2.181 passaram e 20 foram ignorados; um teste de
+  concorrência do advisory lock falhou dentro da suíte. O mesmo teste passou
+  isoladamente (1 passou). A aprovação integral deve ser repetida depois de
+  corrigir/entender a interação do fixture; não registrar como suíte verde.
+- [ ] T10: ciclo de publicação, observação posterior e rollback de skill ainda
+  não está implementado/qualificado. A aprendizagem permanece proposta privada,
+  sem publicar skill ou conceder grants automaticamente.
+- [ ] T12: falta qualificar o MCP do navegador no runtime nativo atribuído e
+  provar SSH/navegador por runtime com grants atuais. Não houve acesso a host ou
+  site remoto nesta etapa. O relatório detalha limites e evidências em
+  [T12 navegador governado](../reports/2026-11-11-t12-governed-browser.md).
+- [ ] Migration/restore e ponta a ponta do candidato ainda não qualificados.
+  Nenhum deploy foi feito; gestores automáticos permanecem desabilitados.
+- [x] Skill global ForgeHub v1.3.0 instalada e integridade verificada; essa
+  instalação é separada do branch de código.
+
+Estado de aceite: T8, T9 e T11 implementados no código, ainda sujeitos à
+revisão integrada/publicação. T10 e T12 estão parcialmente implementados. A
+missão permanece sem aceite final e sem ativação automática até fechar os
+itens pendentes acima.
+
 Fontes: [plano completo](../superpowers/plans/2026-11-09-mission-messages-maturation.md),
 [matriz de requisitos e continuidade](../reports/2026-11-09-development-continuity.md),
 [histórico dos pedidos](2026-11-10-user-requirements-history.md) e
