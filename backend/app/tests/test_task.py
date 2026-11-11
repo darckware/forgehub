@@ -79,7 +79,7 @@ async def test_dependencies_gate_every_execution_entry(
     predecessor_id, task_id = dependency_pair
     starts = []
 
-    async def runner(run_id, agent, prompt, path):
+    async def runner(run_id, agent, prompt, path, **_kwargs):
         starts.append(run_id)
         return {"run_id": run_id}
 
@@ -750,7 +750,7 @@ async def test_successful_dispatch_commits_and_writes_audit_event(
 
     dispatched_paths: list[str] = []
 
-    async def fake_dispatch(_run_id, _agent, _prompt, project_path):
+    async def fake_dispatch(_run_id, _agent, _prompt, project_path, **_kwargs):
         dispatched_paths.append(project_path)
         return {"run_id": "fake-run-id"}
 
@@ -811,7 +811,7 @@ async def test_ambiguous_task_dispatch_reuses_the_persisted_inbox_demand(
     from app.api.routes import demand as demand_routes
     from app.db.models.demand import AgentDemand
 
-    async def accepted_but_timed_out(run_id, *_args):
+    async def accepted_but_timed_out(run_id, *_args, **_kwargs):
         raise httpx.ReadTimeout(
             "bridge response timed out",
             request=httpx.Request("POST", "http://bridge/v1/agent-runs"),

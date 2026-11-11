@@ -58,7 +58,7 @@ class Runner:
     def __init__(self):
         self.runs: list[str] = []
 
-    async def __call__(self, run_id, agent, prompt, project_path):
+    async def __call__(self, run_id, agent, prompt, project_path, **_kwargs):
         self.runs.append(run_id)
         return {"run_id": run_id}
 

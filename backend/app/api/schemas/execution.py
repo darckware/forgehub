@@ -54,6 +54,9 @@ class WavePreflightOut(BaseModel):
     tasks: list[dict]
 
 
+from app.api.schemas.runtime_intent import RuntimeIntent
+
+
 class WorkPackageCreate(BaseModel):
     assignment_id: uuid.UUID
     runtime_profile_id: uuid.UUID
@@ -63,6 +66,8 @@ class WorkPackageCreate(BaseModel):
     acceptance_criteria: list[str] = Field(default_factory=list)
     definition_of_done: list[str] = Field(default_factory=list)
     input_artifact_ids: list[uuid.UUID] = Field(default_factory=list)
+    execution_mode: str = Field(default="execute", pattern="^(plan|execute)$")
+    runtime_intent: RuntimeIntent | None = None
     prompt_addendum: str | None = Field(default=None, max_length=4000)
     max_seconds: int = Field(default=1800, ge=30, le=7200)
     idempotency_key: str = Field(min_length=8, max_length=255)

@@ -37,8 +37,9 @@ def runner(monkeypatch):
     runner = m06b.Runner()
     runner.prompts = []
 
-    async def run(run_id, agent, prompt, project_path):
+    async def run(run_id, agent, prompt, project_path, **kwargs):
         runner.prompts.append(prompt)
+        assert kwargs['runtime_intent']['strategy'] == 'native'
         return await m06b.Runner.__call__(runner, run_id, agent, prompt, project_path)
 
     async def slots(db):

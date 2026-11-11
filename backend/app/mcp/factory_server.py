@@ -47,6 +47,11 @@ def _load_messages_server():
 
 messages = _load_messages_server()
 mcp = messages.mcp
+# Canonical browser tools use the same individual file credential as maintenance.
+get_workspace_browser_capabilities = messages.get_workspace_browser_capabilities
+task_browser = messages.task_browser
+get_task_context = messages.get_task_context
+propose_verified_learning = messages.propose_verified_learning
 BASE_URL = os.environ.get("FORGEHUB_API_URL", "http://localhost:8000").rstrip("/")
 
 
@@ -973,11 +978,14 @@ async def set_agent_unavailable(agent_id: str, until: str | None, reason: str, i
 async def propose_skill_change(
     project_id: str, kind: str, reason: str, idempotency_key: str, task_id: str | None = None,
     skill_id: str | None = None, agent_id: str | None = None, cycle_id: str | None = None,
+    learning: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Propose a skill change for a mission task (kind: assign_other_agent |
     grant_to_agent | create_skill). Only records the proposal and hands it to
     the skill's owner; it never grants, installs or edits a skill."""
     body = {"kind": kind, "reason": reason, "idempotency_key": idempotency_key}
+    if learning is not None:
+        body["learning"] = learning
     for key, value in (("task_id", task_id), ("skill_id", skill_id), ("agent_id", agent_id), ("cycle_id", cycle_id)):
         if value:
             body[key] = value

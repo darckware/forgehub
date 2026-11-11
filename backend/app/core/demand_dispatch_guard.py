@@ -63,6 +63,17 @@ async def reserve_dispatch(db, demand, target_agent_id, command_text):
     await _ensure_demand_dependencies_satisfied(db, current)
     if not Path((current.working_path or "").strip()).is_absolute():
         raise AgentRunDispatchError("An explicit absolute working directory is required")
+    if current.origin_type == 'task' and current.origin_id and current.task_execution_id:
+        from app.core.runtime_intent import resolve_runtime_intent
+        from app.db.models.task import TaskExecution
+        attempt = await db.get(TaskExecution, current.task_execution_id)
+        from app.db.models.agent import Agent
+        agent = await db.get(Agent, target_agent_id)
+        if attempt and agent.runtime_type in ('claude', 'codex', 'agy'):
+            try:
+                await resolve_runtime_intent(db, attempt.task_id, target_agent_id)
+            except ValueError as exc:
+                raise WorkflowBlocked(str(exc)) from exc
     from app.core.question_continuations import prepare_answer_context
     await prepare_answer_context(db, current)
     # A separately required approval remains bound to the actual final body.

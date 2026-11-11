@@ -7,13 +7,13 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 
 from app.db.base import AsyncSessionLocal
-from app.db.models.agent import Agent
+from app.db.models.agent import Agent, AgentSkill, Skill, SubAgent, SubAgentSkill
 from app.db.models.backlog import PlanningItem
 from app.db.models.execution import ExecutionWave, ExecutionWaveTask, ExecutionWorkPackage
 from app.db.models.orchestration import AgentRuntimeProfile, ProjectAgentMembership
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import PlanBaseline, Project, ProjectPlan
-from app.db.models.task import ProjectTask, TaskAssignment, TaskDependency
+from app.db.models.task import ProjectTask, TaskAssignment, TaskDependency, TaskRequiredSkill
 from app.core.security import create_access_token, hash_password
 from app.db.models.user import User
 from app.main import app
@@ -96,3 +96,139 @@ async def test_wave_release_and_immutable_package(runtime_context):
                 await db.execute(delete(TaskDependency).where(TaskDependency.depends_on_task_id == predecessor_id))
                 await db.execute(delete(ProjectTask).where(ProjectTask.id == predecessor_id))
                 await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_runtime_intent_survives_immutable_work_package(runtime_context):
+    """A requested execution strategy must reach the actual issued package."""
+    ctx=runtime_context
+    headers={'Authorization':f"Bearer {create_access_token(ctx['admin_username'])}"}
+    async with AsyncClient(transport=ASGITransport(app=app),base_url='http://test',headers=headers) as client:
+        wave=(await client.post(f"/api/v1/projects/{ctx['project']}/execution-waves",json={'baseline_id':str(ctx['baseline']),'name':'Intent wave','task_ids':[str(ctx['task'])],'idempotency_key':f'wave-{uuid.uuid4()}'})).json()
+        for action in ('preflight','approve','activate'):
+            response=await client.post(f"/api/v1/execution-waves/{wave['id']}:{action}",json={})
+            assert response.status_code==200,response.text
+        intent={'version':'forge-runtime-intent/v1','strategy':'single','max_children':0,'skills':[]}
+        response=await client.post(f"/api/v1/execution-waves/{wave['id']}/tasks/{ctx['task']}/work-packages",json={'assignment_id':str(ctx['assignment']),'runtime_profile_id':str(ctx['profile']),'allowed_paths':['backend/app'],'acceptance_criteria':['Verified'],'definition_of_done':['Checks pass'],'runtime_intent':intent,'idempotency_key':f'package-{uuid.uuid4()}'})
+        assert response.status_code==201,response.text
+        assert response.json()['payload']['runtime_intent']==intent
+
+
+@pytest.mark.asyncio
+async def test_runtime_skill_revocation_blocks_before_launch(runtime_context):
+    from app.core.runtime_intent import resolve_runtime_intent
+    from app.db.models.agent import AgentSkill, Skill
+    from app.db.models.task import TaskRequiredSkill
+    ctx=runtime_context
+    async with AsyncSessionLocal() as db:
+        skill=Skill(name=f'runner-skill-{uuid.uuid4().hex[:8]}',version='1.0.0',origin='internal',risk_level='low',permissions='[]',is_approved=True)
+        db.add(skill); await db.flush()
+        requirement=TaskRequiredSkill(task_id=ctx['task'],skill_id=skill.id,is_mandatory=True)
+        grant=AgentSkill(agent_id=ctx['agent'],skill_id=skill.id)
+        db.add_all([requirement,grant]); await db.commit()
+        try:
+            intent=await resolve_runtime_intent(db,ctx['task'],ctx['agent'])
+            assert intent['skills']==[{'name':skill.name,'version':'1.0.0','required':True}]
+            await db.delete(grant); await db.commit()
+            with pytest.raises(ValueError,match='not approved and granted'):
+                await resolve_runtime_intent(db,ctx['task'],ctx['agent'],intent)
+        finally:
+            await db.delete(requirement); await db.flush(); await db.delete(skill); await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_default_package_enforces_mandatory_skill_without_optional_intent(runtime_context):
+    from app.db.models.agent import Skill
+    from app.db.models.task import TaskRequiredSkill
+    ctx = runtime_context
+    async with AsyncSessionLocal() as db:
+        skill = Skill(name=f'required-default-{uuid.uuid4().hex[:8]}', version='1.0.0',
+                      origin='internal', risk_level='low', permissions='[]', is_approved=True)
+        db.add(skill); await db.flush()
+        requirement = TaskRequiredSkill(task_id=ctx['task'], skill_id=skill.id, is_mandatory=True)
+        db.add(requirement); await db.commit()
+        skill_id = skill.id
+    headers = {'Authorization': f"Bearer {create_access_token(ctx['admin_username'])}"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test', headers=headers) as client:
+        wave = (await client.post(f"/api/v1/projects/{ctx['project']}/execution-waves", json={
+            'baseline_id': str(ctx['baseline']), 'name': 'Required skill wave',
+            'task_ids': [str(ctx['task'])], 'idempotency_key': f'wave-{uuid.uuid4()}'})).json()
+        for action in ('preflight', 'approve', 'activate'):
+            response = await client.post(f"/api/v1/execution-waves/{wave['id']}:{action}", json={})
+            assert response.status_code == 200, response.text
+        response = await client.post(f"/api/v1/execution-waves/{wave['id']}/tasks/{ctx['task']}/work-packages", json={
+            'assignment_id': str(ctx['assignment']), 'runtime_profile_id': str(ctx['profile']),
+            'allowed_paths': ['backend/app'], 'acceptance_criteria': ['Verified'],
+            'definition_of_done': ['Checks pass'], 'idempotency_key': f'package-{uuid.uuid4()}'} )
+        assert response.status_code == 422, response.text
+        assert 'not approved and granted' in response.text
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(TaskRequiredSkill).where(TaskRequiredSkill.skill_id == skill_id))
+        await db.flush()
+        await db.execute(delete(Skill).where(Skill.id == skill_id))
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_conflicting_mandatory_skill_versions_refuse_resolution(runtime_context):
+    from app.core.runtime_intent import resolve_runtime_intent
+    from app.db.models.agent import AgentSkill, Skill
+    from app.db.models.task import TaskRequiredSkill
+    ctx = runtime_context
+    name = f'conflicting-{uuid.uuid4().hex[:8]}'
+    async with AsyncSessionLocal() as db:
+        first = Skill(name=name, version='1.0.0', origin='internal', risk_level='low', permissions='[]', is_approved=True)
+        second = Skill(name=name, version='2.0.0', origin='internal', risk_level='low', permissions='[]', is_approved=True)
+        db.add_all([first, second]); await db.flush()
+        requirements = [TaskRequiredSkill(task_id=ctx['task'], skill_id=s.id, is_mandatory=True) for s in (first, second)]
+        grants = [AgentSkill(agent_id=ctx['agent'], skill_id=s.id) for s in (first, second)]
+        db.add_all(requirements + grants); await db.commit()
+        try:
+            with pytest.raises(ValueError, match='Conflicting mandatory versions'):
+                await resolve_runtime_intent(db, ctx['task'], ctx['agent'])
+        finally:
+            skill_ids = [first.id, second.id]
+            await db.execute(delete(TaskRequiredSkill).where(TaskRequiredSkill.skill_id.in_(skill_ids)))
+            await db.execute(delete(AgentSkill).where(AgentSkill.skill_id.in_(skill_ids)))
+            await db.flush()
+            await db.execute(delete(Skill).where(Skill.name == name))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_subagent_runtime_skills_use_only_explicit_and_inheritable_grants(runtime_context):
+    from app.core.runtime_intent import resolve_runtime_intent
+    ctx = runtime_context
+    suffix = uuid.uuid4().hex[:8]
+    names = [f'sub-direct-{suffix}', f'sub-inherited-{suffix}', f'sub-forbidden-{suffix}']
+    async with AsyncSessionLocal() as db:
+        sub = SubAgent(agent_id=ctx['agent'], name=f'runtime-sub-{suffix}', description='test')
+        skills = [Skill(name=n, version='1.0.0', origin='internal', risk_level='low',
+                        permissions='[]', is_approved=True) for n in names]
+        db.add_all([sub, *skills]); await db.flush()
+        db.add_all([
+            TaskRequiredSkill(task_id=ctx['task'], skill_id=skills[0].id, is_mandatory=True),
+            TaskRequiredSkill(task_id=ctx['task'], skill_id=skills[1].id, is_mandatory=True),
+            SubAgentSkill(sub_agent_id=sub.id, skill_id=skills[0].id),
+            AgentSkill(agent_id=ctx['agent'], skill_id=skills[1].id, inheritable=True),
+            AgentSkill(agent_id=ctx['agent'], skill_id=skills[2].id, inheritable=False),
+        ])
+        await db.commit()
+        try:
+            intent = await resolve_runtime_intent(db, ctx['task'], ctx['agent'], sub_agent_id=sub.id)
+            assert intent['skills'] == [
+                {'name': names[0], 'version': '1.0.0', 'required': True},
+                {'name': names[1], 'version': '1.0.0', 'required': True},
+            ]
+            with pytest.raises(ValueError, match='not approved and granted'):
+                await resolve_runtime_intent(db, ctx['task'], ctx['agent'],
+                    {'skills':[{'name':names[2],'version':'1.0.0','required':True}]}, sub_agent_id=sub.id)
+        finally:
+            skill_ids = [skill.id for skill in skills]
+            await db.execute(delete(TaskRequiredSkill).where(TaskRequiredSkill.skill_id.in_(skill_ids)))
+            await db.execute(delete(SubAgentSkill).where(SubAgentSkill.sub_agent_id == sub.id))
+            await db.execute(delete(AgentSkill).where(AgentSkill.skill_id.in_(skill_ids)))
+            await db.flush()
+            await db.execute(delete(Skill).where(Skill.id.in_(skill_ids)))
+            await db.execute(delete(SubAgent).where(SubAgent.id == sub.id))
+            await db.commit()

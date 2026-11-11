@@ -77,6 +77,9 @@ from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
 
 router = APIRouter(prefix="/api/v1/missions", tags=["missions"])
 
+from app.core.task_recovery import router as task_recovery_router
+router.include_router(task_recovery_router)
+
 ORCHESTRATE_ACTION = "mission.orchestrate"
 COMMAND_DEPENDENCIES = [Depends(require_mission_tools), Depends(limit_command_body)]
 LOCAL_TZ = ZoneInfo("America/Sao_Paulo")
@@ -799,13 +802,25 @@ async def propose_skill_change(
     enforce_command_limits(principal)
     _project, mission = await _load(db, project_id)
     source, delegation = await _authorize_cycle(db, principal, mission)
+    command = "mission.propose_skill"
+    body_hash = request_hash(command, {"project_id": str(project_id), **payload.model_dump(mode="json")})
+    receipt = await begin_command(db, principal, payload.idempotency_key, command, body_hash)
+    if receipt is not None:
+        return receipt
     key = f"skill:{payload.idempotency_key}"
     replay = (await db.execute(select(MissionDecision).where(
         MissionDecision.actor_type == principal.principal_type, MissionDecision.actor_id == principal.principal_id,
         MissionDecision.idempotency_key == key))).scalar_one_or_none()
     if replay is not None:
+        if replay.facts.get("request_hash") != body_hash or replay.mission_project_id != project_id:
+            raise mission_error(409, "IDEMPOTENCY_KEY_REUSED", "The original skill proposal payload differs or requires reconciliation")
         proposal = await db.get(MissionSkillProposal, uuid.UUID(replay.facts["skill_proposal_id"]))
-        return JSONResponse(status_code=200, content=SkillProposalOut.model_validate(proposal).model_dump(mode="json"),
+        audit = await db.scalar(select(AuditEvent).where(
+            AuditEvent.entity_type == "mission_skill_proposal", AuditEvent.entity_id == proposal.id,
+            AuditEvent.event_type == "learning_evidence_qualified"))
+        out = SkillProposalOut.model_validate(proposal)
+        out.learning = audit.payload if audit else None
+        return JSONResponse(status_code=200, content=out.model_dump(mode="json"),
                             headers={"Idempotent-Replay": "true"})
     await assert_cycle_unlocked(db, mission, principal, payload.task_id)
     task = None
@@ -815,6 +830,10 @@ async def propose_skill_change(
         raise mission_error(422, "SKILL_REQUIRED", "This kind of proposal names an existing skill")
     if payload.skill_id is not None and await db.get(Skill, payload.skill_id) is None:
         raise mission_error(422, "SKILL_NOT_FOUND", "skill_id is not a registered skill")
+    learning = None
+    if payload.learning is not None:
+        from app.core.mission_learning import validate_learning
+        learning = await validate_learning(db, mission, payload.learning)
     run = await _cycle_run(db, mission, payload.cycle_id)
     owner = (await db.execute(select(Agent).where(Agent.profile_slug == COORDINATOR_SLUG))).scalar_one_or_none()
     orchestrator = await db.get(Agent, mission.orchestrator_agent_id)
@@ -834,6 +853,7 @@ async def propose_skill_change(
                 f"Tipo: {payload.kind}. Skill: {payload.skill_id or '(nova)'}. Agente: {payload.agent_id or '-'}."
                 + (f" Tarefa: #{task.number}." if task else ""),
                 f"Motivo: {proposal.reason}",
+                (f"Aprendizado qualificado: {learning}" if learning else "Observação/proposta sem aprendizado qualificado."),
                 "Decida como dono da skill (com backup e revisão); o ciclo não concede nem instala skills.",
             ]),
             origin_type="incubation", project_id=project_id,
@@ -844,7 +864,7 @@ async def propose_skill_change(
     db.add(MissionDecision(
         mission_project_id=project_id, cycle_id=run.id if run else None, action="defer",
         task_id=task.id if task else None, reason=f"skill_gap: {proposal.reason}"[:2000],
-        facts={"skill_proposal_id": str(proposal.id), "kind": payload.kind,
+        facts={"skill_proposal_id": str(proposal.id), "kind": payload.kind, "request_hash": body_hash,
                "skill_id": str(payload.skill_id) if payload.skill_id else None},
         autonomy_level=mission.autonomy_level, actor_type=principal.principal_type, actor_id=principal.principal_id,
         actor_name=principal.display_name, authority_source=source,
@@ -854,9 +874,16 @@ async def propose_skill_change(
                       actor=principal.display_name,
                       payload={"skill_proposal_id": str(proposal.id), "kind": payload.kind,
                                "reason": proposal.reason}))
+    if learning is not None:
+        db.add(AuditEvent(entity_type="mission_skill_proposal", entity_id=proposal.id,
+                          event_type="learning_evidence_qualified", actor=principal.display_name, payload=learning))
+    out = SkillProposalOut.model_validate(proposal)
+    out.learning = learning
+    record_command(db, principal, payload.idempotency_key, command, body_hash, 201, out,
+                   target_type="mission_skill_proposal", target_id=proposal.id)
     await db.commit()
     await db.refresh(proposal)
-    return SkillProposalOut.model_validate(proposal)
+    return out
 
 
 # ---------------------------------------------------------------------------

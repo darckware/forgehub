@@ -11,6 +11,7 @@ this module instead is a separate, optional follow-up.
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import httpx
 
@@ -38,6 +39,9 @@ async def dispatch_agent_run(
     max_seconds: int = 1800,
     max_budget_usd: float | None = None,
     restricted_toolsets: str | None = None,
+    runtime_intent: dict | None = None,
+    work_package_hash: str | None = None,
+    runtime_type: str | None = None,
 ) -> dict:
     """POST /v1/agent-runs for `agent`. Raises AgentRunDispatchError if the
     agent can't be dispatched at all (no runtime_type/profile_slug); raises
@@ -48,18 +52,21 @@ async def dispatch_agent_run(
     Aramis's runs to free models that stopped mid-task with exit 0. So no
     ForgeRouter credential is decrypted or sent; the bridge ignores
     `model_ref`/`routing_group`/`api_key` for these runtimes."""
-    if not agent.runtime_type:
+    runtime = runtime_type or agent.runtime_type
+    if not runtime:
         raise AgentRunDispatchError(f"Agent '{agent.name}' has no runtime_type for CLI dispatch")
-    if agent.runtime_type == "hermes" and not agent.profile_slug:
+    if runtime == "hermes" and not agent.profile_slug:
         raise AgentRunDispatchError(f"Agent '{agent.name}' has no profile_slug for hermes dispatch")
     # External runtimes only see the task text; their identity rides along.
-    preamble = external_identity_preamble(agent)
+    identity = agent if runtime == agent.runtime_type else SimpleNamespace(
+        runtime_type=runtime, name=agent.name, home_path=agent.home_path, profile_slug=agent.profile_slug)
+    preamble = external_identity_preamble(identity)
     if preamble:
         prompt = f"{preamble}\n\n{prompt}"
 
     body = {
         "run_id": run_id,
-        "runtime_type": agent.runtime_type,
+        "runtime_type": runtime,
         "agent_slug": agent.profile_slug,
         "project_path": project_path,
         "prompt": prompt,
@@ -69,21 +76,28 @@ async def dispatch_agent_run(
         "mode": mode,
         "max_seconds": max_seconds,
         "max_budget_usd": max_budget_usd,
-        "hermes_profile": agent.profile_slug if agent.runtime_type == "hermes" else None,
+        "hermes_profile": agent.profile_slug if runtime == "hermes" else None,
         "autonomous": bool(agent.autonomous_runs),
     }
+    if work_package_hash is not None:
+        body['work_package_hash'] = work_package_hash
+    if runtime_intent is not None:
+        from app.api.schemas.runtime_intent import RuntimeIntent
+        body["runtime_intent"] = RuntimeIntent.model_validate(runtime_intent).model_dump()
     # Its own route: a bridge that doesn't know it answers 404 instead of running unrestricted.
-    path = "/v1/agent-runs"
+    path = "/v1/agent-runs/contextual" if runtime_intent is not None else "/v1/agent-runs"
     if restricted_toolsets:
-        if agent.runtime_type != "hermes":
+        if runtime != "hermes":
             raise AgentRunDispatchError(f"Agent '{agent.name}' cannot run with restricted tools")
         body["restricted_toolsets"] = restricted_toolsets
         path = "/v1/agent-runs/restricted"
     # After the refusals above, so a refused run leaves no credential behind.
     # A restricted run never gets one: it reads text from outside (instructors' group).
     # Hermes only when on the direct access list: a profile's stdio MCPs can all see the path.
-    gets_credential = agent.runtime_type in ("claude", "codex", "agy") or (
-        agent.runtime_type == "hermes" and agent.direct_access_allowed)
+    gets_credential = runtime in ("claude", "codex", "agy") or (
+        runtime == "hermes" and agent.direct_access_allowed)
+    if runtime_intent and runtime_intent.get('strategy') == 'delegate':
+        gets_credential = False
     if agent.id is not None and not restricted_toolsets and gets_credential:
         from app.db.base import AsyncSessionLocal
         from app.db.models.agent import AgentServiceCredential

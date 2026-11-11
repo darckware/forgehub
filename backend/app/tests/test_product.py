@@ -14,6 +14,7 @@ not runnable in total isolation before that migration exists -- this is
 expected and matches the foundation's stated migration workflow.
 """
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 import pytest_asyncio
@@ -21,11 +22,14 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
 
 from app.db.base import AsyncSessionLocal
+from app.db.models.agent import Agent
 from app.db.models.backlog import PlanningItem
+from app.db.models.orchestration import ProjectAgentMembership, TaskExecutionReview
 from app.db.models.product import Product, ProductVersion
 from app.db.models.project import Project
-from app.db.models.task import ProjectTask
+from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
 from app.main import app
+from app.tests.test_service_factory_closure import delivery  # noqa: F401
 
 
 @pytest_asyncio.fixture
@@ -99,31 +103,16 @@ async def test_create_product_duplicate_name_returns_409(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_published_version_cannot_be_mutated(client: AsyncClient):
+async def test_published_version_cannot_be_mutated(delivery):  # noqa: F811
     """Business rule 6.1.4: published versions cannot be mutated directly."""
-    unique_name = f"Published Product {uuid.uuid4()}"
-    create_resp = await client.post("/api/v1/products", json={"name": unique_name})
-    assert create_resp.status_code == 201
-    body = create_resp.json()
-    product_id = body["id"]
-    version_id = body["versions"][0]["id"]
-
-    try:
-        # First transition the version to "published" -- allowed, since the
-        # rule only blocks mutating a version that is *already* published.
-        publish_resp = await client.put(
-            f"/api/v1/products/versions/{version_id}", json={"status": "published"}
-        )
-        assert publish_resp.status_code == 200
-        assert publish_resp.json()["status"] == "published"
-
-        # Now any further mutation must be rejected with a 4xx.
-        mutate_resp = await client.put(
-            f"/api/v1/products/versions/{version_id}", json={"version": "0.2.0"}
-        )
-        assert mutate_resp.status_code == 422
-    finally:
-        await _cleanup_product(uuid.UUID(product_id))
+    client, version_id = delivery["client"], delivery["version_id"]
+    publish_resp = await client.post(f"/api/v1/products/versions/{version_id}:publish")
+    assert publish_resp.status_code == 200, publish_resp.text
+    assert publish_resp.json()["status"] == "published"
+    mutate_resp = await client.put(
+        f"/api/v1/products/versions/{version_id}", json={"version": "0.2.0"}
+    )
+    assert mutate_resp.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -250,6 +239,7 @@ async def test_publish_version_blocks_on_unfinished_tasks(client: AsyncClient):
     body = create_resp.json()
     product_id = uuid.UUID(body["id"])
     version_id = uuid.UUID(body["versions"][0]["id"])
+    proof_agents = []
 
     try:
         async with AsyncSessionLocal() as db:
@@ -281,11 +271,30 @@ async def test_publish_version_blocks_on_unfinished_tasks(client: AsyncClient):
         assert [row["task_id"] for row in detail["blocking"]] == [str(task_id)]
         assert detail["blocking"][0]["project_id"] == str(sibling_id)
 
-        # The task's own completion (evidence + independent review, M0.6a) is
-        # test_task_completion_guard.py's subject; this test is about the
-        # publish gate, so the task is finished directly.
+        # Publication rechecks every accepted task's current evidence and
+        # independent reviewer, including tasks that already carry "done".
         async with AsyncSessionLocal() as db:
             (await db.get(ProjectTask, task_id)).status = "done"
+            executor = Agent(name=f"Publish executor {uuid.uuid4()}")
+            reviewer = Agent(name=f"Publish reviewer {uuid.uuid4()}")
+            db.add_all([executor, reviewer])
+            await db.flush()
+            proof_agents = [executor.id, reviewer.id]
+            for qualified_task_id, qualified_project_id, evidence_item_id in (
+                (completed_task_id, project_id, item_id), (task_id, sibling_id, sibling_item_id),
+            ):
+                membership = ProjectAgentMembership(project_id=qualified_project_id,
+                    agent_id=reviewer.id, role="reviewer", can_review=True)
+                assignment = TaskAssignment(task_id=qualified_task_id, agent_id=executor.id)
+                db.add_all([membership, assignment])
+                await db.flush()
+                execution = TaskExecution(task_id=qualified_task_id, assignment_id=assignment.id,
+                    status="verified", evidence_ref=f"db:planning_item:{evidence_item_id}")
+                db.add(execution)
+                await db.flush()
+                db.add(TaskExecutionReview(execution_id=execution.id, reviewer_membership_id=membership.id,
+                    status="approved", feedback="Current delivery proof checked",
+                    decided_at=datetime.now(timezone.utc)))
             await db.commit()
 
         published = await client.post(f"/api/v1/products/versions/{version_id}:publish")
@@ -314,6 +323,8 @@ async def test_publish_version_blocks_on_unfinished_tasks(client: AsyncClient):
             await db.execute(delete(ProjectTask).where(ProjectTask.id.in_([completed_task_id, task_id])))
             await db.execute(delete(PlanningItem).where(PlanningItem.id.in_([item_id, sibling_item_id])))
             await db.execute(delete(Project).where(Project.id.in_([project_id, sibling_id])))
+            if proof_agents:
+                await db.execute(delete(Agent).where(Agent.id.in_(proof_agents)))
             await db.commit()
         await _cleanup_product(product_id)
 

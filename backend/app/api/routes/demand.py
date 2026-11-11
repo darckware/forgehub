@@ -1553,6 +1553,14 @@ async def _execute_dispatch(
             restriction = {"restricted_toolsets": run_toolsets(
                 demand.requires_approval, demand.channel_ref, moodle_linked=moodle_linked,
                 sti_approval=is_sti_approval(demand) and demand.approval_status == "approved")}
+        if demand.task_execution_id and agent.runtime_type in ('claude', 'codex', 'agy'):
+            from app.core.runtime_intent import resolve_runtime_intent
+            attempt = await db.get(TaskExecution, demand.task_execution_id)
+            if attempt:
+                try:
+                    restriction['runtime_intent'] = await resolve_runtime_intent(db, attempt.task_id, target_agent_id)
+                except ValueError as exc:
+                    raise AgentRunDispatchError(str(exc)) from exc
         run = await dispatch_agent_run(run_id, agent, with_completion_contract(prompt), project_path, **restriction)
     except AgentRunDispatchError as exc:
         demand.dispatch_attempts = (demand.dispatch_attempts or 0) + 1

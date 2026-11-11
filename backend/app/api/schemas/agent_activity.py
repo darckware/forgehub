@@ -313,6 +313,8 @@ class ActivityIncidentOut(BaseModel):
         "usage_anomaly",
         # A.2: a routine occurrence whose deadline passed without a run
         "routine_missed",
+        "routine_failed",
+        "routine_skipped_budget",
     ]
     severity: Literal["info", "warning", "error", "critical"]
     title: str
