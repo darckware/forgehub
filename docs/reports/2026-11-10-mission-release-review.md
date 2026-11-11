@@ -62,3 +62,26 @@ index also covers unscheduled authorized work; the final migration exercise
 must apply the exact updated index. Next: merge current Maia changes and
 qualify the resulting candidate sequentially. Preserve
 both the green checkpoint and this evidence of issues before any rollout.
+
+## Criteria API and MCP release addendum — 2026-11-11
+
+Commit `2d0eeab362af5476a38096c52c57340a95d127d0` adds governed GET/POST
+mission criteria endpoints, MCP tools `get_mission_criteria` and
+`create_mission_criterion`, and the mission detail UI. Creation requires
+mission orchestrator/admin authority, an in-scope linked task, exactly one
+eligible verifier, idempotency, and is locked after the first baseline. The
+existing decision and human acceptance tools remain the final evidence gates.
+
+The exact release receipt is `/root/.forgehub/releases/mission-criteria-2d0eeab/release.json`.
+Backend and frontend images are `fh-2d0eeab`; the backend exact-image offline
+checks and six evidence tests passed, source regressions were 2,178 backend
+tests and 526 frontend tests, and the isolated backup restore succeeded. Live
+health and frontend hash checks passed, anonymous auth returned 401, and the
+same tmux server/panes were preserved. DB remained at `e6f2d4a89cb7`; no
+migration replay was performed. Mission cycle and message triage remain off.
+
+The global Codex ForgeHub Skill was **not installed**: the active session cannot
+write `/root/.codex/skills/forgehub/SKILL.md`. Its v1.3.0 preview is at
+`/tmp/forgehub-skill-1.3.0.md`, pending a session with that skill directory
+enabled. The broad asynchronous host-bridge suite also remains incomplete, and
+T8–T12 remain open; this release is not the full mission maturation delivery.

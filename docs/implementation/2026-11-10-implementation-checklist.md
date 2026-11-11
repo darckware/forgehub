@@ -13,9 +13,27 @@ Fontes: [plano completo](../superpowers/plans/2026-11-09-mission-messages-matura
 
 ## Aditivo de publicação — 11/11/2026
 
-O estado abaixo supersede o status operacional de 10/11: a integração foi
-revisada, qualificada e publicada em `8282579ea67a6f12e7c87d1a62f50b67fb06868c`.
-Isso entrega a fatia implementada T1–T7 e R21; **não conclui o plano integral**.
+O estado abaixo registra a atualização de 11/11: o candidato `2d0eeab`
+acrescenta cadastro e consulta de critérios de aceite, além das ferramentas MCP
+e do painel web. Isso entrega uma fatia de T1–T7 e R21; **não conclui o plano
+integral**.
+
+- [x] Publicar `2d0eeab362af5476a38096c52c57340a95d127d0` em `develop` e
+  `feat/messages-triage`; ambos apontam para esse commit.
+- [x] Build do backend e frontend do commit, smoke do container exato, rota
+  `/api/v1/missions/{project_id}/criteria`, ferramentas MCP e seis testes da
+  imagem backend passaram; build e smoke registrados no recibo do release.
+- [x] Backup privado restaurado em Postgres descartável; produção já estava em
+  `e6f2d4a89cb7`, portanto a migração não foi reaplicada.
+- [x] Publicar backend e frontend `fh-2d0eeab`; health HTTP 200, frontend
+  verificado pelo hash servido e proxy anônimo HTTP 401. O servidor tmux e os
+  três panes permaneceram com os mesmos PIDs.
+- [x] Manter `MISSION_CYCLE_ENABLED=false` e `MESSAGE_TRIAGE_ENABLED=false`;
+  ferramentas de missão continuam habilitadas.
+- [ ] Instalar a Skill global `forgehub` v1.3.0. O texto atualizado está
+  preparado em `/tmp/forgehub-skill-1.3.0.md`, mas `/root/.codex/skills/forgehub/SKILL.md`
+  está fora das raízes graváveis desta sessão; a gravação foi recusada. A Skill
+  instalada permanece na versão anterior até uma sessão com acesso a esse caminho.
 
 - [x] Recuperar a falha da regressão interrompida: backend completo passou,
   **2.175 passed, 21 skipped** (`/tmp/fh-mission-fc67cea-backend.log`).
@@ -42,9 +60,6 @@ Isso entrega a fatia implementada T1–T7 e R21; **não conclui o plano integral
   para leitura e cadastro antes da baseline. Suíte backend integral: **2.178
   passed, 21 skipped**; frontend: **526 passed em 112 arquivos**; build,
   TypeScript, locales e testes do componente passaram.
-- [ ] Construir, revisar e publicar a revisão com o cadastro de critérios; o
-  release `8282579` segue ativo até o novo artefato passar por build, smoke,
-  backup/restore e rollout verificado.
 - [ ] Continuar T8–T12 conforme o plano. Nenhum desses pacotes é coberto pelo
   release de hoje.
 - [ ] Concluir a suíte ampla do host-bridge que travou na interação assíncrona
@@ -57,14 +72,11 @@ Isso entrega a fatia implementada T1–T7 e R21; **não conclui o plano integral
   das raízes graváveis; precisa de uma sessão com esse caminho habilitado.
 
 Recibo operacional (não contém credenciais):
-`/root/.forgehub/releases/mission-integration-8282579-retry1/release.json`.
-Backup privado validado em
-`/root/backup/mission-integration-8282579-retry1/forgehub.dump`; política live
-do scope tmux: `OOMPolicy=continue`. Os nomes atuais das sessões permanecem
-Claude - Remoto, Agy - Darckware e Codex - Missão. A primeira tentativa de
-rollout foi revertida por health-check imediato; a repetição com espera de
-prontidão publicou com sucesso. A migração aditiva ficou aplicada no rollback
-e foi reutilizada sem reaplicação.
+`/root/.forgehub/releases/mission-criteria-2d0eeab/release.json`. Backup privado
+validado em `/root/backup/mission-criteria-2d0eeab/forgehub.dump`. O release
+anterior `mission-integration-8282579-retry1` permanece como referência de
+rollback. Os nomes atuais das sessões continuam Claude - Remoto, Agy -
+Darckware e Codex - Missão.
 
 ## Entregas verificadas nesta retomada
 
