@@ -1,5 +1,14 @@
 # Source checkpoint — incomplete implementation
 
+**Status update (2026-11-11):** this note describes the earlier WIP checkpoint,
+not the current deployed release. The candidate was subsequently reviewed,
+qualified, integrated and published as `8282579`; see the current
+[implementation checklist](2026-11-10-implementation-checklist.md) and
+[release review](../reports/2026-11-10-mission-release-review.md). The full
+program is still open: criterion creation remains missing and Tasks 8–12 remain
+unimplemented. The checkpoint branch below is retained as historical recovery
+evidence; it is not the deployed revision.
+
 This snapshot preserves the pending Mission/Messages maturation implementation
 from `feat/messages-triage` after the interrupted 2026-11-09 session. It is a
 recovery checkpoint, not a reviewed release or evidence of completed acceptance.

@@ -659,6 +659,48 @@ async def request_mission_acceptance(project_id: str, idempotency_key: str) -> d
 
 
 @mcp.tool()
+async def get_mission_criteria(project_id: str) -> dict[str, Any]:
+    """Read mission acceptance criteria, their assigned verifier, current
+    evidence decision and linked canonical task IDs. Access is limited to
+    administrators and active mission members.
+    """
+    criteria = await _factory_call("GET", f"/api/v1/missions/{project_id}/criteria")
+    return {"criteria": criteria, "total": len(criteria)}
+
+
+@mcp.tool()
+async def create_mission_criterion(
+    project_id: str,
+    code: str,
+    statement: str,
+    verification_method: str,
+    task_ids: list[str],
+    idempotency_key: str,
+    verifier_agent_id: str | None = None,
+    verifier_is_marcelo: bool | None = None,
+) -> dict[str, Any]:
+    """Register an objective acceptance criterion before the mission baseline.
+    The caller must be the mission orchestrator with mission.orchestrate or an
+    administrator. Link only mission tasks or tasks from linked executor
+    projects. Assign an active mission reviewer, or Marcelo; exactly one
+    verifier is required. Criteria are frozen once a baseline exists.
+    """
+    if verifier_is_marcelo is None:
+        verifier_is_marcelo = verifier_agent_id is None
+    body = {
+        "code": code,
+        "statement": statement,
+        "verification_method": verification_method,
+        "task_ids": task_ids,
+        "idempotency_key": idempotency_key,
+        "verifier_agent_id": verifier_agent_id,
+        "verifier_is_marcelo": verifier_is_marcelo,
+    }
+    data, replayed = await _mission_write(f"/api/v1/missions/{project_id}/criteria", body)
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
 async def decide_mission_criterion(project_id: str, criterion_id: str, status: str,
     evidence_ref: str, reason: str, idempotency_key: str) -> dict[str, Any]:
     """Assigned independent verifier records proven/failed acceptance criterion.

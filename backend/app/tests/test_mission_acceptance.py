@@ -11,11 +11,11 @@ from app.core import mission_documents
 from app.db.base import AsyncSessionLocal
 from app.db.models.artifact import ArtifactVersion
 from app.db.models.governance import ApprovalDecisionRecord, ApprovalRequest, PolicyEvaluation
-from app.db.models.mission import ProjectMission
+from app.db.models.mission import MissionAcceptanceCriterion, MissionCriterionTask, ProjectMission
 from app.db.models.project import Project
 from app.tests.test_mission_cycle import cw, _orch_headers, _verified_execution, _key  # noqa: F401
 from app.tests.test_mission_dispatch import world, runner  # noqa: F401
-from app.tests.test_mission_base import _member, _criterion, _transition
+from app.tests.test_mission_base import _baseline, _member, _criterion, _task, _transition
 from app.tests.test_mission_planning_records import _doc
 from app.tests.test_task_baseline_guard import _mission
 
@@ -83,6 +83,82 @@ async def test_acceptance_request_requires_awaiting_acceptance(cw):
         result = await client.post(f"/api/v1/missions/{mission.project_id}/acceptance:request",
                                    json={"idempotency_key": _key(cw)})
     assert result.status_code == 409, result.text
+
+
+async def test_orchestrator_creates_a_scoped_criterion_idempotently(cw):
+    mission = await cw.create_mission()
+    project_id = mission["project_id"]
+    verifier = await cw.agent("criterion-verifier")
+    await _member(project_id, verifier, role="reviewer", can_review=True)
+    task = await _task(project_id, "Criterion delivery")
+    key = _key(cw)
+    body = {
+        "code": "AC-API-1",
+        "statement": "The mission endpoint returns the approved result",
+        "verification_method": "Call the endpoint and compare the response to the approved contract",
+        "verifier_agent_id": str(verifier),
+        "task_ids": [str(task.id)],
+        "idempotency_key": key,
+    }
+
+    async with cw.client() as client:
+        created = await client.post(f"/api/v1/missions/{project_id}/criteria", json=body)
+        assert created.status_code == 201, created.text
+        baseline_id = await _baseline(project_id)
+        async with AsyncSessionLocal() as db:
+            (await db.get(ProjectMission, uuid.UUID(project_id))).current_baseline_id = baseline_id
+            await db.commit()
+        listed = await client.get(f"/api/v1/missions/{project_id}/criteria")
+        assert listed.status_code == 200
+        assert listed.json()[0]["statement"] == body["statement"]
+        assert listed.json()[0]["task_ids"] == [str(task.id)]
+        replay = await client.post(f"/api/v1/missions/{project_id}/criteria", json=body)
+        assert replay.status_code == 200 and replay.json()["id"] == created.json()["id"]
+        changed = await client.post(f"/api/v1/missions/{project_id}/criteria",
+                                    json={**body, "statement": "Changed contract"})
+        assert changed.status_code == 409, changed.text
+
+    criterion_id = uuid.UUID(created.json()["id"])
+    async with AsyncSessionLocal() as db:
+        criterion = await db.get(MissionAcceptanceCriterion, criterion_id)
+        assert criterion.mission_project_id == uuid.UUID(project_id)
+        assert criterion.status == "open" and criterion.verifier_agent_id == verifier
+        assert criterion.verifier_is_marcelo is False
+        links = (await db.execute(select(MissionCriterionTask).where(
+            MissionCriterionTask.criterion_id == criterion_id))).scalars().all()
+        assert [link.task_id for link in links] == [task.id]
+
+
+async def test_criterion_creation_rejects_unqualified_verifier_foreign_task_and_frozen_baseline(cw):
+    mission = await cw.create_mission()
+    project_id = mission["project_id"]
+    verifier = await cw.agent("not-a-reviewer")
+    task = await _task(project_id, "In-scope task")
+    foreign_mission = await cw.create_mission()
+    foreign_task = await _task(foreign_mission["project_id"], "Foreign task")
+    url = f"/api/v1/missions/{project_id}/criteria"
+
+    async with cw.client() as client:
+        body = {"code": "AC-BOUNDARY-1", "statement": "A bounded criterion",
+                "verification_method": "Check the recorded evidence", "verifier_agent_id": str(verifier),
+                "task_ids": [str(task.id)], "idempotency_key": _key(cw)}
+        ineligible = await client.post(url, json=body)
+        assert ineligible.status_code == 422
+        assert ineligible.json()["detail"]["code"] == "CRITERION_VERIFIER_NOT_ELIGIBLE"
+
+        await _member(project_id, verifier, role="reviewer", can_review=True)
+        foreign = await client.post(url, json={**body, "task_ids": [str(foreign_task.id)],
+                                               "idempotency_key": _key(cw)})
+        assert foreign.status_code == 422
+        assert foreign.json()["detail"]["code"] == "CRITERION_TASKS_OUT_OF_SCOPE"
+
+        baseline_id = await _baseline(project_id)
+        async with AsyncSessionLocal() as db:
+            (await db.get(ProjectMission, uuid.UUID(project_id))).current_baseline_id = baseline_id
+            await db.commit()
+        frozen = await client.post(url, json={**body, "idempotency_key": _key(cw)})
+        assert frozen.status_code == 409
+        assert frozen.json()["detail"]["code"] == "CRITERIA_LOCKED"
 
 
 async def _request(cw, delivery):

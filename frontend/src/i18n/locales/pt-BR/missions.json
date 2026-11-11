@@ -276,6 +276,25 @@
     "reset": "Limpar edição da função",
     "unsaved": "Salve a função ou limpe sua edição antes de salvar os dados da missão."
   },
+  "criteria": {
+    "title": "Critérios de aceite",
+    "description": "Defina o resultado verificável e as tarefas que precisam comprová-lo. Os critérios ficam bloqueados depois da baseline.",
+    "loading": "Carregando critérios…",
+    "loadError": "Não foi possível carregar os critérios.",
+    "empty": "Nenhum critério de aceite cadastrado.",
+    "create": "Adicionar critério",
+    "code": "Código",
+    "verifier": "Responsável pela verificação",
+    "marcelo": "Marcelo (administrador)",
+    "statement": "Resultado esperado",
+    "verificationMethod": "Como verificar",
+    "linkedTasks": "Tarefas vinculadas",
+    "noTasks": "Cadastre tarefas antes de vincular critérios.",
+    "tasks": "Tarefas ({{count}}): {{tasks}}",
+    "saving": "Salvando…",
+    "save": "Salvar critério",
+    "status": { "open": "Aberto", "proven": "Comprovado", "failed": "Reprovado" }
+  },
   "acceptance": {
     "title": "Aceite da missão",
     "loading": "Carregando pedido de aceite…",

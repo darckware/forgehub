@@ -3,6 +3,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useTranslation } from "react-i18next";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { MissionAcceptance } from "@/components/missions/MissionAcceptance";
+import { MissionCriteria } from "@/components/missions/MissionCriteria";
 import { MissionExecutionsBoard } from "@/components/missions/MissionExecutionsBoard";
 import { useMissionExecutionsViewModel } from "@/hooks/useMissionExecutionsViewModel";
 
@@ -34,5 +35,15 @@ export default function MissionDetailPage() {
       </div>
     );
   }
-  return <div className="space-y-4">{admin && <div className="flex justify-end"><Link className={buttonVariants({ variant: "outline" })} to={`/missions/${projectId}/edit`}>{t("form.editTitle")}</Link></div>}{vm.board?.mission.state === "awaiting_acceptance" && projectId && <MissionAcceptance projectId={projectId} canAct={admin} />}<MissionExecutionsBoard vm={vm} /></div>;
+  const board = vm.board;
+  const canManageCriteria = admin && board != null
+    && ["draft", "planning"].includes(board.mission.state) && board.mission.baseline === null;
+  const reviewers = board?.tasks.flatMap(task => task.reviewer_candidates) ?? [];
+  return <div className="space-y-4">
+    {admin && <div className="flex justify-end"><Link className={buttonVariants({ variant: "outline" })} to={`/missions/${projectId}/edit`}>{t("form.editTitle")}</Link></div>}
+    {projectId && board && <MissionCriteria projectId={projectId} tasks={board.tasks} reviewers={reviewers}
+      canManage={canManageCriteria} />}
+    {board?.mission.state === "awaiting_acceptance" && projectId && <MissionAcceptance projectId={projectId} canAct={admin} />}
+    <MissionExecutionsBoard vm={vm} />
+  </div>;
 }

@@ -1023,8 +1023,8 @@ async def _document_entity(
         raise mission_error(404, "ENTITY_NOT_IN_PROJECT", f"{entity_type} not found in this project",
                             entity_type=entity_type)
     if entity_type == "mission_criterion":
-        # doc_links' CHECK has no criterion type yet; widening it is a
-        # migration, deferred until the criteria get their write route (M0.2).
+        # doc_links' CHECK has no criterion type yet; adding it needs a separate
+        # bounded migration. Criteria can still reference project/task documents.
         raise mission_error(422, "ENTITY_TYPE_NOT_SUPPORTED",
                             "Linking a document to an acceptance criterion is not available yet; "
                             "link it to the project or the task that verifies the criterion")

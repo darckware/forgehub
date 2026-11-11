@@ -1,5 +1,30 @@
 # Mission release review and recovery record
 
+## Release addendum — 2026-11-11
+
+The ten findings below were reproduced and fixed before release. Candidate
+`8282579ea67a6f12e7c87d1a62f50b67fb06868c` was qualified with the full backend
+regression (**2,175 passed, 21 skipped**), full frontend suite (**523 passed in
+111 files**), 19 focused bridge tests, browser checks, and six tests against the
+exact backend image. The broad bridge test run remains incomplete: its pytest
+process hung after 31 passes and was interrupted, so it is not claimed as green.
+
+The exact release and live state are recorded at
+`/root/.forgehub/releases/mission-integration-8282579-retry1/release.json`:
+backend `fh-fc67cea`, frontend `fh-8282579`, migration
+`e6f2d4a89cb7`, `MISSION_CYCLE_ENABLED=false`,
+`MESSAGE_TRIAGE_ENABLED=false`, `MISSION_TOOLS_ENABLED=true`,
+`BACKGROUND_WORKERS_ENABLED=true`. Backup restoration and migration were tested
+in a disposable Postgres. One initial rollout was automatically reverted after
+an immediate backend health probe raced startup; the retry waited for HTTP 200
+and published. The same tmux server and three pane PIDs were preserved.
+
+This release closes the reviewed implementation slice, not the full maturation
+plan. A read-only audit after deployment found that mission criteria can be
+decided and accepted, but there is no criteria creation route yet (the code
+defers criterion writes to M0.2). Tasks 8–12 and the broad bridge suite remain
+open; automatic mission cycle and message triage stay disabled.
+
 Reviewed `dfc46e6..d730841` in `feat/messages-triage`. The checkpoint is on
 origin. It preserves Tasks 1–7, including governed acceptance, alongside the
 terminal hotfix already deployed separately. Tasks 8–12 remain in the approved

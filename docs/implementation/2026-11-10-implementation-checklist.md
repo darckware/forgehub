@@ -1,6 +1,6 @@
 # Checklist de implementação e retomada
 
-Atualizado em 2026-11-10, America/Sao_Paulo.
+Atualizado em 2026-11-11, America/Sao_Paulo.
 
 Objetivo: preservar todo o contexto e concluir o amadurecimento de Missões,
 Messages, Operação 24x7 e Service Factory até a entrega verificada. O plano não
@@ -10,6 +10,61 @@ Fontes: [plano completo](../superpowers/plans/2026-11-09-mission-messages-matura
 [matriz de requisitos e continuidade](../reports/2026-11-09-development-continuity.md),
 [histórico dos pedidos](2026-11-10-user-requirements-history.md) e
 [progresso por etapa](../reports/2026-11-09-maturation-implementation-progress.md).
+
+## Aditivo de publicação — 11/11/2026
+
+O estado abaixo supersede o status operacional de 10/11: a integração foi
+revisada, qualificada e publicada em `8282579ea67a6f12e7c87d1a62f50b67fb06868c`.
+Isso entrega a fatia implementada T1–T7 e R21; **não conclui o plano integral**.
+
+- [x] Recuperar a falha da regressão interrompida: backend completo passou,
+  **2.175 passed, 21 skipped** (`/tmp/fh-mission-fc67cea-backend.log`).
+- [x] Validar alterações integradas do frontend: **523 passed em 111 arquivos**;
+  build, TypeScript, catálogos pt-BR/en/es e navegador desktop/mobile passaram.
+- [x] Revisão independente do candidato e correção dos dez achados importantes;
+  testes RED/GREEN registrados em `../reports/2026-11-10-mission-release-review.md`.
+- [x] Testar a migração `e4d0b2c67a95`–`e6f2d4a89cb7` em restauração descartável;
+  o backup privado e a restauração constam no recibo do release.
+- [x] Integrar as duas melhorias de terminal commitadas em develop durante a
+  retomada (colar/imagem/ir ao fim; atalhos Ctrl e Home/End); a compilação final
+  e os 523 testes cobrem essa revisão.
+- [x] Enviar `feat/messages-triage` e `develop`; ambos apontam para `8282579`.
+- [x] Publicar backend `forgehub-backend:fh-fc67cea`, frontend
+  `forgehub-frontend:fh-8282579` e ponte no release versionado.
+- [x] Conferir no host: HTTP 200, proxy sem autenticação HTTP 401, banco em
+  `e6f2d4a89cb7`, uma policy de aceite ativa, flags registradas abaixo e três
+  panes tmux preservadas com os mesmos PIDs.
+- [x] Manter `MISSION_CYCLE_ENABLED=false` e `MESSAGE_TRIAGE_ENABLED=false`;
+  `MISSION_TOOLS_ENABLED=true` e `BACKGROUND_WORKERS_ENABLED=true`.
+- [x] Fechar no código a lacuna de cadastro de critérios: API GET/POST, validação
+  de verifier e tarefas dentro do escopo, idempotência/auditoria e bloqueio após
+  baseline; MCP `get_mission_criteria` / `create_mission_criterion`; painel web
+  para leitura e cadastro antes da baseline. Suíte backend integral: **2.178
+  passed, 21 skipped**; frontend: **526 passed em 112 arquivos**; build,
+  TypeScript, locales e testes do componente passaram.
+- [ ] Construir, revisar e publicar a revisão com o cadastro de critérios; o
+  release `8282579` segue ativo até o novo artefato passar por build, smoke,
+  backup/restore e rollout verificado.
+- [ ] Continuar T8–T12 conforme o plano. Nenhum desses pacotes é coberto pelo
+  release de hoje.
+- [ ] Concluir a suíte ampla do host-bridge que travou na interação assíncrona
+  do pytest; os 19 testes focados passaram, mas a execução interrompida não é
+  uma aprovação da suíte inteira.
+- [ ] Atualizar a Skill `forgehub` instalada para v1.3.0 com as quatro
+  ferramentas MCP, guardas de baseline, verificação independente e aceite
+  humano. O texto v1.3.0 está preparado em `/tmp/forgehub-skill-1.3.0.md`, mas
+  o sandbox recusou a gravação de `/root/.codex/skills/forgehub/SKILL.md`, fora
+  das raízes graváveis; precisa de uma sessão com esse caminho habilitado.
+
+Recibo operacional (não contém credenciais):
+`/root/.forgehub/releases/mission-integration-8282579-retry1/release.json`.
+Backup privado validado em
+`/root/backup/mission-integration-8282579-retry1/forgehub.dump`; política live
+do scope tmux: `OOMPolicy=continue`. Os nomes atuais das sessões permanecem
+Claude - Remoto, Agy - Darckware e Codex - Missão. A primeira tentativa de
+rollout foi revertida por health-check imediato; a repetição com espera de
+prontidão publicou com sucesso. A migração aditiva ficou aplicada no rollback
+e foi reutilizada sem reaplicação.
 
 ## Entregas verificadas nesta retomada
 

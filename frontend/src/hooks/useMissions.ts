@@ -149,6 +149,38 @@ export const missionBoardSchema = z.object({
 });
 export type MissionBoard = z.infer<typeof missionBoardSchema>;
 
+export const missionCriterionSchema = z.object({
+  id: z.string(), code: z.string(), statement: z.string(), verification_method: z.string(),
+  status: z.enum(["open", "proven", "failed"]), verifier_agent_id: z.string().nullable(),
+  verifier_is_marcelo: z.boolean(), evidence_ref: z.string().nullable(), task_ids: z.array(z.string()),
+});
+export type MissionCriterion = z.infer<typeof missionCriterionSchema>;
+
+export function useMissionCriteria(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["mission-criteria", projectId],
+    queryFn: async () => z.array(missionCriterionSchema).parse(
+      await apiClient.get(`/api/v1/missions/${projectId}/criteria`),
+    ),
+    enabled: Boolean(projectId),
+  });
+}
+
+export function useCreateMissionCriterion(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      code: string; statement: string; verification_method: string; task_ids: string[];
+      verifier_agent_id?: string; verifier_is_marcelo?: boolean; idempotency_key: string;
+    }) => apiClient.post(`/api/v1/missions/${projectId}/criteria`, body),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["mission-criteria", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["mission-board", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["missions"] });
+    },
+  });
+}
+
 export const missionSummarySchema = z.object({
   project_id: z.string(),
   name: z.string(),

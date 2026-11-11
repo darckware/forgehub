@@ -276,6 +276,25 @@
     "reset": "Reset role editor",
     "unsaved": "Save the role or reset its editor before saving the mission details."
   },
+  "criteria": {
+    "title": "Acceptance criteria",
+    "description": "Define the verifiable result and the tasks that must prove it. Criteria lock after the baseline.",
+    "loading": "Loading criteria…",
+    "loadError": "Could not load the criteria.",
+    "empty": "No acceptance criteria have been registered.",
+    "create": "Add a criterion",
+    "code": "Code",
+    "verifier": "Verification owner",
+    "marcelo": "Marcelo (administrator)",
+    "statement": "Expected result",
+    "verificationMethod": "How to verify",
+    "linkedTasks": "Linked tasks",
+    "noTasks": "Add tasks before linking criteria.",
+    "tasks": "Tasks ({{count}}): {{tasks}}",
+    "saving": "Saving…",
+    "save": "Save criterion",
+    "status": { "open": "Open", "proven": "Proven", "failed": "Failed" }
+  },
   "acceptance": {
     "title": "Mission acceptance",
     "loading": "Loading acceptance request…",

@@ -248,6 +248,28 @@ async def test_submit_plan_never_approves(world, mcp_as):
 
 
 @pytest.mark.asyncio
+async def test_mcp_can_create_an_objective_criterion_before_the_baseline(world, mcp_as):
+    plan = await Plan().build(world)
+    mcp_as(_token(plan.orch_h))
+
+    created = await factory_server.create_mission_criterion(
+        project_id=plan.project_id,
+        code="AC-MCP-1",
+        statement="The requested behavior is available to the user",
+        verification_method="Exercise the guarded endpoint and record its exact response",
+        task_ids=[str(plan.task.id)],
+        verifier_agent_id=str(plan.reviewer),
+        idempotency_key=_key(),
+    )
+    assert created["status"] == "open" and created["code"] == "AC-MCP-1"
+    assert created["task_ids"] == [str(plan.task.id)]
+    assert created["replayed"] is False
+    listed = await factory_server.get_mission_criteria(plan.project_id)
+    assert listed["total"] >= 2
+    assert any(row["id"] == created["id"] for row in listed["criteria"])
+
+
+@pytest.mark.asyncio
 async def test_submit_refusals_and_failed_checks(world):
     plan = await Plan().build(world)
     await _force(plan.project_id, planning_stage="decisions")

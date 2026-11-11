@@ -276,6 +276,25 @@
     "reset": "Limpiar edición de función",
     "unsaved": "Guarde la función o limpie su edición antes de guardar los datos de la misión."
   },
+  "criteria": {
+    "title": "Criterios de aceptación",
+    "description": "Defina el resultado verificable y las tareas que deben demostrarlo. Los criterios se bloquean después de la baseline.",
+    "loading": "Cargando criterios…",
+    "loadError": "No se pudieron cargar los criterios.",
+    "empty": "No se han registrado criterios de aceptación.",
+    "create": "Añadir criterio",
+    "code": "Código",
+    "verifier": "Responsable de la verificación",
+    "marcelo": "Marcelo (administrador)",
+    "statement": "Resultado esperado",
+    "verificationMethod": "Cómo verificar",
+    "linkedTasks": "Tareas vinculadas",
+    "noTasks": "Añada tareas antes de vincular criterios.",
+    "tasks": "Tareas ({{count}}): {{tasks}}",
+    "saving": "Guardando…",
+    "save": "Guardar criterio",
+    "status": { "open": "Abierto", "proven": "Demostrado", "failed": "Fallido" }
+  },
   "acceptance": {
     "title": "Aceptación de la misión",
     "loading": "Cargando solicitud de aceptación…",

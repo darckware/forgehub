@@ -259,6 +259,13 @@ be linked to several missions (04).
 (RESTRICT), `UNIQUE(criterion_id, task_id)`; route rule: the task belongs to the mission project or a
 linked executor project (04 §Modelo).
 
+As built (2026-11-11): `GET/POST /api/v1/missions/{project_id}/criteria` and MCP tools
+`get_mission_criteria` / `create_mission_criterion` expose these records. Creation requires the
+administrator or the mission orchestrator with `mission.orchestrate`, one active mission reviewer or
+Marcelo as verifier, and at least one in-scope linked task. It is idempotent and only available before
+the first baseline; the baseline then freezes the criterion contract. `mission_criterion` document
+links remain unsupported until the separate `doc_links` constraint migration is qualified.
+
 `ScopeItemAcceptanceCriterion` [EXISTS backend/app/db/models/system_scope.py:297] was considered and
 **not** reused: it hangs off `project_scope_items` (a software-delivery scope element), has no
 verifier, status or evidence, and a mission has no `ProjectScope`.
@@ -927,7 +934,7 @@ Per 12 "Aceite mínimo persistido da M0" and 04 "Aceite mínimo M0":
 5. Never inferred from `Project.status`, never from a name in Markdown, never from an agent token;
    `mission.accept` delegation is refused in M0 (403 `ACCEPTANCE_RESERVED_TO_MARCELO`).
 
-Criterion decisions: `POST /api/v1/missions/{project_id}/criteria/{id}:decide` [PROPOSED]
+Criterion decisions: `POST /api/v1/missions/{project_id}/criteria/{id}:decide` [AS BUILT]
 `{status: proven|failed, evidence_ref, reason}`; only the criterion's verifier (agent with `agt_`) or
 Marcelo; the verifier must not be the executor of any linked task (409 `VERIFIER_IS_EXECUTOR`); all
 linked tasks must be done through the guard before `proven`.
