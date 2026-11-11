@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { SendHorizontal } from "lucide-react";
+import { ArrowDownToLine, ImagePlus, Loader2, SendHorizontal } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import { TerminalToolbar } from "@/components/TerminalToolbar";
 import { JumpToBottomButton } from "@/components/JumpToBottomButton";
 import { ApiError, apiClient, getToken } from "@/lib/api";
 import { attachTerminalImeInput } from "@/lib/terminalImeInput";
+import { uploadExplorerFile } from "@/hooks/useFileExplorer";
 import {
   copyTerminalText,
   findLastHttpUrl,
@@ -98,9 +99,50 @@ const TOUCH_KEYS: { label: string; data: string; aria: string }[] = [
   { label: "⏎", data: "\r", aria: "Enter" },
 ];
 
-function TerminalTouchInput({ send }: { send: (data: string) => void }) {
+/** Where a phone's image lands on the terminal's machine. Claude Code reads
+ * an image from a path written in its prompt; Ctrl+V can't bring one, since
+ * it reads the server's clipboard. /tmp: these are throwaway copies. */
+const TERMINAL_IMAGE_DIR = "/tmp/forgehub-terminal-uploads";
+
+function terminalImagePath(file: File): string {
+  const ext = (/\.([a-z0-9]{1,5})$/i.exec(file.name)?.[1] ?? file.type.split("/")[1] ?? "png").toLowerCase();
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `${TERMINAL_IMAGE_DIR}/${stamp}-${rand}.${ext}`;
+}
+
+function TerminalTouchInput({
+  send,
+  paste,
+  scrollToEnd,
+  serverId,
+}: {
+  send: (data: string) => void;
+  paste: () => void;
+  scrollToEnd: () => void;
+  serverId?: string;
+}) {
   const { t } = useTranslation("workspace");
   const [text, setText] = useState("");
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [imageStatus, setImageStatus] = useState<"idle" | "uploading" | "error">("idle");
+  const [imageError, setImageError] = useState<string | null>(null);
+
+  async function attachImage(file: File) {
+    setImageStatus("uploading");
+    setImageError(null);
+    try {
+      const path = terminalImagePath(file);
+      await uploadExplorerFile(serverId ?? null, path, file, false);
+      // The path goes into the typing bar, not straight to the terminal, so
+      // the request can be written around it before sending.
+      setText((current) => (current && !/\s$/.test(current) ? `${current} ${path} ` : `${current}${path} `));
+      setImageStatus("idle");
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : String(err));
+      setImageStatus("error");
+    }
+  }
 
   function submit() {
     if (text) {
@@ -119,19 +161,72 @@ function TerminalTouchInput({ send }: { send: (data: string) => void }) {
     <div className="shrink-0 space-y-1.5 border-t border-border bg-background p-1.5">
       <div className="flex gap-1 overflow-x-auto">
         {TOUCH_KEYS.map((key) => (
-          <button
-            key={key.aria}
-            type="button"
-            aria-label={key.aria}
-            // Keeps focus (and the phone keyboard) in the textarea.
-            onPointerDown={(e) => e.preventDefault()}
-            onClick={() => send(key.data)}
-            className="h-8 min-w-[2.5rem] shrink-0 rounded-md border border-border bg-muted px-2 font-mono text-xs text-foreground active:bg-accent"
-          >
-            {key.label}
-          </button>
+          <Fragment key={key.aria}>
+            <button
+              type="button"
+              aria-label={key.aria}
+              // Keeps focus (and the phone keyboard) in the textarea.
+              onPointerDown={(e) => e.preventDefault()}
+              onClick={() => send(key.data)}
+              className="h-8 min-w-[2.5rem] shrink-0 rounded-md border border-border bg-muted px-2 font-mono text-xs text-foreground active:bg-accent"
+            >
+              {key.label}
+            </button>
+            {/* ^V, beside ^C, pastes the phone's clipboard rather than sending
+                the 0x16 byte: Ctrl+V inside the terminal reads the server's
+                clipboard, and the VPS has none. */}
+            {key.aria === "Ctrl+C" && (
+              <button
+                type="button"
+                aria-label="Ctrl+V"
+                title={t("terminal.touchPaste")}
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={paste}
+                className="h-8 min-w-[2.5rem] shrink-0 rounded-md border border-border bg-muted px-2 font-mono text-xs text-foreground active:bg-accent"
+              >
+                ^V
+              </button>
+            )}
+          </Fragment>
         ))}
+        <button
+          type="button"
+          aria-label={t("terminal.jumpToBottom")}
+          title={t("terminal.jumpToBottom")}
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={scrollToEnd}
+          className="flex h-8 min-w-[2.5rem] shrink-0 items-center justify-center rounded-md border border-border bg-muted px-2 text-foreground active:bg-accent"
+        >
+          <ArrowDownToLine className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          aria-label={t("terminal.touchImage")}
+          title={t("terminal.touchImage")}
+          disabled={imageStatus === "uploading"}
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={() => imageInputRef.current?.click()}
+          className="flex h-8 min-w-[2.5rem] shrink-0 items-center justify-center rounded-md border border-border bg-muted px-2 text-foreground active:bg-accent disabled:opacity-60"
+        >
+          {imageStatus === "uploading" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+        </button>
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void attachImage(file);
+          }}
+        />
       </div>
+      {imageStatus === "error" && (
+        <p role="alert" className="px-1 text-xs text-destructive">
+          {t("terminal.touchImageError", { error: imageError })}
+        </p>
+      )}
       <div className="flex items-end gap-1.5">
         <textarea
           value={text}
@@ -225,6 +320,25 @@ export function TerminalPane({ sessionId, command, cwd, active, serverId, contro
     const data = `\x1b[<65;${col};${row}M`.repeat(notches + 3);
     socket.send(JSON.stringify({ type: "input", data }));
   };
+  // The touch bar's "go to the end" key. Unlike the floating button it is
+  // always there, so it can't rely on the wheel count alone: a TUI may have
+  // scrolled on its own. Local scrollback goes to the bottom, and while the
+  // program reads the mouse (tmux, Claude Code) enough wheel-downs go out to
+  // reach the end -- extra ones at the bottom are no-ops there. Without
+  // mouse reporting nothing is sent: the wheel bytes would be typed as text.
+  const scrollToEnd = () => {
+    const term = termRef.current;
+    const socket = wsRef.current;
+    if (!term) return;
+    term.scrollToBottom();
+    const notches = Math.max(wheelUpNotchesRef.current + 3, 60);
+    wheelUpNotchesRef.current = 0;
+    setScrolledAway(false);
+    if (term.modes.mouseTrackingMode === "none" || socket?.readyState !== WebSocket.OPEN) return;
+    const col = Math.max(1, Math.floor(term.cols / 2));
+    const row = Math.max(1, Math.floor(term.rows / 2));
+    socket.send(JSON.stringify({ type: "input", data: `\x1b[<65;${col};${row}M`.repeat(notches) }));
+  };
   const touchInputRef = useRef(touchInput);
   touchInputRef.current = touchInput;
   const sendToPty = (data: string) => {
@@ -233,6 +347,24 @@ export function TerminalPane({ sessionId, command, cwd, active, serverId, contro
     if (wheelUpNotchesRef.current > 0) jumpToBottom();
     const socket = wsRef.current;
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "input", data }));
+  };
+  // Paste the browser's clipboard as a terminal paste: term.paste() wraps it
+  // in bracketed-paste markers when the program asked for them, so a
+  // multi-line text lands in Claude Code's prompt instead of submitting it
+  // line by line. Clipboard reads need a secure context and can be refused;
+  // then a native prompt is the one place a phone can still paste into.
+  const pasteFromClipboard = async () => {
+    const term = termRef.current;
+    if (!term) return;
+    let text: string | null = null;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      text = window.prompt(t("terminal.touchPastePrompt"));
+    }
+    if (!text) return;
+    if (wheelUpNotchesRef.current > 0) jumpToBottom();
+    term.paste(text);
   };
   const [fontSize, setFontSize] = useState<number>(getStoredFontSize);
   const [latestLink, setLatestLink] = useState<string | null>(null);
@@ -763,7 +895,7 @@ export function TerminalPane({ sessionId, command, cwd, active, serverId, contro
         <div ref={containerRef} className="h-full w-full" />
         {scrolledAway && <JumpToBottomButton onClick={jumpToBottom} />}
       </div>
-      {touchInput && <TerminalTouchInput send={sendToPty} />}
+      {touchInput && <TerminalTouchInput send={sendToPty} paste={() => void pasteFromClipboard()} scrollToEnd={scrollToEnd} serverId={serverId} />}
     </div>
   );
 }
