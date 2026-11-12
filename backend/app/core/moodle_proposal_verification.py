@@ -17,9 +17,13 @@ DESTRUCTIVE_FUNCTIONS = frozenset({
 ALLOWED_FUNCTIONS = DESTRUCTIVE_FUNCTIONS | {
     "core_course_update_courses", "core_user_create_users", "core_group_create_groups",
     "enrol_manual_enrol_users", "core_group_add_group_members", "core_user_update_users",
-    "mcp_student_batch_v1",
+    "mcp_student_batch_v1", "local_moodle_accounts_confirm_users",
 }
 STUDENT_BATCH_FUNCTION = "mcp_student_batch_v1"
+# The Moodle plugin local_moodle_accounts (moodle repo, moodle-local-accounts/): core has no
+# Web Service that confirms an account.
+CONFIRM_USERS_FUNCTION = "local_moodle_accounts_confirm_users"
+CONFIRM_USERS_MAX = 30
 STUDENT_BATCH_MAX_ROWS = 30
 MAX_SAFE_INT = 9007199254740991
 
@@ -81,6 +85,16 @@ def _no_password(value):
             _no_password(item)
     elif isinstance(value, str) and "@semed" in value.lower():
         raise ProposalInvalid("A batch proposal cannot carry a password")
+
+
+def _is_suspension(params):
+    """The MCP's moodle_propose_set_user_suspension: one user, only `suspended` as 0 or 1."""
+    if not isinstance(params, dict) or set(params) != {"users"}:
+        return False
+    users = params["users"]
+    return (isinstance(users, list) and len(users) == 1 and isinstance(users[0], dict)
+            and set(users[0]) == {"id", "suspended"} and _positive_id(users[0]["id"])
+            and type(users[0]["suspended"]) is int and users[0]["suspended"] in (0, 1))
 
 
 def _candidates(value):
@@ -179,10 +193,12 @@ def validate_proposal(proposal, request_id):
     function = proposal.get("wsfunction")
     if not isinstance(function, str) or function not in ALLOWED_FUNCTIONS or proposal.get("destructive") is not (function in DESTRUCTIVE_FUNCTIONS):
         raise ProposalInvalid("Operation is not permitted")
-    if function == "core_user_update_users":
+    if function == "core_user_update_users" and _is_suspension(proposal.get("params")):
+        pass  # exactly one user, only the suspended flag
+    elif function == "core_user_update_users":
         params = proposal.get("params")
         if not isinstance(params, dict) or set(params) != {"standard_password_reset"}:
-            raise ProposalInvalid("Only standard password reset descriptors are permitted")
+            raise ProposalInvalid("Only standard password reset or suspension changes are permitted")
         reset = params["standard_password_reset"]
         if (not isinstance(reset, dict) or set(reset) != {"userid", "date_of_birth", "policy"}
                 or type(reset["userid"]) is not int or not 0 < reset["userid"] <= 9007199254740991
@@ -205,6 +221,12 @@ def validate_proposal(proposal, request_id):
             raise ProposalInvalid("A create proposal cannot carry a password")
     if function == STUDENT_BATCH_FUNCTION:
         _validate_student_batch(proposal["params"])
+    if function == CONFIRM_USERS_FUNCTION:
+        userids = proposal["params"].get("userids")
+        if (set(proposal["params"]) != {"userids"} or not isinstance(userids, list)
+                or not 0 < len(userids) <= CONFIRM_USERS_MAX or not all(_positive_id(u) for u in userids)
+                or len(set(userids)) != len(userids)):
+            raise ProposalInvalid("Invalid account confirmation")
     if not all(isinstance(proposal.get(k), str) and proposal[k] for k in ("host", "environment", "params_hash", "created_at", "expires_at")):
         raise ProposalInvalid("Proposal is incomplete")
     if re.fullmatch(r"[0-9a-f]{64}", proposal["params_hash"]) is None:
