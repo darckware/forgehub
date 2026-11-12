@@ -127,8 +127,67 @@ async def test_password_rotation_failure_keeps_the_previous_secret_untouched(cli
     calls, result, row = await _rotate(client, station, "login_password", [FAIL], vault)
     (_, values), = vault.versions.items()
     assert len(values) == 1 and values[0] != "SenhaAntiga#2026"  # only the new one; nothing written back
-    assert result.status == "failed" and "segredo anterior intocado" in result.stdout
+    assert result.status == "failed" and "continua com a senha anterior" in result.stdout
     assert row.login_password_ref == "00000000-0000-0000-0000-00000000aaaa"
+    event = await _failure_event(station)
+    assert event.payload["outcome"] == "not_applied" and event.payload["step"] == "apply"
+    assert event.payload["secret_ref"] == NEW_LOGIN_REF and event.payload["row_secret"] == "previous"
+
+
+NEW_LOGIN_REF = "00000000-0000-0000-0000-00000000bbbb"
+OLD_LOGIN_REF = "00000000-0000-0000-0000-00000000aaaa"
+TIMEOUT = {"exit_code": None, "stdout": "", "stderr": "timed out", "duration_ms": 120000, "failure": "timeout"}
+BRIDGE_LOST = {"failure": "connection", "stderr": "Host bridge unreachable: ReadTimeout"}
+
+
+async def _failure_event(station):
+    async with AsyncSessionLocal() as db:
+        (event,) = list((await db.execute(select(AuditEvent).where(
+            AuditEvent.entity_id == station.id, AuditEvent.event_type == "login_password_rotation_failed"))).scalars())
+    values = repr(event.payload)
+    assert "SenhaAntiga" not in values  # ids only, never a password
+    return event
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("uncertain", [TIMEOUT, BRIDGE_LOST])
+async def test_uncertain_apply_points_the_row_at_the_new_secret(client, station, uncertain):
+    """A timeout (or losing the bridge mid-request) may come after the change
+    happened: the machine may hold the new password, so the row follows it and
+    the log says so; both ids are in the audit."""
+    vault = FakeVault()
+    calls, result, row = await _rotate(client, station, "login_password", [dict(uncertain)], vault)
+    assert len(calls) == 1 and result.status == "failed"
+    assert "resultado incerto" in result.stdout and "pode estar com a NOVA senha" in result.stdout
+    assert row.login_password_ref == NEW_LOGIN_REF
+    event = await _failure_event(station)
+    assert event.payload == {"login": "darckware", "secret_ref": NEW_LOGIN_REF, "previous_secret_ref": OLD_LOGIN_REF,
+                             "step": "apply", "outcome": "uncertain", "failure": uncertain["failure"],
+                             "row_secret": "new"}
+
+
+@pytest.mark.asyncio
+async def test_windows_verify_and_reapply_both_failing_keeps_the_new_password(client, station):
+    vault = FakeVault()
+    calls, result, row = await _rotate(client, station, "login_password", [OK, FAIL, FAIL], vault)
+    assert [c["script"] == "whoami" for c in calls] == [False, True, False]
+    assert "SenhaAntiga#2026" in calls[2]["script"]               # the reapply was tried
+    assert "reaplicar a senha anterior: FALHOU" in result.stdout
+    assert "senha anterior reaplicada: ok" not in result.stdout
+    assert row.login_password_ref == NEW_LOGIN_REF
+    event = await _failure_event(station)
+    assert event.payload["step"] == "verify" and event.payload["outcome"] == "revert_failed"
+    assert event.payload["row_secret"] == "new"
+
+
+@pytest.mark.asyncio
+async def test_windows_verify_failing_with_a_good_reapply_keeps_the_previous_secret(client, station):
+    vault = FakeVault()
+    calls, result, row = await _rotate(client, station, "login_password", [OK, FAIL, OK], vault)
+    assert "senha anterior reaplicada: ok" in result.stdout
+    assert row.login_password_ref == OLD_LOGIN_REF
+    event = await _failure_event(station)
+    assert event.payload["outcome"] == "reverted" and event.payload["secret_ref"] == NEW_LOGIN_REF
 
 
 @pytest.mark.asyncio

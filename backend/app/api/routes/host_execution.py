@@ -354,6 +354,7 @@ def system_script_hook(script: HostScript, values: dict | None):
             server = await db.get(Server, server_id)
             if server is None:
                 return
+            previous_ref = server.rustdesk_password_ref
             server.rustdesk_password_ref = await vault_store(
                 fresh_machine_secret_name(server, "RUSTDESK"), password,
                 f"Senha permanente do RustDesk em {server.name} ({server.darckware_client_name or 'sem cliente'})",
@@ -362,7 +363,9 @@ def system_script_hook(script: HostScript, values: dict | None):
             if match:
                 server.rustdesk_id = match.group(1)
             db.add(AuditEvent(entity_type="server", entity_id=server_id, event_type="rustdesk_password_recorded",
-                              actor="forgehub", payload={"script": script.system_key, "rustdesk_id": server.rustdesk_id}))
+                              actor="forgehub", payload={"script": script.system_key, "rustdesk_id": server.rustdesk_id,
+                                       "secret_ref": server.rustdesk_password_ref,
+                                       "previous_secret_ref": previous_ref}))
             await db.commit()
 
     return record

@@ -11,10 +11,12 @@ read, or a read by another identity of a secret that no longer has a row to clas
 
 Prints identity, secret name, count and last time. It selects no value and no metadata.
 
-A key secret is any name CONTAINING `_SSH_KEY` (2026-11-12), not only one ending in it:
-rotations wrote `WS_<CLIENT>_<MACHINE>_SSH_KEY_<SUFFIX>` before ForgeHub moved the suffix in
-front of the purpose (`WS_<CLIENT>_<MACHINE>_<SUFFIX>_SSH_KEY`), and those secrets keep their
-names, so a suffix-match missed every read of them.
+A key secret is a name ending in `_SSH_KEY`, or in `_SSH_KEY_<YYYYMMDDHHMMSS>_<8 HEX>`
+(2026-11-12): until then ForgeHub's rotations wrote that suffix AFTER the purpose, and those
+secrets keep their names, so the old ends-with match missed every read of them. ForgeHub now
+puts the suffix before the purpose (`WS_<CLIENT>_<MACHINE>_<SUFFIX>_SSH_KEY`). The exact old
+suffix is matched, not any `_SSH_KEY_...`, so `X_SSH_KEYS` or `X_SSH_KEY_PASSPHRASE` aren't
+counted as keys.
 """
 from __future__ import annotations
 
@@ -42,12 +44,12 @@ WITH reads AS (
     WHERE l.action IN ('SECRET_READ', 'SECRET_REVEAL')
       AND l."timestamp" >= :'marker'::timestamptz
 ), key_reads AS (
-    SELECT * FROM reads WHERE strpos(upper(secret_name), '_SSH_KEY') > 0
+    SELECT * FROM reads WHERE upper(secret_name) ~ '_SSH_KEY(_[0-9]{14}_[0-9A-F]{8})?$'
 )
 SELECT json_build_object(
     'audit_rows', (SELECT count(*) FROM audit_logs WHERE action IN ('SECRET_READ', 'SECRET_REVEAL')),
     'scanned', (SELECT count(*) FROM reads),
-    'key_secrets', (SELECT count(*) FROM secrets WHERE strpos(upper(name), '_SSH_KEY') > 0),
+    'key_secrets', (SELECT count(*) FROM secrets WHERE upper(name) ~ '_SSH_KEY(_[0-9]{14}_[0-9A-F]{8})?$'),
     'allowed_accounts', (SELECT count(*) FROM service_accounts WHERE name = :'allowed'),
     'allowed_reads', (SELECT count(*) FROM key_reads WHERE allowed),
     'unclassified', (SELECT count(*) FROM reads WHERE secret_id IS NULL AND NOT allowed),

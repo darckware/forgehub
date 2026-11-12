@@ -1404,12 +1404,53 @@ async def _run_as(server: Server, script: str, *, key_path: str | None = None, k
     )
 
 
+def _apply_may_have_happened(outcome: dict) -> bool:
+    """Whether a failed run might still have changed the machine. "auth" and
+    the bridge's own "connection" (ssh never logged in) and "command" (the one
+    command ran and exited non-zero) mean it did not; a timeout, or losing the
+    bridge mid-request (the run may have gone through), means it may have."""
+    failure = outcome.get("failure")
+    if failure == "timeout":
+        return True
+    return failure == "connection" and str(outcome.get("stderr") or "").startswith("Host bridge unreachable")
+
+
+async def _rotation_failed(
+    db: AsyncSession, server: Server, log: list[str], step_outcome: dict, *,
+    step: str, outcome: str, new_ref: str, previous_ref: str | None, machine_may_hold_new: bool,
+) -> dict:
+    """Every failed password rotation ends here. The new password is in its own
+    fresh secret, so its id must never be lost: it goes in the audit event
+    (`login_password_rotation_failed`, id only, never the value) whatever
+    happened. When the machine may hold the new password, the row points at
+    the new secret -- the safest single answer, since the old one is then
+    possibly wrong and the new one possibly right -- and both ids stay in the
+    audit, so either can be tried by hand."""
+    if machine_may_hold_new:
+        server.login_password_ref = new_ref
+        server.login_password_encrypted = None
+        log.append("   ATENÇÃO: a máquina pode estar com a NOVA senha; o cadastro passou a apontar para o segredo novo "
+                   f"({new_ref}). O segredo anterior ({previous_ref or 'nenhum'}) continua no ForgeVault.")
+    else:
+        log.append(f"   a máquina continua com a senha anterior; o cadastro segue no segredo anterior. "
+                   f"O segredo novo ({new_ref}) ficou sem uso no ForgeVault.")
+    db.add(AuditEvent(
+        entity_type="server", entity_id=server.id, event_type="login_password_rotation_failed", actor="forgehub",
+        payload={"login": server.remote_user, "secret_ref": new_ref, "previous_secret_ref": previous_ref,
+                 "step": step, "outcome": outcome, "failure": step_outcome.get("failure"),
+                 "row_secret": "new" if machine_may_hold_new else "previous"},
+    ))
+    await db.commit()
+    return _fail(log, step_outcome)
+
+
 async def _rotate_password(db: AsyncSession, server: Server) -> dict:
     log: list[str] = []
     login = server.remote_user
     # A fresh secret (core/forgevault.py): the previous one is never rotated in
-    # place -- its name might even be another machine's -- so on failure the
-    # row simply keeps pointing at it, unchanged, and nothing is written back.
+    # place -- its name might even be another machine's. So a failure never
+    # writes back; instead _rotation_failed records the new secret's id and,
+    # when the machine may already hold the new password, points the row at it.
     previous_ref = server.login_password_ref
     old = await vault_reveal(previous_ref) if previous_ref else None
     new = generate_password()
@@ -1418,18 +1459,35 @@ async def _rotate_password(db: AsyncSession, server: Server) -> dict:
     log.append("== 1/3 Nova senha gravada na ForgeVault: ok")
     applied = await _run_as(server, _set_password_script(server.os_family or "linux", login, new))
     if applied.get("failure"):
-        log.append("== 2/3 Aplicar na máquina: FALHOU")
-        log.append("   a senha anterior continua a atual na ForgeVault (segredo anterior intocado)")
-        return _fail(log, applied)
+        uncertain = _apply_may_have_happened(applied)
+        log.append("== 2/3 Aplicar na máquina: FALHOU" + (" (resultado incerto: pode ter sido aplicada)" if uncertain else ""))
+        return await _rotation_failed(
+            db, server, log, applied, step="apply", outcome="uncertain" if uncertain else "not_applied",
+            new_ref=ref, previous_ref=previous_ref, machine_may_hold_new=uncertain,
+        )
     log.append("== 2/3 Aplicar na máquina: ok")
     if server.os_family == "windows":
         check = await _run_as(server, "whoami", password=new)
         if check.get("failure"):
             log.append("== 3/3 Login com a nova senha: FALHOU")
-            if old:
-                await _run_as(server, _set_password_script("windows", login, old))
-                log.append("   senha anterior reaplicada; continua a atual na ForgeVault")
-            return _fail(log, check)
+            if not old:
+                log.append("   não havia senha anterior para reaplicar")
+                return await _rotation_failed(
+                    db, server, log, check, step="verify", outcome="no_previous",
+                    new_ref=ref, previous_ref=previous_ref, machine_may_hold_new=True,
+                )
+            revert = await _run_as(server, _set_password_script("windows", login, old))
+            if revert.get("failure"):
+                log.append("   reaplicar a senha anterior: FALHOU")
+                return await _rotation_failed(
+                    db, server, log, check, step="verify", outcome="revert_failed",
+                    new_ref=ref, previous_ref=previous_ref, machine_may_hold_new=True,
+                )
+            log.append("   senha anterior reaplicada: ok")
+            return await _rotation_failed(
+                db, server, log, check, step="verify", outcome="reverted",
+                new_ref=ref, previous_ref=previous_ref, machine_may_hold_new=False,
+            )
         log.append("== 3/3 Login com a nova senha: ok")
     else:
         log.append("== 3/3 Login com a nova senha: não verificado no Linux (login por senha costuma estar desligado)")

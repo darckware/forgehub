@@ -94,16 +94,30 @@ KEY_NAMES = {
     "WS_C_M_LOGIN": False,
     "WS_C_M_SSHKEY": False,
     "RUSTDESK_SERVER": False,
+    "X_SSH_KEYS": False,
+    "X_SSH_KEY_PASSPHRASE": False,
+    "WS_C_M_SSH_KEY_ABCD1234": False,             # not the old rotation suffix
 }
+
+PREDICATE = "~ '_SSH_KEY(_[0-9]{14}_[0-9A-F]{8})?$'"
 
 
 def test_every_key_secret_name_is_matched_not_only_a_suffix():
     """Rotated secrets keep their old `..._SSH_KEY_<suffix>` names, so the
     query must match `_SSH_KEY` anywhere, in both places it classifies names."""
     query = audit.QUERY
-    assert "right(upper(" not in query
-    assert query.count("strpos(upper(secret_name), '_SSH_KEY') > 0") == 1
-    assert query.count("strpos(upper(name), '_SSH_KEY') > 0") == 1
+    assert "right(upper(" not in query and "strpos(" not in query
+    assert query.count(f"upper(secret_name) {PREDICATE}") == 1
+    assert query.count(f"upper(name) {PREDICATE}") == 1
+
+
+def test_plural_and_passphrase_names_are_not_keys():
+    """`_SSH_KEY` must end the name or be followed by exactly the suffix old
+    rotations appended (`_<YYYYMMDDHHMMSS>_<8 HEX>`), nothing else."""
+    import re
+    pattern = re.compile(PREDICATE.split("'")[1])
+    for name, is_key in KEY_NAMES.items():
+        assert bool(pattern.search(name.upper())) is is_key, name
 
 
 def test_the_name_predicate_on_a_real_postgres():
@@ -113,7 +127,7 @@ def test_the_name_predicate_on_a_real_postgres():
     if not shutil.which("docker"):
         pytest.skip("docker not available")
     values = ", ".join(f"('{name}')" for name in KEY_NAMES)
-    sql = (f"SELECT name, strpos(upper(name), '_SSH_KEY') > 0 FROM (VALUES {values}) AS t(name)")
+    sql = f"SELECT name, upper(name) {PREDICATE} FROM (VALUES {values}) AS t(name)"
     result = subprocess.run(
         ["docker", "exec", "-i", "forgehub_test_postgres", "psql", "-X", "-At", "-F", "|",
          "-U", "forgehub_test", "-d", "forgehub_test", "-c", sql],

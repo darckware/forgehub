@@ -247,6 +247,13 @@ async def test_rustdesk_password_recorded_only_after_success(machine):
     async with AsyncSessionLocal() as db:
         detail = await exec_routes._detail(db, await db.get(HostExecution, execution.id))
     assert "Nova#Senha2026" not in detail.command  # secret parameter masked in the stored command
+    async with AsyncSessionLocal() as db:
+        (event,) = list((await db.execute(select(AuditEvent).where(
+            AuditEvent.entity_id == machine.id, AuditEvent.event_type == "rustdesk_password_recorded"))).scalars())
+    # Like SSH and LOGIN: the new secret and the one it replaced (none here), ids only.
+    assert event.payload["secret_ref"] == "11111111-2222-3333-4444-555555555555"
+    assert "previous_secret_ref" in event.payload and event.payload["previous_secret_ref"] is None
+    assert "Nova#Senha2026" not in repr(event.payload)
 
 
 # ---- Read-only monitoring scripts (2026-11-11) ----
