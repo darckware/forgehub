@@ -831,6 +831,8 @@
         "removeCopy": "Remover cópia",
         "pastePlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----\n…cole uma chave que este host não possui…",
         "publicKeyPlaceholder": "…opcional: a chave pública (.pub), necessária se a privada tiver senha…",
+        "publicUnknown": "A chave está no ForgeVault, mas a parte pública não está registrada: não dá para conferir se ela é de outra máquina.",
+        "fillPublic": "Preencher a chave pública",
         "sharedWith": "Esta chave também está em: {{names}}. Cada máquina deve ter a sua própria chave; use \"Configurar acesso\" para dar a esta máquina uma nova chave.",
         "storePasted": "Guardar chave colada",
         "removeTitle": "Remover a chave armazenada?",

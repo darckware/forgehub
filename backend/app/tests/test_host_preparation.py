@@ -1,5 +1,6 @@
 """Preparation scripts per OS and the "Prepare" route (bridge mocked)."""
 import asyncio
+import re
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -121,9 +122,13 @@ async def test_copy_mode_creates_key_stores_password_in_vault_and_returns_script
     body = resp.json()
     assert body["language"] == "powershell" and body["key_created"] is True and body["execution_id"] is None
     base = f"WS_SEM_CLIENTE_{station.name.upper().replace('-', '_')}"
-    assert set(VAULT) == {f"{base}_LOGIN"}                    # the password, through vault_store
-    assert [g["secret_name"] for g in GENERATED] == [f"{base}_SSH_KEY"]  # the key, generated in ForgeVault
-    password = VAULT[f"{base}_LOGIN"]
+    # Fresh names, suffix before the purpose (WS_<CLIENT>_<MACHINE>_<SUFFIX>_<PURPOSE>):
+    # the vault upserts by name, so a computed name is never reused.
+    (login_name,) = VAULT                                      # the password, through vault_store
+    assert re.fullmatch(rf"{base}_[0-9A-F]{{12}}_LOGIN", login_name)
+    (key_name,) = [g["secret_name"] for g in GENERATED]         # the key, generated in ForgeVault
+    assert re.fullmatch(rf"{base}_[0-9A-F]{{12}}_SSH_KEY", key_name)
+    password = VAULT[login_name]
     assert password in body["script"] and KEY in body["script"] and "New-LocalUser" in body["script"]
     assert PRIV not in resp.text
     async with AsyncSessionLocal() as db:

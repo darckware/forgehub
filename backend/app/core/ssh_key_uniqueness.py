@@ -37,31 +37,36 @@ CODE_PUBLIC_REQUIRED = "SSH_PUBLIC_KEY_REQUIRED"
 CODE_PUBLIC_INVALID = "SSH_PUBLIC_KEY_INVALID"
 CODE_PUBLIC_MISMATCH = "SSH_PUBLIC_KEY_MISMATCH"
 
-# "<type> <base64> [comment]" -- every OpenSSH public key type, not just the
-# two ForgeHub generates: a pasted key may be anything the machine accepts.
-_PUBLIC_LINE = re.compile(r"^\s*([a-z0-9][a-z0-9@._-]*)\s+([A-Za-z0-9+/]+={0,2})(?:\s.*)?$", re.DOTALL)
+# "<type> <base64> [comment]", optionally preceded by authorized_keys options
+# (`from="10.0.0.1",no-pty ssh-ed25519 AAAA… c`) -- every OpenSSH public key
+# type, not just the two ForgeHub generates: a stored or pasted key may be
+# anything the machine accepts. The type must be a known key-type token and the
+# blob must name that same type (checked below), so an option's text can't be
+# mistaken for the key.
+_KEY_TYPE = r"(?:ssh-(?:ed25519|rsa|dss)|ecdsa-sha2-nistp(?:256|384|521)|sk-(?:ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com|ssh-(?:ed25519|rsa)-cert-v01@openssh\.com)"
+_PUBLIC_KEY = re.compile(r"(?:^|\s|,)(" + _KEY_TYPE + r")\s+([A-Za-z0-9+/]+={0,2})(?=\s|$)")
 
 
 def public_key_blob(public_key: str | None) -> str | None:
     """The key's identity: its base64 blob, normalized. None when the text is
     not an OpenSSH public key line, or its blob doesn't name the declared type."""
-    if not public_key:
+    if not public_key or not public_key.strip():
         return None
-    match = _PUBLIC_LINE.match(public_key.strip().splitlines()[0] if public_key.strip() else "")
-    if not match:
-        return None
-    key_type, blob = match.groups()
-    try:
-        raw = base64.b64decode(blob, validate=True)
-    except (binascii.Error, ValueError):
-        return None
-    # The blob starts with the key type as an SSH string (uint32 length + bytes).
-    if len(raw) < 4:
-        return None
-    type_len = int.from_bytes(raw[:4], "big")
-    if raw[4:4 + type_len] != key_type.encode():
-        return None
-    return base64.b64encode(raw).decode()
+    line = public_key.strip().splitlines()[0]
+    for match in _PUBLIC_KEY.finditer(line):
+        key_type, blob = match.groups()
+        try:
+            raw = base64.b64decode(blob, validate=True)
+        except (binascii.Error, ValueError):
+            continue
+        # The blob starts with the key type as an SSH string (uint32 length + bytes).
+        if len(raw) < 4:
+            continue
+        type_len = int.from_bytes(raw[:4], "big")
+        if raw[4:4 + type_len] != key_type.encode():
+            continue
+        return base64.b64encode(raw).decode()
+    return None
 
 
 def derive_public_key(private_key: str, passphrase: str | None = None) -> str:
@@ -143,6 +148,13 @@ async def assert_key_unique(
     owner = await find_key_owner(db, exclude_id=server_id, public_key=public_key, key_ref=key_ref)
     if owner:
         raise key_in_use_error(owner)
+
+
+def public_key_unknown(row: Server) -> bool:
+    """The key is in ForgeVault but its public half is missing, unreadable
+    (doesn't decrypt) or doesn't parse: rule 3 can't compare this machine's
+    key with any other until the public half is filled in."""
+    return bool(row.ssh_key_ref) and public_key_blob(row.public_key) is None
 
 
 def duplicate_keys_by_server(rows: list[Server]) -> dict[uuid.UUID, list[str]]:

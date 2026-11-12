@@ -104,6 +104,16 @@ function KeyVaultSection({ server }: { server: Server }) {
           {t("form.vault.sharedWith", { names: vm.duplicateKeyWith.join(", ") })}
         </p>
       )}
+      {vm.publicKeyUnknown && (
+        <div role="status" className="flex flex-wrap items-center gap-2 text-[11px] text-amber-700 dark:text-amber-400">
+          <span>{t("form.vault.publicUnknown")}</span>
+          <Button type="button" variant="outline" size="sm" disabled={vm.isBusy} onClick={vm.fillPublicKey}
+            className="max-md:h-auto max-md:whitespace-normal">
+            {vm.status === "filling" && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            {t("form.vault.fillPublic")}
+          </Button>
+        </div>
+      )}
       {vm.message && <p className="text-[11px] text-emerald-600">{vm.message}</p>}
       {vm.error && <p role="alert" className="text-[11px] text-destructive">{vm.error}</p>}
       <ConfirmDialog

@@ -20,6 +20,7 @@ import { apiErrorText } from "@/lib/apiErrorText";
 
 import {
   useClearServerKey,
+  useFillServerPublicKey,
   useStoreServerKey,
   type Server,
 } from "@/hooks/useServers";
@@ -27,6 +28,7 @@ import {
 export type ServerKeyVaultStatus =
   | "idle"
   | "storing"
+  | "filling"
   | "confirming_clear"
   | "clearing"
   | "error";
@@ -47,6 +49,10 @@ export interface ServerKeyVaultViewModel {
   setPastedPublicKey: (value: string) => void;
   /** Other machines already sharing this row's key (pre-rule-3 rows). */
   duplicateKeyWith: string[];
+  /** Key in ForgeVault, public half unknown: rule 3 can't check this row. */
+  publicKeyUnknown: boolean;
+  /** Reads the public half from the vault key (public only) and stores it. */
+  fillPublicKey: () => void;
   /** Outcome of the last completed action, for the section's status line. */
   message: string | null;
   error: string | null;
@@ -65,6 +71,7 @@ export function useServerKeyVaultViewModel(server: Server): ServerKeyVaultViewMo
 
   const storeKey = useStoreServerKey();
   const clearKey = useClearServerKey();
+  const fillKey = useFillServerPublicKey();
 
   const fail = useCallback((err: Error) => {
     setStatus("error");
@@ -98,6 +105,15 @@ export function useServerKeyVaultViewModel(server: Server): ServerKeyVaultViewMo
     );
   }, [pastedKey, pastedPublicKey, storeKey, server.id, succeed, fail]);
 
+  const fillPublicKey = useCallback(() => {
+    setStatus("filling");
+    setError(null);
+    fillKey.mutate(server.id, {
+      onSuccess: () => succeed("Public key filled in from the vault key."),
+      onError: fail,
+    });
+  }, [fillKey, server.id, succeed, fail]);
+
   const requestClear = useCallback(() => setStatus("confirming_clear"), []);
   const cancelClear = useCallback(() => setStatus("idle"), []);
 
@@ -111,7 +127,7 @@ export function useServerKeyVaultViewModel(server: Server): ServerKeyVaultViewMo
   }, [clearKey, server.id, succeed, fail]);
 
   const isBusy = useMemo(
-    () => status === "storing" || status === "clearing",
+    () => status === "storing" || status === "clearing" || status === "filling",
     [status],
   );
 
@@ -125,6 +141,8 @@ export function useServerKeyVaultViewModel(server: Server): ServerKeyVaultViewMo
     pastedPublicKey,
     setPastedPublicKey,
     duplicateKeyWith: server.duplicate_key_with ?? [],
+    publicKeyUnknown: Boolean(server.key_public_unknown),
+    fillPublicKey,
     message,
     error,
     storePasted,

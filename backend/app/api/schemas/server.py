@@ -95,6 +95,10 @@ class ServerOut(BaseModel):
     # row's key (same public key, ForgeVault secret or key file) -- rows from
     # before rule 3 (one key per machine, 2026-11-12). Names only, never keys.
     duplicate_key_with: list[str] = Field(default_factory=list)
+    # Read-only hint, list route only: the key is in ForgeVault but its public
+    # half is missing or unreadable, so rule 3 can't compare it with other
+    # machines until it is filled in (POST /{id}/public-key:fill).
+    key_public_unknown: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -120,6 +124,13 @@ class ServerKeyStoreRequest(BaseModel):
     # passphrase ForgeHub doesn't have, or an unknown format): the public half
     # is what proves this key isn't already another machine's (rule 3).
     public_key: str | None = None
+
+
+class PublicKeyFillOut(BaseModel):
+    """Outcome of filling a machine's public key from its ForgeVault key."""
+
+    server_id: uuid.UUID
+    public_key: str
 
 
 class ServerKeyVaultResult(BaseModel):

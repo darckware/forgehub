@@ -831,6 +831,8 @@
         "removeCopy": "Remove copy",
         "pastePlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----\n…paste a key this host doesn't have…",
         "publicKeyPlaceholder": "…optional: the public key (.pub), needed if the private key has a passphrase…",
+        "publicUnknown": "The key is in ForgeVault but its public half isn't on record, so ForgeHub can't check it isn't another machine's.",
+        "fillPublic": "Fill in the public key",
         "sharedWith": "This key is also on: {{names}}. Each machine must have its own key; use \"Configure access\" to give this machine a new key.",
         "storePasted": "Store pasted key",
         "removeTitle": "Remove the stored key?",

@@ -119,12 +119,15 @@ async def test_password_rotation_stores_first_applies_then_verifies(client, stat
 
 
 @pytest.mark.asyncio
-async def test_password_rotation_failure_restores_previous_in_vault(client, station):
+async def test_password_rotation_failure_keeps_the_previous_secret_untouched(client, station):
+    """The new password goes to a fresh secret, so a failure needs no write
+    back: the row keeps its previous ref and the previous secret was never
+    rotated (its name might even be another machine's)."""
     vault = FakeVault()
     calls, result, row = await _rotate(client, station, "login_password", [FAIL], vault)
     (_, values), = vault.versions.items()
-    assert values[-1] == "SenhaAntiga#2026"  # previous password is the vault's current again
-    assert result.status == "failed" and "a senha anterior voltou" in result.stdout
+    assert len(values) == 1 and values[0] != "SenhaAntiga#2026"  # only the new one; nothing written back
+    assert result.status == "failed" and "segredo anterior intocado" in result.stdout
     assert row.login_password_ref == "00000000-0000-0000-0000-00000000aaaa"
 
 
@@ -133,7 +136,7 @@ async def test_key_rotation_removes_old_only_after_new_works(client, station):
     vault = FakeVault()
     calls, result, row = await _rotate(client, station, "ssh_key", [OK, OK, OK], vault)
     (generated,) = vault.generated                             # one new Vault secret, unique name
-    assert "_SSH_KEY_" in generated["secret_name"]
+    assert generated["secret_name"].endswith("_SSH_KEY")          # suffix before the purpose (ECO-060)
     assert NEW_PUB in calls[0]["script"]                      # installed with the current key
     assert calls[1]["key_ref"] == NEW_REF  # login checked with the new key (key_ref wins over key_path in call_bridge_exec_as)
     assert "AAAAOLDKEYOLDKEY" in calls[2]["script"] and calls[2]["key_ref"] == NEW_REF

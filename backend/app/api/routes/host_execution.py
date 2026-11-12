@@ -46,7 +46,7 @@ from app.core.remote_authority import (
 from app.core.host_scripts import ScriptError, compatible, render_script, resolve_values, shell_for
 from app.core.deps import ActorPrincipal, authorize_action, get_current_admin, get_maintenance_agent
 from app.core.secret_masking import mask_secrets
-from app.core.forgevault import machine_secret_name, vault_reveal_name, vault_store
+from app.core.forgevault import fresh_machine_secret_name, vault_reveal_name, vault_store
 from app.db.base import get_db
 from app.db.models.governance import AuditEvent
 from app.db.models.agent import Agent
@@ -355,7 +355,7 @@ def system_script_hook(script: HostScript, values: dict | None):
             if server is None:
                 return
             server.rustdesk_password_ref = await vault_store(
-                machine_secret_name(server, "RUSTDESK"), password,
+                fresh_machine_secret_name(server, "RUSTDESK"), password,
                 f"Senha permanente do RustDesk em {server.name} ({server.darckware_client_name or 'sem cliente'})",
             )
             server.rustdesk_password_encrypted = None

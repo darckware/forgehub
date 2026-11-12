@@ -84,3 +84,42 @@ def test_query_has_no_row_limit_and_selects_no_value():
     assert "limit" not in query
     assert "secret_versions" not in query
     assert "metadata" not in query
+
+
+KEY_NAMES = {
+    "WS_C_M_SSH_KEY": True,                      # original name
+    "WS_C_M_SSH_KEY_20261101120000_ABCD1234": True,  # rotated before 2026-11-12: suffix after
+    "WS_C_M_0A1B2C3D4E5F_SSH_KEY": True,         # since 2026-11-12: suffix before the purpose
+    "ws_c_m_ssh_key": True,
+    "WS_C_M_LOGIN": False,
+    "WS_C_M_SSHKEY": False,
+    "RUSTDESK_SERVER": False,
+}
+
+
+def test_every_key_secret_name_is_matched_not_only_a_suffix():
+    """Rotated secrets keep their old `..._SSH_KEY_<suffix>` names, so the
+    query must match `_SSH_KEY` anywhere, in both places it classifies names."""
+    query = audit.QUERY
+    assert "right(upper(" not in query
+    assert query.count("strpos(upper(secret_name), '_SSH_KEY') > 0") == 1
+    assert query.count("strpos(upper(name), '_SSH_KEY') > 0") == 1
+
+
+def test_the_name_predicate_on_a_real_postgres():
+    """Same predicate, evaluated by Postgres (the isolated test instance, a
+    SELECT of literals only). Skipped where that container isn't running."""
+    import shutil
+    if not shutil.which("docker"):
+        pytest.skip("docker not available")
+    values = ", ".join(f"('{name}')" for name in KEY_NAMES)
+    sql = (f"SELECT name, strpos(upper(name), '_SSH_KEY') > 0 FROM (VALUES {values}) AS t(name)")
+    result = subprocess.run(
+        ["docker", "exec", "-i", "forgehub_test_postgres", "psql", "-X", "-At", "-F", "|",
+         "-U", "forgehub_test", "-d", "forgehub_test", "-c", sql],
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+    if result.returncode:
+        pytest.skip("isolated test Postgres not reachable")
+    got = {name: flag == "t" for name, flag in (line.split("|") for line in result.stdout.split())}
+    assert got == KEY_NAMES

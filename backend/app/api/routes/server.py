@@ -18,6 +18,7 @@ Endpoints:
   POST   /api/v1/servers/{id}/services:scan – probe common ports (never writes)
   PUT    /api/v1/servers/{id}/key          – vault a pasted private key
   DELETE /api/v1/servers/{id}/key          – drop the vaulted copy
+  POST   /api/v1/servers/{id}/public-key:fill – record the vault key's public half (rule 3)
 """
 import asyncio
 import csv
@@ -25,10 +26,10 @@ import io
 import ipaddress
 import logging
 import re
+import shlex
 import socket
 import uuid
 from dataclasses import dataclass
-from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -54,6 +55,7 @@ from app.api.schemas.server import (
     HostReadinessResult,
     LoginPasswordOut,
     MaintenanceEntry,
+    PublicKeyFillOut,
     RotationOut,
     RotationRequest,
     ServerCheckResult,
@@ -84,7 +86,7 @@ from app.api.routes.vpn import fetch_tailnet_status
 from app.api.schemas.vpn import VpnStatus
 from app.core.config import settings
 from app.core.deps import get_current_admin, require_perm
-from app.core.forgevault import machine_secret_name, vault_reveal, vault_store
+from app.core.forgevault import fresh_machine_secret_name, vault_reveal, vault_store
 from app.core.host_enrollment import (
     LOGIN as ENROLL_LOGIN,
     EnrollmentError,
@@ -102,7 +104,10 @@ from app.core.ssh_key_uniqueness import (
     assert_key_unique,
     derive_public_key,
     duplicate_keys_by_server,
+    key_in_use_error,
+    find_key_owner,
     public_key_blob,
+    public_key_unknown,
 )
 from app.db.base import get_db
 from app.db.models.governance import AuditEvent
@@ -274,6 +279,7 @@ async def list_servers(db: AsyncSession = Depends(get_db)):
         item = ServerOut.model_validate(server)
         item.group_ids = groups.get(server.id, [])
         item.duplicate_key_with = duplicates.get(server.id, [])
+        item.key_public_unknown = public_key_unknown(server)
         out.append(item)
     return out
 
@@ -459,7 +465,7 @@ async def enroll_station(
 
     password = generate_password()
     server.login_password_ref = await vault_store(
-        machine_secret_name(server, "LOGIN"), password,
+        fresh_machine_secret_name(server, "LOGIN"), password,
         f"Senha da conta {ENROLL_LOGIN} em {server.name} ({server.darckware_client_name or 'sem cliente'})",
     )
     auth_key = await create_auth_key(api_key, payload.tag, f"forgehub {name}")
@@ -1090,7 +1096,7 @@ async def install_server_key(
         raise HTTPException(status_code=404, detail="Server not found")
     remote_user = (payload.remote_user or server.remote_user).strip()
     admin_user = payload.admin_user.strip() if payload.admin_user else None
-    new_ref, public_key = await _new_machine_key(db, server, unique=bool(server.ssh_key_ref))
+    new_ref, public_key = await _new_machine_key(db, server)
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -1178,12 +1184,12 @@ def _bridge_detail(resp: httpx.Response) -> str:
         return resp.text[:300]
 
 
-async def _generate_vault_key(server: Server, *, unique: bool = False) -> tuple[str, str]:
-    """Create a key in bridge tmpfs and persist it only in ForgeVault."""
-    name = machine_secret_name(server, "SSH_KEY")
-    if unique:
-        suffix = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S") + "_" + uuid.uuid4().hex[:8].upper()
-        name = f"{name[:120 - len(suffix) - 1]}_{suffix}"
+async def _generate_vault_key(server: Server) -> tuple[str, str]:
+    """Create a key in bridge tmpfs and persist it only in ForgeVault, always
+    under a fresh secret name (core/forgevault.py's `fresh_machine_secret_name`):
+    the bridge upserts by name, and a name computed from this row could be
+    another machine's secret (renamed, or moved to another client)."""
+    name = fresh_machine_secret_name(server, "SSH_KEY")
     comment = f"forgehub@{re.sub(r'[^A-Za-z0-9.-]', '-', server.name)}"
     resp = await _bridge_post("/v1/servers/generate-key", {
         "secret_name": name,
@@ -1199,29 +1205,32 @@ async def _generate_vault_key(server: Server, *, unique: bool = False) -> tuple[
     return key_ref, public_key
 
 
-async def _ssh_secret_name_shared(db: AsyncSession, server: Server) -> bool:
-    """Whether another machine maps to the same ForgeVault secret name. The
-    bridge and `vault_store` upsert by name, so writing under a shared name
-    would replace the OTHER machine's key -- such a machine gets a unique
-    name instead (rule 3: never one key, or one secret, for two machines)."""
-    name = machine_secret_name(server, "SSH_KEY")
-    rows = await db.execute(
-        select(Server.name, Server.darckware_client_name).where(Server.id != server.id)
-    )
-    return any(
-        machine_secret_name(SimpleNamespace(name=n, darckware_client_name=c), "SSH_KEY") == name
-        for n, c in rows.all()
-    )
+async def _record_unused_secret(server_id: uuid.UUID, key_ref: str, refusal: HTTPException) -> None:
+    """A key was generated/stored in ForgeVault and then refused (rule 3): the
+    secret is left unused there. Recorded in its own session -- so it commits
+    without committing anything the refused request had pending -- with the
+    secret id, never the key, so it can be found and cleaned up."""
+    detail = refusal.detail if isinstance(refusal.detail, dict) else {}
+    async with AsyncSessionLocal() as session:
+        session.add(AuditEvent(
+            entity_type="server", entity_id=server_id, event_type="ssh_key_secret_unused", actor="forgehub",
+            payload={"secret_ref": key_ref, "reason": detail.get("code"), "other_machine": detail.get("other_machine")},
+        ))
+        await session.commit()
 
 
-async def _new_machine_key(db: AsyncSession, server: Server, *, unique: bool = False) -> tuple[str, str]:
+async def _new_machine_key(db: AsyncSession, server: Server) -> tuple[str, str]:
     """A fresh ForgeVault key for this machine, checked against every other
     machine before the caller touches the row. Unique by construction; the
     check is the safety net for a vault/bridge bug handing back a key or a
-    secret id another machine already has (409 SSH_KEY_IN_USE)."""
-    unique = unique or await _ssh_secret_name_shared(db, server)
-    key_ref, public_key = await _generate_vault_key(server, unique=unique)
-    await assert_key_unique(db, server.id, public_key=public_key, key_ref=key_ref)
+    secret id another machine already has (409 SSH_KEY_IN_USE). A refused
+    secret is recorded (`ssh_key_secret_unused`) for cleanup."""
+    key_ref, public_key = await _generate_vault_key(server)
+    try:
+        await assert_key_unique(db, server.id, public_key=public_key, key_ref=key_ref)
+    except HTTPException as exc:
+        await _record_unused_secret(server.id, key_ref, exc)
+        raise
     return key_ref, public_key
 
 
@@ -1398,17 +1407,19 @@ async def _run_as(server: Server, script: str, *, key_path: str | None = None, k
 async def _rotate_password(db: AsyncSession, server: Server) -> dict:
     log: list[str] = []
     login = server.remote_user
-    name = machine_secret_name(server, "LOGIN")
-    old = await vault_reveal(server.login_password_ref) if server.login_password_ref else None
+    # A fresh secret (core/forgevault.py): the previous one is never rotated in
+    # place -- its name might even be another machine's -- so on failure the
+    # row simply keeps pointing at it, unchanged, and nothing is written back.
+    previous_ref = server.login_password_ref
+    old = await vault_reveal(previous_ref) if previous_ref else None
     new = generate_password()
-    ref = await vault_store(name, new, f"Senha da conta {login} em {server.name} ({server.darckware_client_name or 'sem cliente'})")
+    ref = await vault_store(fresh_machine_secret_name(server, "LOGIN"), new,
+                            f"Senha da conta {login} em {server.name} ({server.darckware_client_name or 'sem cliente'})")
     log.append("== 1/3 Nova senha gravada na ForgeVault: ok")
     applied = await _run_as(server, _set_password_script(server.os_family or "linux", login, new))
     if applied.get("failure"):
         log.append("== 2/3 Aplicar na máquina: FALHOU")
-        if old:
-            await vault_store(name, old, "Senha anterior restaurada (rotação falhou)")
-            log.append("   a senha anterior voltou a ser a atual na ForgeVault")
+        log.append("   a senha anterior continua a atual na ForgeVault (segredo anterior intocado)")
         return _fail(log, applied)
     log.append("== 2/3 Aplicar na máquina: ok")
     if server.os_family == "windows":
@@ -1417,15 +1428,15 @@ async def _rotate_password(db: AsyncSession, server: Server) -> dict:
             log.append("== 3/3 Login com a nova senha: FALHOU")
             if old:
                 await _run_as(server, _set_password_script("windows", login, old))
-                await vault_store(name, old, "Senha anterior restaurada (rotação falhou)")
-                log.append("   senha anterior reaplicada e restaurada na ForgeVault")
+                log.append("   senha anterior reaplicada; continua a atual na ForgeVault")
             return _fail(log, check)
         log.append("== 3/3 Login com a nova senha: ok")
     else:
         log.append("== 3/3 Login com a nova senha: não verificado no Linux (login por senha costuma estar desligado)")
     server.login_password_ref = ref
     server.login_password_encrypted = None
-    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="login_password_rotated", actor="forgehub", payload={"login": login}))
+    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="login_password_rotated", actor="forgehub",
+                      payload={"login": login, "secret_ref": ref, "previous_secret_ref": previous_ref}))
     await db.commit()
     return {"exit_code": 0, "failure": None, "stdout": "\n".join(log), "stderr": "", "duration_ms": applied.get("duration_ms")}
 
@@ -1433,7 +1444,7 @@ async def _rotate_password(db: AsyncSession, server: Server) -> dict:
 async def _rotate_key(db: AsyncSession, server: Server) -> dict:
     log: list[str] = []
     try:
-        new_ref, new_pub = await _new_machine_key(db, server, unique=True)
+        new_ref, new_pub = await _new_machine_key(db, server)
     except HTTPException as exc:
         detail = exc.detail.get("message") if isinstance(exc.detail, dict) else exc.detail
         return _fail(["== 1/4 Gerar a nova chave no ForgeVault: FALHOU"], {"stderr": str(detail)})
@@ -1535,22 +1546,23 @@ async def prepare_host(
 
     key_created = not bool(server.ssh_key_ref and server.public_key)
     if key_created:
-        server.ssh_key_ref, server.public_key = await _new_machine_key(db, server, unique=bool(server.ssh_key_ref))
+        server.ssh_key_ref, server.public_key = await _new_machine_key(db, server)
         server.ssh_key_path = None
         server.private_key_encrypted = None
     elif server.ssh_key_path:
         # Existing legacy row: create a fresh ForgeVault key; the user can
         # rerun enrollment/preparation on the station with this public key.
-        server.ssh_key_ref, server.public_key = await _new_machine_key(db, server, unique=True)
+        server.ssh_key_ref, server.public_key = await _new_machine_key(db, server)
         server.ssh_key_path = None
         server.private_key_encrypted = None
     password = generate_password()
+    previous_login_ref = server.login_password_ref
     try:
         script, language = preparation_script(server.os_family, STATION_LOGIN, server.public_key or "", password)
     except PreparationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     server.login_password_ref = await vault_store(
-        machine_secret_name(server, "LOGIN"), password,
+        fresh_machine_secret_name(server, "LOGIN"), password,
         f"Senha da conta {STATION_LOGIN} em {server.name} ({server.darckware_client_name or 'sem cliente'})",
     )
     server.login_password_encrypted = None
@@ -1559,7 +1571,8 @@ async def prepare_host(
     db.add(AuditEvent(
         entity_type="server", entity_id=server.id, event_type="preparation_started", actor=admin.username,
         payload={"mode": payload.mode, "os_family": server.os_family, "admin_user": admin_user or None,
-                 "disable_admin": payload.disable_admin, "key_created": key_created},
+                 "disable_admin": payload.disable_admin, "key_created": key_created,
+                 "previous_login_ref": previous_login_ref},
     ))
 
     if payload.mode == "copy":
@@ -1689,7 +1702,14 @@ async def store_server_key(
     sent alongside when the private key can't be read (encrypted, unknown
     format) -- must not already belong to another machine (409
     SSH_KEY_IN_USE), checked before anything reaches ForgeVault. The public
-    half is recorded on the row, so later checks see it too."""
+    half is recorded on the row, so later checks see it too.
+
+    An encrypted private key (passphrase not on the row) is checked by the
+    public key the admin supplies with it, which is trusted as given: it
+    can't be matched against the private half here. Deliberate -- the route is
+    admin-only, and refusing every encrypted key would leave such machines
+    with no way in; a wrong .pub only weakens this one check, and the key
+    still has to log in for the machine to read as ready."""
     server = await db.get(Server, server_id)
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
@@ -1729,17 +1749,72 @@ async def store_server_key(
         })
     await assert_key_unique(db, server.id, public_key=public_key)
 
-    secret_name = machine_secret_name(server, "SSH_KEY")
-    if await _ssh_secret_name_shared(db, server):
-        secret_name = f"{secret_name[:110]}_{uuid.uuid4().hex[:8].upper()}"
-    key_ref = await vault_store(secret_name, material,
+    # Fresh name: never rotates an existing secret, which could be another
+    # machine's (core/forgevault.py). The previous secret, if any, is left
+    # as is and named in the audit so it can be cleaned up.
+    key_ref = await vault_store(fresh_machine_secret_name(server, "SSH_KEY"), material,
                                 f"Chave SSH privada do ForgeHub para {server.name}", "SshPrivateKey")
-    await assert_key_unique(db, server.id, key_ref=key_ref)
+    try:
+        await assert_key_unique(db, server.id, key_ref=key_ref)
+    except HTTPException as exc:
+        await _record_unused_secret(server.id, key_ref, exc)
+        raise
+    previous_ref = server.ssh_key_ref
     server.ssh_key_ref = key_ref
     server.private_key_encrypted = None
     server.public_key = public_key
+    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="ssh_key_stored", actor=_admin.username,
+                      payload={"secret_ref": key_ref, "previous_secret_ref": previous_ref,
+                               "public_key_source": "supplied" if given_public else "derived"}))
     await db.commit()
     return ServerKeyVaultResult(server_id=server.id, private_key_stored=True)
+
+
+_AGENT_SOCKET_RE = re.compile(r"^/[A-Za-z0-9._/-]+$")
+
+
+@router.post("/{server_id}/public-key:fill", response_model=PublicKeyFillOut)
+async def fill_public_key(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Fills `public_key` for a machine whose key is in ForgeVault but whose
+    public half is missing or unreadable (`key_public_unknown`), so rule 3
+    can compare it. Uses only what the bridge already has: the in-memory
+    agent holding the vault key (`/v1/servers/agent:open`, the terminal's
+    path) and `ssh-add -L` on it, which lists public keys only -- the private
+    key never leaves the bridge. Refused (409 SSH_KEY_IN_USE, nothing
+    written) when that public key is already another machine's."""
+    server = await db.get(Server, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if not server.ssh_key_ref:
+        raise HTTPException(status_code=422, detail="This machine has no key in ForgeVault")
+    resp = await _bridge_post("/v1/servers/agent:open", {"key_ref": server.ssh_key_ref})
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Host bridge error: {_bridge_detail(resp)}")
+    socket_path = str(resp.json().get("socket") or "")
+    if not _AGENT_SOCKET_RE.match(socket_path):
+        raise HTTPException(status_code=502, detail="Host bridge returned an invalid agent socket")
+    listed = await _bridge_post(
+        "/v1/exec", {"command": f"SSH_AUTH_SOCK={shlex.quote(socket_path)} ssh-add -L", "timeout_seconds": 15},
+    )
+    if listed.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Host bridge error: {_bridge_detail(listed)}")
+    body = listed.json()
+    lines = [line.strip() for line in (body.get("stdout") or "").splitlines() if public_key_blob(line)]
+    if body.get("exit_code") != 0 or len(lines) != 1:
+        raise HTTPException(status_code=502, detail="The ForgeVault key's agent did not list exactly one public key")
+    public_key = lines[0]
+    owner = await find_key_owner(db, exclude_id=server.id, public_key=public_key)
+    if owner:
+        raise key_in_use_error(owner)
+    server.public_key = public_key
+    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="public_key_filled", actor=admin.username,
+                      payload={"secret_ref": server.ssh_key_ref}))
+    await db.commit()
+    return PublicKeyFillOut(server_id=server.id, public_key=public_key)
 
 
 @router.delete("/{server_id}/key", response_model=ServerKeyVaultResult)
