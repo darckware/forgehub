@@ -38,6 +38,8 @@ from app.api.schemas.client_ops import (
     ClientAccountIn,
     ClientAccountPatch,
     LogTimeIn,
+    MaintenanceRecordIn,
+    MaintenanceSettleIn,
     MonthlyReportIn,
     ContractIn,
     CreateProjectFromItem,
@@ -63,6 +65,7 @@ from app.api.schemas.client_ops import (
     EmailsDelete,
 )
 from app.core import darckware_client as dw
+from app.core import work_item_maintenance as wim
 from app.core.translation import translate_texts
 from app.core.config import settings
 from app.core.deps import get_current_admin
@@ -188,7 +191,8 @@ def _demand_item(d: dict[str, Any], companies: dict[str, str]) -> dict[str, Any]
 
 
 async def _audit(
-    db: AsyncSession, kind: str, item_id: str, event_type: str, user: User, payload: dict[str, Any]
+    db: AsyncSession, kind: str, item_id: str, event_type: str, user: User, payload: dict[str, Any],
+    *, commit: bool = True,
 ) -> None:
     db.add(
         AuditEvent(
@@ -199,7 +203,8 @@ async def _audit(
             payload=payload,
         )
     )
-    await db.commit()
+    if commit:
+        await db.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -478,8 +483,14 @@ async def _transition(
     admin: User,
     db: AsyncSession,
     time_entry: dict[str, Any] | None = None,
+    extra_audits: list[tuple[str, dict[str, Any]]] | None = None,
+    progress: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Status change plus an optional queued e-mail (and hours), in the safe order.
+
+    `extra_audits` are written in the same commit as the action's own audit
+    (the maintenance record's idempotency mark rides on it); `progress` gets
+    `time_posted` once Darckware accepted the time entry.
 
     The e-mail is queued first: Darckware validates the recipient there, and
     a refused recipient should block the action rather than leave the item
@@ -493,8 +504,12 @@ async def _transition(
     if draft is not None:
         queued = await _queue_email(kind, item, draft, email_kind, actor)
     try:
+        if progress is not None:
+            progress["write_started"] = True
         if time_entry is not None:
             await _post_time_entry(kind, item_id, {**time_entry, "recorded_by": actor})
+            if progress is not None:
+                progress["time_posted"] = True
         await _set_status(kind, item_id, _ACTION_STATUS[action][kind], note, actor)
     except HTTPException:
         if queued is not None:
@@ -515,7 +530,11 @@ async def _transition(
             "email_id": queued["id"] if queued else None,
             "minutes": time_entry["minutes"] if time_entry else None,
         },
+        commit=False,
     )
+    for event_type, payload in extra_audits or []:
+        await _audit(db, kind, str(item_id), event_type, admin, payload, commit=False)
+    await db.commit()
     updated = await _load_item(kind, item_id)
     updated["queued_email"] = queued
     return updated
@@ -556,8 +575,25 @@ async def resolve_work_item(
     e-mail reports it. The hours are logged against the client's quota
     (2026-10-04, "demanda concluída consome a franquia") before the status
     changes, so a resolved item never exists without its hours."""
+    return await _resolve(kind, item_id, payload, admin, db)
+
+
+async def _resolve(
+    kind: str,
+    item_id: uuid.UUID,
+    payload: WorkItemResolve,
+    admin: User,
+    db: AsyncSession,
+    *,
+    current: dict[str, Any] | None = None,
+    end_time: str | None = None,
+    extra_audits: list[tuple[str, dict[str, Any]]] | None = None,
+    progress: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The one "dar baixa" path: the route and the remote-maintenance record
+    both come here, so the hours are logged exactly once per resolution."""
     _check_kind(kind)
-    current = await _load_item(kind, item_id)
+    current = current or await _load_item(kind, item_id)
     email_kind = "servico_realizado" if kind == "ticket" and current["tipo"] == "servico" else "solucao"
     has_client = bool(current.get("client_account_id"))
     if has_client and payload.minutes == 0:
@@ -571,6 +607,8 @@ async def resolve_work_item(
         if payload.minutes > 0 and has_client
         else None
     )
+    if time_entry is not None and end_time:
+        time_entry["end_time"] = end_time
     return await _transition(
         kind,
         item_id,
@@ -581,6 +619,8 @@ async def resolve_work_item(
         admin,
         db,
         time_entry=time_entry,
+        extra_audits=extra_audits,
+        progress=progress,
     )
 
 
@@ -1333,6 +1373,160 @@ async def log_work_item_time(
         {"start": payload.start_time.isoformat(), "end": payload.end_time.isoformat(), "description": payload.description},
     )
     return await _load_item(kind, item_id)
+
+
+# ---------------------------------------------------------------------------
+# Remote maintenance for an item (remote-access support plan, Fase 3, 2026-11-12)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/work-items/{kind}/{item_id}/maintenance")
+async def get_work_item_maintenance(
+    kind: str, item_id: uuid.UUID, _admin: User = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """What ran on the client's machines for this item -- executions and the
+    "Pedir ao agente" tasks behind them -- with, per finished task not yet
+    recorded, a *proposed* note and minutes. Writes nothing anywhere."""
+    _check_kind(kind)
+    return await wim.item_maintenance(db, kind, item_id)
+
+
+#: Darckware errors that mean nothing was written: an explicit refusal (4xx,
+#: credential refused) or a call that was never made. Anything else (timeout,
+#: 5xx) may have been written.
+_REFUSED_BEFORE_WRITE = {"darckware_rejected", "darckware_credential", "integration_not_configured"}
+
+
+def _nothing_written(exc: HTTPException, progress: dict[str, Any]) -> bool:
+    """True only when Darckware certainly holds nothing from this attempt:
+    no write was sent yet, or the first write was explicitly refused."""
+    if not progress.get("write_started"):
+        return True
+    detail = exc.detail if isinstance(exc.detail, dict) else {}
+    return not progress.get("time_posted") and detail.get("code") in _REFUSED_BEFORE_WRITE
+
+
+@router.post("/work-items/{kind}/{item_id}/maintenance/{demand_id}:record")
+async def record_work_item_maintenance(
+    kind: str,
+    item_id: uuid.UUID,
+    demand_id: uuid.UUID,
+    payload: MaintenanceRecordIn,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Marcelo confirmed the (edited) proposal for one Messages task: log the
+    time on the item (`log_time`) or resolve it (`resolve`, which logs the time
+    itself -- never both). Once per task, even when Darckware's answer is lost:
+
+    1. under an advisory lock on the task, a `maintenance_recording` mark
+       (attempt id + payload) is committed before any Darckware write;
+    2. success writes `maintenance_recorded` in the same commit as the
+       action's own audit;
+    3. an explicit Darckware refusal before any write closes the attempt as
+       discarded (nothing was written, a new record may follow); a timeout, a
+       5xx, or a failure after the time entry was accepted leaves the attempt
+       open, and every later call gets 409 MAINTENANCE_RECORD_UNCERTAIN until
+       an admin settles it (`:settle`) after checking the item's hours.
+    """
+    _check_kind(kind)
+    await wim.lock_task(db, demand_id)
+    task = await wim.task_for_record(db, kind, item_id, demand_id)
+    if task["recorded"] is not None:
+        raise wim.maintenance_error(status.HTTP_409_CONFLICT, "MAINTENANCE_ALREADY_RECORDED",
+                                    f"Task #{task['number']} was already recorded on this item", recorded=task["recorded"])
+    if task["uncertain"] is not None:
+        raise wim.maintenance_error(status.HTTP_409_CONFLICT, "MAINTENANCE_RECORD_UNCERTAIN",
+                                    "A previous attempt may have reached Darckware: check the item's hours, then settle it",
+                                    uncertain=task["uncertain"])
+    if not task["finished"] or task["runs_in_progress"]:
+        raise wim.maintenance_error(status.HTTP_409_CONFLICT, "MAINTENANCE_TASK_NOT_FINISHED",
+                                    f"Task #{task['number']} or one of its runs has not finished yet")
+    if task["proposal"] is None:
+        raise wim.maintenance_error(status.HTTP_409_CONFLICT, "MAINTENANCE_NOTHING_RAN",
+                                    f"Task #{task['number']} ran nothing on this item")
+    current = await _load_item(kind, item_id)
+    client = current.get("client_account_id")
+    if not client:
+        raise dw.client_ops_error(status.HTTP_422_UNPROCESSABLE_ENTITY, "no_client",
+                                  "This item has no client: there is no quota to record time against")
+    if task["client_ids"] != [str(client)]:
+        raise wim.maintenance_error(status.HTTP_409_CONFLICT, "MAINTENANCE_CLIENT_MISMATCH",
+                                    "Every counted run must be on a machine of this item's client")
+    if payload.mode == "resolve" and current.get("stage") not in OPEN_STAGES:
+        raise wim.maintenance_error(status.HTTP_409_CONFLICT, "ITEM_NOT_OPEN", "Only an open item can be resolved")
+
+    attempt_id = str(uuid.uuid4())
+    end_time = task["proposal"]["end_time"]
+    mark = {
+        "attempt_id": attempt_id,
+        "agent_demand_id": str(demand_id),
+        "demand_number": task["number"],
+        "minutes": payload.minutes,
+        "mode": payload.mode,
+        "note": payload.note,
+        "service_type": payload.service_type,
+        "end_time": end_time,
+        "execution_ids": task["execution_ids"],
+        "proposed_minutes": task["proposal"]["minutes"],
+    }
+    await _audit(db, kind, str(item_id), wim.RECORDING_EVENT, admin, mark)  # commits: the attempt exists now
+    progress: dict[str, Any] = {"write_started": False, "time_posted": False}
+    try:
+        if payload.mode == "resolve":
+            resolve = WorkItemResolve(resolution=payload.note, minutes=payload.minutes, service_type=payload.service_type)
+            return await _resolve(kind, item_id, resolve, admin, db, current=current, end_time=end_time,
+                                  extra_audits=[(wim.RECORDED_EVENT, mark)], progress=progress)
+        body: dict[str, Any] = {"minutes": payload.minutes, "description": payload.note, "service_type": payload.service_type}
+        if end_time:
+            body["end_time"] = end_time
+        progress["write_started"] = True
+        await _post_time_entry(kind, item_id, {**body, "recorded_by": f"forgehub:{admin.username}"})
+        progress["time_posted"] = True
+        await _audit(db, kind, str(item_id), "time_logged", admin,
+                     {"minutes": payload.minutes, "end": end_time, "description": payload.note,
+                      "agent_demand_id": str(demand_id)}, commit=False)
+        await _audit(db, kind, str(item_id), wim.RECORDED_EVENT, admin, mark, commit=False)
+        await db.commit()
+    except HTTPException as exc:
+        if _nothing_written(exc, progress):
+            await db.rollback()
+            await _audit(db, kind, str(item_id), wim.DISCARDED_EVENT, admin,
+                         {"attempt_id": attempt_id, "agent_demand_id": str(demand_id), "automatic": True,
+                          "reason": "Darckware refused before writing anything"})
+        raise
+    return await _load_item(kind, item_id)
+
+
+@router.post("/work-items/{kind}/{item_id}/maintenance/{demand_id}:settle")
+async def settle_work_item_maintenance(
+    kind: str,
+    item_id: uuid.UUID,
+    demand_id: uuid.UUID,
+    payload: MaintenanceSettleIn,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Close an attempt whose outcome is unknown, after the operator checked
+    the item's hours in Darckware (same spirit as Messages' confirm_inactive:
+    a person decides with evidence, nothing is guessed). `recorded` marks it
+    done (no new record possible); `discard` closes it as not written, so a
+    new record may follow. Writes nothing to Darckware."""
+    _check_kind(kind)
+    await wim.lock_task(db, demand_id)
+    task = await wim.task_for_record(db, kind, item_id, demand_id)
+    pending = task["uncertain"]
+    if pending is None:
+        raise wim.maintenance_error(status.HTTP_409_CONFLICT, "MAINTENANCE_NOTHING_UNCERTAIN",
+                                    "This task has no attempt with an unknown outcome")
+    base = {"attempt_id": pending["attempt_id"], "agent_demand_id": str(demand_id), "reason": payload.reason,
+            "settled_by_operator": True}
+    if payload.outcome == "recorded":
+        await _audit(db, kind, str(item_id), wim.RECORDED_EVENT, admin,
+                     {**base, "minutes": pending["minutes"], "mode": pending["mode"], "confirmed_by_operator": True})
+    else:
+        await _audit(db, kind, str(item_id), wim.DISCARDED_EVENT, admin, base)
+    return await wim.item_maintenance(db, kind, item_id)
 
 
 @router.post("/clients/{client_id}/monthly-report")

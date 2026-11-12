@@ -202,7 +202,15 @@ async def launch_execution(
     """Creates the execution + one result per machine (skipped ones already
     closed with their reason), audits it and starts the background run.
     Phase 3's preparation/rotation will call this with `secrets` so the
-    passwords it generates are masked everywhere."""
+    passwords it generates are masked everywhere.
+
+    A run inside a "Pedir ao agente" task records the task's Darckware item
+    when none is given, and is refused (422 DARCKWARE_ITEM_MISMATCH) when a
+    different one is (remote-access support plan, Fase 3)."""
+    if agent_demand_id is not None:
+        from app.core.work_item_maintenance import resolve_task_item
+
+        darckware_item = await resolve_task_item(db, agent_demand_id, darckware_item)
     busy = await busy_server_ids(db)
     now = datetime.now(timezone.utc)
     masked = mask_secrets(command, secrets or []) or ""
@@ -389,6 +397,34 @@ async def prepare_script_run(script: HostScript, values: dict | None) -> tuple[s
 
 
 CONFIRMATION_WORD = "CONFIRMAR"
+
+
+def item_key(item_id: str) -> str:
+    """Canonical spelling of a Darckware id (a UUID), so lookups by item match."""
+    try:
+        return str(uuid.UUID(item_id.strip()))
+    except ValueError:
+        return item_id.strip()
+
+
+async def require_item_client(servers: list[Server], item: tuple[str, str]) -> None:
+    """A client's ticket/demand is served only on that client's machines
+    (remote-access support plan, Fase 3): the item's client is read from
+    Darckware, and every machine must carry it."""
+    from app.api.routes.client_ops import _load_item
+
+    try:
+        item_uuid = uuid.UUID(item[1])
+    except ValueError as exc:
+        raise HTTPException(422, {"code": "DARCKWARE_ITEM_INVALID", "message": "A Darckware item id is a UUID"}) from exc
+    client = (await _load_item(item[0], item_uuid)).get("client_account_id")
+    others = [s.name for s in servers if not client or str(s.darckware_client_id or "") != str(client)]
+    if others:
+        raise HTTPException(422, {
+            "code": "MAINTENANCE_CLIENT_MISMATCH",
+            "message": f"Not a machine of this item's client: {', '.join(others)}",
+            "machines": others,
+        })
 
 
 def darckware_item_of(kind: str | None, item_id: str | None) -> tuple[str, str] | None:
@@ -861,6 +897,8 @@ async def create_agent_request(
     if refused:
         raise HTTPException(status_code=422, detail=f"Not authorized for this maintenance: {', '.join(refused)}")
     item = darckware_item_of(payload.darckware_item_kind, payload.darckware_item_id)
+    if item:
+        await require_item_client(servers, item)
 
     names = ", ".join(s.name for s in servers[:3]) + (f" +{len(servers) - 3}" if len(servers) > 3 else "")
     subject = f"Manutenção em {names}: {payload.instruction.strip().splitlines()[0][:80]}"
@@ -884,7 +922,11 @@ async def create_agent_request(
                                    "server_ids": [str(s.id) for s in servers],
                                    "script_ids": [str(s.id) for s, _ in scripts],
                                    "scripts_allowed": can_scripts[agent.id],
-                                   "commands_allowed": can_commands[agent.id]}))
+                                   "commands_allowed": can_commands[agent.id],
+                                   # The client's ticket/demand: the agent's runs inherit it
+                                   # (launch_execution) and its detail lists this task.
+                                   "darckware_item_kind": item[0] if item else None,
+                                   "darckware_item_id": item_key(item[1]) if item else None}))
         for server in servers:
             db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="agent_task_requested",
                               actor=admin.username, payload={"agent": agent.name, "demand_number": demand.number,
@@ -1036,6 +1078,8 @@ async def follow_up_execution(
         secrets=secrets,
         script=script,
         values_for_hook=payload.parameter_values,
+        # A retry of the failed machines serves the same client ticket/demand.
+        darckware_item=(parent.darckware_item_kind, parent.darckware_item_id) if parent.darckware_item_kind else None,
     )
     return await _detail(db, execution)
 

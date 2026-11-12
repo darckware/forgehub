@@ -240,6 +240,37 @@ erro. O
    ao cliente continua passando pela aprovação da Darckware.
 3. **Testes:** a proposta não grava nada; a confirmação grava uma vez (idempotente por tarefa).
 
+Progresso (2026-11-12, branch `feat/remote-access-ticket-loop`, sem migração):
+
+- [x] Botão "Pedir manutenção ao agente" no detalhe (Clientes › Demandas › "Manutenção remota"):
+      abre o painel do "Pedir ao agente" com as máquinas do cliente (`servers.darckware_client_id`),
+      desmarcáveis (ao menos uma fica), e o item pré-selecionado. Desligado, com o motivo, sem
+      cliente ou sem máquina cadastrada.
+- [x] O "Pedir ao agente" grava o item no `AuditEvent agent_maintenance_request`; toda execução
+      de agente nessa tarefa (`launch_execution`: script, `run_remote_command`, proposta aprovada
+      -- que roda numa tarefa nova e herda o item da tarefa de origem) herda o item; outro item
+      dá 422 `DARCKWARE_ITEM_MISMATCH`. Transferência de arquivo não grava execução: fora.
+- [x] `GET /client-ops/work-items/{kind}/{id}/maintenance`: execuções e tarefas do item; por tarefa
+      terminada e não registrada, nota + minutos propostos (soma das durações das execuções,
+      arredondada para cima em blocos de 30 min, mínimo 30). Não grava nada.
+- [x] `POST .../maintenance/{demand_id}:record` (`log_time` ou `resolve`): só após a confirmação.
+      `resolve` passa pelo mesmo `_resolve` da rota `:resolve`, que já aponta as horas (uma vez).
+      Idempotência: `AuditEvent maintenance_recorded` (payload `agent_demand_id`) na mesma
+      transação do audit da ação, só depois de a Darckware aceitar, sob advisory lock da tarefa;
+      a segunda vez é 409 `MAINTENANCE_ALREADY_RECORDED`. Nenhum e-mail sai daqui.
+- [x] Execuções feitas por uma pessoa aparecem na lista mas não entram na proposta: registram-se
+      pelo "Apontar horas" de sempre.
+- [x] Revisão (mesmo dia): resultado ambíguo nunca aponta duas vezes -- a tentativa
+      (`maintenance_recording`) é gravada e commitada antes de qualquer escrita na Darckware;
+      recusa explícita antes de escrever a descarta sozinha; timeout, 5xx ou falha depois da
+      entrada de horas a deixa aberta (409 `MAINTENANCE_RECORD_UNCERTAIN`) até um admin dizer, com
+      motivo, "foi registrado" ou "descartar tentativa" (`:settle`, auditado). A nota proposta é
+      para o cliente (sem número de tarefa, agente, comando ou id). `:record` exige todas as
+      execuções contadas em máquinas do cliente do item (409 `MAINTENANCE_CLIENT_MISMATCH`) e
+      todas encerradas; o "Pedir ao agente" recusa (422) item de outro cliente. Do chamado, o
+      painel abre sem máquina marcada. Execução em que nada rodou não conta; execuções
+      sobrepostas contam pela união dos intervalos; "repetir nas que falharam" herda o item.
+
 ## Fase 4 — Alerta de máquina (lacuna 10)
 
 - Um loop de 15 min reaproveita a prontidão com o cache de 5 min da sondagem (sem rajada de login

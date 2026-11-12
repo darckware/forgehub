@@ -149,7 +149,9 @@
       "risk_too_low": "a permissão de scripts dele não cobre o risco dos scripts escolhidos.",
       "scripts_need_delegation": "só tem comandos livres; os scripts escolhidos pedem permissão de scripts.",
       "not_covering": "nenhuma permissão dele cobre todas as máquinas escolhidas."
-    }
+    },
+    "machinesHelp": "Escolha as máquinas do cliente que precisam de manutenção.",
+    "pickMachine": "Escolha ao menos uma máquina para ver os agentes."
   },
   "categories": {
     "title": "Classificações",

@@ -1145,8 +1145,11 @@ def _request(c, **extra):
 async def test_request_accepts_an_agent_with_only_direct_access(requests_ctx):
     c = requests_ctx
     await opened(c)
-    r = await c.client.post(REQUESTS, json=_request(c, darckware_item_kind="ticket", darckware_item_id="T-31"),
-                            headers=c.admin_h)
+    # The item/client match is test_host_execution's and test_work_item_maintenance's subject.
+    from unittest.mock import AsyncMock, patch as _patch
+    with _patch.object(host, "require_item_client", AsyncMock()):
+        r = await c.client.post(REQUESTS, json=_request(c, darckware_item_kind="ticket", darckware_item_id="T-31"),
+                                headers=c.admin_h)
     assert r.status_code == 201, r.text
     stored = await _stored_body(c.agent.id)
     assert "run_remote_command" in stored.body and "run_maintenance_script" not in stored.body

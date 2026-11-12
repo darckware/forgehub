@@ -181,6 +181,113 @@ function useInvalidateClientOps() {
   return () => void queryClient.invalidateQueries({ queryKey: ["client-ops"] });
 }
 
+// ---------------------------------------------------------------------------
+// Remote maintenance for an item (remote-access support plan, Fase 3, 2026-11-12)
+// ---------------------------------------------------------------------------
+
+export type MaintenanceVerdict = "succeeded" | "failed" | "running" | "nothing_ran";
+
+export interface WorkItemMaintenanceExecution {
+  id: string;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_seconds: number | null;
+  status: string;
+  /** The run or one of its machines hasn't finished. */
+  in_progress: boolean;
+  verdict: MaintenanceVerdict;
+  machines: { name: string; server_id: string | null; verdict: MaintenanceVerdict }[];
+  requested_by: string;
+  trigger: "manual" | "schedule" | "agent";
+  agent_id: string | null;
+  agent_name: string | null;
+  script_name: string | null;
+  /** "script X v2" or "comando <first line>" -- plain text, already masked. */
+  what: string;
+  reason: string | null;
+  agent_demand_id: string | null;
+  demand_number: number | null;
+}
+
+export interface WorkItemMaintenanceTask {
+  demand_id: string;
+  number: number;
+  subject: string;
+  agent_id: string | null;
+  agent_name: string | null;
+  dispatch_status: string | null;
+  status: string;
+  created_at: string | null;
+  finished: boolean;
+  /** One of the task's own runs is still going: no proposal yet. */
+  runs_in_progress: boolean;
+  /** Counted runs only (a run where every machine was skipped isn't). */
+  execution_ids: string[];
+  /** Darckware clients of the counted runs' machines. */
+  client_ids: string[];
+  /** Already written to Darckware for this task (once per task). */
+  recorded: { minutes: number; mode: "log_time" | "resolve"; at: string; by: string; confirmed_by_operator?: boolean } | null;
+  /** An attempt whose outcome is unknown (timeout, 5xx, failure after the
+   * time entry): no new record until an admin settles it. */
+  uncertain: { attempt_id: string; mode: "log_time" | "resolve"; minutes: number; note: string; at: string; by: string } | null;
+  /** Only for a finished task with runs and not recorded yet. Proposing writes nothing. */
+  proposal: { minutes: number; note: string; start_time: string | null; end_time: string | null; execution_count: number } | null;
+}
+
+export interface WorkItemMaintenance {
+  executions: WorkItemMaintenanceExecution[];
+  tasks: WorkItemMaintenanceTask[];
+}
+
+export function useWorkItemMaintenance(kind?: WorkItemKind, id?: string) {
+  return useQuery<WorkItemMaintenance>({
+    queryKey: ["client-ops", "work-item", kind, id, "maintenance"],
+    queryFn: () => apiClient.get(`${BASE}/work-items/${kind}/${id}/maintenance`),
+    enabled: Boolean(kind && id),
+    retry: false,
+  });
+}
+
+export interface MaintenanceRecordInput {
+  kind: WorkItemKind;
+  id: string;
+  demandId: string;
+  mode: "log_time" | "resolve";
+  note: string;
+  minutes: number;
+  serviceType: "remoto" | "presencial";
+}
+
+/** Marcelo confirmed a task's proposal: log the hours, or resolve (which logs them itself). */
+export function useRecordWorkItemMaintenance() {
+  const invalidate = useInvalidateClientOps();
+  return useMutation<WorkItemDetail, Error, MaintenanceRecordInput>({
+    mutationFn: ({ kind, id, demandId, mode, note, minutes, serviceType }) =>
+      apiClient.post(`${BASE}/work-items/${kind}/${id}/maintenance/${demandId}:record`, {
+        mode, note, minutes, service_type: serviceType,
+      }),
+    onSettled: invalidate,
+  });
+}
+
+export interface MaintenanceSettleInput {
+  kind: WorkItemKind;
+  id: string;
+  demandId: string;
+  outcome: "recorded" | "discard";
+  reason: string;
+}
+
+/** Close an attempt with an unknown outcome after checking the item's hours in Darckware. */
+export function useSettleWorkItemMaintenance() {
+  const invalidate = useInvalidateClientOps();
+  return useMutation<WorkItemMaintenance, Error, MaintenanceSettleInput>({
+    mutationFn: ({ kind, id, demandId, outcome, reason }) =>
+      apiClient.post(`${BASE}/work-items/${kind}/${id}/maintenance/${demandId}:settle`, { outcome, reason }),
+    onSettled: invalidate,
+  });
+}
+
 export const workItemCreateSchema = z.object({
   kind: z.enum(["ticket", "demand"]),
   client_account_id: z.string().uuid({ message: "required" }),
