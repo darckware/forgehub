@@ -137,3 +137,17 @@ def test_the_name_predicate_on_a_real_postgres():
         pytest.skip("isolated test Postgres not reachable")
     got = {name: flag == "t" for name, flag in (line.split("|") for line in result.stdout.split())}
     assert got == KEY_NAMES
+
+
+def test_acknowledged_reads_are_exact_row_ids():
+    assert len(audit.ACKNOWLEDGED_READS) == 7
+    assert len(set(audit.ACKNOWLEDGED_READS)) == 7
+    for row_id in audit.ACKNOWLEDGED_READS:
+        assert len(row_id) == 36 and row_id.count("-") == 4
+    assert "NOT acknowledged GROUP BY" in audit.QUERY
+
+
+def test_ok_reports_how_many_acknowledged_reads_it_left_out():
+    code, notes = audit.evaluate(data(acknowledged_reads=7))
+    assert code == audit.EXIT_OK
+    assert "7 read(s) acknowledged by Marcelo left out" in notes
