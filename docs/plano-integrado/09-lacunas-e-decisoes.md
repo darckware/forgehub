@@ -1,5 +1,17 @@
 # Lacunas e decisões
 
+## Alinhamento da missão FileNest — 06/11/2026
+
+Marcelo indicou o FileNest, em `/root/project/filenest`, como projeto real para teste da integração
+e pediu concluir o planejamento com um checklist de contexto e alinhamento da missão.
+O [checklist FileNest](13-checklist-missao-filenest.md) registra essa escolha e prepara a abertura.
+
+A proposta técnica é validar uma entrega limitada do acesso dos agentes à API e às telas
+(etapa 4 do plano FileNest), após as capacidades necessárias de perfis/auditoria da etapa 3.
+Esse recorte é proposta de planejamento, a fixar na baseline; a escolha do produto já está confirmada.
+C.0/C.1 e C.2b.R continuam no fechamento da Onda 1, antes da execução do piloto na Onda 2.
+Não houve cadastro/despacho de tarefas, alteração do FileNest ou aprovação de baseline por esta edição.
+
 ## Lacunas encontradas na revisão do plano (24/10)
 
 | # | Lacuna | Onde foi tratada |

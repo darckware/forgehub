@@ -7,6 +7,12 @@ a clientes. As decisões e limites estão em [09](09-lacunas-e-decisoes.md).
 
 ## Diagnóstico e autoridade
 
+**Atualização de planejamento — 06/11/2026:** FileNest (`/root/project/filenest`) foi escolhido por
+Marcelo como projeto real de validação. O [checklist de contexto e missão](13-checklist-missao-filenest.md)
+define a preparação do piloto, com execução após o aceite da Onda 1. A matriz JSON continua sendo a
+fonte do andamento da primeira onda; as descrições datadas abaixo são histórico e não substituem
+os estados mais recentes da matriz. Esta atualização documental não altera status de entrega.
+
 O caminho continua sendo Service Factory → Messages → evidência → revisão independente. A Missão
 acrescenta coordenação e critérios de conclusão aos projetos; a Operação 24x7 acompanha, e as
 Atividades dão visibilidade. O escopo permanece congelado; novas demandas entram em planejamento
@@ -120,6 +126,11 @@ A documentação consolida o planejamento; cada item acima permanece **não impl
 consolidação**. O fechamento da onda exige evidência real, e não marcar checkboxes deste texto.
 
 ## Onda 2 — Agentes operam e Marcelo supervisiona
+
+**Projeto real de validação:** FileNest, conforme [checklist de alinhamento](13-checklist-missao-filenest.md).
+O piloto usa as capacidades M0 já entregues e registra lacunas como defeitos, sem esperar a
+implementação de toda a Onda 2. O recorte proposto é o acesso auditável dos agentes à API/telas;
+contratos, permissões, ambiente FileNest isolado e baseline são conferidos antes do despacho.
 
 V-b usa apenas ferramentas existentes; as lacunas viram P.1 por ferramenta. Depois vêm S/R/B, P,
 I, Q.0–Q.6, núcleo D, O.1–O.3, E.1/E.4, C.3/C.5/C.6 e N.1–N.5/N.10 conforme o grafo de 07.

@@ -30,11 +30,12 @@ integral**.
   três panes permaneceram com os mesmos PIDs.
 - [x] Manter `MISSION_CYCLE_ENABLED=false` e `MESSAGE_TRIAGE_ENABLED=false`;
   ferramentas de missão continuam habilitadas.
-- [ ] Instalar a Skill global `forgehub` v1.3.0. O texto atualizado está
-  preparado em `/tmp/forgehub-skill-1.3.0.md`, mas `/root/.codex/skills/forgehub/SKILL.md`
-  está fora das raízes graváveis desta sessão; a gravação foi recusada. A Skill
-  instalada permanece na versão anterior até uma sessão com acesso a esse caminho.
-  Patch versionado: [forgehub-skill-v1.3.0.patch](../architecture/forgehub-skill-v1.3.0.patch).
+- [x] Instalar e verificar a Skill compartilhada `forgehub` v1.3.0
+  (11/11, 14:21 -03:00): quatro ferramentas MCP, guardas de baseline,
+  verificação independente e aceite humano. Backup salvo, proteção restaurada,
+  oito arquivos e links dos perfis verificados.
+  Registro e rollback: `/root/.hermes/foundation/47_migrations/2026-11-11-forgehub-skill-mission-criteria.md`.
+  Patch: [forgehub-skill-v1.3.0.patch](../architecture/forgehub-skill-v1.3.0.patch).
 
 - [x] Recuperar a falha da regressão interrompida: backend completo passou,
   **2.175 passed, 21 skipped** (`/tmp/fh-mission-fc67cea-backend.log`).
@@ -66,11 +67,12 @@ integral**.
 - [ ] Concluir a suíte ampla do host-bridge que travou na interação assíncrona
   do pytest; os 19 testes focados passaram, mas a execução interrompida não é
   uma aprovação da suíte inteira.
-- [ ] Atualizar a Skill `forgehub` instalada para v1.3.0 com as quatro
-  ferramentas MCP, guardas de baseline, verificação independente e aceite
-  humano. O texto v1.3.0 está preparado em `/tmp/forgehub-skill-1.3.0.md`, mas
-  o sandbox recusou a gravação de `/root/.codex/skills/forgehub/SKILL.md`, fora
-  das raízes graváveis; precisa de uma sessão com esse caminho habilitado.
+- [x] Instalar e verificar a Skill compartilhada `forgehub` v1.3.0
+  (11/11, 14:21 -03:00): quatro ferramentas MCP, guardas de baseline,
+  verificação independente e aceite humano. Backup salvo, proteção restaurada,
+  oito arquivos e links dos perfis verificados.
+  Registro e rollback: `/root/.hermes/foundation/47_migrations/2026-11-11-forgehub-skill-mission-criteria.md`.
+  Patch: [forgehub-skill-v1.3.0.patch](../architecture/forgehub-skill-v1.3.0.patch).
 
 Recibo operacional (não contém credenciais):
 `/root/.forgehub/releases/mission-criteria-2d0eeab/release.json`. Backup privado

@@ -7,6 +7,11 @@
 **Objetivo:** provar o fluxo real com uma missão C.0+C.1, impedir conclusão sem prova/revisão e
 isolar testes/contexto antes de ampliar a operação.
 
+**Continuidade definida em 06/11/2026:** o projeto real de aplicação para validar a integração é
+o FileNest, em `/root/project/filenest`. O [checklist de contexto e alinhamento](13-checklist-missao-filenest.md)
+prepara esse piloto para a Onda 2, após o aceite desta onda; C.0/C.1 e o isolamento de contexto
+continuam necessários. A escolha do projeto não marca as pendências desta matriz como concluídas.
+
 **Arquitetura:** reutilizar Produto/Versão/Projeto/PlanningItem/ProjectTask e Messages. Acrescentar
 somente a base mínima de missão, os guards e ferramentas necessários à primeira prova; implementação
 completa de Missão e a racionalização do legado vêm depois. Registro real em produção; testes que

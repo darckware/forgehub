@@ -85,3 +85,13 @@ write `/root/.codex/skills/forgehub/SKILL.md`. Its v1.3.0 preview is at
 `/tmp/forgehub-skill-1.3.0.md`, pending a session with that skill directory
 enabled. The broad asynchronous host-bridge suite also remains incomplete, and
 T8–T12 remain open; this release is not the full mission maturation delivery.
+
+## Shared skill installation addendum — 2026-11-11, 17:21 UTC
+
+The pending skill installation above is complete. The canonical shared source
+is v1.3.0 and matches the prepared preview byte for byte; Codex resolves it
+through its existing symlink. The controlled helper verified eight immutable
+files, manifest hashes and profile links. Backup and receipt: `/root/.hermes/profiles/athos/state-snapshots/forgehub-skill-1.3.0-20261111T172120Z`.
+Migration and rollback: `/root/.hermes/foundation/47_migrations/2026-11-11-forgehub-skill-mission-criteria.md`.
+This closes only skill installation; the other implementation and host-bridge
+testing limits recorded above remain unchanged.

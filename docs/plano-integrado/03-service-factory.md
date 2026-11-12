@@ -87,6 +87,15 @@ Numa missão, o termo de abertura e o brief são o mesmo documento: o brief é o
 
 ### Gate de abertura
 
+**Detalhamento documental pedido em 06/11/2026:** para projeto de sistema, centralizar em `docs/`
+o índice, spec, planos com IA, contrato de tecnologias/arquitetura/banco, metodologia, deploy Docker
+quando adotado, design system, contrato de UX, segurança/sessões, estado e histórico. Os arquivos
+de descoberta da raiz apontam para essa pasta. No FileNest, o conjunto está em
+`/root/project/filenest/docs/README.md`. O contrato explicita sidebar, contas, perfis, versões,
+tema claro/escuro, conexões limitáveis por conta, MFA, reCAPTCHA, controle/bloqueio de sessão e
+confirmação padronizada. Formulários usam página; os pequenos podem abrir à direita, sem
+formulário em modal central. Cada requisito distingue definido, implementado e verificado.
+
 O projeto sai de `rascunho` e libera a primeira tarefa só quando:
 1. o termo de abertura está aprovado (pelo Marcelo, e pelo cliente quando o projeto é dele);
 2. os papéis estão nomeados sem violar as regras;
