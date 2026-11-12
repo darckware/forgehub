@@ -11,6 +11,10 @@ import { useTranslation } from "react-i18next";
 import {
   Activity,
   Bot,
+  ChevronDown,
+  MoreHorizontal,
+  RotateCw,
+  ScanSearch,
   FolderPlus,
   History,
   Wrench,
@@ -34,7 +38,8 @@ import {
 
 import { CopyButton } from "@/components/CopyButton";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
@@ -60,6 +65,7 @@ import { PrepareDialog } from "./PrepareDialog";
 import { AgentRequestDialog } from "./AgentRequestDialog";
 import { MaintenanceDialog } from "./MaintenanceDialog";
 import { RevealPasswordDialog } from "./RevealPasswordDialog";
+import { ROTATIONS, SYSTEM_ACTIONS, type QuickActions } from "./quickActions";
 
 type T = (key: string, options?: Record<string, unknown>) => string;
 
@@ -149,7 +155,9 @@ function IconButton({ label, onClick, disabled, className, children }: {
   );
 }
 
-export function MachinesCard() {
+/** `quickActions` (admin only, given by the page): the "Ações" menu in the
+ * toolbar and, per machine, in the row's own menu with the machine chosen. */
+export function MachinesCard({ quickActions }: { quickActions?: QuickActions } = {}) {
   const { t } = useTranslation("remoteAccess");
   const navigate = useNavigate();
   const vm = useMachinesViewModel();
@@ -178,6 +186,40 @@ export function MachinesCard() {
       });
     void resolveSshCommand(s).then(launch).catch(() => launch(buildSshCommand(s)));
   };
+
+  const showActions = vm.isAdmin && quickActions !== undefined;
+  const systemItems = (machine?: Server): ActionMenuItem[] => SYSTEM_ACTIONS.map((action, i) => ({
+    key: action,
+    label: t(`quick.${action}`),
+    icon: <Wrench className="h-3.5 w-3.5" />,
+    separatorBefore: i === 0,
+    onSelect: () => quickActions?.run(action, machine),
+  }));
+  const toolbarItems: ActionMenuItem[] = [
+    { key: "prepare", label: t("quick.prepare"), icon: <Wrench className="h-3.5 w-3.5" />, onSelect: () => quickActions?.run("prepare") },
+    ...ROTATIONS.map((action) => ({
+      key: action, label: t(`quick.${action}`), icon: <RotateCw className="h-3.5 w-3.5" />, onSelect: () => quickActions?.run(action),
+    })),
+    {
+      key: "detect_os", label: t("quick.detectOs"), disabled: quickActions?.detectOsPending,
+      icon: quickActions?.detectOsPending ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" /> : <ScanSearch className="h-3.5 w-3.5" />,
+      onSelect: () => quickActions?.run("detect_os"),
+    },
+    ...systemItems(),
+  ];
+  // One machine: preparing is for a workstation, rotating needs what the
+  // rotation panel accepts (Ready, with a key on record).
+  const rowItems = (machine: Server, ready: boolean): ActionMenuItem[] => [
+    ...(machine.kind === "workstation"
+      ? [{ key: "prepare", label: t("quick.prepare"), icon: <Wrench className="h-3.5 w-3.5" />, onSelect: () => quickActions?.run("prepare", machine) }]
+      : []),
+    ...(ready && machine.ssh_key_path
+      ? ROTATIONS.map((action) => ({
+          key: action, label: t(`quick.${action}`), icon: <RotateCw className="h-3.5 w-3.5" />, onSelect: () => quickActions?.run(action, machine),
+        }))
+      : []),
+    ...systemItems(machine),
+  ].map((item, i) => (i === 0 ? { ...item, separatorBefore: false } : item));
 
   const renderRow = ({ machine, readiness, node }: MachineRow) => {
     const ready = readiness?.readiness === "ready";
@@ -277,6 +319,17 @@ export function MachinesCard() {
                   <Pencil className="h-4 w-4" aria-hidden="true" />
                 </IconButton>
               )}
+              {showActions && machine.access_enabled && (
+                <ActionMenu
+                  label={t("quick.rowMenu", { name: machine.name })}
+                  title={t("quick.rowMenu", { name: machine.name })}
+                  items={rowItems(machine, ready)}
+                  triggerClassName={buttonVariants({ variant: "ghost", size: "icon", className: "h-8 w-8" })}
+                >
+                  <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+                  <span className="sr-only">{t("quick.rowMenu", { name: machine.name })}</span>
+                </ActionMenu>
+              )}
               {vm.canDelete && (
                 <IconButton label={t("machines.actions.delete", { name: machine.name })} onClick={() => vm.askDelete(machine)} className="text-destructive hover:text-destructive">
                   <Trash2 className="h-4 w-4" aria-hidden="true" />
@@ -311,6 +364,16 @@ export function MachinesCard() {
               <Button type="button" size="sm" onClick={() => vm.openForm("new")} className="cursor-pointer gap-1.5">
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" /> {t("machines.new")}
               </Button>
+            )}
+            {showActions && (
+              <ActionMenu
+                label={t("quick.menu")}
+                items={toolbarItems}
+                triggerClassName={buttonVariants({ variant: "outline", size: "sm" })}
+              >
+                <Wrench className="h-3.5 w-3.5" aria-hidden="true" /> {t("quick.menu")}
+                <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+              </ActionMenu>
             )}
             {vm.isAdmin && (
               <Button type="button" size="sm" variant="outline" onClick={vm.sync} disabled={vm.syncing} className="cursor-pointer gap-1.5">

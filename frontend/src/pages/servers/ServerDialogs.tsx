@@ -2,28 +2,23 @@
  * (docs/architecture/REMOTE_ACCESS_SERVERS_UNIFICATION_PLAN.md, phase 3). */
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { CheckCircle2, Eye, EyeOff, KeyRound, Loader2, Upload, X, XCircle } from "lucide-react";
+import { CheckCircle2, Eye, EyeOff, KeyRound, Loader2, Upload, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SidePanel } from "@/components/ui/side-panel";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useImportServers, useInstallServerKey, type Server } from "@/hooks/useServers";
 import { isValidSshPort, SshPortField } from "./SshPortField";
 
-function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+/** The shared shell of these dialogs: a right-hand panel (2026-11-11, Marcelo:
+ * "não quero essa tela modal. O formulário precisa abrir a direita"). `busy`
+ * keeps Esc/overlay from closing it while a request is in flight. */
+function ModalShell({ title, onClose, busy = false, children }: { title: string; onClose: () => void; busy?: boolean; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 z-50 flex justify-center overflow-y-auto p-4" role="dialog" aria-modal="true">
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 my-auto w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold">{title}</h2>
-          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <SidePanel title={title} onClose={onClose} busy={busy} size="md">
+      {children}
+    </SidePanel>
   );
 }
 
@@ -63,7 +58,7 @@ export function InstallKeyModal({ server, onClose, onInstalled }: { server: Serv
   }
 
   return (
-    <ModalShell title={t("install.title", { name: server.name })} onClose={onClose}>
+    <ModalShell title={t("install.title", { name: server.name })} onClose={onClose} busy={installKey.isPending}>
       <div className="space-y-4">
         <p className="text-xs text-muted-foreground">
           {t("install.description", { ip: server.ip_address })}
@@ -205,7 +200,7 @@ export function ImportCsvModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <ModalShell title={t("import.title")} onClose={onClose}>
+    <ModalShell title={t("import.title")} onClose={onClose} busy={importServers.isPending}>
       <div className="space-y-3">
         <p className="text-xs text-muted-foreground">
           {t("import.description")}

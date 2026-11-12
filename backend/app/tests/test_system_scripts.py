@@ -24,13 +24,15 @@ from app.db.models.server import Server
 @pytest.mark.parametrize("spec", SYSTEM_SCRIPTS, ids=lambda s: s["system_key"])
 def test_system_scripts_render_safely(spec):
     params = validate_parameters(spec["parameters"])
-    values = {p["name"]: "x'; evil" for p in params if p["required"] and not p["default"]}
+    # A patterned parameter gets a valid sample (its pattern refuses the quote test).
+    samples = {"ALVO_HOST": "srv.example.test", "ALVO_PORTA": "22"}
+    values = {p["name"]: samples.get(p["name"], "x'; evil") for p in params if p["required"] and not p["default"]}
     resolved, _ = resolve_values(params, values)
     text = render_script(spec["platform"], spec["content"], resolved)
     # No control character but newline/tab: a stray "\r" in a Python
     # template once turned 'RustDesk\rustdesk.exe' into a broken path.
     assert not [c for c in text if ord(c) < 32 and c not in "\n\t"]
-    if spec["platform"] == "windows" and values:
+    if spec["platform"] == "windows" and "x'; evil" in values.values():
         assert "x''; evil" in text  # quoted for PowerShell
     if spec["system_key"].startswith(("rustdesk_install", "remote_access_install")):
         assert "RUSTDESK_ID=" in text
@@ -245,3 +247,229 @@ async def test_rustdesk_password_recorded_only_after_success(machine):
     async with AsyncSessionLocal() as db:
         detail = await exec_routes._detail(db, await db.get(HostExecution, execution.id))
     assert "Nova#Senha2026" not in detail.command  # secret parameter masked in the stored command
+
+
+# ---- Read-only monitoring scripts (2026-11-11) ----
+
+from app.core.system_scripts import MONITORING_SCRIPTS  # noqa: E402
+
+_MONITORING_KINDS = ("monitor_state", "monitor_services", "monitor_containers", "monitor_logs", "monitor_network",
+                     "monitor_reachability")
+# Opens a connection to another host: not read-only (Marcelo, 2026-11-11).
+_NOT_READ = {"monitor_reachability"}
+
+
+def test_monitoring_scripts_are_read_only_on_both_platforms():
+    import re
+
+    keys = {s["system_key"] for s in MONITORING_SCRIPTS}
+    assert keys == {f"{k}:{p}" for k in _MONITORING_KINDS for p in ("linux", "windows")}
+    for spec in MONITORING_SCRIPTS:
+        kind = spec["system_key"].split(":")[0]
+        assert spec["risk"] == ("change" if kind in _NOT_READ else "read"), spec["system_key"]
+        assert spec["category"] == "monitoramento", spec["system_key"]
+        params = validate_parameters(spec["parameters"])
+        assert not any(p["secret"] or p.get("vault_secret") for p in params)
+        text = spec["content"].lower()
+        # No elevation, nothing started, stopped or restarted.
+        # ("sudo" only appears as a journal unit the logs script refuses.)
+        assert not re.search(r"\bsudo\s", text) and "$sudo" not in text and "runas" not in text
+        for verb in ("systemctl start", "systemctl stop", "systemctl restart", "start-service", "stop-service",
+                     "restart-service", "docker start", "docker stop", "docker restart", "docker rm", "rm -"):
+            assert verb not in text, (spec["system_key"], verb)
+    assert all(s in SYSTEM_SCRIPTS for s in MONITORING_SCRIPTS)
+
+
+def _monitoring(key):
+    spec = next(s for s in MONITORING_SCRIPTS if s["system_key"] == key)
+    return spec, validate_parameters(spec["parameters"])
+
+
+@pytest.mark.parametrize("values", [
+    {"ORIGEM": "arquivo", "ARQUIVO": "/etc/shadow"},
+    {"ORIGEM": "arquivo", "ARQUIVO": "/var/log/syslog"},  # names from the list only, never a path
+    {"ORIGEM": "arquivo", "ARQUIVO": "../../etc/shadow"},
+    {"ORIGEM": "arquivo", "ARQUIVO": "auth.log"},
+    {"ORIGEM": "arquivo", "ARQUIVO": "secure"},
+    {"ORIGEM": "arquivo", "ARQUIVO": "wtmp"},
+    {"ORIGEM": "arquivo", "ARQUIVO": "syslog; cat /etc/shadow"},
+    {"ORIGEM": "servico", "SERVICO": "nginx", "LINHAS": "0"},
+    {"ORIGEM": "servico", "SERVICO": "nginx", "LINHAS": "501"},
+    {"ORIGEM": "servico", "SERVICO": "nginx", "LINHAS": "abc"},
+    {"ORIGEM": "servico", "SERVICO": "nginx", "LINHAS": "5\n"},
+    {"ORIGEM": "servico", "SERVICO": "-n1 --system"},
+    {"ORIGEM": "servico", "SERVICO": "sshd"},
+    {"ORIGEM": "servico", "SERVICO": "ssh.service"},
+    {"ORIGEM": "servico", "SERVICO": "sshd@1-10.0.0.1:22.service"},
+    {"ORIGEM": "servico", "SERVICO": "sudo"},
+    {"ORIGEM": "servico", "SERVICO": "systemd-logind.service"},
+    {"ORIGEM": "servico", "SERVICO": "pam-auth-helper"},
+    {"ORIGEM": "servico", "SERVICO": "cron"},
+    {"ORIGEM": "servico", "SERVICO": "crond.service"},
+    {"ORIGEM": "servico", "SERVICO": "anacron"},
+    {"ORIGEM": "tudo"},
+])
+def test_log_parameters_are_refused_before_running(values):
+    _, params = _monitoring("monitor_logs:linux")
+    with pytest.raises(ScriptError):
+        resolve_values(params, values)
+
+
+def test_log_file_list_never_holds_login_or_elevation_logs():
+    from app.core.system_scripts import LINUX_LOG_FILES, WINDOWS_EVENT_LOGS
+
+    for name in LINUX_LOG_FILES:
+        assert not name.startswith("/") and ".." not in name
+        assert not any(bad in name for bad in ("auth", "secure", "sudo", "wtmp", "btmp", "lastlog"))
+    assert WINDOWS_EVENT_LOGS == ["System", "Application", "Setup"]
+
+
+@pytest.mark.parametrize("values,message", [
+    ({"ORIGEM": "arquivo", "ARQUIVO": "/etc/shadow", "LINHAS": "10"}, "fora da lista"),
+    ({"ORIGEM": "arquivo", "ARQUIVO": "../etc/shadow", "LINHAS": "10"}, "fora da lista"),
+    ({"ORIGEM": "arquivo", "ARQUIVO": "auth.log", "LINHAS": "10"}, "fora da lista"),
+    ({"ORIGEM": "servico", "SERVICO": "nginx", "LINHAS": "501"}, "1 a 500"),
+    ({"ORIGEM": "servico", "SERVICO": "nginx", "LINHAS": "0"}, "1 a 500"),
+    ({"ORIGEM": "servico", "SERVICO": "-x", "LINHAS": "5"}, "invalido"),
+    ({"ORIGEM": "servico", "SERVICO": "sshd.service", "LINHAS": "5"}, "nao e lido"),
+    ({"ORIGEM": "servico", "SERVICO": "ssh@x.service", "LINHAS": "5"}, "nao e lido"),
+    ({"ORIGEM": "servico", "SERVICO": "systemd-logind", "LINHAS": "5"}, "nao e lido"),
+    ({"ORIGEM": "servico", "SERVICO": "my-Auth-proxy", "LINHAS": "5"}, "nao e lido"),
+    ({"ORIGEM": "servico", "SERVICO": "cron.service", "LINHAS": "5"}, "nao e lido"),
+    ({"ORIGEM": "servico", "SERVICO": "crond", "LINHAS": "5"}, "nao e lido"),
+])
+def test_log_script_validates_again_when_pasted(values, message):
+    """The script also stands alone (a console paste skips ForgeHub's check):
+    rendered with the raw values, it refuses before reading anything."""
+    import subprocess
+
+    spec, _ = _monitoring("monitor_logs:linux")
+    text = render_script("linux", spec["content"], values)
+    done = subprocess.run(["sh", "-s"], input=text, capture_output=True, text=True, timeout=10)
+    assert done.returncode == 2 and message in done.stderr
+    assert done.stdout == ""  # nothing was read
+
+
+def test_log_file_read_is_bounded_and_goes_through_the_resolved_path():
+    spec, _ = _monitoring("monitor_logs:linux")
+    assert 'tail -c 1048576 < "$REAL" | grep -viE \'(ana)?cron(d|ie)?\\[\' | tail -n "$LINHAS"' in spec["content"]
+
+
+def test_service_and_container_scripts_print_no_command_lines():
+    services = _monitoring("monitor_services:linux")[0]["content"]
+    assert "systemctl status" not in services and "systemctl show -p LoadState,ActiveState,SubState" in services
+    windows = _monitoring("monitor_services:windows")[0]["content"]
+    assert "Win32_Service" not in windows and "PathName" not in windows and "BinaryPathName" not in windows
+    for platform in ("linux", "windows"):
+        assert "docker inspect --type container" in _monitoring(f"monitor_containers:{platform}")[0]["content"]
+
+
+def test_windows_checks_are_anchored_at_the_very_end():
+    """PowerShell's `$` also matches before a trailing newline: in-script checks use \\z."""
+    import re
+
+    for spec in MONITORING_SCRIPTS:
+        if spec["platform"] == "windows":
+            assert not re.search(r"-c?notmatch '[^']*\$'", spec["content"]), spec["system_key"]
+            assert " -notmatch " not in spec["content"]
+
+
+@pytest.mark.parametrize("key,values", [
+    ("monitor_reachability:linux", {"ALVO_HOST": "a b", "ALVO_PORTA": "22"}),
+    ("monitor_reachability:linux", {"ALVO_HOST": "srv", "ALVO_PORTA": "70000"}),
+    ("monitor_reachability:linux", {"ALVO_HOST": "srv", "ALVO_PORTA": "0"}),
+    ("monitor_reachability:linux", {"ALVO_HOST": "srv", "ALVO_PORTA": "22", "TEMPO_LIMITE": "11"}),
+    ("monitor_reachability:linux", {"ALVO_HOST": "fe80::1", "ALVO_PORTA": "22"}),
+    ("monitor_reachability:linux", {"ALVO_HOST": "10.0.0.0/24", "ALVO_PORTA": "22"}),
+    ("monitor_reachability:linux", {"ALVO_HOST": "10.0.0.1-20", "ALVO_PORTA": "22"}),
+    ("monitor_reachability:linux", {"ALVO_HOST": "a.test,b.test", "ALVO_PORTA": "22"}),
+    ("monitor_reachability:windows", {"ALVO_HOST": "300.1.1.1", "ALVO_PORTA": "22"}),
+    ("monitor_services:linux", {"SERVICO": "nginx; reboot"}),
+    ("monitor_services:windows", {"SERVICO": "Spool'er"}),
+    ("monitor_containers:linux", {"CONTAINER": "$(id)"}),
+    ("monitor_logs:windows", {"LOG_EVENTOS": "System", "LINHAS": "1000"}),
+    ("monitor_logs:windows", {"LOG_EVENTOS": "Security"}),
+    ("monitor_logs:windows", {"LOG_EVENTOS": "Microsoft-Windows-PowerShell/Operational"}),
+    ("monitor_logs:windows", {"LOG_EVENTOS": "Windows PowerShell"}),
+])
+def test_monitoring_parameters_are_validated(key, values):
+    _, params = _monitoring(key)
+    with pytest.raises(ScriptError):
+        resolve_values(params, values)
+
+
+@pytest.mark.parametrize("key,values", [
+    ("monitor_logs:linux", {"ORIGEM": "arquivo", "ARQUIVO": "nginx/error.log", "LINHAS": "500"}),
+    ("monitor_logs:linux", {"SERVICO": "nginx.service"}),
+    ("monitor_logs:linux", {"SERVICO": "sssd"}),
+    ("monitor_logs:windows", {"LOG_EVENTOS": "Application", "LINHAS": "1"}),
+    ("monitor_reachability:linux", {"ALVO_HOST": "10.0.0.9", "ALVO_PORTA": "65535", "TEMPO_LIMITE": "10"}),
+    ("monitor_reachability:windows", {"ALVO_HOST": "srv-app02.example.test", "ALVO_PORTA": "1"}),
+    ("monitor_services:windows", {"SERVICO": "MSSQL$SQLEXPRESS"}),
+    ("monitor_containers:linux", {"CONTAINER": "forgehub_test_postgres"}),
+])
+def test_monitoring_accepts_valid_values(key, values):
+    spec, params = _monitoring(key)
+    resolved, secrets = resolve_values(params, values)
+    assert secrets == []
+    text = render_script(spec["platform"], spec["content"], resolved)
+    assert not [c for c in text if ord(c) < 32 and c not in "\n\t"]
+
+
+def test_parameter_pattern_is_validated_when_declared():
+    with pytest.raises(ScriptError):
+        validate_parameters([{"name": "N", "pattern": "("}])
+    with pytest.raises(ScriptError):
+        validate_parameters([{"name": "N", "pattern": "[0-9]+", "default": "abc"}])
+    params = validate_parameters([{"name": "N", "pattern": "[0-9]+", "default": "5"}, {"name": "P"}])
+    assert params[0]["pattern"] == "[0-9]+" and "pattern" not in params[1]
+    assert resolve_values(params, {"N": "12"})[0]["N"] == "12" and resolve_values(params, {})[0]["N"] == "5"
+    with pytest.raises(ScriptError):
+        resolve_values(params, {"N": "12a"})  # the whole value must match
+    with pytest.raises(ScriptError):
+        resolve_values(params, {"N": "1" * 1025})  # too long: refused before the regex runs
+    assert resolve_values(params, {"N": "1" * 1024})[0]["N"] == "1" * 1024
+    with pytest.raises(ScriptError):
+        validate_parameters([{"name": "N", "pattern": "[0-9]+", "default": "1" * 1025}])
+    # Unpatterned values keep their old behaviour (no cap).
+    assert len(resolve_values(params, {"P": "x" * 5000})[0]["P"]) == 5000
+
+
+@pytest.mark.asyncio
+async def test_seed_adds_the_monitoring_category_and_scripts_once():
+    from app.db.models.host_script import HostScriptCategory
+
+    await seed_system_scripts()
+    assert await seed_system_scripts() == 0
+    async with AsyncSessionLocal() as db:
+        category = await db.scalar(select(HostScriptCategory).where(HostScriptCategory.slug == "monitoramento"))
+        assert category is not None and category.label == "Monitoramento"
+        rows = (await db.execute(select(HostScript).where(
+            HostScript.system_key.in_([s["system_key"] for s in MONITORING_SCRIPTS])))).scalars().all()
+    assert len(rows) == len(MONITORING_SCRIPTS)  # one row each, never duplicated
+    assert all(r.category_id == category.id and r.is_system for r in rows)
+    assert {r.system_key for r in rows if r.risk != "read"} == {"monitor_reachability:linux", "monitor_reachability:windows"}
+    ports = next(r for r in rows if r.system_key == "monitor_network:linux")
+    assert ports.parameters == [] and "nc " not in ports.content and "/dev/tcp" not in ports.content
+    logs = next(r for r in rows if r.system_key == "monitor_logs:linux")
+    assert {p["name"]: p.get("options") for p in logs.parameters}["ARQUIVO"][0] == "syslog"
+
+
+def test_log_file_mode_drops_cron_lines(tmp_path):
+    """Cron lines in syslog carry job command lines (secrets): the file mode
+    removes them before taking the last N lines (Marcelo, 2026-11-11)."""
+    import subprocess
+
+    spec, _ = _monitoring("monitor_logs:linux")
+    text = render_script("linux", spec["content"], {"ORIGEM": "arquivo", "ARQUIVO": "syslog", "LINHAS": "10"})
+    sample = tmp_path / "syslog"
+    sample.write_text(
+        "Nov 11 10:00:01 h CRON[123]: (root) CMD (backup --password=s3cret)\n"
+        "Nov 11 10:00:02 h crond[9]: (root) CMD (x)\n"
+        "Nov 11 10:00:03 h anacron[7]: Job started\n"
+        "Nov 11 10:00:04 h systemd[1]: Started nginx.service\n"
+    )
+    text = text.replace('"/var/log/$ARQUIVO"', f'"{sample}"').replace("/var/log/*)", f"{tmp_path}/*)")
+    done = subprocess.run(["sh", "-s"], input=text, capture_output=True, text=True, timeout=10)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout == "Nov 11 10:00:04 h systemd[1]: Started nginx.service\n"

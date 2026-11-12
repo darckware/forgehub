@@ -35,4 +35,18 @@ describe("RotationDialog", () => {
     await vi.waitFor(() => expect(onExecution).toHaveBeenCalledWith("e9"));
     expect(apiClient.post).toHaveBeenCalledWith("/api/v1/servers/rotations", { server_ids: ["a"], kind: "ssh_key" });
   });
+
+  it("starts with the machine chosen from its row; a preselected machine that isn't Ready isn't counted or sent", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ execution_id: "e1" } as never);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={qc}><RotationDialog kind="login_password" initialServerIds={["a", "b"]} onClose={vi.fn()} onExecution={vi.fn()} /></QueryClientProvider>);
+    expect(await screen.findByRole("checkbox", { name: /gat-adm-pc01/ })).toBeChecked();
+    expect(screen.getByText("1 máquina selecionada")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: /gat-adm-pc01/ }));
+    expect(screen.getByText("Nenhuma máquina selecionada")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: /gat-adm-pc01/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Revisar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Rotacionar (1)" }));
+    await vi.waitFor(() => expect(apiClient.post).toHaveBeenCalledWith("/api/v1/servers/rotations", { server_ids: ["a"], kind: "login_password" }));
+  });
 });

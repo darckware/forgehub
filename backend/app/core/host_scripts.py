@@ -18,6 +18,9 @@ PARAM_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,40}$")
 VAULT_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,119}$")
 VAULT_FIELD_RE = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+# A patterned value longer than this is refused before the regex runs, so an
+# admin's own pattern can't be made to backtrack over a huge input.
+MAX_PATTERNED_VALUE_LENGTH = 1024
 
 
 class ScriptError(ValueError):
@@ -80,6 +83,20 @@ def validate_parameters(parameters: list) -> list[dict]:
             if default is not None and default not in options:
                 raise ScriptError(f"Parameter '{name}': the default must be one of its options")
             param["options"] = options
+        # A validated parameter: a non-empty value must match `pattern` whole
+        # (e.g. a number range, a path under /var/log). Checked before anything
+        # runs, so a bad value never reaches a machine. Only stored when set.
+        if pattern := p.get("pattern"):
+            pattern = str(pattern)
+            if len(pattern) > 300:
+                raise ScriptError(f"Parameter '{name}': pattern is too long")
+            try:
+                compiled = re.compile(pattern)
+            except re.error as exc:
+                raise ScriptError(f"Parameter '{name}': invalid pattern ({exc})") from exc
+            if default is not None and (len(default) > MAX_PATTERNED_VALUE_LENGTH or not compiled.fullmatch(default)):
+                raise ScriptError(f"Parameter '{name}': the default must match its pattern")
+            param["pattern"] = pattern
         out.append(param)
     return out
 
@@ -103,6 +120,9 @@ def resolve_values(parameters: list[dict], values: dict | None) -> tuple[dict[st
             raise ScriptError(f"Parameter '{p['label']}' has an invalid character")
         if value and p.get("options") and value not in p["options"]:
             raise ScriptError(f"Parameter '{p['label']}' must be one of: {', '.join(p['options'])}")
+        if value and p.get("pattern") and (len(value) > MAX_PATTERNED_VALUE_LENGTH
+                                           or not re.fullmatch(p["pattern"], value)):
+            raise ScriptError(f"Parameter '{p['label']}' has an invalid value")
         resolved[p["name"]] = value
         if p["secret"] and value:
             secrets.append(value)

@@ -448,8 +448,10 @@ async def test_agent_request_creates_one_task_per_authorized_agent(client, machi
     tag = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         grantor = User(username=f"grantor2-{tag}", hashed_password=hash_password("x"), is_admin=True)
-        low = Agent(name=f"low-{tag}", agent_type="executor")
-        mid = Agent(name=f"mid-{tag}", agent_type="executor")
+        # A runtime that reaches run_maintenance_script (Phase 2a: a script
+        # delegation counts only when the agent can call the tool).
+        low = Agent(name=f"low-{tag}", agent_type="executor", runtime_type="claude")
+        mid = Agent(name=f"mid-{tag}", agent_type="executor", runtime_type="codex")
         none = Agent(name=f"none-{tag}", agent_type="executor")
         category = (await db.execute(select(HostScriptCategory).limit(1))).scalar_one()
         change = HostScript(name=f"fix-{tag}", category_id=category.id, platform="linux", risk="change", timeout_seconds=30,

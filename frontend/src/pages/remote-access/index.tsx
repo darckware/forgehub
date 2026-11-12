@@ -7,11 +7,9 @@ import {
   Loader2,
   RefreshCw,
   RotateCw,
-  ScanSearch,
   ShieldCheck,
   TriangleAlert,
   Waypoints,
-  Wrench,
   XCircle,
 } from "lucide-react";
 
@@ -34,8 +32,8 @@ import { TailnetPolicyCard } from "./TailnetPolicyCard";
 import { TailscaleApiKeyCard } from "./TailscaleApiKeyCard";
 import { MachinesCard } from "./MachinesCard";
 import { MaintenanceProposalsCard } from "./MaintenanceProposalsCard";
-import { AuthorizedAgentsCard } from "./AuthorizedAgentsCard";
-import { DirectAccessCard } from "./DirectAccessCard";
+import { AgentAuthorizationsCard } from "./AgentAuthorizationsCard";
+import type { QuickActions } from "./quickActions";
 import { ExecutionComposer } from "./ExecutionComposer";
 import { SchedulesPanel } from "./SchedulesPanel";
 import { ScriptLibrary } from "./ScriptLibrary";
@@ -280,42 +278,59 @@ function NetworkTab() {
   );
 }
 
-type MainTab = "machines" | "scripts" | "network";
+const MAIN_TABS = ["machines", "agents", "scripts", "network"] as const;
+type MainTab = (typeof MAIN_TABS)[number];
 type ScriptsTab = "run" | "library" | "schedules" | "history";
 
-/** Remote Access (2026-10-16 restructure, docs/architecture/REMOTE_MAINTENANCE_PLAN.md):
- * Machines / Scripts and executions / Network. Tabs live in the URL
- * (?tab=&sub=&system=) so the Machines tab's install buttons can open the
- * execution screen with a system script already chosen.
+/** Remote Access (2026-10-16 restructure, docs/architecture/REMOTE_MAINTENANCE_PLAN.md;
+ * Agents tab 2026-11-11, REMOTE_ACCESS_SUPPORT_ADJUSTMENTS_PLAN Fase 2 item 4):
+ * Machines / Agents / Scripts and executions / Network. The tab is in the URL
+ * (?tab=&sub=&system=&machine=), and switching tabs pushes a history entry, so
+ * a link opens the right tab and the browser's back button returns to the
+ * previous one. The "Ações" menu opens the execution screen with a system
+ * script (and, from a machine's row, that machine) already chosen.
  *
  * Since 2026-10-17 this is also the old Servers page (/servers redirects
  * here), so it opens for the "servers" module. Everything past the machine
- * list -- quick actions, scripts, network -- is admin-only, as the backend
- * routes behind them are; a non-admin sees Machines with no tab strip. */
+ * list -- the "Ações" menu, agents, scripts, network -- is admin-only, as the
+ * backend routes behind them are; a non-admin sees Machines with no tab strip. */
 export default function RemoteAccessPage() {
   const { t } = useTranslation("remoteAccess");
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const isAdmin = useAuthStore((state) => state.user?.is_admin ?? false);
-  const requested = (params.get("tab") as MainTab) || "machines";
-  const tab: MainTab = isAdmin ? requested : "machines";
+  const requested = params.get("tab") as MainTab | null;
+  const tab: MainTab = isAdmin && requested && MAIN_TABS.includes(requested) ? requested : "machines";
   const sub = (params.get("sub") as ScriptsTab) || "run";
   const system = params.get("system");
-  const [preparing, setPreparing] = useState(false);
+  const machine = params.get("machine");
+  const [preparing, setPreparing] = useState<{ serverId?: string } | null>(null);
   const detectOs = useDetectMissingOs();
-  const [rotating, setRotating] = useState<"login_password" | "ssh_key" | null>(null);
+  const [rotating, setRotating] = useState<{ kind: "login_password" | "ssh_key"; serverIds?: string[] } | null>(null);
 
   useEffect(() => {
     document.title = `${t("title")} · ForgeHub`;
   }, [t]);
 
-  const go = (next: Record<string, string | null>) => {
+  /** Tab changes push (back returns to the previous tab); other updates replace. */
+  const go = (next: Record<string, string | null>, push = true) => {
     const merged = new URLSearchParams(params);
     for (const [k, v] of Object.entries(next)) {
       if (v === null) merged.delete(k);
       else merged.set(k, v);
     }
-    setParams(merged, { replace: true });
+    setParams(merged, { replace: !push });
+  };
+
+  const quickActions: QuickActions = {
+    detectOsPending: detectOs.isPending,
+    run: (action, target) => {
+      if (action === "prepare") setPreparing({ serverId: target?.id });
+      else if (action === "rotate_login_password") setRotating({ kind: "login_password", serverIds: target ? [target.id] : undefined });
+      else if (action === "rotate_ssh_key") setRotating({ kind: "ssh_key", serverIds: target ? [target.id] : undefined });
+      else if (action === "detect_os") detectOs.mutate();
+      else go({ tab: "scripts", sub: "run", system: action, machine: target?.id ?? null });
+    },
   };
 
   return (
@@ -325,63 +340,51 @@ export default function RemoteAccessPage() {
         title={t("title")}
         description={t("subtitle")}
       />
-      <Tabs value={tab} onValueChange={(v) => go({ tab: v, system: null })} className="space-y-6">
+      <Tabs value={tab} onValueChange={(v) => go({ tab: v, sub: null, system: null, machine: null })} className="space-y-6">
         {isAdmin && (
           <TabsList>
             <TabsTrigger value="machines">{t("tabs.machines")}</TabsTrigger>
+            <TabsTrigger value="agents">{t("tabs.agents")}</TabsTrigger>
             <TabsTrigger value="scripts">{t("tabs.scripts")}</TabsTrigger>
             <TabsTrigger value="network">{t("tabs.network")}</TabsTrigger>
           </TabsList>
         )}
 
         <TabsContent value="machines" className="space-y-6">
-          {isAdmin && <div className="flex flex-wrap gap-2" role="group" aria-label={t("quick.title")}>
-            <Button type="button" size="sm" className="cursor-pointer gap-1.5" onClick={() => setPreparing(true)}>
-              <Wrench className="h-3.5 w-3.5" aria-hidden="true" /> {t("quick.prepare")}
-            </Button>
-            {(["login_password", "ssh_key"] as const).map((kind) => (
-              <Button key={kind} type="button" variant="outline" size="sm" className="cursor-pointer gap-1.5" onClick={() => setRotating(kind)}>
-                <RotateCw className="h-3.5 w-3.5" aria-hidden="true" /> {t(`quick.rotate_${kind}`)}
-              </Button>
-            ))}
-            <Button type="button" variant="outline" size="sm" className="cursor-pointer gap-1.5" onClick={() => detectOs.mutate()} disabled={detectOs.isPending}>
-              {detectOs.isPending ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" /> : <ScanSearch className="h-3.5 w-3.5" aria-hidden="true" />} {t("quick.detectOs")}
-            </Button>
-            {(["remote_access_install", "tailscale_install", "rustdesk_install", "rustdesk_get_id", "rustdesk_firewall", "rustdesk_password"] as const).map((action) => (
-              <Button key={action} type="button" variant="outline" size="sm" className="cursor-pointer gap-1.5"
-                onClick={() => go({ tab: "scripts", sub: "run", system: action })}>
-                <Wrench className="h-3.5 w-3.5" aria-hidden="true" /> {t(`quick.${action}`)}
-              </Button>
-            ))}
-          </div>}
           {detectOs.data && (
             <p role="status" className="rounded-md border border-border px-3 py-2 text-xs">
-              {t("quick.detectOsResult", { found: detectOs.data.filter((r) => r.os_family).length, total: detectOs.data.length })}
+              {t("quick.detectOsResult", { found: detectOs.data.filter((r) => r.os_family).length, count: detectOs.data.length })}
               {detectOs.data.filter((r) => !r.os_family).map((r) => ` · ${r.name}: ${r.detail ?? "?"}`).join("")}
             </p>
           )}
           {detectOs.error && <p role="alert" className="text-xs text-destructive">{detectOs.error.message}</p>}
-          {isAdmin && <AuthorizedAgentsCard />}
-          {isAdmin && <DirectAccessCard />}
-          {isAdmin && <MaintenanceProposalsCard />}
-          <MachinesCard />
+          <MachinesCard quickActions={isAdmin ? quickActions : undefined} />
           {rotating && (
             <RotationDialog
-              kind={rotating}
+              kind={rotating.kind}
+              initialServerIds={rotating.serverIds}
               onClose={() => setRotating(null)}
               onExecution={(id) => navigate(`/remote-access/executions/${id}`)}
             />
           )}
           {preparing && (
             <PrepareDialog
-              onClose={() => setPreparing(false)}
+              initialServerId={preparing.serverId}
+              onClose={() => setPreparing(null)}
               onExecution={(id) => navigate(`/remote-access/executions/${id}`)}
             />
           )}
         </TabsContent>
 
+        {isAdmin && (
+          <TabsContent value="agents" className="space-y-6">
+            <AgentAuthorizationsCard />
+            <MaintenanceProposalsCard />
+          </TabsContent>
+        )}
+
         <TabsContent value="scripts" className="space-y-6">
-          <Tabs value={sub} onValueChange={(v) => go({ sub: v, system: null })} className="space-y-4">
+          <Tabs value={sub} onValueChange={(v) => go({ sub: v, system: null, machine: null })} className="space-y-4">
             <TabsList>
               <TabsTrigger value="run">{t("tabs.run")}</TabsTrigger>
               <TabsTrigger value="library">{t("tabs.library")}</TabsTrigger>
@@ -390,10 +393,11 @@ export default function RemoteAccessPage() {
             </TabsList>
             <TabsContent value="run">
               <ExecutionComposer
-                key={system ?? "free"}
+                key={`${system ?? "free"}:${machine ?? ""}`}
                 initialSystem={system}
+                initialMachineIds={machine ? [machine] : undefined}
                 onRan={(execution) => navigate(`/remote-access/executions/${execution.id}`)}
-                onScheduled={() => go({ sub: "schedules", system: null })}
+                onScheduled={() => go({ sub: "schedules", system: null, machine: null })}
               />
             </TabsContent>
             <TabsContent value="library"><ScriptLibrary /></TabsContent>

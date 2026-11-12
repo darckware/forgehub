@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import { useHostReadiness, useRotateMachines, type RotationKind } from "@/hooks/useHostInventory";
 import { useServers, type Server } from "@/hooks/useServers";
 
-/** Rotation dialog: pick Ready machines, confirm, run as one execution. */
+/** Rotation dialog: pick Ready machines, confirm, run as one execution.
+ * `initialServerIds` preselects machines (a machine row's "Ações" menu); only
+ * the ones that are candidates count and are sent. */
 export interface RotationViewModel {
   status: "idle" | "confirming" | "submitting" | "error";
   kind: RotationKind;
@@ -16,11 +18,15 @@ export interface RotationViewModel {
   error: string | null;
 }
 
-export function useRotationViewModel(kind: RotationKind, onExecution: (id: string) => void): RotationViewModel {
+export function useRotationViewModel(
+  kind: RotationKind,
+  onExecution: (id: string) => void,
+  initialServerIds: string[] = [],
+): RotationViewModel {
   const { data: servers } = useServers();
   const readiness = useHostReadiness();
   const rotate = useRotateMachines();
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [chosen, setSelected] = useState<Set<string>>(() => new Set(initialServerIds));
   const [confirming, setConfirming] = useState(false);
 
   const ready = useMemo(
@@ -31,6 +37,9 @@ export function useRotationViewModel(kind: RotationKind, onExecution: (id: strin
     () => (servers ?? []).filter((s) => ready.has(s.id) && s.ssh_key_path).sort((a, b) => a.name.localeCompare(b.name)),
     [servers, ready],
   );
+  // What is counted and sent: a preselected machine that isn't Ready (or has
+  // no key) stays out, never silently sent to be refused.
+  const selected = useMemo(() => new Set([...chosen].filter((id) => candidates.some((c) => c.id === id))), [chosen, candidates]);
 
   return {
     status: rotate.isPending ? "submitting" : rotate.isError ? "error" : confirming ? "confirming" : "idle",

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.security import create_access_token, hash_password
 from app.db.base import AsyncSessionLocal
@@ -245,3 +245,85 @@ async def test_delegation_budget_limit_bounds_execution_wave_release(authority_c
             await db.execute(delete(PlanBaseline).where(PlanBaseline.id == baseline_id))
             await db.execute(delete(ProjectPlan).where(ProjectPlan.id == plan_id))
             await db.commit()
+
+
+@pytest_asyncio.fixture
+async def maintenance_targets(authority_context):
+    from app.db.models.server import HostGroup, HostGroupMember, Server
+
+    suffix = uuid.uuid4().hex
+    async with AsyncSessionLocal() as db:
+        server = Server(name=f"grant-srv-{suffix}", ip_address="192.0.2.71", remote_user="test", os_family="linux")
+        group = HostGroup(name=f"grant-group-{suffix}")
+        db.add_all([server, group]); await db.flush()
+        db.add(HostGroupMember(group_id=group.id, server_id=server.id))
+        await db.commit()
+    yield server, group
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(HostGroup).where(HostGroup.id == group.id))
+        await db.execute(delete(Server).where(Server.id == server.id))
+        await db.commit()
+
+
+def _maintenance_grant(ctx, server, group, **extra):
+    return {"grantee_agent_id": str(ctx["agent"]), "allowed_actions": ["remote_access.execute"],
+            "servers": [str(server.id)], "host_groups": [str(group.id)], "max_risk": "medium",
+            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
+            "reason": "Manutencao dos servidores do cliente", **extra}
+
+
+@pytest.mark.asyncio
+async def test_admin_grants_and_revokes_machine_maintenance_through_the_route(authority_context, maintenance_targets):
+    """Pre-existing bug fixed 2026-11-11: remote_access.execute was missing from
+    the actions the grant route knows, so the screen's grant always got 422."""
+    server, group = maintenance_targets
+    body = _maintenance_grant(authority_context, server, group)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test",
+                           headers=authority_context["admin_headers"]) as client:
+        granted = await client.post("/api/v1/governed/authority-delegations", json=body)
+        assert granted.status_code == 201, granted.text
+        data = granted.json()
+        authority_context["delegation"] = uuid.UUID(data["id"])
+        assert data["allowed_actions"] == ["remote_access.execute"] and data["max_risk"] == "medium"
+        assert data["servers"] == [str(server.id)] and data["host_groups"] == [str(group.id)]
+        assert datetime.fromisoformat(data["expires_at"]) == datetime.fromisoformat(body["expires_at"])
+        async with AsyncSessionLocal() as db:
+            row = await db.get(AuthorityDelegation, authority_context["delegation"])
+            assert row.status == "active" and row.servers == [str(server.id)] and row.grantee_id == authority_context["agent"]
+        revoked = await client.post(f"/api/v1/governed/authority-delegations/{data['id']}:revoke")
+        assert revoked.status_code == 200, revoked.text
+        assert revoked.json()["status"] == "revoked" and revoked.json()["revoked_at"]
+
+
+@pytest.mark.asyncio
+async def test_machine_maintenance_grant_is_admin_only_and_direct_stays_on_its_route(authority_context, maintenance_targets):
+    from app.core.deps import ActorPrincipal, authorize_action
+    from fastapi import HTTPException
+
+    server, group = maintenance_targets
+    async with AsyncSessionLocal() as db:
+        db.add(ProfileActionPermission(profile_id=authority_context["profile"],
+                                       action_key="governance.delegation.manage", allowed=True))
+        await db.commit()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        refused = await client.post("/api/v1/governed/authority-delegations", headers=authority_context["limited_headers"],
+                                    json=_maintenance_grant(authority_context, server, group))
+        assert refused.status_code == 403, refused.text
+        direct = await client.post("/api/v1/governed/authority-delegations", headers=authority_context["admin_headers"],
+                                   json=_maintenance_grant(authority_context, server, group,
+                                                           allowed_actions=["remote_access.direct"]))
+        assert direct.status_code == 422 and "/api/v1/remote-access/direct" in direct.text
+        unknown = await client.post("/api/v1/governed/authority-delegations", headers=authority_context["admin_headers"],
+                                    json=_maintenance_grant(authority_context, server, group,
+                                                            allowed_actions=["remote_access.everything"]))
+        assert unknown.status_code == 422 and unknown.json()["detail"]["actions"] == ["remote_access.everything"]
+    async with AsyncSessionLocal() as db:
+        assert (await db.scalars(select(AuthorityDelegation).where(
+            AuthorityDelegation.grantee_id == authority_context["agent"]))).first() is None
+        admin = ActorPrincipal("user", authority_context["admin"], "admin", is_admin=True)
+        assert await authorize_action(db, admin, "remote_access.execute") == ("admin", None)
+        limited = ActorPrincipal("user", authority_context["limited"], "limited", is_admin=False,
+                                 profile_id=authority_context["profile"])
+        with pytest.raises(HTTPException) as denied:
+            await authorize_action(db, limited, "remote_access.execute")
+        assert denied.value.status_code == 403

@@ -201,5 +201,8 @@
     "open": "Abrir o assistente",
     "close": "Fechar assistente",
     "label": "Assistente"
+  },
+  "sidePanel": {
+    "close": "Fechar"
   }
 }

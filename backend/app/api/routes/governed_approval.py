@@ -17,12 +17,20 @@ from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
 from app.core.governed_approval import decide_concept_approval, decide_task_approval
 from app.core.mission_plan import decide_plan_approval
 from app.core.mission_acceptance import decide_acceptance
-from app.core.remote_authority import DIRECT_ACTION
+from app.core.remote_authority import ACTION as REMOTE_EXECUTE_ACTION, DIRECT_ACTION
 from app.db.base import AsyncSessionLocal, get_db
 from app.db.models.agent import Agent, AgentServiceCredential
 from app.db.models.governance import ApprovalRequest, AuthorityDelegation, AuditEvent, PolicyEvaluation
 from app.db.models.notification import Notification
 from app.db.models.profile import SENSITIVE_ACTIONS
+
+# What an AuthorityDelegation may carry: the profile catalog plus machine
+# maintenance (library scripts and approved proposals). remote_access.execute is
+# deliberately not a profile permission -- no human profile holds it, so only an
+# admin can grant it -- and remote_access.direct is opened by its own route.
+# (Before 2026-11-11 this check used SENSITIVE_ACTIONS alone, so granting
+# remote_access.execute here always failed with 422.)
+DELEGABLE_ACTIONS = (*SENSITIVE_ACTIONS, REMOTE_EXECUTE_ACTION)
 
 router = APIRouter(prefix="/api/v1/governed", tags=["governed-approval"])
 logger = logging.getLogger(__name__)
@@ -135,9 +143,11 @@ async def grant_delegation(
         raise HTTPException(403, "Only a user can grant authority")
     if DIRECT_ACTION in payload.allowed_actions:
         raise HTTPException(422, "Direct access is opened through /api/v1/remote-access/direct")
-    unknown = sorted(set(payload.allowed_actions) - set(SENSITIVE_ACTIONS))
+    unknown = sorted(set(payload.allowed_actions) - set(DELEGABLE_ACTIONS))
     if unknown:
         raise HTTPException(422, {"message": "Unknown delegated actions", "actions": unknown})
+    if REMOTE_EXECUTE_ACTION in payload.allowed_actions and not principal.is_admin:
+        raise HTTPException(403, "Only a human admin grants machine maintenance")
     for action in payload.allowed_actions:
         await authorize_action(db, principal, action, product_id=payload.product_id, project_id=payload.project_id)
     agent = await db.get(Agent, payload.grantee_agent_id)

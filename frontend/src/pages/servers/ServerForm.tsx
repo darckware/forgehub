@@ -15,15 +15,16 @@
  * (colocated in `useServers.ts`), the standard the rest of the codebase's
  * forms follow -- the previous version hand-rolled an if-chain.
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Check, Copy, KeyRound, Loader2, Lock, Power, PowerOff, Trash2, X } from "lucide-react";
+import { Check, Copy, KeyRound, Loader2, Lock, Power, PowerOff, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { SidePanel } from "@/components/ui/side-panel";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -329,217 +330,201 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
     }
   }
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      // A confirm dialog inside the panel handles its own Escape first
-      // (preventDefault): that must close the dialog, not the panel.
-      if (e.key === "Escape" && !e.defaultPrevented && !pending) onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, pending]);
-
   return (
     // A right-hand panel, not a centered modal (2026-10-18, Marcelo: "remover a
     // tela de editar servidor do modal, adicione a tela a direita"): full
     // height, the machine list still visible beside it; full width on a phone.
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-labelledby="server-form-title">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      {/* A single scrolling region between a fixed header and fixed actions:
-          both stay reachable however long the form grows. */}
-      <form noValidate
-        onSubmit={handleSubmit(onSubmit)}
-        className="relative z-10 flex h-full w-full max-w-xl flex-col overflow-hidden border-l border-border bg-card shadow-2xl motion-safe:animate-in motion-safe:slide-in-from-right"
-      >
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
-          <h2 id="server-form-title" className="text-base font-semibold">{initial ? t("form.editTitle") : t("form.newTitle")}</h2>
-          <button type="button" onClick={onClose} aria-label={t("form.cancel")} className="cursor-pointer text-muted-foreground hover:text-foreground">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
-          <div className="space-y-1">
-            <Label>{t("form.name")}</Label>
-            <Input {...register("name")} placeholder="srv-app01" />
-            {errors.name && <p className="text-[11px] text-destructive">{errors.name.message}</p>}
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-2 space-y-1">
-              <Label>{t("form.ipAddress")}</Label>
-              <Input {...register("ip_address")} placeholder="172.15.2.2" />
-              {errors.ip_address && <p className="text-[11px] text-destructive">{errors.ip_address.message}</p>}
-            </div>
-            <div className="space-y-1">
-              <Label>{t("form.sshPort")}</Label>
-              <Input type="number" {...register("ssh_port", { valueAsNumber: true })} />
-              {errors.ssh_port && <p className="text-[11px] text-destructive">{errors.ssh_port.message}</p>}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>{t("form.remoteUser")}</Label>
-              <Input {...register("remote_user")} placeholder="aegis" />
-              {errors.remote_user && <p className="text-[11px] text-destructive">{errors.remote_user.message}</p>}
-            </div>
-            <div className="space-y-1">
-              <Label>{t("form.group")}</Label>
-              <select
-                {...register("environment")}
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                <option value="vps">{t("form.groups.vps")}</option>
-                <option value="semed">{t("form.groups.semed")}</option>
-                <option value="client">{t("form.groups.client")}</option>
-              </select>
-              {errors.environment && <p className="text-[11px] text-destructive">{errors.environment.message}</p>}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>{t("form.kind")}</Label>
-              <select {...register("kind")} className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-                <option value="server">{t("form.kinds.server")}</option>
-                <option value="workstation">{t("form.kinds.workstation")}</option>
-              </select>
-            </div>
-            <div className="space-y-1">
-              <Label>{t("form.os")}</Label>
-              <select {...register("os_family")} className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-                <option value="">{t("form.osNotSet")}</option>
-                <option value="windows">Windows</option>
-                <option value="linux">Linux</option>
-                <option value="macos">macOS</option>
-              </select>
-            </div>
-          </div>
-
-          {kind === "workstation" && (
-            <div className="space-y-4 rounded-md border border-border p-3">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <Label>{t("form.client")}</Label>
-                  <select {...register("darckware_client_id")} className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-                    <option value="">{t("form.noClient")}</option>
-                    {initial?.darckware_client_id
-                      && !clientList?.items.some((c) => c.id === initial.darckware_client_id) && (
-                      <option value={initial.darckware_client_id}>
-                        {initial.darckware_client_name ?? initial.darckware_client_id}
-                      </option>
-                    )}
-                    {clientList?.items.map((c) => (
-                      <option key={c.id} value={c.id}>{c.company_name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <Label>{t("form.adminUser")}</Label>
-                  <Input {...register("admin_user")} placeholder="Administrador" className="max-md:text-base" />
-                  <p className="text-[11px] text-muted-foreground">{t("form.adminUserHelp")}</p>
-                </div>
-              </div>
-              <div className="space-y-1">
-                <Label>{t("form.location")}</Label>
-                <Input {...register("location")} placeholder={t("form.locationExample")} className="max-md:text-base" />
-              </div>
-              <fieldset className="space-y-1">
-                <legend className="text-sm font-medium">{t("form.hostGroups")}</legend>
-                {groupChoices.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground">{t("form.noHostGroups")}</p>
-                ) : (
-                  <div className="flex flex-wrap gap-x-4 gap-y-1">
-                    {groupChoices.map((g) => (
-                      <label key={g.id} className="flex items-center gap-1.5 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={groupIds.includes(g.id)}
-                          onChange={(e) =>
-                            setGroupIds((cur) => (e.target.checked ? [...cur, g.id] : cur.filter((id) => id !== g.id)))
-                          }
-                        />
-                        {g.name}
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </fieldset>
-              {initial?.tailnet_name && (
-                <p className="text-[11px] text-muted-foreground">
-                  {t("form.tailnetLinked", { name: initial.tailnet_name })}
-                </p>
-              )}
-            </div>
-          )}
-
-          {live ? <PassphraseSection server={live} /> : (
-            // No row yet, so there is nothing to save a passphrase against --
-            // it rides along with the create payload instead.
-            <div className="space-y-1">
-              <Label className="flex items-center gap-1.5">
-                <KeyRound className="h-3.5 w-3.5" />
-                {t("form.passphrase.title")}
-              </Label>
-              <TokenField
-                value={passphrase}
-                onChange={(v) => {
-                  setPassphrase(v);
-                  setPassphraseTouched(true);
-                }}
-                placeholder={t("form.passphrase.leaveBlank")}
-                disabled={pending}
-              />
-              <p className="text-[11px] text-muted-foreground">{t("form.passphrase.encrypted")}</p>
-            </div>
-          )}
-
-          {live && <AccessSection server={live} />}
-          {live && <KeyVaultSection server={live} />}
-
-          <div className="space-y-1">
-            <Label>{t("form.description")}</Label>
-            <Textarea className="resize-none" {...register("description")} placeholder={t("form.descriptionExample")} />
-          </div>
-
-          {live?.public_key && (
-            <div className="space-y-1">
-              <Label>{t("form.publicKey")}</Label>
-              <div className="flex items-start gap-2">
-                <Textarea readOnly value={live.public_key} className="resize-none min-h-[56px] flex-1 font-mono text-[10px]" />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  title={t("form.copyPublicKey")}
-                  onClick={() => {
-                    void navigator.clipboard.writeText(live.public_key ?? "");
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 1500);
-                  }}
-                >
-                  {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
-                </Button>
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                {t("form.publicKeyHelp")}
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-6 py-4">
+    // Header and actions stay fixed; only the fields scroll (SidePanel).
+    <SidePanel
+      as="form"
+      noValidate
+      onSubmit={handleSubmit(onSubmit)}
+      onClose={onClose}
+      busy={pending}
+      titleId="server-form-title"
+      title={initial ? t("form.editTitle") : t("form.newTitle")}
+      closeLabel={t("form.cancel")}
+      footer={
+        <>
           {saveError && <p className="mr-auto text-xs text-destructive">{saveError}</p>}
-          <Button type="button" variant="outline" size="sm" onClick={onClose}>
+          <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={pending}>
             {t("form.cancel")}
           </Button>
           <Button type="submit" size="sm" disabled={pending}>
             {pending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
             {t("form.save")}
           </Button>
+        </>
+      }
+    >
+      <div className="space-y-1">
+        <Label>{t("form.name")}</Label>
+        <Input {...register("name")} placeholder="srv-app01" />
+        {errors.name && <p className="text-[11px] text-destructive">{errors.name.message}</p>}
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div className="col-span-2 space-y-1">
+          <Label>{t("form.ipAddress")}</Label>
+          <Input {...register("ip_address")} placeholder="172.15.2.2" />
+          {errors.ip_address && <p className="text-[11px] text-destructive">{errors.ip_address.message}</p>}
         </div>
-      </form>
-    </div>
+        <div className="space-y-1">
+          <Label>{t("form.sshPort")}</Label>
+          <Input type="number" {...register("ssh_port", { valueAsNumber: true })} />
+          {errors.ssh_port && <p className="text-[11px] text-destructive">{errors.ssh_port.message}</p>}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label>{t("form.remoteUser")}</Label>
+          <Input {...register("remote_user")} placeholder="aegis" />
+          {errors.remote_user && <p className="text-[11px] text-destructive">{errors.remote_user.message}</p>}
+        </div>
+        <div className="space-y-1">
+          <Label>{t("form.group")}</Label>
+          <select
+            {...register("environment")}
+            className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <option value="vps">{t("form.groups.vps")}</option>
+            <option value="semed">{t("form.groups.semed")}</option>
+            <option value="client">{t("form.groups.client")}</option>
+          </select>
+          {errors.environment && <p className="text-[11px] text-destructive">{errors.environment.message}</p>}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label>{t("form.kind")}</Label>
+          <select {...register("kind")} className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+            <option value="server">{t("form.kinds.server")}</option>
+            <option value="workstation">{t("form.kinds.workstation")}</option>
+          </select>
+        </div>
+        <div className="space-y-1">
+          <Label>{t("form.os")}</Label>
+          <select {...register("os_family")} className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+            <option value="">{t("form.osNotSet")}</option>
+            <option value="windows">Windows</option>
+            <option value="linux">Linux</option>
+            <option value="macos">macOS</option>
+          </select>
+        </div>
+      </div>
+
+      {kind === "workstation" && (
+        <div className="space-y-4 rounded-md border border-border p-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label>{t("form.client")}</Label>
+              <select {...register("darckware_client_id")} className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                <option value="">{t("form.noClient")}</option>
+                {initial?.darckware_client_id
+                  && !clientList?.items.some((c) => c.id === initial.darckware_client_id) && (
+                  <option value={initial.darckware_client_id}>
+                    {initial.darckware_client_name ?? initial.darckware_client_id}
+                  </option>
+                )}
+                {clientList?.items.map((c) => (
+                  <option key={c.id} value={c.id}>{c.company_name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label>{t("form.adminUser")}</Label>
+              <Input {...register("admin_user")} placeholder="Administrador" className="max-md:text-base" />
+              <p className="text-[11px] text-muted-foreground">{t("form.adminUserHelp")}</p>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label>{t("form.location")}</Label>
+            <Input {...register("location")} placeholder={t("form.locationExample")} className="max-md:text-base" />
+          </div>
+          <fieldset className="space-y-1">
+            <legend className="text-sm font-medium">{t("form.hostGroups")}</legend>
+            {groupChoices.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">{t("form.noHostGroups")}</p>
+            ) : (
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {groupChoices.map((g) => (
+                  <label key={g.id} className="flex items-center gap-1.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={groupIds.includes(g.id)}
+                      onChange={(e) =>
+                        setGroupIds((cur) => (e.target.checked ? [...cur, g.id] : cur.filter((id) => id !== g.id)))
+                      }
+                    />
+                    {g.name}
+                  </label>
+                ))}
+              </div>
+            )}
+          </fieldset>
+          {initial?.tailnet_name && (
+            <p className="text-[11px] text-muted-foreground">
+              {t("form.tailnetLinked", { name: initial.tailnet_name })}
+            </p>
+          )}
+        </div>
+      )}
+
+      {live ? <PassphraseSection server={live} /> : (
+        // No row yet, so there is nothing to save a passphrase against --
+        // it rides along with the create payload instead.
+        <div className="space-y-1">
+          <Label className="flex items-center gap-1.5">
+            <KeyRound className="h-3.5 w-3.5" />
+            {t("form.passphrase.title")}
+          </Label>
+          <TokenField
+            value={passphrase}
+            onChange={(v) => {
+              setPassphrase(v);
+              setPassphraseTouched(true);
+            }}
+            placeholder={t("form.passphrase.leaveBlank")}
+            disabled={pending}
+          />
+          <p className="text-[11px] text-muted-foreground">{t("form.passphrase.encrypted")}</p>
+        </div>
+      )}
+
+      {live && <AccessSection server={live} />}
+      {live && <KeyVaultSection server={live} />}
+
+      <div className="space-y-1">
+        <Label>{t("form.description")}</Label>
+        <Textarea className="resize-none" {...register("description")} placeholder={t("form.descriptionExample")} />
+      </div>
+
+      {live?.public_key && (
+        <div className="space-y-1">
+          <Label>{t("form.publicKey")}</Label>
+          <div className="flex items-start gap-2">
+            <Textarea readOnly value={live.public_key} className="resize-none min-h-[56px] flex-1 font-mono text-[10px]" />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              title={t("form.copyPublicKey")}
+              onClick={() => {
+                void navigator.clipboard.writeText(live.public_key ?? "");
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
+            >
+              {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            {t("form.publicKeyHelp")}
+          </p>
+        </div>
+      )}
+    </SidePanel>
   );
 }

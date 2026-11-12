@@ -16,7 +16,7 @@ from app.api.schemas.host_execution import HostExecutionDetail
 from app.core.deps import ActorPrincipal, get_actor_principal, get_maintenance_agent
 from app.core.maintenance_proposals import looks_elevated, refuse_literal_secret
 from app.core.remote_authority import (
-    CONTROL_ID, DIRECT_ACTION, DIRECT_NO_EXPIRY, direct_coverage_expands, agent_access_control, direct_access_problem, is_sensitive_machine, require_agent_access_active,
+    CONTROL_ID, DIRECT_ACTION, DIRECT_NO_EXPIRY, agent_tool_problems, direct_coverage_expands, agent_access_control, is_sensitive_machine, require_agent_access_active,
     require_direct,
 )
 from app.db.base import get_db
@@ -94,7 +94,8 @@ async def configure_direct_agent(
     agent = await db.scalar(select(Agent).where(Agent.id == agent_id).with_for_update())
     if not agent or not agent.is_active or agent.status != "active":
         raise HTTPException(404, "Active agent not found")
-    if problem := direct_access_problem(agent):
+    commands_problem, scripts_problem = agent_tool_problems(agent)
+    if problem := commands_problem:
         raise HTTPException(422, {"code": problem, "message": "This agent cannot use direct access"})
     # Do not accept ambiguous coverage: all is a deliberate choice of future machines too.
     if payload.all_machines and (payload.server_ids or payload.group_ids):
@@ -148,7 +149,8 @@ async def configure_direct_agent(
     _audit_machines(db, event, principal.display_name, servers, agent.name, payload.reason)
     await db.commit()
     return DirectAgentOut(id=agent.id, name=agent.name, runtime_type=agent.runtime_type, allowed=True,
-        unsupported_reason=None, configuration=(await _out(db, [access]))[0])
+        unsupported_reason=None, scripts_unsupported_reason=scripts_problem,
+        configuration=(await _out(db, [access]))[0])
 
 
 async def _close(db: AsyncSession, access: AuthorityDelegation, actor: str, agent: str, now: datetime,
@@ -182,8 +184,13 @@ async def list_direct_agents(
         AuthorityDelegation.status == "active", AuthorityDelegation.revoked_at.is_(None),
     ).order_by(AuthorityDelegation.valid_from))).all()
     by_agent = {r.agent_id: r for r in await _out(db, [c for c in configs if DIRECT_ACTION in c.allowed_actions])}
-    return [DirectAgentOut(id=a.id, name=a.name, runtime_type=a.runtime_type, allowed=a.direct_access_allowed,
-                           unsupported_reason=direct_access_problem(a), configuration=by_agent.get(a.id)) for a in rows]
+    out = []
+    for a in rows:
+        commands_problem, scripts_problem = agent_tool_problems(a)
+        out.append(DirectAgentOut(id=a.id, name=a.name, runtime_type=a.runtime_type, allowed=a.direct_access_allowed,
+                                  unsupported_reason=commands_problem, scripts_unsupported_reason=scripts_problem,
+                                  configuration=by_agent.get(a.id)))
+    return out
 
 
 @router.delete(ADMIN + "/agents/{agent_id}", response_model=DirectAgentRemoved)
@@ -331,5 +338,6 @@ async def run_direct_command(
         target_summary=servers[0].name if len(servers) == 1 else f"{len(servers)} machine(s)",
         trigger="agent", agent_id=agent.id, agent_demand_id=demand_id, reason=payload.reason.strip(),
         direct_access={sid: access.id for sid, access in chosen.items()},
+        darckware_item=payload.darckware_item,
     )
     return await host._detail(db, execution)

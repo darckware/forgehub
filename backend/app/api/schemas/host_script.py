@@ -22,6 +22,8 @@ class ScriptParameter(BaseModel):
     vault_field: str | None = Field(default=None, max_length=41)
     # A choice parameter: the allowed values, shown as a select.
     options: list[str] | None = Field(default=None, max_length=20)
+    # A validated parameter: a non-empty value must match this regex whole.
+    pattern: str | None = Field(default=None, max_length=300)
 
 
 class CategoryOut(BaseModel):
