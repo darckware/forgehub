@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import argparse
+import ipaddress
 import json
 import os
 import re
@@ -719,6 +720,9 @@ def _bridge_8910_restricted() -> bool:
     return restricted_allow
 
 
+TAILSCALE_NETWORKS = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115c:a1e0::/48"))
+
+
 def _approved_tailnet_listener(address: str, line: str) -> bool:
     """Infrastructure exceptions require socket owners, never just a port."""
     port = address.rsplit(":", 1)[-1]
@@ -729,29 +733,94 @@ def _approved_tailnet_listener(address: str, line: str) -> bool:
         return True  # OpenSSH may share its activation socket with systemd.
     if port in ("21115", "21116", "21117") and owners == {"docker-proxy"}:
         return True  # RustDesk bridge publications, exclusively on this node's IP.
-    return port in ("3000", "8020")
+    return port in ("3000", "8020") and owners == {"docker-proxy"}
+
+
+def _listener_findings(ss_output: str, bridge_restricted: bool) -> list[str]:
+    """Classify `ss -ltnpH` rows; return one diagnostic per unauthorized TCP listener."""
+    findings = []
+    for line in ss_output.splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        address = parts[3]
+        owners = re.findall(r'\("([^"]+)",pid=(\d+)', line)
+        processes = ",".join(f"{name}[{pid}]" for name, pid in owners) or "unknown"
+        host, _, port = address.rpartition(":")
+        host = host.split("%", 1)[0].strip("[]")
+        label = f"tcp {address} process={processes}"
+        try:
+            # Normalize mapped addresses before applying any address classification.
+            ip = ipaddress.ip_address("0.0.0.0" if host == "*" else host)
+            native_ipv4 = isinstance(ip, ipaddress.IPv4Address)
+            if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+                ip = ip.ipv4_mapped
+            port_number = int(port)
+        except ValueError:
+            findings.append(f"{label}: unparseable listener")
+            continue
+        if ip.is_unspecified:
+            # This exception is for the exact IPv4 bind, never IPv6/mapped aliases.
+            if address == "0.0.0.0:8910" and bridge_restricted:
+                continue
+            findings.append(f"{label}: wildcard bind, no authorized baseline")
+            continue
+        if ip.is_loopback:
+            continue
+        if any(ip in network for network in TAILSCALE_NETWORKS):
+            if native_ipv4 and str(ip) == "100.105.235.114" and _approved_tailnet_listener(f"{ip}:{port_number}", line):
+                continue
+            findings.append(f"{label}: Tailscale bind, no authorized baseline for address/owner")
+            continue
+        if ip.is_global:
+            findings.append(f"{label}: public address bind, no authorized baseline")
+    return findings
 
 
 def check_public_interfaces() -> Result:
     sockets = run(["ss", "-ltnpH"])
     if sockets.returncode:
         return fail(sockets.stderr.strip())
-    bad = []
-    for line in sockets.stdout.splitlines():
-        parts = line.split()
-        address = parts[3] if len(parts) > 3 else ""
-        if address.startswith(("0.0.0.0:", "[::]:", "*:")):
-            if address == "0.0.0.0:8910" and _bridge_8910_restricted():
-                continue
-            bad.append(address)
-        if address.startswith("100.105.235.114:") and not _approved_tailnet_listener(address, line):
-            bad.append(address)
+    bad = _listener_findings(sockets.stdout, _bridge_8910_restricted())
     for domain in ("forgehub.darckware.net", "forgevault.darckware.net", "darckware.net"):
         for suffix in ("/docs", "/redoc", "/openapi.json"):
             probe = _url_status(f"https://{domain}{suffix}", expected=(401, 403, 404))
             if not probe.ok:
                 bad.append(probe.notes)
-    return fail("Public interface drift: " + "; ".join(bad[:20])) if bad else ok("Only approved loopback/Tailscale listeners; public API docs closed")
+    addresses = []
+    for raw in run(["hostname", "-I"]).stdout.split():
+        try:
+            addresses.append(ipaddress.ip_address(raw))
+        except ValueError:
+            continue
+    tailscale = [str(a) for a in addresses if any(a in n for n in TAILSCALE_NETWORKS)]
+    public = [str(a) for a in addresses if a.is_global and str(a) not in tailscale]
+    def context_value(value: str) -> str:
+        return value if len(value) <= 250 else value[:247] + "..."
+
+    context = (
+        f"host={context_value(run(['hostname', '-f']).stdout.strip() or 'unknown')} "
+        f"public={context_value(','.join(public) or 'none')} "
+        f"tailscale={context_value(','.join(tailscale) or 'none')}; "
+        "evidence: local `ss -ltnpH` (TCP only) + HTTPS probes"
+    )
+    reachability = "external reachability NOT verified (local listener presence only; UFW evaluated only for 8910; nft not evaluated)"
+    if bad:
+        # Reserve metadata first; fail() must never cut a finding or the disclaimer.
+        prefix = f"Public interface drift ({len(bad)}) [{context}]. {reachability}: "
+        suffix_budget = len(f"; {len(bad)} findings omitted")
+        details = []
+        used = len(prefix) + suffix_budget
+        for finding in bad[:20]:
+            needed = len(finding) + (2 if details else 0)
+            if used + needed > 4000:
+                break
+            details.append(finding)
+            used += needed
+        omitted = len(bad) - len(details)
+        suffix = f"; {omitted} findings omitted" if omitted else ""
+        return fail(prefix + "; ".join(details) + suffix)
+    return ok(f"Only authorized loopback/Tailscale TCP listeners; public API docs closed [{context}]. {reachability}")
 
 
 def check_cloudflare_vault_boundary() -> Result:

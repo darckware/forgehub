@@ -25,6 +25,9 @@ To                         Action      From
 
 def host(monkeypatch, sockets="", firewall=UFW, ss_code=0, ufw_code=0, public_open=None):
     def run(args, **kwargs):
+        if args[0] == "hostname":
+            value = "100.105.235.114 203.0.113.1" if args[1] == "-I" else "test-host"
+            return subprocess.CompletedProcess(args, 0, value, "")
         is_ss = args[0] == "ss"
         return subprocess.CompletedProcess(args, ss_code if is_ss else ufw_code,
                                            sockets if is_ss else firewall, "command failed")
@@ -41,6 +44,7 @@ def socket(address, *owners):
     ('100.105.235.114:22', ('sshd', 'systemd')),
     ('100.105.235.114:37770', ('tailscaled',)),
     ('100.105.235.114:49123', ('tailscaled',)),
+    ('100.105.235.114%tailscale0:37770', ('tailscaled',)),
     *[(f'100.105.235.114:{port}', ('docker-proxy',)) for port in (3000, 8020, 21115, 21116, 21117)],
     ('0.0.0.0:8910', ('python',)),
 ])
@@ -101,3 +105,52 @@ def test_ss_failure_is_not_accepted(monkeypatch):
 def test_unrelated_or_deny_rules_do_not_invalidate_bridge(monkeypatch, rule):
     host(monkeypatch, socket('0.0.0.0:8910', 'python'), UFW + rule + '\n')
     assert v.check_public_interfaces().ok
+
+
+@pytest.mark.parametrize('address,owners', [
+    ('8.8.8.8:8020', ('docker-proxy',)),
+    ('[2606:4700:4700::1111]:8020', ('docker-proxy',)),
+    ('[::ffff:0.0.0.0]:8910', ('python',)),
+    ('[::ffff:8.8.8.8]:8020', ('docker-proxy',)),
+    ('100.105.235.115:21116', ('docker-proxy',)),
+    ('[fd7a:115c:a1e0::1]:21116', ('docker-proxy',)),
+    ('100.105.235.114:3000', ('python',)),
+    ('100.105.235.114:8020', ()),
+    ('invalid:21116', ('docker-proxy',)),
+    ('[fd7a:115c:a1e0::2501:ebce]%tailscale0:63157', ('tailscaled',)),
+    ('100.105.235.115:22', ('sshd',)),
+    ('[fd7a:115c:a1e0::1]:22', ('sshd',)),
+    ('[::ffff:100.105.235.114]:49123', ('tailscaled',)),
+    ('[::ffff:100.105.235.114]:21116', ('docker-proxy',)),
+])
+def test_merge_preserves_live_listener_rejections(monkeypatch, address, owners):
+    host(monkeypatch, socket(address, *owners))
+    result = v.check_public_interfaces()
+    assert not result.ok
+    assert address in result.notes
+    assert 'process=' in result.notes
+
+
+def test_scoped_ipv6_has_a_baseline_finding_instead_of_a_parse_error(monkeypatch):
+    host(monkeypatch, socket('[fd7a:115c:a1e0::2501:ebce]%tailscale0:63157', 'tailscaled'))
+    result = v.check_public_interfaces()
+    assert not result.ok
+    assert 'Tailscale bind, no authorized baseline' in result.notes
+    assert 'unparseable' not in result.notes
+
+
+def test_merge_preserves_live_evidence_context(monkeypatch):
+    host(monkeypatch)
+    result = v.check_public_interfaces()
+    assert result.ok
+    assert 'host=test-host' in result.notes
+    assert 'external reachability NOT verified' in result.notes
+
+
+def test_many_findings_keep_context_and_omission_count(monkeypatch):
+    host(monkeypatch, ''.join(socket(f'0.0.0.0:{port}', 'python') for port in range(22000, 22100)))
+    result = v.check_public_interfaces()
+    assert not result.ok
+    assert len(result.notes) <= 4000
+    assert 'host=test-host' in result.notes
+    assert '80 findings omitted' in result.notes

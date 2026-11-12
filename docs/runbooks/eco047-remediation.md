@@ -104,3 +104,13 @@ for the five RustDesk wildcards; SSH, Tailscale and filtered 8910 are accepted.
   Source rollback reverts only the ForgeHub ECO-047 commit.
 
 No production OK or remote-access success is claimed before operator application.
+
+## Reconciliation on 2026-11-12
+
+See [read-only preflight and merge evidence](../reports/2026-11-12-eco047-preflight.md).
+RustDesk already matches the prepared Compose hash and exact tailnet publications;
+Darckware health/docs responses already match the intended route behavior. Recheck
+before any restart or redeploy. The repository verifier now merges the live
+classification and diagnostics with the release changes; it is not installed.
+One live Tailscale IPv6 peer-API listener remains outside the authorized IPv4
+exception. Do not declare ECO-047 OK or widen that exception without review.
