@@ -9,11 +9,11 @@ suporte e planejar os ajustes. **Os formulários não devem abrir em modal, e si
 
 | Fase | Situação (2026-11-11) |
 |---|---|
-| 1 — Formulários à direita | **Homologada em 2026-11-11** (566 testes, build, Chrome 1440/390 no backend de teste); não commitada, sai junto com a fase 2 |
-| 2 — Autorização única + reorganização da tela | **Homologada em 2026-11-11**: backend e frontend revisados; Chrome 1440/390 com concessão real na base de teste (somente leitura → comandos 1 h com confirmação de máquina sensível → remoção). Corrigido um defeito anterior: a concessão de scripts pela tela falhava com 422 desde 2026-11-08. Scripts Windows conferidos no PowerShell 7.4 (sintaxe e validação); falta rodá-los numa estação real depois do deploy. Não commitada |
+| 1 — Formulários à direita | **Homologada em 2026-11-11** (566 testes, build, Chrome 1440/390 no backend de teste). **Publicada em 2026-11-11** com a fase 2 (`5c3e5ad`) |
+| 2 — Autorização única + reorganização da tela | **Homologada em 2026-11-11**: backend e frontend revisados; Chrome 1440/390 com concessão real na base de teste (somente leitura → comandos 1 h com confirmação de máquina sensível → remoção). Corrigido um defeito anterior: a concessão de scripts pela tela falhava com 422 desde 2026-11-08. Scripts Windows conferidos no PowerShell 7.4 (sintaxe e validação); falta rodá-los numa estação real (Marcelo). **Publicada em 2026-11-11** (`7f8199c`, imagens `fh-7f8199c`, release `remote-access-7f8199c`, sem migração), com o journal do cron bloqueado (aprovado por Marcelo) |
 | 3 — Ciclo com o chamado da Darckware | Planejada |
 | 4 — Alerta de máquina | Planejada |
-| 5 — Documentação | Sincronização da Foundation feita em 2026-11-11; skill e CLAUDE.md depois da fase 2 |
+| 5 — Documentação | Feita em 2026-11-11: Foundation sincronizada, skill `remote-access` 1.1.0, CLAUDE.md; a regra não mudou |
 
 ## Documentos de acesso remoto
 
