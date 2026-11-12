@@ -1959,6 +1959,21 @@ async def run_incubation_maturation_pass(db: AsyncSession) -> int:
     return len(matured)
 
 
+async def mark_dispatch_queue_examined(db: AsyncSession, demand_ids: list[uuid.UUID], now: datetime) -> None:
+    """Observation only: a dependency/capacity wait is not an abandoned queue.
+
+    Preserve content updated_at so the audit pass cannot invalidate contextual
+    advice or postpone terminal feedback. Commit even if every item is deferred.
+    """
+    if demand_ids:
+        await db.execute(update(AgentDemand).where(
+            AgentDemand.id.in_(demand_ids), AgentDemand.dispatch_status.is_(None),
+            AgentDemand.status != 'archived',
+        ).values(executor_wait_checked_at=now, updated_at=AgentDemand.updated_at)
+          .execution_options(synchronize_session=False))
+        await db.commit()
+
+
 async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
     """Run when a new due Message wakes the worker, with periodic fallback.
 
@@ -2019,6 +2034,7 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
         .order_by(AgentDemand.scheduled_at, AgentDemand.number)
     )
     due = list(result.scalars().all())
+    await mark_dispatch_queue_examined(db, [item.id for item in due], now)
     # M0.8 (cycle spec §6.1): a mission task goes by its mission's priority
     # (1 = most urgent), everything else by the default 100; scheduled_at
     # breaks ties, then the message number preserves creation order for equal

@@ -79,6 +79,11 @@ async def test_real_start_is_never_reached_in_test(monkeypatch):
         async def _noop():
             return None
         monkeypatch.setattr(main, step, _noop)
+    async def _recording_stub(**kwargs):
+        # This regression isolates loop creation; worker-state initialization
+        # has its own tests and uses asyncio internally to close DB sessions.
+        return None
+    monkeypatch.setattr(main, "initialize_worker_observations", _recording_stub)
     async with main.app.router.lifespan_context(main.app):
         assert main._background_tasks == []
     assert created == []

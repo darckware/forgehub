@@ -29,8 +29,8 @@ _CHECK_ROWS = (
     ('ECO-002', 'foundation', 'athos', 'Foundation contains documentation only; operational scripts stay profile-owned', 55, True),
     ('ECO-003', 'knowledge', 'mnemosyne', 'Shared Knowledge Base layout exists for core and external agents', 55, True),
     ('ECO-004', 'agents', 'athos', 'Core Hermes profiles and external runtime integrations pass the contract validator', 55, True),
-    ('ECO-005', 'agents', 'athos', 'Eight principal Hermes gateways are active and healthy', 55, True),
-    ('ECO-006', 'services', 'hephaestus', 'ForgeHub bridge and Kanboard worker systemd services are active', 55, True),
+    ('ECO-005', 'agents', 'athos', 'The single shared Hermes gateway is active and healthy', 55, True),
+    ('ECO-006', 'services', 'hephaestus', 'ForgeHub host bridge services are active', 55, True),
     ('ECO-007', 'containers', 'hephaestus', 'All ecosystem application containers are running and healthy', 55, True),
     ('ECO-008', 'network', 'hephaestus', 'Every ecosystem container participates in foundation_network', 55, True),
     ('ECO-009', 'services', 'hephaestus', 'All ecosystem application endpoints are healthy', 55, True),
@@ -76,7 +76,7 @@ _CHECK_ROWS = (
     ('ECO-050', 'services', 'hephaestus', 'Darckware site and API respond and Lara site chat returns a reply', 120, False, 'Safe dry-run Lara site chat probe that does not contact a client'),
     ('ECO-051', 'services', 'hephaestus', 'CoreTI web, API, nginx and PostgreSQL are healthy', 55, True),
     ('ECO-052', 'network', 'aegis', 'Headscale, Tailscale and RustDesk relay services are active', 55, True),
-    ('ECO-053', 'agents', 'athos', 'Every active Hermes profile has authenticated outbound Agent Activity hooks', 55, True),
+    ('ECO-053', 'agents', 'athos', 'Recent Hermes Messages tasks have authenticated Activity delivery; other channels are unverified', 55, True),
     ('ECO-054', 'agents', 'athos', 'Messages dispatches and feedback are timely with at most 20 percent failures over seven days', 120, True),
     ('ECO-055', 'agents', 'athos', 'Porthus, Aramis and Dartan have valid homes, profiles and ForgeHub MCP configuration', 55, False, 'Verified external runtime home and ForgeHub MCP inventory'),
     ('ECO-056', 'provider', 'atlas', 'Every active agent has a matching configured ForgeRouter key', 55, False, 'Secret-safe comparison with ForgeRouter agent key registry'),
@@ -84,6 +84,12 @@ _CHECK_ROWS = (
     ('ECO-058', 'backup', 'hephaestus', 'Offsite backup has a snapshot within 36 hours and the latest repository check succeeded', 120, False, 'First offsite snapshot and sample restore verified by the operator'),
     ('ECO-059', 'security', 'aegis', 'Shared skills (ecosystem-foundation, forgehub, forgevault, darckware, forgerouter) and the knowledge_cycle hook are immutable (chattr +i), match MANIFEST.sha256 and are linked into every agent profile. Hermes >= v0.21.7 lets background review edit pinned skills; the OS lock is the protection.', 60, True),
     ('ECO-060', 'security', 'aegis', 'No identity other than forgehub-remote-access read a *_SSH_KEY secret in ForgeVault since the check was created; an unreadable audit fails as not verified', 55, True),
+    ('ECO-061', 'operations', 'athos', 'All five operational workers have explicit policy and recent completed passes', 55, True),
+    ('ECO-062', 'mission', 'athos', 'Mission state, baseline, orchestrator membership and enabled coordination routines are consistent', 55, True),
+    ('ECO-063', 'factory', 'daedalus', 'Factory task origins and project traceability are consistent without invalidating accepted history', 55, True),
+    ('ECO-064', 'remote', 'hephaestus', 'All enabled registered machines have fresh observations and host executions retain progress and agent Task linkage', 55, True),
+    ('ECO-065', 'security', 'aegis', 'Browser session metadata is consistent and has no activity after expiry', 55, True),
+    ('ECO-066', 'operations', 'athos', 'Routine occurrences meet deadlines and required demand and evidence links', 55, True),
 )
 
 CANONICAL_AUDIT_CHECKS: dict[str, CheckSpec] = {

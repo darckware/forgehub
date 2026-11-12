@@ -41,7 +41,7 @@ def backup_row(container, **overrides):
 
 def test_backup_audit_uses_current_per_target_snapshots(monkeypatch):
     verifier = load_script('checklist_verifier')
-    rows = [backup_row(container) for container in (*verifier.APPLICATION_POSTGRES, 'saedas_postgres')]
+    rows = [backup_row(container) for container in verifier.application_postgres()]
     monkeypatch.setattr(verifier, 'psql', lambda *args: '\n'.join(json.dumps(row) for row in rows))
     assert verifier.check_postgres_dumps().ok
 
@@ -53,7 +53,7 @@ def test_backup_audit_uses_current_per_target_snapshots(monkeypatch):
 def test_backup_audit_rejects_unverified_system_backup(monkeypatch, change):
     verifier = load_script('checklist_verifier')
     rows = [backup_row(container, **(change if container == 'hindsight_postgres' else {}))
-            for container in (*verifier.APPLICATION_POSTGRES, 'saedas_postgres')]
+            for container in verifier.application_postgres()]
     monkeypatch.setattr(verifier, 'psql', lambda *args: '\n'.join(json.dumps(row) for row in rows))
     result = verifier.check_postgres_dumps()
     assert not result.ok

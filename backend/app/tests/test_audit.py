@@ -12,6 +12,7 @@ from app.api.routes import audit as audit_routes
 from app.core.deps import get_current_admin
 from app.db.base import AsyncSessionLocal
 from app.db.models.audit import AuditCheck, AuditCheckRun
+from app.db.models.notification import Notification
 
 
 @pytest_asyncio.fixture
@@ -25,6 +26,7 @@ async def client():
 
 async def _cleanup(check_id: uuid.UUID) -> None:
     async with AsyncSessionLocal() as db:
+        await db.execute(delete(Notification).where(Notification.event_key == f"audit-unowned:{check_id}"))
         await db.execute(delete(AuditCheck).where(AuditCheck.id == check_id))
         await db.commit()
 

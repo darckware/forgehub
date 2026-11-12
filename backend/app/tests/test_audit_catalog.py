@@ -10,13 +10,13 @@ from app.core.audit_catalog import (
     verifier_check_names,
 )
 
-VERIFIER = Path("/root/.hermes/profiles/athos/scripts/checklist_verifier.py")
+VERIFIER = Path(__file__).resolve().parents[3] / 'ops/athos/checklist_verifier.py'
 
 
 def test_catalog_v2_ids_are_contiguous_and_unique():
-    expected = {f"ECO-{number:03d}" for number in range(1, 61)}
+    expected = {f"ECO-{number:03d}" for number in range(1, 67)}
     assert set(CANONICAL_AUDIT_CHECKS) | set(RETIRED_AUDIT_CHECKS) == expected
-    assert len(CANONICAL_AUDIT_CHECKS) == 59
+    assert len(CANONICAL_AUDIT_CHECKS) == 65
     assert {name for name, check in CANONICAL_AUDIT_CHECKS.items() if not check.enabled} == {
         "ECO-048", "ECO-050", "ECO-055", "ECO-056", "ECO-058"
     }
@@ -43,7 +43,7 @@ def test_verifier_parser_does_not_execute_source():
 
 
 def test_new_checks_have_bounded_commands_and_owners():
-    for number in range(42, 61):
+    for number in range(42, 67):
         name = f"ECO-{number:03d}"
         check = CANONICAL_AUDIT_CHECKS[name]
         assert check.name == name
@@ -54,8 +54,8 @@ def test_new_checks_have_bounded_commands_and_owners():
 
 
 @pytest.mark.asyncio
-async def test_db_catalog_matches_canonical():
-    """Run after applying the catalogue migration to a test database."""
+async def test_db_catalog_retains_retired_and_disabled_policy():
+    """New migrations preserve operator enablement on preexisting IDs."""
     from sqlalchemy import select
 
     from app.db.models.audit import AuditCheck
@@ -66,5 +66,6 @@ async def test_db_catalog_matches_canonical():
     by_name = dict(rows)
     if not set(CANONICAL_AUDIT_CHECKS).issubset(by_name):
         pytest.skip("Catalog migration has not been applied to this test database")
-    assert all(by_name[name] is spec.enabled for name, spec in CANONICAL_AUDIT_CHECKS.items())
     assert by_name["ECO-021"] is False
+    intentionally_disabled = {"ECO-048", "ECO-050", "ECO-055", "ECO-056", "ECO-058"}
+    assert all(by_name[name] is False for name in intentionally_disabled)

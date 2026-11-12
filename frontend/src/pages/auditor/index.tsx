@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import i18n from "@/i18n";
 import {
   AlertCircle,
   Bot,
@@ -59,7 +60,7 @@ const RUN_STATUS_BADGE: Record<string, { variant: "success" | "destructive" | "w
 function formatTimestamp(value: string | null | undefined): string {
   if (!value) return "—";
   const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? value : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleString(i18n.resolvedLanguage ?? i18n.language);
 }
 
 function remediationError(error: unknown): string {
@@ -344,7 +345,7 @@ export default function AuditorPage() {
   );
   const categories = useMemo(() => Array.from(new Set((checks ?? []).map((check) => check.category).filter((item): item is string => Boolean(item)))).sort(), [checks]);
   const visibleChecks = useMemo(() => (checks ?? []).filter((check) => {
-    const state = !check.enabled ? "disabled" : check.last_run?.status ?? "never";
+    const state = !check.enabled ? "disabled" : check.evidence_state === "stale" ? "stale" : check.last_run?.status ?? "never";
     return (profileFilter === "all" || check.agent_profile === profileFilter)
       && (categoryFilter === "all" || check.category === categoryFilter)
       && (stateFilter === "all" || state === stateFilter);
@@ -402,9 +403,9 @@ export default function AuditorPage() {
           <AssistantToggleButton size="sm" />
         </>} />
 
-      <section aria-label={t("auditor.summary")} className="grid grid-cols-2 gap-2 rounded-md border bg-card p-3 text-sm md:grid-cols-5">
+      <section aria-label={t("auditor.summary")} className="grid grid-cols-2 gap-2 rounded-md border bg-card p-3 text-sm md:grid-cols-6">
         {[["enabled", status?.enabled], ["working", status?.ok], ["failed", status?.fail],
-          ["neverRun", status?.never_ran], ["disabled", status ? status.total - status.enabled : undefined]].map(([label, value]) => (
+          ["stale", status?.stale], ["neverRun", status?.never_ran], ["disabled", status ? status.total - status.enabled : undefined]].map(([label, value]) => (
           <div key={label as string} className="border-l-2 border-border pl-3 first:border-l-0">
             <p className="text-xs text-muted-foreground">{t(`auditor.${label}`)}</p>
             <p className="font-mono text-lg font-semibold tabular-nums">{value ?? "—"}</p>
@@ -426,9 +427,10 @@ export default function AuditorPage() {
           </div>
         </div>
         {status?.athos_monitor ? <>
-          <div className="mt-3 grid grid-cols-1 gap-2 border-t pt-3 text-xs text-muted-foreground sm:grid-cols-3">
+          <div className="mt-3 grid grid-cols-1 gap-2 border-t pt-3 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
             <p>{t("auditor.schedule")}: <code>{status.athos_monitor.schedule ?? "—"}</code></p>
             <p>{t("auditor.lastRun")}: {formatTimestamp(status.athos_monitor.last_run_at)}</p>
+            <p>{t("auditor.lastCompleteCronRun")}: {formatTimestamp(status.last_complete_cron_run_at)}</p>
             <p>{t("auditor.nextRun")}: {formatTimestamp(status.athos_monitor.next_run_at)}</p>
           </div>
           {status.athos_monitor.issues.length > 0 && <ul className="mt-2 list-inside list-disc text-xs text-destructive">{status.athos_monitor.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>}
@@ -482,7 +484,7 @@ export default function AuditorPage() {
         <div className="flex min-h-0 flex-1 flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2" aria-label={t("auditor.filters")}>
             <label className="text-xs">{t("auditor.category")} <select className="ml-1 rounded border bg-background p-1" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="all">{t("auditor.all")}</option>{categories.map((category) => <option key={category}>{category}</option>)}</select></label>
-            <label className="text-xs">{t("auditor.status")} <select className="ml-1 rounded border bg-background p-1" value={stateFilter} onChange={(event) => setStateFilter(event.target.value)}><option value="all">{t("auditor.all")}</option>{["ok", "fail", "error", "timeout", "never", "disabled"].map((state) => <option key={state} value={state}>{t(`auditor.state.${state}`)}</option>)}</select></label>
+            <label className="text-xs">{t("auditor.status")} <select className="ml-1 rounded border bg-background p-1" value={stateFilter} onChange={(event) => setStateFilter(event.target.value)}><option value="all">{t("auditor.all")}</option>{["ok", "fail", "error", "timeout", "stale", "never", "disabled"].map((state) => <option key={state} value={state}>{t(`auditor.state.${state}`)}</option>)}</select></label>
             <span className="mr-1 text-xs font-medium text-muted-foreground">{t("auditor.profiles")}:</span>
             {["all", ...profiles].map((profile) => (
               <Button
@@ -552,6 +554,11 @@ export default function AuditorPage() {
                         <TableCell>
                           {!check.enabled ? (
                             <Badge variant="outline">{t("auditor.disabled")}</Badge>
+                          ) : check.evidence_state === "stale" ? (
+                            <div className="space-y-1">
+                              <Badge variant="warning">{t("auditor.state.stale")}</Badge>
+                              <p className="text-xs text-muted-foreground">{t("auditor.recordedResult", { result: t(`auditor.state.${check.last_run?.status}`) })}</p>
+                            </div>
                           ) : badge ? (
                             <Badge variant={badge.variant}>{t(`auditor.state.${check.last_run?.status}`)}</Badge>
                           ) : (
@@ -560,6 +567,7 @@ export default function AuditorPage() {
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {formatTimestamp(check.last_run?.created_at)}
+                          {check.expires_at && <span className="block text-xs">{t("auditor.expiresAt", { date: formatTimestamp(check.expires_at) })}</span>}
                           {check.last_run?.duration_ms != null && (
                             <span className="block text-xs">{(check.last_run.duration_ms / 1000).toFixed(1)}s</span>
                           )}
