@@ -34,9 +34,10 @@ RISK = {"read": "low", "change": "medium", "destructive": "high"}
 # The single row of agent_remote_access_control, created by its migration.
 CONTROL_ID = uuid.UUID("6f1d2c4e-8a35-4b7e-9c10-3e5a7b9d1f24")
 PAUSED_CODE = "AGENT_REMOTE_ACCESS_PAUSED"
-# What a Hermes profile's `forgehub` entry must run and expose to use direct access.
+# What a Hermes profile's `forgehub` entry must run and expose to use each permission.
 _MAINTENANCE_MCP_FILES = ("factory_server.py", "forgehub_messages_mcp.py")
 _DIRECT_TOOL = "run_remote_command"
+_SCRIPTS_TOOL = "run_maintenance_script"
 
 
 async def agent_access_control(db, lock=False):
@@ -56,37 +57,60 @@ async def require_agent_access_active(db, lock=False):
             "Nothing was run; do not retry until it is reactivated.")})
 
 
-def hermes_direct_problem(profile_config: dict) -> str | None:
-    """Why a Hermes profile can't call run_remote_command; None when it can."""
+def hermes_tool_problem(profile_config: dict, tool: str) -> str | None:
+    """Why a Hermes profile can't call this maintenance tool; None when it can."""
     entry = (profile_config.get("mcp_servers") or {}).get("forgehub")
     if not isinstance(entry, dict) or entry.get("enabled") is False:
         return "PROFILE_WITHOUT_FORGEHUB_MCP"
     if not any(str(arg).endswith(_MAINTENANCE_MCP_FILES) for arg in entry.get("args") or []):
         return "PROFILE_MCP_WITHOUT_MAINTENANCE_TOOLS"
     tools = entry.get("tools") or {}
-    if _DIRECT_TOOL in (tools.get("exclude") or []) or ("include" in tools and _DIRECT_TOOL not in (tools["include"] or [])):
+    if tool in (tools.get("exclude") or []) or ("include" in tools and tool not in (tools["include"] or [])):
         return "PROFILE_MCP_WITHOUT_MAINTENANCE_TOOLS"
     return None
 
 
-def direct_access_problem(agent) -> str | None:
-    """Why this agent could not use a direct access, or None. External runtimes get
-    the run credential through their session config. Hermes gets it through
-    the XDG_ variable (host-bridge/app.py), and the tool must reach it: Lara's and
-    Maia's profiles filter it out. Read from the runtime's own file, not a copy."""
+def hermes_direct_problem(profile_config: dict) -> str | None:
+    """Why a Hermes profile can't call run_remote_command; None when it can."""
+    return hermes_tool_problem(profile_config, _DIRECT_TOOL)
+
+
+def hermes_scripts_problem(profile_config: dict) -> str | None:
+    """Why a Hermes profile can't call run_maintenance_script; None when it can."""
+    return hermes_tool_problem(profile_config, _SCRIPTS_TOOL)
+
+
+def agent_tool_problems(agent) -> tuple[str | None, str | None]:
+    """(commands reason, scripts reason): why this agent could not use direct
+    access (run_remote_command) or library scripts (run_maintenance_script);
+    None = it can. External runtimes get the run credential through their session
+    config. Hermes gets it through the XDG_ variable (host-bridge/app.py), and the
+    tool must reach it: Lara's and Maia's profiles filter it out. Read from the
+    runtime's own file, not a copy, and once for both answers."""
     if agent.runtime_type in EXTERNAL_RUNTIMES:
-        return None
+        return None, None
     if agent.runtime_type != "hermes" or not agent.profile_slug:
-        return "RUNTIME_WITHOUT_RUN_CREDENTIAL"
+        return "RUNTIME_WITHOUT_RUN_CREDENTIAL", "RUNTIME_WITHOUT_RUN_CREDENTIAL"
     fmt = agent_mcp.format_for("hermes")
     resolved = agent_mcp.resolve_host_file(agent_mcp.config_host_path(agent.effective_home_path, fmt))
     if resolved is None:
-        return "PROFILE_NOT_READABLE"
+        return "PROFILE_NOT_READABLE", "PROFILE_NOT_READABLE"
     try:
         config = yaml.safe_load(resolved.read_text())
     except (OSError, UnicodeDecodeError, yaml.YAMLError):
-        return "PROFILE_NOT_READABLE"
-    return hermes_direct_problem(config if isinstance(config, dict) else {})
+        return "PROFILE_NOT_READABLE", "PROFILE_NOT_READABLE"
+    config = config if isinstance(config, dict) else {}
+    return hermes_direct_problem(config), hermes_scripts_problem(config)
+
+
+def direct_access_problem(agent) -> str | None:
+    """Why this agent could not use a direct access (run_remote_command), or None."""
+    return agent_tool_problems(agent)[0]
+
+
+def scripts_access_problem(agent) -> str | None:
+    """Why this agent could not run library scripts (run_maintenance_script), or None."""
+    return agent_tool_problems(agent)[1]
 
 
 def delegation_covers(row, server_id, groups):

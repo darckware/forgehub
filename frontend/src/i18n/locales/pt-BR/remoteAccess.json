@@ -86,37 +86,17 @@
     "failed": "Falhou"
   },
   "agents": {
-    "title": "Agentes autorizados a fazer manutenção",
-    "subtitle": "Só estes agentes podem executar scripts nas máquinas, sempre pela conta darckware via ForgeHub e registrados no nome deles. Sem autorização, todo pedido de agente é recusado.",
-    "grant": "Conceder acesso a agentes",
-    "grantTitle": "Conceder acesso a agentes",
-    "pickAgents": "Agentes",
-    "noneToGrant": "Todos os agentes ativos já estão autorizados.",
     "maxRisk": "Risco máximo",
     "validity": "Validade",
     "days_one": "{{count}} dia",
     "days_other": "{{count}} dias",
-    "risks": {
-      "low": "Baixo (só leitura)",
-      "medium": "Médio (leitura e alteração)",
-      "high": "Alto (inclui destrutivos)"
-    },
     "riskHelp": {
       "low": "O agente só roda scripts de leitura (diagnóstico, consultas).",
       "medium": "O agente roda scripts de leitura e de alteração (instalar, ajustar, trocar senha). Scripts destrutivos ficam bloqueados.",
       "high": "O agente pode rodar qualquer script da biblioteca, inclusive os destrutivos."
     },
-    "grantConfirm_one": "Conceder a {{count}} agente",
-    "grantConfirm_other": "Conceder a {{count}} agentes",
     "until": "até {{date}}",
-    "revoke": "Revogar",
-    "revokeTitle": "Revogar o acesso de {{name}}?",
-    "revokeText": "O agente perde na hora a permissão de executar scripts nas máquinas. Execuções já iniciadas continuam até o fim.",
-    "empty": "Nenhum agente autorizado. Conceda acesso para um agente poder fazer manutenção.",
-    "pickMachines": "Máquinas autorizadas",
     "pickGroups": "Grupos autorizados",
-    "scopeRequired": "Selecione ao menos uma máquina ou grupo. Padrão: 24 horas.",
-    "grantHelp": "Só ficam habilitados os agentes e as máquinas que podem usar o acesso; os outros mostram o motivo.",
     "eligibilityPending": "Verificando quais agentes podem usar o acesso…",
     "ineligibleUnknown": "este agente não pode usar o acesso.",
     "searchMachines": "Buscar máquina",
@@ -127,26 +107,19 @@
     "noMachinesMatch": "Nenhuma máquina encontrada.",
     "readinessPending": "Verificando o estado das máquinas…",
     "summary": {
-      "agents_one": "{{count}} agente",
-      "agents_other": "{{count}} agentes",
       "machines_one": "{{count}} máquina",
       "machines_other": "{{count}} máquinas",
       "groups_one": "{{count}} grupo",
       "groups_other": "{{count}} grupos",
-      "risk": "risco até {{level}}",
-      "riskLevel": {
-        "low": "baixo",
-        "medium": "médio",
-        "high": "alto"
-      }
+      "machines_zero": "nenhuma máquina",
+      "groups_zero": "nenhum grupo"
     },
     "accessDisabled": "acesso desativado",
     "accessDisabledHelp": "O acesso a esta máquina está desligado no ForgeHub.",
     "offlineNow": "offline agora",
     "offlineNowHelp": "A máquina está preparada, mas não responde agora. A autorização vale; o agente só consegue rodar algo quando ela voltar.",
     "statusUnknown": "estado desconhecido",
-    "statusUnknownHelp": "Não foi possível ler o estado da máquina agora. A autorização vale; o ForgeHub confere na hora de rodar.",
-    "pruned": "Deixaram de poder receber o acesso e foram desmarcados: {{agents}} agente(s), {{machines}} máquina(s)."
+    "statusUnknownHelp": "Não foi possível ler o estado da máquina agora. A autorização vale; o ForgeHub confere na hora de rodar."
   },
   "askAgent": {
     "button": "Pedir ao agente",
@@ -157,20 +130,26 @@
     "instruction": "O que fazer",
     "instructionPlaceholder": "Ex.: a impressora parou; verifique o spooler e reinicie se precisar",
     "scripts": "Scripts da biblioteca (opcional)",
-    "scriptsHelp": "Se escolher scripts, o agente é instruído a usar só estes, com estes valores. Sem scripts, ele escolhe na biblioteca dentro do risco permitido a ele.",
+    "scriptsHelp": "Se escolher scripts, o agente é instruído a usar só estes, com estes valores, e precisa de permissão de scripts que cubra o risco deles. Sem scripts, ele escolhe na biblioteca dentro do risco permitido ou, se tiver comandos livres, usa run_remote_command.",
     "addScript": "Adicionar script…",
     "removeScript": "Remover {{name}}",
     "secretParam": "Parâmetro secreto: não vai na tarefa (o agente informa na execução, se precisar).",
     "agents": "Agentes",
     "agentsHelp": "Cada agente marcado recebe uma tarefa separada em Mensagens.",
-    "noAgents": "Nenhum agente autorizado. Conceda acesso em \"Agentes autorizados\" na aba Máquinas.",
-    "riskTooLow": "risco abaixo do exigido pelos scripts",
+    "noAgents": "Nenhum agente com permissão nessas máquinas. Conceda acesso na aba Agentes.",
     "send_one": "Enviar a {{count}} agente",
     "send_other": "Enviar a {{count}} agentes",
     "sent_one": "Tarefa enviada a {{count}} agente.",
     "sent_other": "Tarefas enviadas a {{count}} agentes.",
     "message": "mensagem #{{number}}",
-    "sentHelp": "Acompanhe a resposta em Mensagens. O que o agente executar aparece no histórico de cada máquina."
+    "sentHelp": "Acompanhe a resposta em Mensagens. O que o agente executar aparece no histórico de cada máquina.",
+    "canScripts": "scripts até {{level}}",
+    "canCommands": "comandos livres",
+    "block": {
+      "risk_too_low": "a permissão de scripts dele não cobre o risco dos scripts escolhidos.",
+      "scripts_need_delegation": "só tem comandos livres; os scripts escolhidos pedem permissão de scripts.",
+      "not_covering": "nenhuma permissão dele cobre todas as máquinas escolhidas."
+    }
   },
   "categories": {
     "title": "Classificações",
@@ -444,11 +423,11 @@
     "run": "Executar",
     "library": "Biblioteca",
     "schedules": "Agendamentos",
-    "history": "Histórico"
+    "history": "Histórico",
+    "agents": "Agentes"
   },
   "quick": {
     "detectOs": "Detectar sistemas operacionais",
-    "detectOsResult": "Sistema detectado em {{found}} de {{total}} máquina(s) sem sistema cadastrado",
     "title": "Instalações",
     "remote_access_install": "Instalador Darckware Remoto",
     "rustdesk_get_id": "Obter ID do RustDesk",
@@ -458,7 +437,12 @@
     "rustdesk_password": "Trocar senha do RustDesk",
     "prepare": "Preparar estação",
     "rotate_login_password": "Rotacionar senha",
-    "rotate_ssh_key": "Rotacionar chave SSH"
+    "rotate_ssh_key": "Rotacionar chave SSH",
+    "menu": "Ações",
+    "rowMenu": "Ações em {{name}}",
+    "detectOsResult_zero": "Nenhum sistema detectado: nenhuma máquina estava sem sistema cadastrado ({{found}}/{{count}}).",
+    "detectOsResult_one": "Sistema detectado em {{found}} de {{count}} máquina sem sistema cadastrado",
+    "detectOsResult_other": "Sistema detectado em {{found}} de {{count}} máquinas sem sistema cadastrado"
   },
   "composer": {
     "authKey": {
@@ -666,7 +650,8 @@
     "confirm_one": "Rotacionar em {{count}} máquina? O resultado aparece na tela de execução.",
     "confirm_other": "Rotacionar em {{count}} máquinas? O resultado aparece na tela de execução.",
     "run_one": "Rotacionar ({{count}})",
-    "run_other": "Rotacionar ({{count}})"
+    "run_other": "Rotacionar ({{count}})",
+    "selected_zero": "Nenhuma máquina selecionada"
   },
   "machines": {
     "copyRustdeskId": "Copiar o ID do RustDesk",
@@ -928,8 +913,6 @@
     }
   },
   "direct": {
-    "title": "Acesso direto",
-    "subtitle": "Configure as máquinas permitidas para cada agente. Comandos e arquivos passam pelo ForgeHub, com tarefa em execução e histórico. A chave SSH fica com o ForgeHub.",
     "open": "Abrir acesso",
     "empty": "Nenhum acesso direto aberto.",
     "formTitle": "Abrir acesso direto",
@@ -967,16 +950,10 @@
     "pauseText": "Pausa bloqueia os comandos, scripts, propostas e transferências de todos os agentes pelo ForgeHub. As configurações ficam salvas e o prazo continua correndo. Uma operação em execução termina sozinha ou no seu tempo limite.",
     "pauseReason": "Motivo (opcional)",
     "agentsTitle": "Agentes com acesso direto",
-    "agentsEmpty": "Nenhum agente na lista.",
     "addAgent": "Adicionar",
     "addAgentLabel": "Agente para adicionar",
     "pickAgentToAdd": "Escolha um agente",
-    "removeAgent": "Excluir {{name}} da lista",
-    "removeTitle": "Excluir {{name}} da lista?",
     "removeConfirm": "Excluir",
-    "removeText": "Os acessos abertos deste agente são encerrados agora e o próximo comando dele é recusado. Um comando em execução não é interrompido: termina ou atinge o próprio tempo limite.",
-    "agentRemoved_one": "Agente excluído da lista. {{count}} acesso encerrado.",
-    "agentRemoved_other": "Agente excluído da lista. {{count}} acessos encerrados.",
     "unsupportedTitle": "Ainda não suportado",
     "unsupported": {
       "RUNTIME_WITHOUT_RUN_CREDENTIAL": "o runtime não recebe credencial de run.",
@@ -984,27 +961,91 @@
       "PROFILE_WITHOUT_FORGEHUB_MCP": "o perfil não tem o MCP forgehub ativo.",
       "PROFILE_MCP_WITHOUT_MAINTENANCE_TOOLS": "o MCP forgehub do perfil não expõe as ferramentas de manutenção."
     },
-    "configure": "Configurar {{name}}",
     "allMachines": "Todas as máquinas",
     "indefinite": "0 h (indeterminado)",
     "pendingConfiguration": "Aguardando configuração",
-    "notListed": "Fora da lista",
-    "configured": "Configurado",
     "expired": "Prazo encerrado",
     "oldAccess": "Aberto há mais de 7 dias",
-    "since": "Configurado em {{when}}",
     "until": "Até {{when}}",
     "applyNextCommand": "As alterações valem para o próximo comando. A tarefa precisa estar em execução e dirigida ao agente. Grupos salvam as máquinas atuais; novas máquinas do grupo não entram automaticamente.",
     "noMachines": "Sem máquinas selecionadas, o agente não terá acesso.",
-    "noOptions": "Nenhuma opção disponível.",
     "optionalPurpose": "Finalidade (opcional)",
     "unspecified": "Não informada",
-    "save": "Salvar configuração",
-    "saved": "Configuração de {{name}} salva.",
     "inventoryError": "Não foi possível carregar as máquinas e grupos. Tente novamente antes de salvar.",
     "retry": "Tentar novamente",
     "confirmTitle": "Confirmar acesso de {{name}}?",
     "allSensitive": "Inclui todas as máquinas, inclusive produção e clientes.",
-    "selectedSensitive": "Inclui {{machines}}. Permitir o acesso deste agente?"
+    "selectedSensitive": "Inclui {{machines}}. Permitir o acesso deste agente?",
+    "since": "Configurado em {{when}}"
+  },
+  "authz": {
+    "title": "Agentes autorizados",
+    "subtitle": "Quem pode fazer manutenção, em quais máquinas e como: scripts da biblioteca e/ou comandos livres. Sempre pela conta darckware via ForgeHub, registrado no nome do agente. Sem permissão, todo pedido de agente é recusado.",
+    "add": "Adicionar agente",
+    "addTitle": "Adicionar agente",
+    "editTitle": "Autorização de {{name}}",
+    "panelHelp": "As duas permissões são independentes e usam as mesmas máquinas e grupos. Ao salvar, só o que mudou é gravado.",
+    "agent": "Agente",
+    "pickAgent": "Escolha um agente",
+    "noneToAdd": "Todos os agentes ativos já têm alguma permissão.",
+    "edit": "Editar {{name}}",
+    "remove": "Remover as permissões de {{name}}",
+    "removeTitle": "Remover as permissões de {{name}}?",
+    "removeText": "O agente perde na hora todas as permissões de scripts da biblioteca (inclusive as que começam no futuro ou valem só para um produto/projeto) e os comandos livres em todas as máquinas, e sai da lista do acesso direto. O que já estiver em execução termina sozinho ou no seu tempo limite.",
+    "removed": "Permissões de {{name}} removidas.",
+    "empty": "Nenhum agente autorizado. Use \"Adicionar agente\" para um agente poder fazer manutenção.",
+    "scripts": "Scripts da biblioteca",
+    "commands": "Comandos livres",
+    "notAuthorized": "Não autorizado",
+    "noMachine": "nenhuma máquina",
+    "riskUpTo": "até {{level}}",
+    "risk": {
+      "low": "Leitura",
+      "medium": "Alteração",
+      "high": "Destrutivo"
+    },
+    "scope": "Máquinas e grupos",
+    "scopeHelp": "Valem para as duas permissões. Nos scripts, um grupo vale com as máquinas que tiver na hora; nos comandos livres, guarda as máquinas de hoje.",
+    "pruned_one": "{{count}} máquina deixou de poder receber o acesso e foi desmarcada.",
+    "pruned_other": "{{count}} máquinas deixaram de poder receber o acesso e foram desmarcadas.",
+    "scopesDiffer": "Os comandos e os scripts têm máquinas diferentes. A lista mostra as dos scripts. Se você alterar a lista, as duas permissões passam a usar a nova lista; sem alterar, cada uma mantém as suas.",
+    "scriptsToggle": "Permitir scripts da biblioteca (run_maintenance_script)",
+    "commandsToggle": "Permitir comandos livres (run_remote_command)",
+    "commandsAllMachines": "Todas as máquinas, inclusive as preparadas depois",
+    "keepUntil": "Manter (até {{date}})",
+    "keepExpiry": "mantém o prazo",
+    "scriptsNeedScope": "Selecione ao menos uma máquina ou grupo para os scripts.",
+    "readOnly": "Somente leitura (monitoramento)",
+    "readOnlyHelp": "Preenche: scripts da biblioteca só de leitura (estado, serviços, containers, logs, rede); comandos livres e sudo/docker desligados.",
+    "readOnlyHermes": "Agente Hermes: o padrão é somente leitura, com scripts de leitura e sem comandos livres. Um comando livre não pode ser garantido como leitura.",
+    "hermesCommandsTitle": "Liberar comandos livres para {{name}}?",
+    "hermesCommandsText": "Um comando livre não pode ser garantido como somente leitura: a checagem de sudo/docker é pelo texto do comando, não uma barreira. Para monitoramento, prefira \"Somente leitura\" (scripts de leitura).",
+    "hermesCommandsConfirm": "Liberar mesmo assim",
+    "withElevation": "com sudo/docker",
+    "withoutElevation": "sem sudo/docker",
+    "save": "Salvar",
+    "saved": "Autorização de {{name}} salva.",
+    "outcome": {
+      "saved": "salvo.",
+      "cancelled": "não salvo (confirmação cancelada).",
+      "failed": "não salvo: {{message}}",
+      "pendingRevoke": "nova permissão gravada; a anterior continua ativa até ser revogada. Tente salvar de novo. ({{message}})"
+    },
+    "summary": {
+      "unchanged": "sem alteração",
+      "grant": "conceder",
+      "update": "atualizar",
+      "revoke": "revogar",
+      "save": "salvar",
+      "remove": "remover",
+      "finishRevoke": "revogar a permissão anterior"
+    },
+    "startsAt": "a partir de {{date}}",
+    "projectScoped": "só em um produto/projeto",
+    "irregular_one": "Este agente tem {{count}} permissão de scripts que uma permissão única não reproduz:",
+    "irregular_other": "Este agente tem {{count}} permissões de scripts diferentes:",
+    "consolidate_one": "Substituir a permissão de scripts por uma só: {{summary}}",
+    "consolidate_other": "Substituir as {{count}} permissões de scripts por uma só: {{summary}}",
+    "loadError": "Não foi possível ler as permissões dos agentes; nada pode ser adicionado ou alterado agora. ({{message}})"
   }
 }

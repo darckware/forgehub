@@ -761,6 +761,365 @@ echo "RUSTDESK_ID=$($SUDO rustdesk --get-id)"
 ]
 
 
+# Monitoring (2026-11-11, Marcelo: "só vou liberar comandos simples para os
+# agentes hermes, como monitoramento, serviços e somente de leitura e
+# acompanhamento"). Every one but the reachability probe is risk "read": it
+# only reads state, never starts, stops or changes anything, and never elevates
+# (no sudo, no SUDO prelude) -- what the login can't read is reported in words.
+# Each parameter is validated twice: by its `pattern`/`options` in ForgeHub
+# before anything runs, and again in the script, which may also be pasted into
+# a console.
+_LINES_PATTERN = r"[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500"  # 1-500
+_PORT_PATTERN = r"[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]"
+_TIMEOUT_PATTERN = r"[1-9]|10"  # seconds
+# One machine only: a hostname (with a letter) or an IPv4 address. No list,
+# range, CIDR or IPv6.
+_IPV4_OCTET = r"(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])"
+_HOST_PATTERN = (rf"{_IPV4_OCTET}(?:\.{_IPV4_OCTET}){{3}}"
+                 r"|(?=[A-Za-z0-9.-]{1,253}\Z)(?=.*[A-Za-z])"
+                 r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*")
+_UNIT_PATTERN = r"[A-Za-z0-9][A-Za-z0-9@._:-]{0,127}"
+# Journal units whose lines carry logins, sessions, elevated commands or cron
+# job command lines (which can hold secrets): never readable with the "read"
+# ceiling (supervisor decision, 2026-11-11; cron: Marcelo, same day).
+_JOURNAL_UNIT_PATTERN = r"(?!(?:sshd?|sudo|systemd-logind|cron|crond|cronie|anacron)(?:[@.]|$))(?!.*[Aa][Uu][Tt][Hh])" + _UNIT_PATTERN
+_WIN_SERVICE_PATTERN = r"[A-Za-z0-9][A-Za-z0-9 ._@$-]{0,127}"
+_CONTAINER_PATTERN = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}"
+# Log files a "read" agent may see, relative to /var/log. Never auth.log,
+# secure, sudo logs or wtmp/btmp/lastlog (logins and elevated commands).
+LINUX_LOG_FILES = ["syslog", "messages", "kern.log", "dpkg.log", "apt/history.log", "nginx/access.log",
+                   "nginx/error.log", "apache2/access.log", "apache2/error.log"]
+# Windows event logs a "read" agent may see. Never Security (command lines,
+# 4688) or PowerShell's own logs (script blocks, 4104, can hold ForgeHub's
+# rendered scripts with their parameter values).
+WINDOWS_EVENT_LOGS = ["System", "Application", "Setup"]
+
+_LINES_PARAM = {"name": "LINHAS", "label": "Quantidade de linhas/eventos (1 a 500)", "default": "100",
+                "pattern": _LINES_PATTERN}
+_LINUX_SERVICE_PARAM = {"name": "SERVICO", "label": "Serviço (unidade systemd, ex.: nginx; vazio = listar)",
+                        "pattern": _UNIT_PATTERN}
+_CONTAINER_PARAM = {"name": "CONTAINER", "label": "Container (nome ou id; vazio = listar todos)",
+                    "pattern": _CONTAINER_PATTERN}
+_REACHABILITY_PARAMS = [
+    {"name": "ALVO_HOST", "label": "Host a testar (nome ou IPv4)", "required": True, "pattern": _HOST_PATTERN},
+    {"name": "ALVO_PORTA", "label": "Porta a testar (1 a 65535)", "required": True, "pattern": _PORT_PATTERN},
+    {"name": "TEMPO_LIMITE", "label": "Tempo limite em segundos (1 a 10)", "default": "5", "pattern": _TIMEOUT_PATTERN},
+]
+
+_SH_CHECK_LINES = """case "$LINHAS" in ''|*[!0-9]*) echo "LINHAS deve ser um numero de 1 a 500" >&2; exit 2;; esac
+[ "$LINHAS" -ge 1 ] && [ "$LINHAS" -le 500 ] || { echo "LINHAS deve ser um numero de 1 a 500" >&2; exit 2; }
+"""
+_SH_CHECK_UNIT = """case "$SERVICO" in -*|*[!A-Za-z0-9@._:-]*) echo "Nome de servico invalido: $SERVICO" >&2; exit 2;; esac
+"""
+_SH_DOCKER_READY = """command -v docker >/dev/null 2>&1 || { echo "O Docker nao esta instalado nesta maquina" >&2; exit 2; }
+docker info >/dev/null 2>&1 || { echo "O Docker nao respondeu a esta conta (servico parado ou conta fora do grupo docker). Este script so le e nao tenta elevacao." >&2; exit 2; }
+"""
+# PowerShell's `$` also matches before a trailing newline: every in-script
+# check anchors with \z and is case-sensitive (-cnotmatch).
+_PS_CHECK_LINES = """if ($LINHAS -cnotmatch '^[0-9]{1,3}\\z' -or [int]$LINHAS -lt 1 -or [int]$LINHAS -gt 500) { throw 'LINHAS deve ser um numero de 1 a 500' }
+"""
+_PS_DOCKER_READY = """$ErrorActionPreference = 'Continue'
+if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'O Docker nao esta instalado nesta maquina' }
+& docker info 2>$null | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'O Docker nao respondeu a esta conta (servico parado ou sem permissao). Este script so le e nao tenta elevacao.' }
+"""
+
+MONITORING_SCRIPTS: list[dict] = [
+    {
+        "system_key": "monitor_state:linux",
+        "name": "Estado da máquina",
+        "platform": "linux",
+        "category": "monitoramento",
+        "risk": "read",
+        "timeout_seconds": 60,
+        "description": "Somente leitura: há quanto tempo está ligada, carga, memória e espaço em disco.",
+        "parameters": [],
+        "content": """echo "Maquina: $(hostname) | $(uname -sr)"
+echo "Ligada: $(uptime -p 2>/dev/null || uptime)"
+echo "Carga (1/5/15 min): $(cut -d' ' -f1-3 /proc/loadavg) | CPUs: $(nproc 2>/dev/null || echo '?')"
+echo "Memoria:"
+free -h 2>/dev/null || head -3 /proc/meminfo
+echo "Discos:"
+df -hP -x tmpfs -x devtmpfs -x squashfs -x overlay 2>/dev/null || df -hP
+""",
+    },
+    {
+        "system_key": "monitor_state:windows",
+        "name": "Estado da máquina",
+        "platform": "windows",
+        "category": "monitoramento",
+        "risk": "read",
+        "timeout_seconds": 60,
+        "description": "Somente leitura: há quanto tempo está ligada, carga da CPU, memória e espaço em disco.",
+        "parameters": [],
+        "content": """$ErrorActionPreference = 'Stop'
+$os = Get-CimInstance Win32_OperatingSystem
+$up = (Get-Date) - $os.LastBootUpTime
+"Maquina: $env:COMPUTERNAME | $($os.Caption) $($os.Version)"
+"Ligada ha: $($up.Days)d $($up.Hours)h $($up.Minutes)min (desde $($os.LastBootUpTime))"
+$cpu = (Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
+"Carga da CPU: $cpu% | Processadores logicos: $($env:NUMBER_OF_PROCESSORS)"
+"Memoria: $([math]::Round($os.FreePhysicalMemory / 1MB, 1)) GB livres de $([math]::Round($os.TotalVisibleMemorySize / 1MB, 1)) GB"
+'Discos:'
+Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | ForEach-Object {
+    "  $($_.DeviceID) $([math]::Round($_.FreeSpace / 1GB, 1)) GB livres de $([math]::Round($_.Size / 1GB, 1)) GB"
+}
+""",
+    },
+    {
+        "system_key": "monitor_services:linux",
+        "name": "Serviços",
+        "platform": "linux",
+        "category": "monitoramento",
+        "risk": "read",
+        "timeout_seconds": 60,
+        "description": ("Somente leitura: sem serviço informado, lista os serviços em execução e os com falha; "
+                        "com um serviço, mostra o estado dele (systemctl show, sem linha de comando dos processos). "
+                        "Nunca inicia nem para."),
+        "parameters": [_LINUX_SERVICE_PARAM],
+        # Not `systemctl status`: it prints every process's full command line,
+        # which can carry a --password=.
+        "content": """command -v systemctl >/dev/null 2>&1 || { echo "Esta maquina nao usa systemd" >&2; exit 2; }
+if [ -z "$SERVICO" ]; then
+    echo "Servicos em execucao:"
+    systemctl list-units --type=service --state=running --no-pager --no-legend
+    echo ""
+    echo "Servicos com falha:"
+    systemctl list-units --type=service --state=failed --no-pager --no-legend
+    exit 0
+fi
+""" + _SH_CHECK_UNIT + """INFO=$(systemctl show -p LoadState,ActiveState,SubState,UnitFileState,MainPID,ActiveEnterTimestamp -- "$SERVICO" 2>/dev/null) \\
+    || { echo "Nao foi possivel ler o servico $SERVICO" >&2; exit 2; }
+case "$INFO" in *LoadState=not-found*) echo "Servico nao encontrado: $SERVICO" >&2; exit 2;; esac
+echo "Servico: $SERVICO"
+echo "$INFO"
+echo "Estado: $(systemctl is-active -- "$SERVICO" 2>/dev/null)"
+""",
+    },
+    {
+        "system_key": "monitor_services:windows",
+        "name": "Serviços",
+        "platform": "windows",
+        "category": "monitoramento",
+        "risk": "read",
+        "timeout_seconds": 60,
+        "description": ("Somente leitura: sem serviço informado, lista os serviços (estado e tipo de início); "
+                        "com um serviço, mostra nome, estado e tipo de início (Get-Service). Nunca inicia nem para."),
+        "parameters": [{"name": "SERVICO", "label": "Serviço (nome, ex.: Spooler; vazio = listar)",
+                        "pattern": _WIN_SERVICE_PATTERN}],
+        # Name, display name, status and start type only: never the binary
+        # path or command line, which can carry a password.
+        "content": """$ErrorActionPreference = 'Stop'
+if (-not $SERVICO) {
+    Get-Service | Sort-Object Status, Name | Format-Table -AutoSize Status, StartType, Name, DisplayName | Out-String -Width 250
+    return
+}
+if ($SERVICO -cnotmatch '^[A-Za-z0-9][A-Za-z0-9 ._@$-]{0,127}\\z') { throw "Nome de servico invalido: $SERVICO" }
+$s = Get-Service -Name $SERVICO -ErrorAction SilentlyContinue
+if (-not $s) { throw "Servico nao encontrado: $SERVICO" }
+"Servico: $($s.Name) ($($s.DisplayName))"
+"Estado: $($s.Status) | Inicio: $($s.StartType)"
+""",
+    },
+    {
+        "system_key": "monitor_containers:linux",
+        "name": "Containers (Docker)",
+        "platform": "linux",
+        "category": "monitoramento",
+        "risk": "read",
+        "timeout_seconds": 60,
+        "description": ("Somente leitura: sem container informado, lista todos (docker ps -a); com um, mostra "
+                        "estado, saúde, início e reinícios. Precisa de Docker acessível pela conta sem elevação; "
+                        "senão, diz isso e não lê nada."),
+        "parameters": [_CONTAINER_PARAM],
+        "content": _SH_DOCKER_READY + """if [ -z "$CONTAINER" ]; then
+    docker ps -a --format 'table {{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}'
+    exit 0
+fi
+case "$CONTAINER" in -*|*[!A-Za-z0-9_.-]*) echo "Nome de container invalido: $CONTAINER" >&2; exit 2;; esac
+docker inspect --type container --format 'Nome: {{.Name}} | Estado: {{.State.Status}} | Saude: {{if .State.Health}}{{.State.Health.Status}}{{else}}sem healthcheck{{end}} | Iniciado: {{.State.StartedAt}} | Reinicios: {{.RestartCount}} | Imagem: {{.Config.Image}}' -- "$CONTAINER" \\
+    || { echo "Container nao encontrado: $CONTAINER" >&2; exit 2; }
+""",
+    },
+    {
+        "system_key": "monitor_containers:windows",
+        "name": "Containers (Docker)",
+        "platform": "windows",
+        "category": "monitoramento",
+        "risk": "read",
+        "timeout_seconds": 60,
+        "description": ("Somente leitura: sem container informado, lista todos (docker ps -a); com um, mostra "
+                        "estado, saúde, início e reinícios. Precisa de Docker acessível pela conta; senão, diz isso."),
+        "parameters": [_CONTAINER_PARAM],
+        "content": _PS_DOCKER_READY + """if (-not $CONTAINER) {
+    & docker ps -a --format 'table {{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}'
+    return
+}
+if ($CONTAINER -cnotmatch '^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\\z') { throw "Nome de container invalido: $CONTAINER" }
+& docker inspect --type container --format 'Nome: {{.Name}} | Estado: {{.State.Status}} | Saude: {{if .State.Health}}{{.State.Health.Status}}{{else}}sem healthcheck{{end}} | Iniciado: {{.State.StartedAt}} | Reinicios: {{.RestartCount}} | Imagem: {{.Config.Image}}' $CONTAINER
+if ($LASTEXITCODE -ne 0) { throw "Container nao encontrado: $CONTAINER" }
+""",
+    },
+    {
+        "system_key": "monitor_logs:linux",
+        "name": "Logs",
+        "platform": "linux",
+        "category": "monitoramento",
+        "risk": "read",
+        "timeout_seconds": 90,
+        "description": ("Somente leitura: as últimas N linhas (1 a 500) do journal de um serviço ou de um arquivo "
+                        "de uma lista fixa em /var/log (syslog, kern.log, nginx, apache...). Logs de login, sessão "
+                        "e elevação (auth.log, secure, sshd, sudo, logind) e o journal do cron são recusados, e as "
+                        "linhas do cron são retiradas dos arquivos (podem trazer senhas na linha de comando); o "
+                        "que a conta não pode ler é informado, sem elevação."),
+        "parameters": [
+            {"name": "ORIGEM", "label": "Origem", "default": "servico", "options": ["servico", "arquivo"]},
+            {"name": "SERVICO", "label": "Serviço (unidade systemd, quando a origem é serviço)",
+             "pattern": _JOURNAL_UNIT_PATTERN},
+            {"name": "ARQUIVO", "label": "Arquivo em /var/log (quando a origem é arquivo)",
+             "options": LINUX_LOG_FILES},
+            _LINES_PARAM,
+        ],
+        "content": _SH_CHECK_LINES + """if [ "$ORIGEM" = "arquivo" ]; then
+    case "$ARQUIVO" in
+        """ + "|".join(LINUX_LOG_FILES) + """) ;;
+        *) echo "Arquivo fora da lista permitida: $ARQUIVO" >&2; exit 2;;
+    esac
+    REAL=$(readlink -f -- "/var/log/$ARQUIVO" 2>/dev/null || true)
+    case "$REAL" in /var/log/*) ;; *) echo "O arquivo (ou o link) sai de /var/log/: recusado" >&2; exit 2;; esac
+    [ -f "$REAL" ] || { echo "Arquivo nao encontrado: /var/log/$ARQUIVO" >&2; exit 2; }
+    [ -r "$REAL" ] || { echo "Esta conta nao pode ler /var/log/$ARQUIVO (o script nao tenta elevacao)" >&2; exit 2; }
+    # At most the last 1 MiB is read, whatever the file's size. Cron lines
+    # (CRON[..]/crond[..]/anacron[..]) are dropped: they carry job command lines.
+    tail -c 1048576 < "$REAL" | grep -viE '(ana)?cron(d|ie)?\\[' | tail -n "$LINHAS"
+    exit 0
+fi
+[ "$ORIGEM" = "servico" ] || { echo "ORIGEM deve ser servico ou arquivo" >&2; exit 2; }
+[ -n "$SERVICO" ] || { echo "Informe o servico" >&2; exit 2; }
+""" + _SH_CHECK_UNIT + """BASE=${SERVICO%%.*}
+BASE=${BASE%%@*}
+case "$BASE" in
+    sshd|ssh|sudo|systemd-logind|cron|crond|cronie|anacron|*[Aa][Uu][Tt][Hh]*) echo "O journal de $SERVICO (login, sessao, elevacao ou cron) nao e lido por este script" >&2; exit 2;;
+esac
+command -v journalctl >/dev/null 2>&1 || { echo "Esta maquina nao tem journalctl" >&2; exit 2; }
+journalctl -u "$SERVICO" -n "$LINHAS" --no-pager -o short-iso
+""",
+    },
+    {
+        "system_key": "monitor_logs:windows",
+        "name": "Logs",
+        "platform": "windows",
+        "category": "monitoramento",
+        "risk": "read",
+        "timeout_seconds": 90,
+        "description": ("Somente leitura: os últimos N eventos (1 a 500) do log System, Application ou Setup. "
+                        "Security e os logs do PowerShell não são lidos."),
+        "parameters": [
+            {"name": "LOG_EVENTOS", "label": "Log de eventos", "default": "System", "options": WINDOWS_EVENT_LOGS},
+            _LINES_PARAM,
+        ],
+        "content": """$ErrorActionPreference = 'Stop'
+""" + _PS_CHECK_LINES + """if ($LOG_EVENTOS -cnotin @(""" + ", ".join(f"'{n}'" for n in WINDOWS_EVENT_LOGS) + """)) { throw "Log fora da lista permitida: $LOG_EVENTOS" }
+try {
+    $events = Get-WinEvent -LogName $LOG_EVENTOS -MaxEvents ([int]$LINHAS) -ErrorAction Stop
+} catch {
+    if ($_.FullyQualifiedErrorId -like 'NoMatchingEventsFound*') { "Nenhum evento em $LOG_EVENTOS"; return }
+    $denied = $_.Exception -is [UnauthorizedAccessException] -or $_.Exception.InnerException -is [UnauthorizedAccessException]
+    if ($denied) { throw "Esta conta nao pode ler o log $LOG_EVENTOS (o script nao tenta elevacao)" }
+    throw "Nao foi possivel ler o log $($LOG_EVENTOS): $($_.Exception.Message)"
+}
+$events | Sort-Object TimeCreated | Format-List TimeCreated, Id, LevelDisplayName, ProviderName, Message | Out-String -Width 300
+""",
+    },
+    {
+        "system_key": "monitor_network:linux",
+        "name": "Portas em escuta",
+        "platform": "linux",
+        "category": "monitoramento",
+        "risk": "read",
+        "timeout_seconds": 60,
+        "description": "Somente leitura: as portas TCP/UDP em escuta nesta máquina. Não contata nenhum outro host.",
+        "parameters": [],
+        "content": """if command -v ss >/dev/null 2>&1; then
+    ss -tulpn 2>/dev/null || ss -tuln
+elif command -v netstat >/dev/null 2>&1; then
+    netstat -tuln
+else
+    echo "Sem ss nem netstat nesta maquina" >&2; exit 2
+fi
+""",
+    },
+    {
+        "system_key": "monitor_network:windows",
+        "name": "Portas em escuta",
+        "platform": "windows",
+        "category": "monitoramento",
+        "risk": "read",
+        "timeout_seconds": 60,
+        "description": "Somente leitura: as portas TCP/UDP em escuta nesta máquina, com o processo. Não contata nenhum outro host.",
+        "parameters": [],
+        "content": """$ErrorActionPreference = 'Stop'
+$names = @{}
+Get-Process | ForEach-Object { $names[$_.Id] = $_.ProcessName }
+'TCP em escuta:'
+Get-NetTCPConnection -State Listen | Sort-Object LocalPort | ForEach-Object { "  $($_.LocalAddress):$($_.LocalPort)  $($names[[int]$_.OwningProcess])" }
+'UDP:'
+Get-NetUDPEndpoint | Sort-Object LocalPort | ForEach-Object { "  $($_.LocalAddress):$($_.LocalPort)  $($names[[int]$_.OwningProcess])" }
+""",
+    },
+    # Not read-only (Marcelo, 2026-11-11): the machine opens a connection to
+    # another host, so the probe needs the "change" ceiling. Same caps: one
+    # hostname or IPv4, port 1-65535, timeout 1-10 s.
+    {
+        "system_key": "monitor_reachability:linux",
+        "name": "Teste de alcance (host:porta)",
+        "platform": "linux",
+        "category": "monitoramento",
+        "risk": "change",
+        "timeout_seconds": 30,
+        "description": ("Abre uma conexão TCP desta máquina para um host (nome ou IPv4) e porta, com tempo limite "
+                        "de 1 a 10 segundos, e diz se respondeu. Contata outro host, por isso não é somente leitura."),
+        "parameters": _REACHABILITY_PARAMS,
+        "content": """case "$ALVO_HOST" in ''|-*|*..*|*[!A-Za-z0-9.-]*) echo "Informe um host valido (nome ou IPv4)" >&2; exit 2;; esac
+case "$ALVO_PORTA" in ''|*[!0-9]*) echo "Informe uma porta de 1 a 65535" >&2; exit 2;; esac
+[ "$ALVO_PORTA" -ge 1 ] && [ "$ALVO_PORTA" -le 65535 ] || { echo "Informe uma porta de 1 a 65535" >&2; exit 2; }
+case "$TEMPO_LIMITE" in ''|*[!0-9]*) echo "TEMPO_LIMITE deve ser de 1 a 10" >&2; exit 2;; esac
+[ "$TEMPO_LIMITE" -ge 1 ] && [ "$TEMPO_LIMITE" -le 10 ] || { echo "TEMPO_LIMITE deve ser de 1 a 10" >&2; exit 2; }
+OK=""
+if command -v nc >/dev/null 2>&1; then
+    nc -z -w "$TEMPO_LIMITE" "$ALVO_HOST" "$ALVO_PORTA" >/dev/null 2>&1 && OK=1
+elif command -v bash >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then
+    timeout "$TEMPO_LIMITE" bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$ALVO_HOST" "$ALVO_PORTA" 2>/dev/null && OK=1
+else
+    echo "Sem nc nem bash nesta maquina para testar a porta" >&2; exit 2
+fi
+if [ -n "$OK" ]; then echo "Porta $ALVO_HOST:$ALVO_PORTA: acessivel"; exit 0; fi
+echo "Porta $ALVO_HOST:$ALVO_PORTA: SEM resposta em $TEMPO_LIMITE s" >&2; exit 1
+""",
+    },
+    {
+        "system_key": "monitor_reachability:windows",
+        "name": "Teste de alcance (host:porta)",
+        "platform": "windows",
+        "category": "monitoramento",
+        "risk": "change",
+        "timeout_seconds": 30,
+        "description": ("Abre uma conexão TCP desta máquina para um host (nome ou IPv4) e porta, com tempo limite "
+                        "de 1 a 10 segundos, e diz se respondeu. Contata outro host, por isso não é somente leitura."),
+        "parameters": _REACHABILITY_PARAMS,
+        "content": """$ErrorActionPreference = 'Stop'
+if ($ALVO_HOST -cnotmatch '^[A-Za-z0-9][A-Za-z0-9.-]{0,252}\\z' -or $ALVO_HOST.Contains('..')) { throw 'Informe um host valido (nome ou IPv4)' }
+if ($ALVO_PORTA -cnotmatch '^[0-9]{1,5}\\z' -or [int]$ALVO_PORTA -lt 1 -or [int]$ALVO_PORTA -gt 65535) { throw 'Informe uma porta de 1 a 65535' }
+if ($TEMPO_LIMITE -cnotmatch '^[0-9]{1,2}\\z' -or [int]$TEMPO_LIMITE -lt 1 -or [int]$TEMPO_LIMITE -gt 10) { throw 'TEMPO_LIMITE deve ser de 1 a 10' }
+$client = [Net.Sockets.TcpClient]::new()
+try { $ok = $client.ConnectAsync($ALVO_HOST, [int]$ALVO_PORTA).Wait([int]$TEMPO_LIMITE * 1000) } catch { $ok = $false } finally { $client.Dispose() }
+if (-not $ok) { throw "Porta $($ALVO_HOST):$($ALVO_PORTA): SEM resposta em $TEMPO_LIMITE s" }
+"Porta $($ALVO_HOST):$($ALVO_PORTA): acessivel"
+""",
+    },
+]
+SYSTEM_SCRIPTS += MONITORING_SCRIPTS
+
 # How the library groups the scripts (2026-10-19, Marcelo: "os scripts precisam
 # serem classificados. Exemplo: tailscale, rustdesk, criação de conta,
 # manutenção"). Created on startup when missing; never renamed afterwards.
@@ -770,6 +1129,7 @@ SYSTEM_CATEGORIES = [
     ("acesso_remoto", "Acesso remoto", "Instalador Darckware Remoto (Tailscale + RustDesk)"),
     ("contas", "Contas de usuário", "Criação de contas, senhas e propriedades de usuários"),
     ("manutencao", "Manutenção", None),
+    ("monitoramento", "Monitoramento", "Estado, serviços, containers, logs e rede (leitura) e teste de alcance"),
 ]
 
 

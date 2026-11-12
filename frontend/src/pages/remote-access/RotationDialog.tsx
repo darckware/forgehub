@@ -9,9 +9,15 @@ import { SidePanel } from "@/components/ui/side-panel";
 import type { RotationKind } from "@/hooks/useHostInventory";
 import { useRotationViewModel } from "@/hooks/useRotationViewModel";
 
-export function RotationDialog({ kind, onClose, onExecution }: { kind: RotationKind; onClose: () => void; onExecution: (id: string) => void }) {
+export function RotationDialog({ kind, onClose, onExecution, initialServerIds }: {
+  kind: RotationKind;
+  onClose: () => void;
+  onExecution: (id: string) => void;
+  /** Machines to start selected (a machine row's "Ações" menu). */
+  initialServerIds?: string[];
+}) {
   const { t } = useTranslation("remoteAccess");
-  const vm = useRotationViewModel(kind, onExecution);
+  const vm = useRotationViewModel(kind, onExecution, initialServerIds);
   const busy = vm.status === "submitting";
   const Icon = kind === "ssh_key" ? KeyRound : RotateCw;
 

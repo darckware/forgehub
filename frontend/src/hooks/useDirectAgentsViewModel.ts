@@ -3,7 +3,15 @@ import {
   useAgentAccessControl, useDirectAgents, usePauseAgentAccess, useRemoveDirectAgent, useResumeAgentAccess,
   type AgentAccessControl, type DirectAgent, type DirectAgentRemoved,
 } from "@/hooks/useDirectAccess";
-import { refusalText } from "@/hooks/useDirectAccessViewModel";
+import { ApiError } from "@/lib/api";
+
+/** The backend's refusal, worded: a string detail, or a detail's message. */
+export function refusalText(error: unknown): string {
+  const detail = error instanceof ApiError ? (error.body as { detail?: unknown } | null)?.detail : null;
+  if (typeof detail === "string") return detail;
+  const message = (detail as { message?: unknown } | null)?.message;
+  return typeof message === "string" ? message : (error as Error).message;
+}
 
 /** The list of agents that may get a direct access, and the pause of every
  * agent's access to machines. Who can be added and why not comes from the backend,

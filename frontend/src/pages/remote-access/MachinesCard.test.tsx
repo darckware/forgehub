@@ -11,6 +11,7 @@ import type { VpnNode } from "@/hooks/useVpn";
 import { apiClient } from "@/lib/api";
 import { useAuthStore, type AuthUser } from "@/store/authStore";
 import { MachinesCard } from "./MachinesCard";
+import type { QuickActions } from "./quickActions";
 
 const user = (isAdmin: boolean): AuthUser => ({
   id: "11111111-1111-4111-8111-111111111111",
@@ -75,16 +76,16 @@ const VPN = {
   server: { ...node("self", "vmi3547248"), posture: { accept_dns: false, accept_routes: true, advertise_exit_node: false, tailscale_ssh: false, exit_node: false, restricted: false } },
 };
 
-function renderCard() {
+function renderCard(quickActions?: QuickActions, machines: Server[] = MACHINES) {
   vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
-    if (url === "/api/v1/servers") return MACHINES as never;
+    if (url === "/api/v1/servers") return machines as never;
     if (url === "/api/v1/host-groups") return GROUPS as never;
     if (url.startsWith("/api/v1/servers/readiness")) return READINESS as never;
     if (url === "/api/v1/vpn/status") return VPN as never;
     return { items: [{ id: "c1", company_name: "Gatling" }] } as never;
   });
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<MemoryRouter><QueryClientProvider client={qc}><MachinesCard /></QueryClientProvider></MemoryRouter>);
+  return render(<MemoryRouter><QueryClientProvider client={qc}><MachinesCard quickActions={quickActions} /></QueryClientProvider></MemoryRouter>);
 }
 
 describe("buildMachineSections", () => {
@@ -222,5 +223,86 @@ describe("MachinesCard", () => {
     expect(panel.parentElement?.className).toContain("justify-end");
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Editar servidor" })).not.toBeInTheDocument();
+  });
+
+  it("Ações: the toolbar menu lists the quick actions, opens by keyboard, and Esc closes it", async () => {
+    const run = vi.fn();
+    renderCard({ run, detectOsPending: false });
+    await screen.findByText("srv-ad03");
+    const trigger = screen.getByRole("button", { name: "Ações" });
+    expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const menu = screen.getByRole("menu", { name: "Ações" });
+    expect(within(menu).getAllByRole("menuitem").map((i) => i.textContent)).toEqual([
+      "Preparar estação", "Rotacionar senha", "Rotacionar chave SSH", "Detectar sistemas operacionais",
+      "Instalador Darckware Remoto", "Instalar Tailscale", "Instalar RustDesk", "Obter ID do RustDesk",
+      "Liberar RustDesk no firewall", "Trocar senha do RustDesk",
+    ]);
+    const items = within(menu).getAllByRole("menuitem");
+    expect(items[0]).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(items[1]).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "End" });
+    expect(items[9]).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(items[0]).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Instalar Tailscale" }));
+    expect(run).toHaveBeenCalledWith("tailscale_install", undefined);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rotacionar chave SSH" }));
+    expect(run.mock.lastCall?.[0]).toBe("rotate_ssh_key");
+    expect(run.mock.lastCall?.[1]).toBeUndefined();
+  });
+
+  it("Ações: a machine's row menu runs the action with that machine; preparing only for a workstation, rotation only when Ready with a key", async () => {
+    const run = vi.fn();
+    const machines = MACHINES.map((m) => (m.id === "s1" ? { ...m, ssh_key_path: "/root/.ssh/id_srv" } : m)) as Server[];
+    renderCard({ run, detectOsPending: false }, machines);
+    await screen.findByText("srv-ad03");
+
+    fireEvent.click(screen.getByRole("button", { name: "Ações em srv-sup" }));
+    let menu = screen.getByRole("menu", { name: "Ações em srv-sup" });
+    expect(within(menu).queryByRole("menuitem", { name: "Preparar estação" })).not.toBeInTheDocument();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Rotacionar senha" }));
+    expect(run).toHaveBeenCalledWith("rotate_login_password", expect.objectContaining({ id: "s1" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Ações em GAT-ADM-PC01" }));
+    menu = screen.getByRole("menu", { name: "Ações em GAT-ADM-PC01" });
+    expect(within(menu).queryByRole("menuitem", { name: "Rotacionar senha" })).not.toBeInTheDocument(); // no key on record
+    expect(within(menu).queryByRole("menuitem", { name: "Detectar sistemas operacionais" })).not.toBeInTheDocument();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Preparar estação" }));
+    expect(run).toHaveBeenLastCalledWith("prepare", expect.objectContaining({ id: "m1" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Ações em GAT-ADM-PC01" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Instalar RustDesk" }));
+    expect(run).toHaveBeenLastCalledWith("rustdesk_install", expect.objectContaining({ id: "m1" }));
+  });
+
+  it("Ações: a click outside closes the menu without running anything", async () => {
+    const run = vi.fn();
+    renderCard({ run, detectOsPending: false });
+    await screen.findByText("srv-ad03");
+    fireEvent.click(screen.getByRole("button", { name: "Ações" }));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("Ações: without quick actions (a non-admin page) there is no menu", async () => {
+    useAuthStore.setState({ user: user(false), permissions: { servers: { can_view: true, can_query: true, can_write: false, can_delete: false } } });
+    renderCard({ run: vi.fn(), detectOsPending: false });
+    await screen.findByText("srv-ad03");
+    expect(screen.queryByRole("button", { name: "Ações" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Ações em/ })).not.toBeInTheDocument();
   });
 });

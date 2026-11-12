@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "@/i18n";
@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   refetch: vi.fn(),
   status: vi.fn(),
   operations: vi.fn(),
+  detect: vi.fn(),
 }));
 
 vi.mock("@/hooks/useVpn", async (importOriginal) => {
@@ -39,27 +40,55 @@ vi.mock("@/hooks/useVpn", async (importOriginal) => {
   };
 });
 
-// The machines card has its own test (MachinesCard.test.tsx).
-vi.mock("./MachinesCard", () => ({ MachinesCard: () => null }));
-vi.mock("./MaintenanceProposalsCard", () => ({ MaintenanceProposalsCard: () => null }));
-vi.mock("./AuthorizedAgentsCard", () => ({ AuthorizedAgentsCard: () => null }));
-vi.mock("./DirectAccessCard", () => ({ DirectAccessCard: () => null }));
+// The machines card has its own test (MachinesCard.test.tsx), menus included;
+// here it only exposes the page's quick actions, to check what each opens.
+vi.mock("./MachinesCard", () => ({
+  MachinesCard: ({ quickActions }: { quickActions?: { run: (a: string, m?: unknown) => void } }) => (
+    <div data-testid="machines">
+      {quickActions && (
+        <>
+          <button type="button" onClick={() => quickActions.run("tailscale_install")}>qa:tailscale</button>
+          <button type="button" onClick={() => quickActions.run("rustdesk_install", { id: "m7", name: "pc-7" })}>qa:rustdesk:m7</button>
+          <button type="button" onClick={() => quickActions.run("rotate_ssh_key", { id: "m7", name: "pc-7" })}>qa:rotate:m7</button>
+          <button type="button" onClick={() => quickActions.run("rotate_login_password")}>qa:rotate</button>
+          <button type="button" onClick={() => quickActions.run("prepare", { id: "m7", name: "pc-7" })}>qa:prepare:m7</button>
+          <button type="button" onClick={() => quickActions.run("detect_os")}>qa:detect</button>
+        </>
+      )}
+    </div>
+  ),
+}));
+vi.mock("./MaintenanceProposalsCard", () => ({ MaintenanceProposalsCard: () => <p>proposals</p> }));
+vi.mock("./AgentAuthorizationsCard", () => ({ AgentAuthorizationsCard: () => <p>authorizations</p> }));
+vi.mock("./RotationDialog", () => ({
+  RotationDialog: ({ kind, initialServerIds }: { kind: string; initialServerIds?: string[] }) => <p>rotation:{kind}:{(initialServerIds ?? []).join(",") || "none"}</p>,
+}));
+vi.mock("./PrepareDialog", () => ({
+  PrepareDialog: ({ initialServerId }: { initialServerId?: string }) => <p>prepare:{initialServerId ?? "none"}</p>,
+}));
 vi.mock("./TailscaleApiKeyCard", () => ({ TailscaleApiKeyCard: () => null }));
 vi.mock("@/hooks/useHostInventory", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/useHostInventory")>()),
-  useDetectMissingOs: () => ({ mutate: vi.fn(), isPending: false, data: undefined, error: null }),
+  useDetectMissingOs: () => ({ mutate: mocks.detect, isPending: false, data: undefined, error: null }),
 }));
 vi.mock("./ExecutionsCard", () => ({ ExecutionsCard: () => null }));
 vi.mock("./TailnetPolicyCard", () => ({ TailnetPolicyCard: () => null }));
 vi.mock("./ExecutionComposer", () => ({
-  ExecutionComposer: ({ initialSystem }: { initialSystem?: string | null }) => <p>composer:{initialSystem ?? "none"}</p>,
+  ExecutionComposer: ({ initialSystem, initialMachineIds }: { initialSystem?: string | null; initialMachineIds?: string[] }) =>
+    <p>composer:{initialSystem ?? "none"}:{(initialMachineIds ?? []).join(",") || "none"}</p>,
 }));
 vi.mock("./ScriptLibrary", () => ({ ScriptLibrary: () => <p>library</p> }));
 vi.mock("./SchedulesPanel", () => ({ SchedulesPanel: () => <p>schedules</p> }));
 
 function Where() {
   const location = useLocation();
-  return <p data-testid="where">{location.search}</p>;
+  const navigate = useNavigate();
+  return (
+    <>
+      <p data-testid="where">{location.search}</p>
+      <button type="button" onClick={() => navigate(-1)}>browser-back</button>
+    </>
+  );
 }
 
 function renderAt(search = "?tab=network") {
@@ -200,22 +229,73 @@ describe("Remote Access page", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Acesso Remoto indisponível");
   });
 
-  it("opens on Machines and the install buttons open the execution screen with that script", () => {
+  it("has four tabs, opens on Machines, and keeps the tab in the URL with browser back", () => {
     renderAt("");
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Máquinas", "Agentes", "Scripts e execuções", "Rede Tailscale"]);
     expect(screen.getByRole("tab", { name: "Máquinas" })).toHaveAttribute("aria-selected", "true");
-    fireEvent.click(screen.getByRole("button", { name: /Instalar RustDesk/ }));
-    expect(screen.getByText("composer:rustdesk_install")).toBeInTheDocument();
-    expect(screen.getByTestId("where").textContent).toContain("system=rustdesk_install");
-    fireEvent.click(screen.getByRole("tab", { name: "Biblioteca" }));
-    expect(screen.getByText("library")).toBeInTheDocument();
+    // the ten quick-action buttons are no longer above the list
+    expect(screen.queryByRole("button", { name: /Instalar RustDesk/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("authorizations")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Agentes" }));
+    expect(screen.getByTestId("where").textContent).toBe("?tab=agents");
+    expect(screen.getByText("authorizations")).toBeInTheDocument();
+    expect(screen.getByText("proposals")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Rede Tailscale" }));
+    expect(screen.getByTestId("where").textContent).toBe("?tab=network");
+    fireEvent.click(screen.getByRole("button", { name: "browser-back" }));
+    expect(screen.getByTestId("where").textContent).toBe("?tab=agents");
+    expect(screen.getByRole("tab", { name: "Agentes" })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("shows a non-admin only the machine list: no tabs, no quick actions", () => {
+  it("opens the tab named in the link", () => {
+    renderAt("?tab=agents");
+    expect(screen.getByRole("tab", { name: "Agentes" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("authorizations")).toBeInTheDocument();
+  });
+
+  it("an unknown tab falls back to Machines", () => {
+    renderAt("?tab=nope");
+    expect(screen.getByRole("tab", { name: "Máquinas" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("Ações: a system script opens the execution screen with it, and with the row's machine chosen", () => {
+    renderAt("");
+    fireEvent.click(screen.getByRole("button", { name: "qa:tailscale" }));
+    expect(screen.getByText("composer:tailscale_install:none")).toBeInTheDocument();
+    expect(screen.getByTestId("where").textContent).toContain("system=tailscale_install");
+    fireEvent.click(screen.getByRole("tab", { name: "Biblioteca" }));
+    expect(screen.getByText("library")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "browser-back" }));
+    fireEvent.click(screen.getByRole("button", { name: "browser-back" }));
+    expect(screen.getByRole("tab", { name: "Máquinas" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("button", { name: "qa:rustdesk:m7" }));
+    expect(screen.getByText("composer:rustdesk_install:m7")).toBeInTheDocument();
+    expect(screen.getByTestId("where").textContent).toContain("machine=m7");
+  });
+
+  it("Ações: rotation and preparation open their panels, preselected from a row; detect OS runs", () => {
+    renderAt("");
+    fireEvent.click(screen.getByRole("button", { name: "qa:rotate:m7" }));
+    expect(screen.getByText("rotation:ssh_key:m7")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "qa:rotate" }));
+    expect(screen.getByText("rotation:login_password:none")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "qa:prepare:m7" }));
+    expect(screen.getByText("prepare:m7")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "qa:detect" }));
+    expect(mocks.detect).toHaveBeenCalled();
+  });
+
+  it("shows a non-admin only the machine list: no tabs, no Ações, no agents", () => {
     useAuthStore.setState({ user: user(false), permissions: { servers: { can_view: true, can_query: true, can_write: false, can_delete: false } } });
-    renderAt("?tab=network");
+    renderAt("?tab=agents");
 
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Instalar RustDesk/ })).not.toBeInTheDocument();
+    expect(screen.getByTestId("machines")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^qa:/ })).not.toBeInTheDocument(); // no quick actions given
+    expect(screen.queryByText("authorizations")).not.toBeInTheDocument();
     expect(screen.queryByText("darckware-srv")).not.toBeInTheDocument();
   });
 });

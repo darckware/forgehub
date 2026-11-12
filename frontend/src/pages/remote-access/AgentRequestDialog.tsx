@@ -1,6 +1,8 @@
 /** "Pedir ao agente" (Remote Access): a maintenance task for one or more
  * authorized agents on the chosen machines -- free text, optionally the
- * library scripts to use, and the client's ticket/demand. One Messages task
+ * library scripts to use, and the client's ticket/demand. An agent qualifies
+ * with library scripts or with free commands covering every machine; chosen
+ * scripts need a script permission covering their risk (2026-11-11). One Messages task
  * per agent; what each runs lands in the machine's history. Right-hand panel
  * (2026-11-11). State:
  * useAgentRequestViewModel. */
@@ -120,15 +122,24 @@ export function AgentRequestDialog({ machines, onClose }: { machines: Server[]; 
 
           <fieldset className="space-y-1">
             <legend className="text-sm font-medium">{t("askAgent.agents")}</legend>
-            {vm.authorized.length === 0 && <p className="text-xs text-amber-600">{t("askAgent.noAgents")}</p>}
-            {vm.authorized.map((entry) => {
-              const ok = vm.canPick(entry);
+            {vm.candidates.length === 0 && <p className="text-xs text-amber-600">{t("askAgent.noAgents")}</p>}
+            {vm.candidates.map((c) => {
+              const ok = c.block === null;
+              const can = [
+                c.scriptsCeiling ? t("askAgent.canScripts", { level: t(`authz.risk.${c.scriptsCeiling}`, { defaultValue: c.scriptsCeiling }) }) : null,
+                c.commands ? t("askAgent.canCommands") : null,
+              ].filter(Boolean).join(" · ");
+              const reasonId = `ask-agent-block-${c.id}`;
               return (
-                <label key={entry.agent.id} className={`flex items-center gap-2 text-sm ${ok ? "cursor-pointer" : "opacity-50"}`}>
-                  <input type="checkbox" disabled={!ok} checked={ok && vm.chosenAgents.has(entry.agent.id)} onChange={() => vm.toggleAgent(entry.agent.id)} />
-                  {entry.agent.name}
-                  <span className="text-xs text-muted-foreground">({t(`agents.risks.${entry.maxRisk}`, { defaultValue: entry.maxRisk })}{!ok && ` · ${t("askAgent.riskTooLow")}`})</span>
-                </label>
+                <div key={c.id} className={ok ? undefined : "opacity-60"}>
+                  <label className={`flex flex-wrap items-center gap-x-2 text-sm ${ok ? "cursor-pointer" : "cursor-not-allowed"}`}>
+                    <input type="checkbox" disabled={!ok} checked={ok && vm.chosenAgents.has(c.id)} onChange={() => vm.toggleAgent(c.id)}
+                      aria-describedby={ok ? undefined : reasonId} />
+                    {c.name}
+                    {can && <span className="text-xs text-muted-foreground">({can})</span>}
+                  </label>
+                  {!ok && <p id={reasonId} className="pl-6 text-xs text-muted-foreground">{t(`askAgent.block.${c.block}`)}</p>}
+                </div>
               );
             })}
             <p className="text-xs text-muted-foreground">{t("askAgent.agentsHelp")}</p>

@@ -56,6 +56,21 @@ def test_run_remote_command_calls_the_route_and_marks_output_as_data(tmp_path,mo
     assert 'untrusted_output_notice' in got
 
 
+def test_run_remote_command_carries_one_darckware_item(tmp_path,monkeypatch):
+    seen=[]
+    def handle(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(201,json={'id':'x','results':[]})
+    module=_mcp_with(tmp_path,monkeypatch,handle)
+    asyncio.run(module.run_remote_command(['m1'],'uptime','Check load',42,darckware_ticket_id='T-7'))
+    asyncio.run(module.run_remote_command(['m1'],'uptime','Check load',42,darckware_demand_id='D-3'))
+    assert seen[0]['darckware_ticket_id']=='T-7' and 'darckware_demand_id' not in seen[0]
+    assert seen[1]['darckware_demand_id']=='D-3' and 'darckware_ticket_id' not in seen[1]
+    with pytest.raises(module.ForgeHubError):
+        asyncio.run(module.run_remote_command(['m1'],'uptime','Check load',42,darckware_ticket_id='T-7',darckware_demand_id='D-3'))
+    assert len(seen)==2
+
+
 def test_coded_refusal_reaches_the_agent_and_other_bodies_do_not(tmp_path,monkeypatch):
     bodies=iter([
         httpx.Response(403,json={'detail':{'code':'ELEVATION_NOT_ALLOWED','message':'Ask for a new opening'}}),

@@ -29,13 +29,16 @@ export function ExecutionComposer({
   onRan,
   onScheduled,
   initialSystem,
+  initialMachineIds,
 }: {
   onRan: (execution: HostExecutionDetail) => void;
   onScheduled: (schedule: HostSchedule) => void;
   initialSystem?: string | null;
+  /** Machines to start selected (a machine row's "Ações" menu). */
+  initialMachineIds?: string[];
 }) {
   const { t } = useTranslation("remoteAccess");
-  const vm = useExecutionComposerViewModel({ onRan, onScheduled, initialSystem });
+  const vm = useExecutionComposerViewModel({ onRan, onScheduled, initialSystem, initialMachineIds });
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
   const apiKey = useTailscaleApiKey();

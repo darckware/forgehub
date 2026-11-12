@@ -132,6 +132,8 @@ export function useExecutionComposerViewModel(handlers: {
   /** System script action to preselect ("tailscale_install", ...), from the
    * Machines tab buttons; the Windows/Linux variant follows the selection. */
   initialSystem?: string | null;
+  /** Machines to start selected (a machine row's "Ações" menu). */
+  initialMachineIds?: string[];
 }): ExecutionComposerViewModel {
   const { data: servers } = useServers();
   const { data: hostGroups } = useHostGroups();
@@ -143,7 +145,7 @@ export function useExecutionComposerViewModel(handlers: {
   const schedule = useCreateHostSchedule();
 
   const [filters, setFiltersState] = useState<MachineFilters>({ query: "", clientId: "", groupId: "", os: "", onlyReady: false });
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(handlers.initialMachineIds ?? []));
   const [source, setSource] = useState<SourceMode>("library");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [scriptId, setScriptId] = useState<string | null>(null);

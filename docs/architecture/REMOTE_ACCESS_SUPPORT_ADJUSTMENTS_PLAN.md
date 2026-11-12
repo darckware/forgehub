@@ -10,7 +10,7 @@ suporte e planejar os ajustes. **Os formulários não devem abrir em modal, e si
 | Fase | Situação (2026-11-11) |
 |---|---|
 | 1 — Formulários à direita | **Homologada em 2026-11-11** (566 testes, build, Chrome 1440/390 no backend de teste); não commitada, sai junto com a fase 2 |
-| 2 — Autorização única + reorganização da tela | Aprovada, aguarda a fase 1 |
+| 2 — Autorização única + reorganização da tela | **Homologada em 2026-11-11**: backend e frontend revisados; Chrome 1440/390 com concessão real na base de teste (somente leitura → comandos 1 h com confirmação de máquina sensível → remoção). Corrigido um defeito anterior: a concessão de scripts pela tela falhava com 422 desde 2026-11-08. Scripts Windows conferidos no PowerShell 7.4 (sintaxe e validação); falta rodá-los numa estação real depois do deploy. Não commitada |
 | 3 — Ciclo com o chamado da Darckware | Planejada |
 | 4 — Alerta de máquina | Planejada |
 | 5 — Documentação | Sincronização da Foundation feita em 2026-11-11; skill e CLAUDE.md depois da fase 2 |
@@ -123,13 +123,39 @@ erro. O
      como linhas de `AuthorityDelegation`, para preservar o histórico e as FKs. Só a tela passa a
      ser uma.
    - Pausar fica no cabeçalho do cartão.
+   - **Frontend feito (fase 2b, 2026-11-11):** `AgentAuthorizationsCard.tsx` +
+     `useAgentAuthorizationViewModel` (escopo em `useMachineScope`) substituem
+     `AuthorizedAgentsCard`/`DirectAccessCard`; salvar chama só o que mudou, por permissão (scripts: cria a
+     delegação nova e só depois revoga a antiga; comandos: PUT com a confirmação de cobertura sensível, ou
+     DELETE), e uma falha aparece por permissão com o painel aberto. "Todas as máquinas" só nos comandos.
+     Revisão (mesmo dia): cada permissão guarda o próprio escopo; a lista de máquinas compartilhada só é
+     enviada a uma permissão quando o usuário a altera (senão cada uma reenvia as suas máquinas), e o motivo é
+     só dos comandos. Uma revogação da delegação antiga que falha fica pendente ("nova permissão gravada; a
+     anterior continua ativa") e Salvar refaz só ela. Várias delegações de scripts (ou uma futura/por
+     projeto) aparecem uma por linha e só são substituídas por uma após confirmação explícita; "Manter" usa
+     o prazo mais curto. Remover revoga toda delegação `remote_access.execute` ativa do agente (também
+     futura ou por produto/projeto) e trata o 404 "fora da lista" como feito.
+   - **Prazos em unidades diferentes, de propósito:** scripts da biblioteca em dias (1/7/30 ou manter o
+     prazo atual), porque a delegação é um mandato limitado pelo risco; comandos livres em horas (0 =
+     indeterminado, 1/4/24), porque o acesso direto é uma janela de trabalho curta e sem teto de risco.
+   - **Limitação conhecida (anterior a esta fase):** a rotação de senha/chave só é oferecida a máquinas
+     Prontas com `ssh_key_path` registrado; uma máquina só com chave na ForgeVault (`ssh_key_ref`) não
+     aparece no painel de rotação nem no menu "Ações" dela.
 2. **"Pedir ao agente"** aceita agentes com qualquer uma das duas permissões. Se o agente tem
    comandos livres, o texto da tarefa cita `run_remote_command`, e não apenas
    `run_maintenance_script`. O pedido é recusado só quando o agente não tem nenhuma das duas
    permissões que a tarefa exige.
+   - **Backend feito (fase 2a, 2026-11-11):** sem scripts escolhidos, basta delegação de scripts ou acesso
+     direto cobrindo todas as máquinas; com scripts, só a delegação de scripts. O texto da tarefa cita a(s)
+     ferramenta(s) do agente; a auditoria do pedido grava `scripts_allowed`/`commands_allowed`.
+   - **Frontend feito (fase 2b, 2026-11-11):** `useAgentRequestViewModel` lista quem tem delegação de
+     scripts cobrindo todas as máquinas ou acesso direto em vigor cobrindo todas; com scripts escolhidos, só
+     quem tem delegação com o risco deles. Cada agente indisponível mostra o motivo.
 3. **`DirectCommandCreate` ganha `darckware_item_kind`/`darckware_item_id`** (as colunas de
    `host_executions` já existem), e o MCP `run_remote_command` passa a aceitá-los. Assim, o
    trabalho por comando também fica ligado ao chamado.
+   - **Backend feito (fase 2a, 2026-11-11):** a API usa `darckware_ticket_id`/`darckware_demand_id`
+     (um ou nenhum, 422 se os dois), os mesmos nomes do MCP; grava em `host_executions.darckware_item_*`.
 4. **Reorganização da tela** (Marcelo, 2026-11-11: "pode incluir a reorganização na fase 2").
    Nenhuma regra de acesso muda, só a organização:
 
@@ -144,8 +170,16 @@ erro. O
    - Um não admin com o módulo `servers` continua vendo só Máquinas, sem o menu "Ações".
    - Celular: as abas usam `components/ui/tabs.tsx`, que já rola para o lado, e o menu "Ações"
      cabe em 390 px.
+   - **Frontend feito (fase 2b, 2026-11-11):** abas `?tab=machines|agents|scripts|network` (trocar de aba
+     empilha no histórico); menu "Ações" (`components/ui/action-menu.tsx`, sem dependência nova: teclado,
+     Esc, portal fixo) na barra da lista e um por máquina, que abre o mesmo painel com ela escolhida
+     (`RotationDialog.initialServerIds`, `ExecutionComposer.initialMachineIds` via `?machine=`).
 5. **Testes:** backend (pedido com agente só direto, comando com chamado, recusa sem permissão) e
    frontend (cartão único, painel, abas, menu "Ações" por perfil).
+   - **Frontend feito (fase 2b, 2026-11-11):** `AgentAuthorizationsCard.test.tsx` (chamadas exatas por
+     permissão, motivos, Somente leitura, confirmação Hermes, pausa, remoção), `index.test.tsx` (abas, URL,
+     voltar, ações), `MachinesCard.test.tsx` (menus e perfil), `AgentMaintenance.test.tsx` (pedido com só
+     comandos), `RotationDialog`/`ExecutionComposer` (pré-seleção). Plurais com `_zero` em pt-BR/en/es.
 
 6. **Perfil "somente leitura" para os agentes Hermes** (Marcelo, 2026-11-11: "só vou liberar
    comandos simples para os agentes hermes, como monitoramento, serviços e somente de leitura e
@@ -169,11 +203,30 @@ erro. O
      - rede: portas em escuta e teste de alcance de um host/porta.
      Todos com `risk="read"`, parâmetros validados e sem segredo; os testes de template seguem a
      regra de nenhum caractere de controle.
+   - **Scripts feitos (fase 2a, 2026-11-11):** categoria `monitoramento`, Linux/Windows, sem `sudo`:
+     `monitor_state|services|containers|logs|network` com risco `read`, e `monitor_reachability` (teste
+     host:porta) com risco `change` (Marcelo: contatar outro host não é leitura). Logs só de lista fixa
+     (Linux: syslog, messages, kern.log, dpkg.log, apt, nginx, apache2; journal sem sshd/ssh/sudo/logind/*auth* nem cron/crond/cronie/anacron, e as linhas do
+     cron retiradas dos arquivos — Marcelo aprovou o bloqueio em 2026-11-11: trazem a linha de comando
+     das tarefas, onde costumam estar senhas;
+     Windows: System, Application, Setup). Serviços sem linha de comando (`systemctl show`, Get-Service).
+     Parâmetros com `pattern`/`options` conferidos antes de rodar (valor com `pattern` até 1024 caracteres) e
+     de novo no script. O atalho do painel segue para a fase 2b (frontend).
    - Testes: um agente com teto `read` é recusado num script `change`; o atalho grava exatamente
      esse perfil.
+   - **Frontend feito (fase 2b, 2026-11-11):** atalho "Somente leitura (monitoramento)" no painel; padrão
+     de um agente Hermes sem permissão; ligar comandos livres para ele abre uma confirmação. O teste de
+     alcance (`change`) fica fora desse perfil, como decidido.
 7. Nota da revisão da fase 1: o motivo de inelegibilidade do agente (`direct_access_problem`)
    só confere `run_remote_command`. No cartão único, dar um motivo por permissão (scripts
    confere `run_maintenance_script`; comandos confere `run_remote_command`).
+   - **Backend feito (fase 2a, 2026-11-11):** `GET /remote-access/direct/agents` mantém
+     `unsupported_reason` (comandos) e ganhou `scripts_unsupported_reason` (scripts), mesmo vocabulário.
+
+8. **Bug anterior corrigido (fase 2a, 2026-11-11):** `POST /governed/authority-delegations` recusava
+   `remote_access.execute` (422 "Unknown delegated actions": só aceitava `SENSITIVE_ACTIONS`), então a
+   permissão de scripts nunca pôde ser dada pela tela. Agora vale `DELEGABLE_ACTIONS` (catálogo + essa ação),
+   só para admin humano; `remote_access.direct` continua recusado ali.
 
 ## Fase 3 — Ciclo com o chamado da Darckware (lacunas 7 e 8)
 
@@ -220,7 +273,8 @@ Depois da fase 2:
 - [ ] Skill `remote-access` 1.1.0: cartão único (scripts e/ou comandos), aba Agentes e chamado
       da Darckware no comando. As shared-skills são imutáveis: destravar, editar e travar com
       `_tools/shared_skills_lock.py` (a ECO-059 confere).
-- [ ] `CLAUDE.md`: registrar o cartão único, a aba Agentes e o chamado no comando.
+- [x] `CLAUDE.md`: registrar o cartão único, a aba Agentes e o chamado no comando. (Fase 2b: uma frase
+      no tópico de Remote Access sobre abas, cartão único e Somente leitura.)
 - [ ] Ajustar `REMOTE_ACCESS_RULE.md` (regra 5) se o texto da tela mudar, e copiar de novo para a
       Foundation.
 

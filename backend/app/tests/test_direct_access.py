@@ -1065,3 +1065,243 @@ async def test_indefinite_configuration_is_never_warned_as_expiring(ctx):
     await host.run_delegation_expiry_pass()
     async with AsyncSessionLocal() as db:
         assert await db.scalar(select(Notification.id).where(Notification.event_key == 'delegation-expiring:' + a['id'])) is None
+
+
+# ---- Phase 2a (2026-11-11): one reason per permission, "Pedir ao agente" with
+# direct access, the Darckware item on a command, read scripts under a low ceiling.
+
+@pytest.mark.parametrize("tools,commands,scripts", [
+    ("", None, None),
+    ("    tools:\n      include: [run_maintenance_script]\n", "PROFILE_MCP_WITHOUT_MAINTENANCE_TOOLS", None),
+    ("    tools:\n      include: [run_remote_command]\n", None, "PROFILE_MCP_WITHOUT_MAINTENANCE_TOOLS"),
+    ("    tools:\n      exclude: [run_maintenance_script]\n", None, "PROFILE_MCP_WITHOUT_MAINTENANCE_TOOLS"),
+])
+@pytest.mark.asyncio
+async def test_each_permission_has_its_own_reason(ctx, tmp_path, tools, commands, scripts):
+    c = ctx
+    await set_home(c.hermes, hermes_profile(tmp_path, tools))
+    listed = {a["id"]: a for a in (await c.client.get(AGENTS, headers=c.admin_h)).json()}
+    row = listed[str(c.hermes.id)]
+    assert (row["unsupported_reason"], row["scripts_unsupported_reason"]) == (commands, scripts)
+    external = listed[str(c.agent.id)]
+    assert external["unsupported_reason"] is None and external["scripts_unsupported_reason"] is None
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_profile_explains_both_permissions(ctx, tmp_path):
+    c = ctx
+    await set_home(c.hermes, str(tmp_path / "missing"))
+    row = next(a for a in (await c.client.get(AGENTS, headers=c.admin_h)).json() if a["id"] == str(c.hermes.id))
+    assert row["unsupported_reason"] == row["scripts_unsupported_reason"] == "PROFILE_NOT_READABLE"
+
+
+REQUESTS = "/api/v1/host-executions/agent-requests"
+
+
+@pytest_asyncio.fixture
+async def requests_ctx(ctx, monkeypatch):
+    """Agent requests whose tasks are real rows, never scheduled or notified."""
+    from app.api.routes import demand as demand_routes
+    from app.core.system_scripts import seed_system_scripts
+
+    await seed_system_scripts()
+    sent = []
+
+    async def fake_create(db, payload, commit=True):
+        sent.append(payload)
+        demand = AgentDemand(from_agent=payload.from_agent, subject=payload.subject, body=payload.body,
+                             origin_type="task", target_agent_id=payload.target_agent_id, from_agent_id=payload.from_agent_id)
+        db.add(demand)
+        return demand
+
+    monkeypatch.setattr(demand_routes, "create_demand_and_notify", fake_create)
+    ctx.sent = sent
+    yield ctx
+    async with AsyncSessionLocal() as db:
+        demand_ids = select(AgentDemand.id).where(AgentDemand.target_agent_id.in_([ctx.agent.id, ctx.other.id]))
+        await db.execute(delete(AuditEvent).where(AuditEvent.entity_id.in_(demand_ids)))
+        await db.commit()
+
+
+async def _system_script(key):
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(select(HostScript).where(HostScript.system_key == key))
+
+
+async def _stored_body(agent_id):
+    async with AsyncSessionLocal() as db:
+        # The fixture's own task carries a run id; a requested task doesn't yet.
+        return (await db.scalars(select(AgentDemand).where(
+            AgentDemand.target_agent_id == agent_id, AgentDemand.agent_run_id.is_(None))
+            .order_by(AgentDemand.created_at.desc()))).first()
+
+
+def _request(c, **extra):
+    return {"server_ids": [str(c.lab.id)], "instruction": "Ver por que o nginx caiu", "agent_ids": [str(c.agent.id)],
+            "scripts": [], **extra}
+
+
+@pytest.mark.asyncio
+async def test_request_accepts_an_agent_with_only_direct_access(requests_ctx):
+    c = requests_ctx
+    await opened(c)
+    r = await c.client.post(REQUESTS, json=_request(c, darckware_item_kind="ticket", darckware_item_id="T-31"),
+                            headers=c.admin_h)
+    assert r.status_code == 201, r.text
+    stored = await _stored_body(c.agent.id)
+    assert "run_remote_command" in stored.body and "run_maintenance_script" not in stored.body
+    assert f"Esta é a tarefa #{stored.number}" in stored.body and 'darckware_ticket_id="T-31"' in stored.body
+    async with AsyncSessionLocal() as db:
+        spec = await db.scalar(select(AuditEvent).where(AuditEvent.entity_type == host.REQUEST_EVENT,
+                                                        AuditEvent.entity_id == stored.id))
+    assert spec.payload["commands_allowed"] is True and spec.payload["scripts_allowed"] is False
+
+
+@pytest.mark.asyncio
+async def test_request_refuses_an_agent_without_either_permission(requests_ctx):
+    c = requests_ctx
+    r = await c.client.post(REQUESTS, json=_request(c, agent_ids=[str(c.other.id)]), headers=c.admin_h)
+    assert r.status_code == 422 and c.other.name in r.json()["detail"]
+    await opened(c, server_ids=[str(c.lab2.id)])  # direct access on another machine doesn't cover this one
+    r = await c.client.post(REQUESTS, json=_request(c), headers=c.admin_h)
+    assert r.status_code == 422 and c.sent == []
+
+
+@pytest.mark.asyncio
+async def test_request_with_scripts_needs_the_script_delegation_even_with_direct_access(requests_ctx):
+    c = requests_ctx
+    await opened(c)
+    script = await _system_script("monitor_state:linux")
+    r = await c.client.post(REQUESTS, json=_request(c, scripts=[{"script_id": str(script.id), "parameter_values": {}}]),
+                            headers=c.admin_h)
+    assert r.status_code == 422 and c.sent == []
+
+
+@pytest.mark.asyncio
+async def test_request_names_both_tools_when_the_agent_has_both(requests_ctx):
+    c = requests_ctx
+    await opened(c)
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        db.add(AuthorityDelegation(grantor_user_id=c.admin.id, grantee_type="agent", grantee_id=c.agent.id,
+                                   allowed_actions=["remote_access.execute"], servers=[str(c.lab.id)], max_risk="low",
+                                   valid_from=now, expires_at=now + timedelta(hours=1)))
+        await db.commit()
+    assert (await c.client.post(REQUESTS, json=_request(c), headers=c.admin_h)).status_code == 201
+    body = (await _stored_body(c.agent.id)).body
+    assert "run_maintenance_script" in body and "run_remote_command" in body and "list_maintenance_scripts" in body
+    # Scripts chosen limit the task to them: commands are no longer offered.
+    script = await _system_script("monitor_state:linux")
+    r = await c.client.post(REQUESTS, json=_request(c, scripts=[{"script_id": str(script.id), "parameter_values": {}}]),
+                            headers=c.admin_h)
+    assert r.status_code == 201
+    assert "run_remote_command" not in c.sent[-1].body and str(script.id) in c.sent[-1].body
+
+
+@pytest.mark.asyncio
+async def test_direct_command_carries_the_darckware_item(ctx):
+    c = ctx
+    await opened(c)
+    r = await c.client.post(RUN, json=command(c, darckware_ticket_id=" T-77 "), headers=c.agent_h)
+    assert r.status_code == 201, r.text
+    await finished(c, r.json()["id"])
+    assert r.json()["darckware_item_kind"] == "ticket" and r.json()["darckware_item_id"] == "T-77"
+    async with AsyncSessionLocal() as db:
+        row = await db.get(HostExecution, uuid.UUID(r.json()["id"]))
+        started = await db.scalar(select(AuditEvent).where(AuditEvent.entity_id == row.id, AuditEvent.event_type == "started"))
+    assert (row.darckware_item_kind, row.darckware_item_id) == ("ticket", "T-77")
+    assert started.payload["darckware_item"] == "ticket:T-77"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("extra", [
+    {"darckware_ticket_id": "T-1", "darckware_demand_id": "D-1"},
+    {"darckware_ticket_id": "   "},
+    {"darckware_demand_id": "x" * 65},
+    {"darckware_item_kind": "ticket", "darckware_item_id": "T-1"},
+])
+async def test_direct_command_darckware_item_validation(ctx, extra):
+    c = ctx
+    await opened(c)
+    r = await c.client.post(RUN, json=command(c, **extra), headers=c.agent_h)
+    assert r.status_code == 422, r.text
+    async with AsyncSessionLocal() as db:
+        assert (await db.scalars(select(HostExecution).where(HostExecution.agent_id == c.agent.id))).first() is None
+
+
+@pytest.mark.asyncio
+async def test_a_low_ceiling_runs_a_read_script_and_is_refused_a_change_script(ctx):
+    from app.core.system_scripts import seed_system_scripts
+
+    c = ctx
+    await seed_system_scripts()
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        db.add(AuthorityDelegation(grantor_user_id=c.admin.id, grantee_type="agent", grantee_id=c.agent.id,
+                                   allowed_actions=["remote_access.execute"], servers=[str(c.lab.id)], max_risk="low",
+                                   valid_from=now, expires_at=now + timedelta(hours=1)))
+        await db.commit()
+    read = await _system_script("monitor_state:linux")
+    change = await _system_script("rustdesk_password:linux")
+    body = {"server_ids": [str(c.lab.id)], "reason": "Acompanhar a carga", "message_number": c.task.number,
+            "parameter_values": {}}
+    refused = await c.client.post("/api/v1/host-executions/agent", json={**body, "script_id": str(change.id)}, headers=c.agent_h)
+    assert refused.status_code == 403, refused.text
+    r = await c.client.post("/api/v1/host-executions/agent", json={**body, "script_id": str(read.id)}, headers=c.agent_h)
+    assert r.status_code == 201, r.text
+    await finished(c, r.json()["id"])
+    # Listening ports are read-only; probing another host is a "change" (Marcelo, 2026-11-11).
+    ports = await _system_script("monitor_network:linux")
+    probe = await _system_script("monitor_reachability:linux")
+    assert (ports.risk, probe.risk) == ("read", "change")
+    r = await c.client.post("/api/v1/host-executions/agent", json={**body, "script_id": str(ports.id)}, headers=c.agent_h)
+    assert r.status_code == 201, r.text
+    await finished(c, r.json()["id"])
+    refused = await c.client.post("/api/v1/host-executions/agent", headers=c.agent_h, json={
+        **body, "script_id": str(probe.id), "parameter_values": {"ALVO_HOST": "srv.example.test", "ALVO_PORTA": "443"}})
+    assert refused.status_code == 403, refused.text
+    # Out-of-range values never reach the machine.
+    logs = await _system_script("monitor_logs:linux")
+    bad = await c.client.post("/api/v1/host-executions/agent", headers=c.agent_h, json={
+        **body, "script_id": str(logs.id), "parameter_values": {"ORIGEM": "arquivo", "ARQUIVO": "auth.log"}})
+    assert bad.status_code == 422, bad.text
+
+
+@pytest.mark.asyncio
+async def test_request_refuses_direct_access_that_covers_only_some_machines(requests_ctx):
+    c = requests_ctx
+    await opened(c)  # lab only
+    r = await c.client.post(REQUESTS, json=_request(c, server_ids=[str(c.lab.id), str(c.lab2.id)]), headers=c.admin_h)
+    assert r.status_code == 422 and c.agent.name in r.json()["detail"] and c.sent == []
+
+
+@pytest.mark.asyncio
+async def test_a_script_delegation_counts_only_if_the_profile_reaches_the_tool(requests_ctx, tmp_path, monkeypatch):
+    c = requests_ctx
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        db.add(AuthorityDelegation(grantor_user_id=c.admin.id, grantee_type="agent", grantee_id=c.hermes.id,
+                                   allowed_actions=["remote_access.execute"], servers=[str(c.lab.id)], max_risk="high",
+                                   valid_from=now, expires_at=now + timedelta(hours=1)))
+        await db.commit()
+    calls = []
+    original = host.agent_tool_problems
+
+    def counting(agent):
+        calls.append(agent.id)
+        return original(agent)
+
+    monkeypatch.setattr(host, "agent_tool_problems", counting)
+    request = _request(c, agent_ids=[str(c.hermes.id)])
+    await set_home(c.hermes, hermes_profile(tmp_path, "    tools:\n      include: [run_remote_command]\n"))
+    r = await c.client.post(REQUESTS, json=request, headers=c.admin_h)
+    assert r.status_code == 422 and c.hermes.name in r.json()["detail"] and c.sent == []
+    assert calls == [c.hermes.id]  # the profile is read once per agent
+    await set_home(c.hermes, hermes_profile(tmp_path))
+    r = await c.client.post(REQUESTS, json=request, headers=c.admin_h)
+    assert r.status_code == 201, r.text
+    assert "run_maintenance_script" in c.sent[-1].body and "run_remote_command" not in c.sent[-1].body
+    async with AsyncSessionLocal() as db:
+        demand_ids = select(AgentDemand.id).where(AgentDemand.target_agent_id == c.hermes.id)
+        await db.execute(delete(AuditEvent).where(AuditEvent.entity_id.in_(demand_ids)))
+        await db.commit()

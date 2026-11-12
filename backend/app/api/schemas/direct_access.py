@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.api.schemas.host_execution import MAX_TARGETS, ExecShell
 
@@ -62,8 +62,11 @@ class DirectAgentOut(BaseModel):
     name: str
     runtime_type: str | None
     allowed: bool
-    # Why it can't use a direct access: a code the screen words. None = it can.
+    # Why it can't use a direct access (run_remote_command): a code the screen
+    # words. None = it can. Kept with this meaning for older screens.
     unsupported_reason: str | None
+    # Same vocabulary, for library scripts (run_maintenance_script).
+    scripts_unsupported_reason: str | None = None
     configuration: DirectAccessOut | None = None
 
 
@@ -97,3 +100,30 @@ class DirectCommandCreate(BaseModel):
     message_number: int = Field(ge=1)
     shell: ExecShell = "sh"
     timeout_seconds: int = Field(default=120, ge=5, le=1800)
+    # The client's Darckware ticket or demand this command serves (one or none),
+    # stored in host_executions.darckware_item_kind/_id like a script run.
+    darckware_ticket_id: str | None = Field(default=None, min_length=1, max_length=64)
+    darckware_demand_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @field_validator("darckware_ticket_id", "darckware_demand_id")
+    @classmethod
+    def clean_item_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("Darckware item id must not be blank")
+        return value.strip()
+
+    @model_validator(mode="after")
+    def one_darckware_item(self):
+        if self.darckware_ticket_id and self.darckware_demand_id:
+            raise ValueError("Pass a Darckware ticket or a demand, not both")
+        return self
+
+    @property
+    def darckware_item(self) -> tuple[str, str] | None:
+        if self.darckware_ticket_id:
+            return "ticket", self.darckware_ticket_id
+        if self.darckware_demand_id:
+            return "demand", self.darckware_demand_id
+        return None

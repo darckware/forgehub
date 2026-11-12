@@ -39,13 +39,16 @@ export interface DirectAccessInput {
   confirm_sensitive: boolean;
 }
 
-/** An active agent: on the list or not, and the code of why it can't use an access. */
+/** An active agent: on the list or not, and the code of why it can't use an
+ * access -- `unsupported_reason` for free commands (run_remote_command),
+ * `scripts_unsupported_reason` for library scripts (run_maintenance_script). */
 export interface DirectAgent {
   id: string;
   name: string;
   runtime_type: string | null;
   allowed: boolean;
   unsupported_reason: string | null;
+  scripts_unsupported_reason?: string | null;
   configuration: DirectAccess | null;
 }
 

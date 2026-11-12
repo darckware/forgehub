@@ -102,6 +102,13 @@ describe("ExecutionComposer", () => {
     expect(await screen.findByDisplayValue(/Instalar RustDesk · Linux/)).toBeInTheDocument();
   });
 
+  it("starts with the machine chosen from its row's Ações menu, and the script variant follows it", async () => {
+    renderComposer({ initialSystem: "rustdesk_install", initialMachineIds: ["l1"] });
+    expect(await screen.findByRole("checkbox", { name: /srv-lin/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /PC-01/ })).not.toBeChecked();
+    expect(await screen.findByDisplayValue(/Instalar RustDesk · Linux/)).toBeInTheDocument();
+  });
+
   it("copies the ready script for a machine without SSH", async () => {
     vi.mocked(apiClient.post).mockResolvedValue({ script_id: "s1", version: 3, shell: "powershell", script: "$SERVICE = 'x'\nRestart" } as never);
     renderComposer();
