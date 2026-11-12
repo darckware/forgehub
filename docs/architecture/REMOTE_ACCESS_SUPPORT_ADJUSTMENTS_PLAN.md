@@ -12,7 +12,7 @@ suporte e planejar os ajustes. **Os formulários não devem abrir em modal, e si
 | 1 — Formulários à direita | **Homologada em 2026-11-11** (566 testes, build, Chrome 1440/390 no backend de teste). **Publicada em 2026-11-11** com a fase 2 (`5c3e5ad`) |
 | 2 — Autorização única + reorganização da tela | **Homologada em 2026-11-11**: backend e frontend revisados; Chrome 1440/390 com concessão real na base de teste (somente leitura → comandos 1 h com confirmação de máquina sensível → remoção). Corrigido um defeito anterior: a concessão de scripts pela tela falhava com 422 desde 2026-11-08. Scripts Windows conferidos no PowerShell 7.4 (sintaxe e validação); falta rodá-los numa estação real (Marcelo). **Publicada em 2026-11-11** (`7f8199c`, imagens `fh-7f8199c`, release `remote-access-7f8199c`, sem migração), com o journal do cron bloqueado (aprovado por Marcelo) |
 | 3 — Ciclo com o chamado da Darckware | **Publicada em 2026-11-12** (`173c8a0`, imagens `fh-173c8a0`, release `ticket-loop-173c8a0`, sem migração). Revisão independente sem bloqueio (5 correções aplicadas); 2282 testes no backend, Chrome 1440/390 |
-| 4 — Alerta de máquina | Planejada |
+| 4 — Alerta de máquina | **Publicada em 2026-11-12** (`80825e2`, imagens `fh-80825e2`, release `machine-alerts-80825e2`, migração `1994f24fd6e1` ensaiada numa cópia do backup antes). Revisão independente sem bloqueio (3 correções aplicadas); 2306 testes no backend. Primeira leitura em produção: 22 máquinas, um único resumo |
 | 5 — Documentação | Feita em 2026-11-11: Foundation sincronizada, skill `remote-access` 1.1.0, CLAUDE.md; a regra não mudou |
 
 ## Documentos de acesso remoto
