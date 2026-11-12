@@ -91,6 +91,10 @@ class ServerOut(BaseModel):
     tailnet_node_id: str | None = None
     tailnet_name: str | None = None
     group_ids: list[uuid.UUID] = Field(default_factory=list)
+    # Read-only hint, list route only: other machines that already share this
+    # row's key (same public key, ForgeVault secret or key file) -- rows from
+    # before rule 3 (one key per machine, 2026-11-12). Names only, never keys.
+    duplicate_key_with: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -112,6 +116,9 @@ class ServerKeyStoreRequest(BaseModel):
     recovered from a backup by hand)."""
 
     private_key: str = Field(min_length=1)
+    # Needed only when the private key can't be read here (encrypted with a
+    # passphrase ForgeHub doesn't have, or an unknown format): the public half
+    # is what proves this key isn't already another machine's (rule 3).
     public_key: str | None = None
 
 

@@ -31,6 +31,10 @@ export interface Server {
   /** The SSH key lives in ForgeVault; the terminal asks the backend for the
    * command (it points at the bridge's in-memory agent, no key file). */
   ssh_key_in_vault?: boolean;
+  /** List only: other machines already sharing this row's key (public key,
+   * ForgeVault secret or key file) -- rows from before rule 3 (one key per
+   * machine). Names only. */
+  duplicate_key_with?: string[];
   /** ForgeHub-side access switch. False parks the server: no status probe, no
    * terminal -- while the key, the vaulted copy and the server itself are all
    * left exactly as they were. */
@@ -276,8 +280,9 @@ export interface ServerKeyVaultResult {
 /** Stores a pasted private key directly in ForgeVault. */
 export function useStoreServerKey() {
   const qc = useQueryClient();
-  return useMutation<ServerKeyVaultResult, Error, { id: string; private_key: string }>({
-    mutationFn: ({ id, private_key }) => apiClient.put(`/api/v1/servers/${id}/key`, { private_key }),
+  return useMutation<ServerKeyVaultResult, Error, { id: string; private_key: string; public_key?: string | null }>({
+    mutationFn: ({ id, private_key, public_key }) =>
+      apiClient.put(`/api/v1/servers/${id}/key`, { private_key, public_key: public_key || null }),
     onSuccess: () => qc.invalidateQueries({ queryKey: SERVERS_KEY }),
   });
 }

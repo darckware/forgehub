@@ -28,6 +28,7 @@ import re
 import socket
 import uuid
 from dataclasses import dataclass
+from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -94,6 +95,15 @@ from app.core.host_enrollment import (
 from app.core.host_preparation import PreparationError, preparation_script
 from app.core.tailscale_api import AUTH_KEY_TTL_SECONDS, create_auth_key, load_api_key
 from app.core.secrets import decrypt_secret, encrypt_secret
+from app.core.ssh_key_uniqueness import (
+    CODE_PUBLIC_INVALID,
+    CODE_PUBLIC_MISMATCH,
+    CODE_PUBLIC_REQUIRED,
+    assert_key_unique,
+    derive_public_key,
+    duplicate_keys_by_server,
+    public_key_blob,
+)
 from app.db.base import get_db
 from app.db.models.governance import AuditEvent
 from app.db.models.machine_status import MachineStatusObservation
@@ -258,10 +268,12 @@ async def _set_server_groups(
 async def list_servers(db: AsyncSession = Depends(get_db)):
     servers = list((await db.execute(select(Server).order_by(Server.name))).scalars().all())
     groups = await _group_ids_by_server(db, [s.id for s in servers])
+    duplicates = duplicate_keys_by_server(servers)
     out = []
     for server in servers:
         item = ServerOut.model_validate(server)
         item.group_ids = groups.get(server.id, [])
+        item.duplicate_key_with = duplicates.get(server.id, [])
         out.append(item)
     return out
 
@@ -443,7 +455,7 @@ async def enroll_station(
     if payload.group_ids:
         await _set_server_groups(db, server.id, payload.group_ids)
 
-    server.ssh_key_ref, server.public_key = await _generate_vault_key(server)
+    server.ssh_key_ref, server.public_key = await _new_machine_key(db, server)
 
     password = generate_password()
     server.login_password_ref = await vault_store(
@@ -1078,7 +1090,7 @@ async def install_server_key(
         raise HTTPException(status_code=404, detail="Server not found")
     remote_user = (payload.remote_user or server.remote_user).strip()
     admin_user = payload.admin_user.strip() if payload.admin_user else None
-    new_ref, public_key = await _generate_vault_key(server, unique=bool(server.ssh_key_ref))
+    new_ref, public_key = await _new_machine_key(db, server, unique=bool(server.ssh_key_ref))
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -1184,6 +1196,32 @@ async def _generate_vault_key(server: Server, *, unique: bool = False) -> tuple[
     key_ref, public_key = data.get("ssh_key_ref"), data.get("public_key", "")
     if not key_ref or not _PUB_RE.match(public_key):
         raise HTTPException(status_code=502, detail="ForgeVault key generation returned invalid metadata")
+    return key_ref, public_key
+
+
+async def _ssh_secret_name_shared(db: AsyncSession, server: Server) -> bool:
+    """Whether another machine maps to the same ForgeVault secret name. The
+    bridge and `vault_store` upsert by name, so writing under a shared name
+    would replace the OTHER machine's key -- such a machine gets a unique
+    name instead (rule 3: never one key, or one secret, for two machines)."""
+    name = machine_secret_name(server, "SSH_KEY")
+    rows = await db.execute(
+        select(Server.name, Server.darckware_client_name).where(Server.id != server.id)
+    )
+    return any(
+        machine_secret_name(SimpleNamespace(name=n, darckware_client_name=c), "SSH_KEY") == name
+        for n, c in rows.all()
+    )
+
+
+async def _new_machine_key(db: AsyncSession, server: Server, *, unique: bool = False) -> tuple[str, str]:
+    """A fresh ForgeVault key for this machine, checked against every other
+    machine before the caller touches the row. Unique by construction; the
+    check is the safety net for a vault/bridge bug handing back a key or a
+    secret id another machine already has (409 SSH_KEY_IN_USE)."""
+    unique = unique or await _ssh_secret_name_shared(db, server)
+    key_ref, public_key = await _generate_vault_key(server, unique=unique)
+    await assert_key_unique(db, server.id, public_key=public_key, key_ref=key_ref)
     return key_ref, public_key
 
 
@@ -1395,9 +1433,10 @@ async def _rotate_password(db: AsyncSession, server: Server) -> dict:
 async def _rotate_key(db: AsyncSession, server: Server) -> dict:
     log: list[str] = []
     try:
-        new_ref, new_pub = await _generate_vault_key(server, unique=True)
+        new_ref, new_pub = await _new_machine_key(db, server, unique=True)
     except HTTPException as exc:
-        return _fail(["== 1/4 Gerar a nova chave no ForgeVault: FALHOU"], {"stderr": str(exc.detail)})
+        detail = exc.detail.get("message") if isinstance(exc.detail, dict) else exc.detail
+        return _fail(["== 1/4 Gerar a nova chave no ForgeVault: FALHOU"], {"stderr": str(detail)})
     if not _PUB_RE.match(new_pub):
         return _fail(["== 1/4 Gerar a nova chave: chave pública inválida"], {})
     log.append("== 1/4 Nova chave gerada: ok")
@@ -1496,13 +1535,13 @@ async def prepare_host(
 
     key_created = not bool(server.ssh_key_ref and server.public_key)
     if key_created:
-        server.ssh_key_ref, server.public_key = await _generate_vault_key(server, unique=bool(server.ssh_key_ref))
+        server.ssh_key_ref, server.public_key = await _new_machine_key(db, server, unique=bool(server.ssh_key_ref))
         server.ssh_key_path = None
         server.private_key_encrypted = None
     elif server.ssh_key_path:
         # Existing legacy row: create a fresh ForgeVault key; the user can
         # rerun enrollment/preparation on the station with this public key.
-        server.ssh_key_ref, server.public_key = await _generate_vault_key(server, unique=True)
+        server.ssh_key_ref, server.public_key = await _new_machine_key(db, server, unique=True)
         server.ssh_key_path = None
         server.private_key_encrypted = None
     password = generate_password()
@@ -1643,8 +1682,14 @@ async def store_server_key(
     _admin: User = Depends(get_current_admin),
 ):
     """Vaults a pasted private key, for a server whose file ForgeHub cannot
-    read from this host. Validated only by shape here — whether it is the key
-    the server accepts is answered by the status probe, not by this route."""
+    read from this host. Whether it is the key the server accepts is answered
+    by the status probe, not by this route.
+
+    Rule 3 (one key per machine): the key's public half -- derived here, or
+    sent alongside when the private key can't be read (encrypted, unknown
+    format) -- must not already belong to another machine (409
+    SSH_KEY_IN_USE), checked before anything reaches ForgeVault. The public
+    half is recorded on the row, so later checks see it too."""
     server = await db.get(Server, server_id)
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
@@ -1652,11 +1697,47 @@ async def store_server_key(
     if "PRIVATE KEY" not in material:
         raise HTTPException(status_code=422, detail="Payload does not look like an SSH private key")
 
-    server.ssh_key_ref = await vault_store(machine_secret_name(server, "SSH_KEY"), material,
-                                           f"Chave SSH privada do ForgeHub para {server.name}", "SshPrivateKey")
+    given_public = (payload.public_key or "").strip() or None
+    if given_public and not public_key_blob(given_public):
+        raise HTTPException(status_code=422, detail={
+            "code": CODE_PUBLIC_INVALID,
+            "message": "A chave pública informada não é uma linha OpenSSH válida (ex.: ssh-ed25519 AAAA… comentário).",
+        })
+    passphrase = None
+    if server.key_passphrase_encrypted:
+        try:
+            passphrase = decrypt_secret(server.key_passphrase_encrypted)
+        except ValueError:
+            passphrase = None
+    try:
+        derived_public = derive_public_key(material, passphrase)
+    except ValueError:
+        derived_public = None
+    if derived_public and given_public and public_key_blob(derived_public) != public_key_blob(given_public):
+        raise HTTPException(status_code=422, detail={
+            "code": CODE_PUBLIC_MISMATCH,
+            "message": "A chave pública informada não corresponde à chave privada colada.",
+        })
+    public_key = given_public or derived_public
+    if not public_key:
+        raise HTTPException(status_code=422, detail={
+            "code": CODE_PUBLIC_REQUIRED,
+            "message": (
+                "Não foi possível ler esta chave privada (protegida por senha ou formato desconhecido). "
+                "Cole também a chave pública (.pub) para conferir que ela não é de outra máquina."
+            ),
+        })
+    await assert_key_unique(db, server.id, public_key=public_key)
+
+    secret_name = machine_secret_name(server, "SSH_KEY")
+    if await _ssh_secret_name_shared(db, server):
+        secret_name = f"{secret_name[:110]}_{uuid.uuid4().hex[:8].upper()}"
+    key_ref = await vault_store(secret_name, material,
+                                f"Chave SSH privada do ForgeHub para {server.name}", "SshPrivateKey")
+    await assert_key_unique(db, server.id, key_ref=key_ref)
+    server.ssh_key_ref = key_ref
     server.private_key_encrypted = None
-    if payload.public_key:
-        server.public_key = payload.public_key.strip()
+    server.public_key = public_key
     await db.commit()
     return ServerKeyVaultResult(server_id=server.id, private_key_stored=True)
 

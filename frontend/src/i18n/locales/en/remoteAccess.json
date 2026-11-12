@@ -830,6 +830,8 @@
         "restore": "Restore to host",
         "removeCopy": "Remove copy",
         "pastePlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----\n…paste a key this host doesn't have…",
+        "publicKeyPlaceholder": "…optional: the public key (.pub), needed if the private key has a passphrase…",
+        "sharedWith": "This key is also on: {{names}}. Each machine must have its own key; use \"Configure access\" to give this machine a new key.",
         "storePasted": "Store pasted key",
         "removeTitle": "Remove the stored key?",
         "removeDescription": "ForgeHub's encrypted copy of {{name}}'s key will be deleted. The file on the host remains; if it is ever lost, there will be no copy to restore."

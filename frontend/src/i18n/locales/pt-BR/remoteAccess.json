@@ -830,6 +830,8 @@
         "restore": "Restaurar no host",
         "removeCopy": "Remover cópia",
         "pastePlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----\n…cole uma chave que este host não possui…",
+        "publicKeyPlaceholder": "…opcional: a chave pública (.pub), necessária se a privada tiver senha…",
+        "sharedWith": "Esta chave também está em: {{names}}. Cada máquina deve ter a sua própria chave; use \"Configurar acesso\" para dar a esta máquina uma nova chave.",
         "storePasted": "Guardar chave colada",
         "removeTitle": "Remover a chave armazenada?",
         "removeDescription": "A cópia criptografada da chave de {{name}} será excluída do ForgeHub. O arquivo no host permanece; se desaparecer, não haverá cópia para restaurar."

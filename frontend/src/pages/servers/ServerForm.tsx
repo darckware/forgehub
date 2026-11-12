@@ -80,6 +80,14 @@ function KeyVaultSection({ server }: { server: Server }) {
           className="resize-none min-h-[56px] font-mono text-[10px]"
           disabled={vm.isBusy}
         />
+        <Textarea
+          value={vm.pastedPublicKey}
+          onChange={(e) => vm.setPastedPublicKey(e.target.value)}
+          placeholder={t("form.vault.publicKeyPlaceholder")}
+          aria-label={t("form.vault.publicKeyPlaceholder")}
+          className="resize-none min-h-[40px] font-mono text-[10px]"
+          disabled={vm.isBusy}
+        />
         <Button
           type="button"
           variant="outline"
@@ -91,8 +99,13 @@ function KeyVaultSection({ server }: { server: Server }) {
           {t("form.vault.storePasted")}
         </Button>
       </div>
+      {vm.duplicateKeyWith.length > 0 && (
+        <p role="status" className="text-[11px] text-amber-700 dark:text-amber-400">
+          {t("form.vault.sharedWith", { names: vm.duplicateKeyWith.join(", ") })}
+        </p>
+      )}
       {vm.message && <p className="text-[11px] text-emerald-600">{vm.message}</p>}
-      {vm.error && <p className="text-[11px] text-destructive">{vm.error}</p>}
+      {vm.error && <p role="alert" className="text-[11px] text-destructive">{vm.error}</p>}
       <ConfirmDialog
         open={vm.status === "confirming_clear"}
         title={t("form.vault.removeTitle")}

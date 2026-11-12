@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CheckCircle2, Eye, EyeOff, KeyRound, Loader2, Upload, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { apiErrorText } from "@/lib/apiErrorText";
 import { SidePanel } from "@/components/ui/side-panel";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -159,7 +160,7 @@ export function InstallKeyModal({ server, onClose, onInstalled }: { server: Serv
           </div>
         )}
         {installKey.isError && (
-          <p className="text-xs text-destructive">{installKey.error.message}</p>
+          <p className="text-xs text-destructive">{apiErrorText(installKey.error)}</p>
         )}
 
         <div className="flex justify-end gap-2 pt-1">

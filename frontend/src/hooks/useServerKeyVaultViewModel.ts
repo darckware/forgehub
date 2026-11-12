@@ -16,6 +16,8 @@
  */
 import { useCallback, useMemo, useState } from "react";
 
+import { apiErrorText } from "@/lib/apiErrorText";
+
 import {
   useClearServerKey,
   useStoreServerKey,
@@ -39,6 +41,12 @@ export interface ServerKeyVaultViewModel {
   hasKeyPath: boolean;
   pastedKey: string;
   setPastedKey: (value: string) => void;
+  /** Optional public half (.pub): required by the backend only when it can't
+   * read the private key (passphrase, unknown format) to check rule 3. */
+  pastedPublicKey: string;
+  setPastedPublicKey: (value: string) => void;
+  /** Other machines already sharing this row's key (pre-rule-3 rows). */
+  duplicateKeyWith: string[];
   /** Outcome of the last completed action, for the section's status line. */
   message: string | null;
   error: string | null;
@@ -51,6 +59,7 @@ export interface ServerKeyVaultViewModel {
 export function useServerKeyVaultViewModel(server: Server): ServerKeyVaultViewModel {
   const [status, setStatus] = useState<ServerKeyVaultStatus>("idle");
   const [pastedKey, setPastedKey] = useState("");
+  const [pastedPublicKey, setPastedPublicKey] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,7 +68,9 @@ export function useServerKeyVaultViewModel(server: Server): ServerKeyVaultViewMo
 
   const fail = useCallback((err: Error) => {
     setStatus("error");
-    setError(err.message);
+    // The backend's message as is (e.g. 409 SSH_KEY_IN_USE names the machine
+    // that already has this key), never the generic "failed with status".
+    setError(apiErrorText(err));
     setMessage(null);
   }, []);
 
@@ -75,16 +86,17 @@ export function useServerKeyVaultViewModel(server: Server): ServerKeyVaultViewMo
     setStatus("storing");
     setError(null);
     storeKey.mutate(
-      { id: server.id, private_key: material },
+      { id: server.id, private_key: material, public_key: pastedPublicKey.trim() || null },
       {
         onSuccess: () => {
           setPastedKey("");
+          setPastedPublicKey("");
           succeed("Pasted key stored encrypted.");
         },
         onError: fail,
       },
     );
-  }, [pastedKey, storeKey, server.id, succeed, fail]);
+  }, [pastedKey, pastedPublicKey, storeKey, server.id, succeed, fail]);
 
   const requestClear = useCallback(() => setStatus("confirming_clear"), []);
   const cancelClear = useCallback(() => setStatus("idle"), []);
@@ -110,6 +122,9 @@ export function useServerKeyVaultViewModel(server: Server): ServerKeyVaultViewMo
     hasKeyPath: Boolean(server.ssh_key_path),
     pastedKey,
     setPastedKey,
+    pastedPublicKey,
+    setPastedPublicKey,
+    duplicateKeyWith: server.duplicate_key_with ?? [],
     message,
     error,
     storePasted,
