@@ -280,6 +280,23 @@ Progresso (2026-11-12, branch `feat/remote-access-ticket-loop`, sem migração):
 - Fonte não lida resulta em `unknown`, nunca em alerta falso de "offline". O loop não roda sob
   `ENVIRONMENT=test`, que já desliga todos os loops.
 
+Progresso (2026-11-12, worktree `remote-access-machine-alerts`, sem merge nem deploy):
+
+- [x] `compute_readiness` extraído de `GET /servers/readiness` (mesma tabela de decisão e mesmo
+      cache de 5 min); `core/machine_status_monitor.py` + `_machine_status_poll_loop` (15 min).
+- [x] Tabela `machine_status_observations` (migração `1994f24fd6e1`, ON DELETE CASCADE): primeira
+      leitura é linha de base silenciosa, com um único resumo por dia na primeira passada.
+- [x] Alerta ao sair de `complete` ou cair em offline/não preparada/desconhecido; "voltou" ao
+      retornar; `event_key` com o instante da transição (offline → volta → offline avisa duas vezes).
+- [x] Fonte ilegível (tailnet ou ponte da sondagem SSH): nenhuma transição gravada, um aviso
+      "monitoramento indisponível" por dia.
+- [x] "Desde <hora>" no tooltip do estado na tabela de Máquinas (`status_since`).
+- [x] Revisão: degradação só após duas passadas seguidas; proteção de massa (≥ 5 máquinas ou mais
+      da metade: um resumo só, e as voltas agrupadas); tailnet legível só com a VPS `online`;
+      "Motivo:" em pt-BR; leitura sem transação aberta e trava só para gravar; máquina excluída no
+      meio da passada é ignorada.
+- [ ] Publicação (deploy próprio; a ponte não foi tocada).
+
 ## Fase 5 — Documentação
 
 Feito em 2026-11-11 (registro: Foundation `47_migrations/2026-11-11-remote-access-docs-sync.md`,

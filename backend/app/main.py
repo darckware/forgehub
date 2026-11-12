@@ -1039,6 +1039,22 @@ async def _host_schedule_poll_loop() -> None:
         await asyncio.sleep(HOST_SCHEDULE_POLL_SECONDS)
 
 
+async def _machine_status_poll_loop() -> None:
+    """Remote Access machine alerts (core/machine_status_monitor.py): every
+    15 min, a Notification when a machine leaves `complete` and when it comes
+    back. Own loop: a slow tailnet/bridge read must not hold other workers."""
+    from app.core.machine_status_monitor import MACHINE_STATUS_POLL_SECONDS, run_machine_status_pass
+    from app.db.base import AsyncSessionLocal
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_machine_status_pass(db)
+        except Exception:
+            logger.exception("Machine status poll failed")
+        await asyncio.sleep(MACHINE_STATUS_POLL_SECONDS)
+
+
 async def _start_background_tasks() -> None:
     """Start each independent maintenance loop exactly once."""
     global _background_tasks
@@ -1071,6 +1087,7 @@ async def _start_background_tasks() -> None:
         ("agent-activity-retention", _agent_activity_retention_loop),
         ("command-receipt-retention", _command_receipt_retention_loop),
         ("host-schedule-poll", _host_schedule_poll_loop),
+        ("machine-status-poll", _machine_status_poll_loop),
         ("host-output-retention", host_output_retention_loop),
     )
     _background_tasks = [asyncio.create_task(worker(), name=name) for name, worker in workers]

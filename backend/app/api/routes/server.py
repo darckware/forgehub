@@ -27,6 +27,7 @@ import logging
 import re
 import socket
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -79,6 +80,7 @@ from app.api.routes.host_execution import busy_server_ids, launch_execution
 from app.core.host_exec_runner import call_bridge_exec_as
 from app.db.base import AsyncSessionLocal
 from app.api.routes.vpn import fetch_tailnet_status
+from app.api.schemas.vpn import VpnStatus
 from app.core.config import settings
 from app.core.deps import get_current_admin, require_perm
 from app.core.forgevault import machine_secret_name, vault_reveal, vault_store
@@ -94,6 +96,7 @@ from app.core.tailscale_api import AUTH_KEY_TTL_SECONDS, create_auth_key, load_a
 from app.core.secrets import decrypt_secret, encrypt_secret
 from app.db.base import get_db
 from app.db.models.governance import AuditEvent
+from app.db.models.machine_status import MachineStatusObservation
 from app.db.models.server import HostGroup, HostGroupMember, Server, ServerService
 from app.db.models.user import User
 
@@ -537,6 +540,24 @@ async def _probe_many_via_bridge(servers: list[Server]) -> dict[str, str] | None
         return None
 
 
+# pt-BR for every detail `classify_readiness`/`classify_status` can return --
+# a closed set, kept beside the classifiers so a new string is translated in
+# the same change (test_machine_status_monitor checks the table covers them).
+# Used by the machine status monitor's notifications.
+READINESS_DETAIL_PT = {
+    "Access is turned off in ForgeHub": "acesso desligado no ForgeHub",
+    "No login set for this machine yet": "nenhum login cadastrado para esta máquina",
+    "Waiting for the station to join the tailnet": "aguardando a estação entrar na tailnet",
+    "Offline in the tailnet": "offline na tailnet",
+    "Answers SSH, but ForgeHub's login is not installed yet": "responde SSH, mas o login do ForgeHub não está instalado",
+    "Online in the tailnet, but SSH is not enabled": "online na tailnet, mas o SSH não está habilitado",
+    "SSH port unreachable": "porta SSH inacessível",
+    "Could not probe SSH": "não foi possível sondar o SSH",
+    "SSH ok, RustDesk not installed": "SSH ok, RustDesk não instalado",
+    "RustDesk only, ForgeHub has no SSH access yet": "só RustDesk, o ForgeHub ainda não tem acesso SSH",
+}
+
+
 def classify_readiness(
     server: Server,
     *,
@@ -624,27 +645,51 @@ def classify_access_path(
     return path, best[1], best[2]
 
 
-@router.get("/readiness", response_model=HostReadinessResult)
-async def get_readiness(
-    refresh: bool = False,
-    db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_perm("servers", "view")),
-):
-    """Whether each machine can take a command right now. Open to the
-    "servers" module, not just admins (2026-10-17): Remote Access › Machines
-    replaced the Servers page, and this is the read side of what `/{id}/check`
-    already lets that module do -- the admin-only parts stay behind their own
-    routes.
+@dataclass
+class MachineReadiness:
+    """One machine's readiness, before the "busy" overlay. Shared by
+    `GET /readiness` and the machine status monitor
+    (core/machine_status_monitor.py), so both read a machine the same way."""
 
-    The tailnet is read on every call; the SSH probe is cached for 5 minutes
-    (`refresh=true` forces it) and only runs for machines that could answer
-    (enabled, with a login, not offline in the tailnet). "busy" arrives with phase 4 (command
-    executions) -- a machine with a command queued or running."""
+    server: Server
+    readiness: str
+    detail: str | None
+    status: str
+    status_detail: str | None
+    tailnet_online: bool | None
+    ssh: str | None
+
+
+@dataclass
+class ReadinessSnapshot:
+    machines: list[MachineReadiness]
+    tailnet: VpnStatus
+    tailnet_available: bool
+    accept_routes: bool | None
+    routers: list[tuple[str, str | None, list[str]]]
+    ssh_checked_at: datetime | None
+    # True when machines needed a fresh SSH probe and the bridge didn't answer:
+    # their "unknown" is the bridge's, not theirs.
+    ssh_probe_failed: bool
+
+
+async def compute_readiness(
+    db: AsyncSession, *, refresh: bool = False, release_transaction: bool = False
+) -> ReadinessSnapshot:
+    """Reads the tailnet on every call and the SSH probe through the 5-minute
+    cache (`refresh=True` forces it). The probe only runs for machines that
+    could answer (enabled, with a login, not offline in the tailnet).
+
+    `release_transaction=True` ends the read transaction before the network
+    calls (the session doesn't expire on commit, so the rows stay readable):
+    the machine status monitor writes afterwards and must not hold a
+    transaction open across the tailnet read and the SSH probe."""
     servers = list((await db.execute(select(Server).order_by(Server.name))).scalars().all())
+    if release_transaction:
+        await db.commit()
     tailnet = await fetch_tailnet_status()
     tailnet_available = tailnet.server.state != "unavailable"
     online_by_node = {p.id: p.online for p in tailnet.peers}
-    tailscale_ip_by_node = {p.id: p.tailscale_ipv4 for p in tailnet.peers}
     routers = [(p.id, p.name or p.hostname, p.subnet_routes) for p in tailnet.peers if p.subnet_routes]
     accept_routes = tailnet.server.posture.accept_routes if tailnet.server.posture else None
 
@@ -658,6 +703,7 @@ async def get_readiness(
         for s in servers
         if s.access_enabled and s.remote_user and s.ip_address and tailnet_online(s) is not False
     ]
+    ssh_probe_failed = False
     async with _ssh_probe_lock:
         now = datetime.now(timezone.utc)
         cached_at = _ssh_probe_cache["at"]
@@ -675,43 +721,101 @@ async def get_readiness(
                     _ssh_probe_cache["at"] = now
                 cached.update(fresh)
                 _ssh_probe_cache["statuses"] = cached
+            else:
+                ssh_probe_failed = True
         ssh_checked_at = _ssh_probe_cache["at"]
 
-    busy = await busy_server_ids(db)
-    entries = []
+    machines = []
     for server in servers:
         online = tailnet_online(server)
         ssh = cached.get(str(server.id))
         readiness, detail = classify_readiness(
             server, tailnet_available=tailnet_available, tailnet_online=online, ssh=ssh
         )
-        status, status_detail = classify_status(server, readiness)
-        detail = detail or status_detail
+        status_, status_detail = classify_status(server, readiness)
+        machines.append(
+            MachineReadiness(
+                server=server, readiness=readiness, detail=detail, status=status_,
+                status_detail=status_detail, tailnet_online=online, ssh=ssh,
+            )
+        )
+    return ReadinessSnapshot(
+        machines=machines,
+        tailnet=tailnet,
+        tailnet_available=tailnet_available,
+        accept_routes=accept_routes,
+        routers=routers,
+        ssh_checked_at=ssh_checked_at,  # type: ignore[arg-type]
+        ssh_probe_failed=ssh_probe_failed,
+    )
+
+
+@router.get("/readiness", response_model=HostReadinessResult)
+async def get_readiness(
+    refresh: bool = False,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_perm("servers", "view")),
+):
+    """Whether each machine can take a command right now. Open to the
+    "servers" module, not just admins (2026-10-17): Remote Access › Machines
+    replaced the Servers page, and this is the read side of what `/{id}/check`
+    already lets that module do -- the admin-only parts stay behind their own
+    routes.
+
+    The computation is `compute_readiness` (shared with the machine status
+    monitor); this route adds the "busy" overlay (a machine with a command
+    queued or running) and the access path."""
+    snap = await compute_readiness(db, refresh=refresh)
+    tailscale_ip_by_node = {p.id: p.tailscale_ipv4 for p in snap.tailnet.peers}
+    # "Since" comes from the monitor's last observation, and only when it saw
+    # the status shown now (it runs every 15 min, so it can lag behind).
+    observed = {
+        row.server_id: (row.status, row.since)
+        for row in (
+            await db.execute(
+                select(
+                    MachineStatusObservation.server_id,
+                    MachineStatusObservation.status,
+                    MachineStatusObservation.since,
+                )
+            )
+        ).all()
+    }
+    busy = await busy_server_ids(db)
+    entries = []
+    for m in snap.machines:
+        server = m.server
+        readiness, detail = m.readiness, m.detail or m.status_detail
         if server.id in busy and readiness != "disabled":
             readiness, detail = "busy", "Running a command"
         path, via_id, via_name = classify_access_path(
-            server, tailnet_available=tailnet_available, accept_routes=accept_routes, routers=routers
+            server, tailnet_available=snap.tailnet_available, accept_routes=snap.accept_routes, routers=snap.routers
         )
         entries.append(
             HostReadinessEntry(
                 server_id=server.id,
                 readiness=readiness,
-                status=status,
+                status=m.status,
                 rustdesk_id=server.rustdesk_id or None,
-                tailnet_online=online,
-                ssh=ssh,
+                tailnet_online=m.tailnet_online,
+                ssh=m.ssh,
                 detail=detail,
                 access_path=path,
                 access_via_node_id=via_id,
                 access_via_name=via_name,
                 tailscale_ipv4=tailscale_ip_by_node.get(server.tailnet_node_id) if server.tailnet_node_id else None,
+                status_since=(
+                    observed[server.id][1]
+                    if server.id in observed and observed[server.id][0] == m.status
+                    else None
+                ),
             )
         )
     return HostReadinessResult(
         entries=entries,
         checked_at=datetime.now(timezone.utc),
-        tailnet_available=tailnet_available,
-        ssh_checked_at=ssh_checked_at,  # type: ignore[arg-type]
+        tailnet_available=snap.tailnet_available,
+        ssh_checked_at=snap.ssh_checked_at,  # type: ignore[arg-type]
     )
 
 

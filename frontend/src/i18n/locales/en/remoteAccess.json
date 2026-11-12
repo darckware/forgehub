@@ -216,7 +216,8 @@
       "sshMissing": "No ForgeHub SSH",
       "rustdeskOk": "RustDesk {{id}}",
       "rustdeskMissing": "No RustDesk on record"
-    }
+    },
+    "since": "Since {{time}}"
   },
   "readiness": {
     "ready": "Ready",

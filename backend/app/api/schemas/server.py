@@ -370,6 +370,9 @@ class HostReadinessEntry(BaseModel):
     # The linked tailnet device's own 100.x address -- lets the UI suggest it
     # when the registered address is a LAN IP the VPS can't reach.
     tailscale_ipv4: str | None = None
+    # When the machine status monitor first saw the current status (None until
+    # it has, or when its last observation differs from the status shown).
+    status_since: datetime | None = None
 
 
 class HostReadinessResult(BaseModel):

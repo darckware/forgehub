@@ -56,6 +56,8 @@ export interface HostReadinessEntry {
   access_via_node_id?: string | null;
   access_via_name?: string | null;
   tailscale_ipv4?: string | null;
+  /** When the machine status monitor first saw the current status (null until it has). */
+  status_since?: string | null;
 }
 
 export interface HostReadinessResult {
