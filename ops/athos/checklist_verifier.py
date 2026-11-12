@@ -684,14 +684,56 @@ def _bridge_8910_restricted() -> bool:
     """0.0.0.0:8910 (host-bridge) is accepted only while UFW restricts it to lo / foundation_network
     (Marcelo, 2026-10-12: containers reach the bridge via host.docker.internal; loopback-only broke
     Messages from 2026-10-10 to 2026-10-12)."""
-    r = run(["/usr/sbin/ufw", "status"])
-    if r.returncode or "Status: active" not in r.stdout:
+    # UFW invokes sysctl via PATH for verbose status. Keep this read-only probe
+    # usable in external runtimes whose PATH omits sbin.
+    r = run(["/usr/bin/env", f"PATH={os.environ.get('PATH', '')}:/usr/sbin:/sbin",
+             "LC_ALL=C", "/usr/sbin/ufw", "status", "verbose"])
+    if (r.returncode or "Status: active" not in r.stdout
+            or not re.search(r"Default: (?:deny|reject) \(incoming\)", r.stdout)):
         return False
-    rules = [line for line in r.stdout.splitlines() if line.split() and line.split()[0].startswith("8910")]
-    return bool(rules) and all(("on lo" in line) or ("127.0.0.1" in line) or ("172.19.0.0/16" in line) for line in rules)
+    restricted_allow = False
+    for line in r.stdout.splitlines():
+        # Comments are not evidence of source restrictions.
+        columns = re.split(r"\s{2,}", line.split("#", 1)[0].strip())
+        if len(columns) != 3:
+            continue
+        target, action, source = columns
+        if action != "ALLOW IN":
+            continue
+        port = target.split()[0].split("/", 1)[0]
+        if target.split()[0].endswith("/udp"):
+            continue  # The exception is for a TCP listener.
+        # Ranges, all-port rules and unknown application profiles may also
+        # admit 8910. Fail closed for a profile we cannot resolve here.
+        covers_bridge = not re.fullmatch(r"[0-9:,]+", port)
+        if not covers_bridge:
+            for entry in port.split(","):
+                bounds = entry.split(":")
+                covers_bridge |= int(bounds[0]) <= 8910 <= int(bounds[-1])
+        if not covers_bridge:
+            continue
+        if not (re.search(r"\bon lo$", target)
+                or source in ("127.0.0.1", "172.19.0.0/16")):
+            return False
+        restricted_allow = True
+    return restricted_allow
+
+
+def _approved_tailnet_listener(address: str, line: str) -> bool:
+    """Infrastructure exceptions require socket owners, never just a port."""
+    port = address.rsplit(":", 1)[-1]
+    owners = set(re.findall(r'\("([^"]+)",pid=\d+,fd=\d+\)', line))
+    if owners == {"tailscaled"}:
+        return True  # Peer API TCP port is dynamically assigned by Tailscale.
+    if port == "22" and owners and owners <= {"sshd", "systemd"}:
+        return True  # OpenSSH may share its activation socket with systemd.
+    if port in ("21115", "21116", "21117") and owners == {"docker-proxy"}:
+        return True  # RustDesk bridge publications, exclusively on this node's IP.
+    return port in ("3000", "8020")
+
 
 def check_public_interfaces() -> Result:
-    sockets = run(["ss", "-ltnH"])
+    sockets = run(["ss", "-ltnpH"])
     if sockets.returncode:
         return fail(sockets.stderr.strip())
     bad = []
@@ -702,9 +744,9 @@ def check_public_interfaces() -> Result:
             if address == "0.0.0.0:8910" and _bridge_8910_restricted():
                 continue
             bad.append(address)
-        if address.startswith("100.105.235.114:") and address.rsplit(":", 1)[-1] not in ("3000", "8020"):
+        if address.startswith("100.105.235.114:") and not _approved_tailnet_listener(address, line):
             bad.append(address)
-    for domain in ("forgehub.darckware.net", "forgevault.darckware.net"):
+    for domain in ("forgehub.darckware.net", "forgevault.darckware.net", "darckware.net"):
         for suffix in ("/docs", "/redoc", "/openapi.json"):
             probe = _url_status(f"https://{domain}{suffix}", expected=(401, 403, 404))
             if not probe.ok:
