@@ -217,7 +217,9 @@ describe("MachinesCard", () => {
     await screen.findByText("srv-ad03");
     fireEvent.click(screen.getByRole("button", { name: "Editar srv-ad03" }));
     const panel = await screen.findByRole("dialog", { name: "Editar servidor" });
-    expect(panel.className).toContain("justify-end");
+    // role="dialog" sits on the panel itself (SidePanel); its wrapper pins it right.
+    expect(panel.className).toContain("slide-in-from-right");
+    expect(panel.parentElement?.className).toContain("justify-end");
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Editar servidor" })).not.toBeInTheDocument();
   });

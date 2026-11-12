@@ -115,7 +115,38 @@
     "empty": "Ningún agente autorizado. Conceda acceso para que un agente pueda hacer mantenimiento.",
     "pickMachines": "Máquinas autorizadas",
     "pickGroups": "Grupos autorizados",
-    "scopeRequired": "Seleccione al menos una máquina o grupo. Predeterminado: 24 horas."
+    "scopeRequired": "Seleccione al menos una máquina o grupo. Predeterminado: 24 horas.",
+    "grantHelp": "Solo quedan habilitados los agentes y las máquinas que pueden usar el acceso; los demás muestran el motivo.",
+    "eligibilityPending": "Verificando qué agentes pueden usar el acceso…",
+    "ineligibleUnknown": "este agente no puede usar el acceso.",
+    "searchMachines": "Buscar máquina",
+    "selectAllVisible": "Seleccionar todas las visibles",
+    "clearVisible": "Desmarcar las visibles",
+    "prepareFirst": "preparar primero",
+    "prepareFirstHelp": "Sin login de ForgeHub en esta máquina: prepárela en \"Configurar acceso\" antes de autorizar.",
+    "noMachinesMatch": "No se encontró ninguna máquina.",
+    "readinessPending": "Verificando el estado de las máquinas…",
+    "summary": {
+      "agents_one": "{{count}} agente",
+      "agents_other": "{{count}} agentes",
+      "machines_one": "{{count}} máquina",
+      "machines_other": "{{count}} máquinas",
+      "groups_one": "{{count}} grupo",
+      "groups_other": "{{count}} grupos",
+      "risk": "riesgo hasta {{level}}",
+      "riskLevel": {
+        "low": "bajo",
+        "medium": "medio",
+        "high": "alto"
+      }
+    },
+    "accessDisabled": "acceso desactivado",
+    "accessDisabledHelp": "El acceso a esta máquina está desactivado en ForgeHub.",
+    "offlineNow": "sin conexión ahora",
+    "offlineNowHelp": "La máquina está preparada, pero no responde ahora. La autorización vale; el agente solo puede ejecutar algo cuando vuelva.",
+    "statusUnknown": "estado desconocido",
+    "statusUnknownHelp": "No se pudo leer el estado de la máquina ahora. La autorización vale; ForgeHub lo verifica al ejecutar.",
+    "pruned": "Dejaron de poder recibir el acceso y se desmarcaron: {{agents}} agente(s), {{machines}} máquina(s)."
   },
   "askAgent": {
     "button": "Pedir al agente",

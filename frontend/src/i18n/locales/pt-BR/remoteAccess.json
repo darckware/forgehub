@@ -115,7 +115,38 @@
     "empty": "Nenhum agente autorizado. Conceda acesso para um agente poder fazer manutenção.",
     "pickMachines": "Máquinas autorizadas",
     "pickGroups": "Grupos autorizados",
-    "scopeRequired": "Selecione ao menos uma máquina ou grupo. Padrão: 24 horas."
+    "scopeRequired": "Selecione ao menos uma máquina ou grupo. Padrão: 24 horas.",
+    "grantHelp": "Só ficam habilitados os agentes e as máquinas que podem usar o acesso; os outros mostram o motivo.",
+    "eligibilityPending": "Verificando quais agentes podem usar o acesso…",
+    "ineligibleUnknown": "este agente não pode usar o acesso.",
+    "searchMachines": "Buscar máquina",
+    "selectAllVisible": "Selecionar todas as visíveis",
+    "clearVisible": "Desmarcar as visíveis",
+    "prepareFirst": "preparar primeiro",
+    "prepareFirstHelp": "Sem login do ForgeHub nesta máquina: prepare-a em \"Configurar acesso\" antes de autorizar.",
+    "noMachinesMatch": "Nenhuma máquina encontrada.",
+    "readinessPending": "Verificando o estado das máquinas…",
+    "summary": {
+      "agents_one": "{{count}} agente",
+      "agents_other": "{{count}} agentes",
+      "machines_one": "{{count}} máquina",
+      "machines_other": "{{count}} máquinas",
+      "groups_one": "{{count}} grupo",
+      "groups_other": "{{count}} grupos",
+      "risk": "risco até {{level}}",
+      "riskLevel": {
+        "low": "baixo",
+        "medium": "médio",
+        "high": "alto"
+      }
+    },
+    "accessDisabled": "acesso desativado",
+    "accessDisabledHelp": "O acesso a esta máquina está desligado no ForgeHub.",
+    "offlineNow": "offline agora",
+    "offlineNowHelp": "A máquina está preparada, mas não responde agora. A autorização vale; o agente só consegue rodar algo quando ela voltar.",
+    "statusUnknown": "estado desconhecido",
+    "statusUnknownHelp": "Não foi possível ler o estado da máquina agora. A autorização vale; o ForgeHub confere na hora de rodar.",
+    "pruned": "Deixaram de poder receber o acesso e foram desmarcados: {{agents}} agente(s), {{machines}} máquina(s)."
   },
   "askAgent": {
     "button": "Pedir ao agente",

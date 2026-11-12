@@ -115,7 +115,38 @@
     "empty": "No agent authorized. Grant access so an agent can do maintenance.",
     "pickMachines": "Authorized machines",
     "pickGroups": "Authorized groups",
-    "scopeRequired": "Select at least one machine or group. Default: 24 hours."
+    "scopeRequired": "Select at least one machine or group. Default: 24 hours.",
+    "grantHelp": "Only agents and machines that can use the access are enabled; the others show why.",
+    "eligibilityPending": "Checking which agents can use the access…",
+    "ineligibleUnknown": "this agent can't use the access.",
+    "searchMachines": "Search machines",
+    "selectAllVisible": "Select all visible",
+    "clearVisible": "Clear visible",
+    "prepareFirst": "prepare first",
+    "prepareFirstHelp": "No ForgeHub login on this machine: prepare it with \"Configure access\" before authorizing.",
+    "noMachinesMatch": "No machine found.",
+    "readinessPending": "Checking machine status…",
+    "summary": {
+      "agents_one": "{{count}} agent",
+      "agents_other": "{{count}} agents",
+      "machines_one": "{{count}} machine",
+      "machines_other": "{{count}} machines",
+      "groups_one": "{{count}} group",
+      "groups_other": "{{count}} groups",
+      "risk": "risk up to {{level}}",
+      "riskLevel": {
+        "low": "low",
+        "medium": "medium",
+        "high": "high"
+      }
+    },
+    "accessDisabled": "access off",
+    "accessDisabledHelp": "Access to this machine is turned off in ForgeHub.",
+    "offlineNow": "offline now",
+    "offlineNowHelp": "The machine is prepared but not answering right now. The grant holds; the agent can only run something once it is back.",
+    "statusUnknown": "status unknown",
+    "statusUnknownHelp": "The machine's status couldn't be read right now. The grant holds; ForgeHub checks again when something runs.",
+    "pruned": "No longer able to receive the access, so they were unchecked: {{agents}} agent(s), {{machines}} machine(s)."
   },
   "askAgent": {
     "button": "Ask an agent",
