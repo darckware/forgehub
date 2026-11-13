@@ -80,8 +80,8 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
     type: "section",
     labelKey: "nav.section.factory2",
     entries: [
-      // Monitoramento da Software Factory:
-      // 0. Cockpit de Execução
+      // Order (2026-11-13, Marcelo): Missões, Aplicações & Sistemas, then the
+      // Cockpit de Execução (no number), then the sequential pipeline.
       // Pipeline Sequencial da Software Factory (1 a 6):
       // 1. Concepção & Contexto
       // 2. Telas & Regras de Negócio
@@ -91,8 +91,8 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       // 6. Fechamento de Versão
       // Missão first (2026-11-12, Marcelo: "o negócio começa nesse momento").
       { type: "link", to: "/missions", labelKey: "nav.missions", icon: Target, module: "product" },
-      { type: "link", to: "/cockpit", labelKey: "nav.cockpit", icon: Gauge, module: "product" },
       { type: "link", to: "/product", labelKey: "nav.products", icon: Boxes, module: "product" },
+      { type: "link", to: "/cockpit", labelKey: "nav.cockpit", icon: Gauge, module: "product" },
       { type: "link", to: "/conception", labelKey: "nav.conception", icon: Lightbulb, module: "product" },
       { type: "link", to: "/screen-inspector", labelKey: "nav.screenInspector", icon: Layout, module: "product" },
       { type: "link", to: "/concept-erd", labelKey: "nav.conceptDatabaseDiagram", icon: Share2, module: "database" },
