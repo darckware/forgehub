@@ -35,6 +35,7 @@ from app.core.dispatch_targets import _first_holder, demand_targets, normalize_t
 from app.core.evidence_bridge import EvidenceUnverifiable, commit_is_integrated
 from app.core.mission import ALLOWED_TRANSITIONS, executor_project_ids, mission_error, planning_exit_conditions
 from app.core.mission_dispatch import OPEN_REVIEW_STATUSES, _hash, task_run_in_flight
+from app.core.mission_phases import phases_view
 from app.core.mission_plan import NON_EXECUTOR_ROLES, mission_scope_tasks
 from app.core.mission_records import current_plan, plan_items
 from app.core.task_baseline_guard import assert_task_baseline_current
@@ -843,6 +844,8 @@ async def build_board(
                 "superseded": baseline.superseded_at is not None} if baseline else None,
             "allowed_actions": header_allowed, "blocked_actions": header_blocked,
         },
+        # MISSION_PHASES_PLAN.md: ordered phases with their planning items and tasks.
+        "phases": await phases_view(db, mission),
         "tasks": task_rows,
         "conflicts": conflicts,
         "conflicts_status": "ok",

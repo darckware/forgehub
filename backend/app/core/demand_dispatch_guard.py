@@ -67,6 +67,14 @@ async def reserve_dispatch(db, demand, target_agent_id, command_text):
     await prepare_answer_context(db, current)
     # A separately required approval remains bound to the actual final body.
     await ensure_workflow_allowed(db, current)
+    if current.origin_type == "task" and current.origin_id is not None:
+        # MISSION_PHASES_PLAN.md: the first admitted dispatch of a phase task
+        # starts its phase (planned/returned -> in_progress), in this same
+        # reservation transaction.
+        from app.core.mission_phases import mark_phase_started
+        task = await db.get(ProjectTask, current.origin_id)
+        if task is not None:
+            await mark_phase_started(db, task)
     current.agent_run_id = str(uuid.uuid4())
     current.dispatched_at = datetime.now(timezone.utc)
     current.dispatch_deadline_at = current.dispatched_at + timedelta(minutes=DISPATCH_TIMEOUT_MINUTES)

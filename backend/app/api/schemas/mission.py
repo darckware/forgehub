@@ -480,7 +480,7 @@ class PlanSubmitIn(BaseModel):
 
 class PlanCheck(BaseModel):
     key: str
-    status: Literal["passed", "failed", "not_evaluated"]
+    status: Literal["passed", "failed", "not_evaluated", "warning"]
     passed: bool | None
     detail: str | list[dict] | None = None
 

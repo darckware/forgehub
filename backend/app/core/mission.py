@@ -189,7 +189,7 @@ async def executor_project_ids(db: AsyncSession, project_id: uuid.UUID) -> list[
     return list((await db.execute(
         select(MissionProjectLink.executor_project_id)
         .where(MissionProjectLink.mission_project_id == project_id)
-        .order_by(MissionProjectLink.created_at)
+        .order_by(MissionProjectLink.position, MissionProjectLink.created_at)
     )).scalars())
 
 
@@ -319,11 +319,27 @@ async def skill_check_items(
     return gaps, not_evaluated
 
 
+async def _plan_scope(
+    db: AsyncSession, project_id: uuid.UUID,
+) -> tuple[list[ProjectTask], list[ProjectAgentMembership]]:
+    """The tasks a plan covers -- the mission's own and its phases' (executor
+    projects', MISSION_PHASES_PLAN.md) -- and the active memberships an
+    executor or reviewer of those tasks can hold."""
+    tasks = await mission_tasks(db, project_id)
+    memberships = await _active_memberships(db, project_id)
+    for executor_id in await executor_project_ids(db, project_id):
+        tasks += await mission_tasks(db, executor_id)
+        memberships += await _active_memberships(db, executor_id)
+    return tasks, memberships
+
+
 async def _validator_items(db: AsyncSession, mission: ProjectMission) -> tuple[list[dict], list[dict]]:
     """The P2/P7 plan validator over what M0.0 can read."""
+    from app.core.mission_phases import phase_plan_items
+
     project_id = mission.project_id
     _plan, _version, unmet = await current_plan_version(db, project_id)
-    tasks = await mission_tasks(db, project_id)
+    tasks, memberships = await _plan_scope(db, project_id)
     if not tasks:
         unmet.append(_item("NO_TASKS", "The mission has no tasks"))
     task_ids = [t.id for t in tasks]
@@ -336,7 +352,7 @@ async def _validator_items(db: AsyncSession, mission: ProjectMission) -> tuple[l
     cycle = _find_cycle(edges)
     if cycle:
         unmet.append(_item("DEPENDENCY_CYCLE", "Task dependencies form a cycle", task_ids=[str(t) for t in cycle]))
-    memberships = await _active_memberships(db, project_id)
+    unmet.extend((await phase_plan_items(db, mission))[0])
     executors = await _executors_by_task(db, task_ids, memberships)
     for task in tasks:
         executor = executors.get(task.id)
@@ -354,20 +370,23 @@ async def _validator_items(db: AsyncSession, mission: ProjectMission) -> tuple[l
 
 
 async def _draft_plan_items(db: AsyncSession, mission: ProjectMission) -> list[dict[str, Any]]:
+    from app.core.mission_phases import phase_plan_items
+
     project_id = mission.project_id
     _plan, _version, unmet = await current_plan_version(db, project_id)
-    tasks = await mission_tasks(db, project_id)
+    tasks, memberships = await _plan_scope(db, project_id)
     if not tasks:
         unmet.append(_item("NO_TASKS", "The mission has no tasks"))
     unmet.extend(environment_items(tasks))
+    unmet.extend((await phase_plan_items(db, mission))[0])
     task_ids = {t.id for t in tasks}
-    executors = await _executors_by_task(db, list(task_ids), await _active_memberships(db, project_id))
+    executors = await _executors_by_task(db, list(task_ids), memberships)
     for task in tasks:
         if task.id not in executors:
             unmet.append(_item("TASK_WITHOUT_ROLE", "Task has no active assignment through a mission member",
                                task_id=str(task.id), task_number=task.number))
     if task_ids:
-        scope = task_ids | {t.id for pid in await executor_project_ids(db, project_id) for t in await mission_tasks(db, pid)}
+        scope = task_ids
         for dep in (await db.execute(select(TaskDependency).where(TaskDependency.task_id.in_(task_ids)))).scalars():
             if dep.depends_on_task_id not in scope:
                 unmet.append(_item("DEPENDENCY_OUTSIDE_MISSION", "Task depends on a task outside the mission",
@@ -536,6 +555,13 @@ async def transition_preconditions(
         if not criteria or any(c.status != "proven" for c in criteria):
             unmet.append(_item("CRITERIA_NOT_ALL_PROVEN", "Every acceptance criterion must be proven",
                                open=[c.code for c in criteria if c.status != "proven"]))
+        from app.core.mission_phases import mission_phases
+
+        open_phases = [p for p in await mission_phases(db, project_id) if p.phase_status != "approved"]
+        if open_phases:
+            unmet.append(_item("PHASES_NOT_APPROVED", "Every mission phase must be approved by Marcelo",
+                               phases=[{"phase_id": str(p.id), "position": p.position, "name": p.name,
+                                        "phase_status": p.phase_status} for p in open_phases]))
 
     elif (from_state, to_state) == ("verifying", "active"):
         criteria = await _criteria(db, project_id)

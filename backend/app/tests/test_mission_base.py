@@ -32,6 +32,7 @@ from app.db.models.mission import (
     MissionAcceptanceCriterion,
     MissionCriterionTask,
     MissionDecision,
+    MissionProjectLink,
     ProjectMission,
 )
 from app.db.models.orchestration import ProjectAgentMembership, TaskExecutionReview
@@ -275,6 +276,23 @@ async def _criterion(project_id, verifier_agent_id, *, status="open", task_ids=(
             db.add(MissionCriterionTask(criterion_id=criterion.id, task_id=task_id))
         await db.commit()
         return criterion.id
+
+
+async def _phase(project_id, objective="Deliver the planned scope; leaves nothing else in", name="Fase") -> uuid.UUID:
+    """A mission phase (MISSION_PHASES_PLAN.md): an executor project in the
+    mission's version linked at the next position, with an objective."""
+    async with AsyncSessionLocal() as db:
+        mission_project = await db.get(Project, uuid.UUID(str(project_id)))
+        executor = Project(name=f"{mission_project.name} · {name} {uuid.uuid4().hex[:6]}", owner="test",
+                           product_version_id=mission_project.product_version_id,
+                           working_directory_path=mission_project.working_directory_path)
+        db.add(executor)
+        await db.flush()
+        link = MissionProjectLink(mission_project_id=mission_project.id, executor_project_id=executor.id,
+                                  linked_by="test", name=name, objective=objective)
+        db.add(link)
+        await db.commit()
+        return link.id
 
 
 async def _baseline(project_id) -> uuid.UUID:
@@ -671,7 +689,7 @@ async def test_planning_stage_exit_conditions(world):
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "PLANNING_EXIT_CONDITIONS_UNMET"
     assert _codes(response) == {"PLAN_DRAFT_MISSING", "NO_TASKS", "NO_CRITERIA", "DEADLINE_MISSING",
-                                "RISK_LEVEL_MISSING", "REVIEW_LAYERS_MISSING"}
+                                "RISK_LEVEL_MISSING", "REVIEW_LAYERS_MISSING", "PHASES_MISSING"}
 
     # The refused attempt is recorded, and the same key replays it.
     async with AsyncSessionLocal() as db:
@@ -699,6 +717,7 @@ async def test_planning_stage_exit_conditions(world):
     task = await _task(project_id)
     await _assign(task.id, executor, await _member(project_id, executor))
     await _criterion(project_id, await world.agent("verifier"), task_ids=[task.id])
+    await _phase(project_id)
     response = await _advance(world, project_id, "auto_check")
     assert _codes(response) == {"PLAN_VERSION_NOT_REGISTERED", "TASK_ENVIRONMENT_MISSING"}
 
@@ -789,6 +808,7 @@ async def test_auto_check_flags_missing_skill_for_executor_and_reviewer(world):
     skill = await world.skill()
     inactive = await world.skill(approved=False)
     executor, reviewer = await world.agent("exec"), await world.agent("rev")
+    await _phase(project_id)
     task = await _task(project_id)
     await _assign(task.id, executor, await _member(project_id, executor))
     await _member(project_id, reviewer, role="reviewer", can_review=True)

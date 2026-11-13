@@ -16,7 +16,9 @@ recorded with its name and the reason -- and only with an active delegation
 for ``remote_access.execute`` whose risk ceiling fits the script; run_remote_command
 needs a temporary ``remote_access.direct`` access opened by a human admin. The mission
 tools (M0.2a: create_internal_project, manage_project_members; M0.2d:
-attach_project_document, get_my_mission_role, list_my_tasks) act as the
+attach_project_document, get_my_mission_role, list_my_tasks; phases, 2026-11-12:
+list/create/update/reorder_mission_phases, sequence_planning_tasks,
+request/report_phase_homologation) act as the
 caller too (every write with a required idempotency_key). Messages continues to use its narrowly
 scoped bridge token. API failures are always surfaced as tool errors.
 """
@@ -911,6 +913,184 @@ async def return_task_for_correction(
         f"/api/v1/missions/{project_id}/tasks/{task_id}:return",
         {"execution_id": execution_id, "reason": reason, "idempotency_key": idempotency_key},
     )
+    return {**data, "replayed": replayed}
+
+
+# ---------------------------------------------------------------------------
+# Mission phases (docs/architecture/MISSION_PHASES_PLAN.md, 2026-11-12)
+# ---------------------------------------------------------------------------
+async def _mission_send(method: str, path: str, body: dict[str, Any]) -> tuple[Any, bool]:
+    """A mission write with any method (same rules as _mission_write)."""
+    if method == "POST":
+        return await _mission_write(path, body)
+    import json as _json
+
+    if len(_json.dumps(body, default=str).encode()) > MAX_COMMAND_BODY_BYTES:
+        raise FactoryError("PAYLOAD_TOO_LARGE: request body exceeds 64 KiB")
+    if not str(body.get("idempotency_key") or "").strip():
+        raise FactoryError("idempotency_key is required (1-150 chars), e.g. <agent>-<purpose>-<uuid4>")
+    response = await _factory_request(method, path, json=body, write=True)
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise FactoryError(f"ForgeHub {method} {path} returned invalid JSON") from exc
+    return data, response.headers.get("idempotent-replay", "").lower() == "true"
+
+
+async def _phase_id(project_id: str, phase: str | int) -> str:
+    """A phase given by its position (1, 2, ...) or by its phase_id."""
+    text = str(phase).strip()
+    if not text.isdigit():
+        return text
+    data = await _factory_call("GET", f"/api/v1/missions/{project_id}/phases")
+    for row in data.get("phases", []):
+        if row.get("position") == int(text):
+            return row["phase_id"]
+    raise FactoryError(f"PHASE_NOT_FOUND: mission {project_id} has no phase at position {text}")
+
+
+@mcp.tool()
+async def list_mission_phases(project_id: str) -> dict[str, Any]:
+    """The phases of a mission, in order. Each phase is an executor project
+    of the mission with a `name`, an `objective` (what it delivers and what it
+    leaves out) and a `phase_status` (planned, in_progress, homologating,
+    awaiting_approval, approved, returned), its homologation record and its
+    planning items in order, each with its tasks in order (number, title,
+    status, position, assignee, depends_on numbers, and `sequenced`). Rules:
+    phases run strictly in order -- no task of phase N is dispatched until
+    every earlier phase is approved by Marcelo; planning items of one phase
+    may run in parallel; the tasks of one planning item always run in
+    sequence. Readable by administrators and the mission's active members."""
+    return await _factory_call("GET", f"/api/v1/missions/{project_id}/phases")
+
+
+@mcp.tool()
+async def create_mission_phase(project_id: str, name: str, objective: str, idempotency_key: str) -> dict[str, Any]:
+    """Add a phase at the end of a mission you orchestrate (needs a
+    mission.orchestrate delegation). ForgeHub creates the phase's executor
+    project in the same step (same product version and working directory as
+    the mission, named "<mission> · Fase N · <name>") and makes you its
+    coordinator: staff it with manage_project_members, then create its
+    planning items and tasks in that project. `objective` states what the
+    phase delivers AND what it deliberately leaves out -- the external
+    homologator tests the delivery against it. Only while the mission is
+    draft/planning with no baseline (else MISSION_PHASES_FROZEN). Returns the
+    phases and the new `phase_id`."""
+    data, replayed = await _mission_write(f"/api/v1/missions/{project_id}/phases", {
+        "name": name, "objective": objective, "idempotency_key": idempotency_key})
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def update_mission_phase(
+    project_id: str,
+    phase: str,
+    idempotency_key: str,
+    name: str | None = None,
+    objective: str | None = None,
+) -> dict[str, Any]:
+    """Rename a phase or rewrite its objective. `phase` is its position (1,
+    2, ...) or its phase_id. The orchestrator (mission.orchestrate) or an
+    administrator, only while the mission is draft/planning with no baseline
+    (MISSION_PHASES_FROZEN otherwise)."""
+    body: dict[str, Any] = {"idempotency_key": idempotency_key}
+    if name is not None:
+        body["name"] = name
+    if objective is not None:
+        body["objective"] = objective
+    phase_id = await _phase_id(project_id, phase)
+    data, replayed = await _mission_send("PATCH", f"/api/v1/missions/{project_id}/phases/{phase_id}", body)
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def reorder_mission_phases(project_id: str, phases: list[str], idempotency_key: str) -> dict[str, Any]:
+    """Put a mission's phases in a new order: `phases` lists every phase once
+    (by phase_id, or by its current position), first to last. The
+    orchestrator or an administrator, only while the mission is
+    draft/planning with no baseline."""
+    ids = [await _phase_id(project_id, p) for p in phases]
+    data, replayed = await _mission_write(f"/api/v1/missions/{project_id}/phases:reorder", {
+        "phase_ids": ids, "idempotency_key": idempotency_key})
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def sequence_planning_tasks(
+    project_id: str, planning_item_id: str, tasks: list[str], idempotency_key: str,
+) -> dict[str, Any]:
+    """Fix the order in which a planning item's tasks run. `tasks` lists every
+    non-cancelled task of the planning item once, first to last, by task
+    number (as shown by list_mission_phases) or task id. ForgeHub sets their
+    positions 1..n and replaces the dependencies between them with the chain
+    t1 <- t2 <- ... <- tn (finish_to_start); dependencies on tasks outside the
+    planning item are kept. Every planning item of a phase with more than one
+    task must be sequenced before the plan passes (TASKS_NOT_SEQUENCED).
+    Refused for a task already frozen in a baseline (TASK_IN_BASELINE). The
+    orchestrator (mission.orchestrate) or an administrator."""
+    ids: list[str] = []
+    numbers = [t for t in tasks if str(t).strip().lstrip("#").isdigit()]
+    by_number: dict[int, str] = {}
+    if numbers:
+        data = await _factory_call("GET", f"/api/v1/missions/{project_id}/phases")
+        for row in data.get("phases", []):
+            for item in row.get("planning_items", []):
+                if item.get("planning_item_id") == planning_item_id:
+                    by_number = {t["number"]: t["task_id"] for t in item.get("tasks", [])}
+    for task in tasks:
+        text = str(task).strip().lstrip("#")
+        if text.isdigit():
+            if int(text) not in by_number:
+                raise FactoryError(f"TASK_NOT_FOUND: task #{text} is not in planning item {planning_item_id} "
+                                   "of a phase; pass task ids instead")
+            ids.append(by_number[int(text)])
+        else:
+            ids.append(text)
+    data, replayed = await _mission_write(
+        f"/api/v1/missions/{project_id}/plannings/{planning_item_id}/tasks:sequence",
+        {"task_ids": ids, "idempotency_key": idempotency_key})
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def request_phase_homologation(
+    project_id: str, phase: str, homologator_agent_id: str, idempotency_key: str,
+) -> dict[str, Any]:
+    """When every task of a phase is done, send the phase to homologation.
+    The homologator must be EXTERNAL (an active claude/codex/agy agent,
+    else HOMOLOGATOR_NOT_EXTERNAL), hold an active `homologation` membership
+    in the mission (add it with manage_project_members; else
+    HOMOLOGATOR_NOT_MEMBER) and be INDEPENDENT: it never executed nor reviewed
+    any task of the phase (else HOMOLOGATOR_NOT_INDEPENDENT). Open tasks
+    refuse with PHASE_TASKS_OPEN listing them. The homologator gets one
+    Messages task with the objective, the planning items and their tasks
+    with evidence, and answers with report_phase_homologation. `phase` is the
+    position or the phase_id. The orchestrator (mission.orchestrate) or an
+    administrator."""
+    phase_id = await _phase_id(project_id, phase)
+    data, replayed = await _mission_write(
+        f"/api/v1/missions/{project_id}/phases/{phase_id}:request-homologation",
+        {"homologator_agent_id": homologator_agent_id, "idempotency_key": idempotency_key})
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def report_phase_homologation(
+    project_id: str, phase: str, verdict: str, summary: str, evidence: list[str], idempotency_key: str,
+) -> dict[str, Any]:
+    """Your verdict as the phase's homologator (only the agent the phase was
+    sent to may call it, while it is homologating). Test the delivery against
+    the phase objective first. `verdict`: approved | rejected; `summary`: what
+    you tested and found; `evidence`: refs (git:<sha>, file:<path>, URLs),
+    required when approved. Approved sends the phase to Marcelo, who approves
+    or returns it; rejected returns it to the orchestrator with your findings.
+    `phase` is the position or the phase_id."""
+    if verdict not in ("approved", "rejected"):
+        raise FactoryError("verdict must be approved or rejected.")
+    phase_id = await _phase_id(project_id, phase)
+    data, replayed = await _mission_write(
+        f"/api/v1/missions/{project_id}/phases/{phase_id}:report-homologation",
+        {"verdict": verdict, "summary": summary, "evidence": evidence, "idempotency_key": idempotency_key})
     return {**data, "replayed": replayed}
 
 
