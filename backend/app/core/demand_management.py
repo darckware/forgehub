@@ -10,7 +10,7 @@ from app.core.demand_workflow import requires_reconciliation as uncertain
 from app.db.models.message_triage import MessageTriageResult
 from app.core.message_triage_revision import context_revision_sql
 
-WORK_VIEWS = ("decision", "processing", "waiting", "resolved", "attention", "approval", "incubation", "failed", "queued", "running", "completed", "archived")
+WORK_VIEWS = ("decision", "approvals_queue", "processing", "waiting", "resolved", "attention", "approval", "incubation", "failed", "queued", "running", "completed", "archived")
 WORK_GROUPS = ("all", "tasks", "incubation")
 
 
@@ -70,6 +70,11 @@ def human_failure_sql(demand=AgentDemand):
         ~active_failure_check_sql(demand))
 
 
+def blocking_question_sql(demand=AgentDemand):
+    return exists(select(AgentQuestion.id).where(AgentQuestion.origin_demand_id == demand.id,
+        AgentQuestion.status == "pending", AgentQuestion.blocking.is_(True)))
+
+
 def operator_state_sql():
     question=exists(select(AgentQuestion.id).where(AgentQuestion.origin_demand_id==AgentDemand.id,
         AgentQuestion.status=="pending",AgentQuestion.blocking.is_(True)))
@@ -93,7 +98,14 @@ def operator_state_sql():
         (AgentDemand.origin_type=="incubation","waiting"),else_="processing")
 
 
-def view_filter(view, state, *, operator=None, demand=AgentDemand):
+def view_filter(view, state, *, operator=None, demand=AgentDemand, question=None):
+    if view == "approvals_queue":
+        # Pessoal -> Tarefas dos agentes -> Aprovacoes: the operator's decisions
+        # minus the ones waiting on a blocking question, which the Respostas
+        # tab owns (each item is shown once).
+        operator = operator_state_sql() if operator is None else operator
+        question = blocking_question_sql(demand) if question is None else question
+        return and_(demand.status != "archived", operator == "decision", ~question)
     if view in ("decision","processing","waiting","resolved"):
         operator = operator_state_sql() if operator is None else operator
         return and_(demand.status!="archived",operator==view)
@@ -226,12 +238,14 @@ async def list_agent_work(db, *, view="attention", search="", agent_id=None, con
     # linked freshness expression is evaluated once per filtered demand in
     # each of the count/page queries, regardless of the number of views.
     classified = (select(AgentDemand.id, AgentDemand.status, AgentDemand.origin_type,
-        state.label("work_state"), operator_state_sql().label("operator_state"))
+        state.label("work_state"), operator_state_sql().label("operator_state"),
+        blocking_question_sql().label("blocked_question"))
         .where(*filters).cte("classified_agent_work").prefix_with("MATERIALIZED", dialect="postgresql"))
     columns = classified.c
 
     def classified_filter(name):
-        return view_filter(name, columns.work_state, operator=columns.operator_state, demand=columns)
+        return view_filter(name, columns.work_state, operator=columns.operator_state, demand=columns,
+                           question=columns.blocked_question)
 
     count_row = (await db.execute(select(*(func.count().filter(classified_filter(name)).label(name)
         for name in WORK_VIEWS)).select_from(classified))).mappings().one()

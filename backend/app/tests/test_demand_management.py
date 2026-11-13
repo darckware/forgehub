@@ -473,3 +473,34 @@ async def test_queue_and_messages_agree_on_every_failed_row(client, consolidatio
     assert labels[rows["delivered"].id]["message_labels"] == ["delivery_verified"]
     assert labels[uncertain.id]["operator_decision"] == "reconciliation"
     assert labels[rows["failed_check"].id]["operator_decision"] == "correction"
+
+
+async def test_approvals_queue_leaves_question_blocked_items_to_the_answers_tab(client, consolidation_db, test_suite_agent):
+    """Aprovações lists the operator's decisions once; a blocking question belongs to Respostas."""
+    from app.db.models.demand import AgentDemand
+    from app.db.models.operations import AgentQuestion
+    db, uncertain, _ = consolidation_db
+    label = f"approvals-{uuid.uuid4().hex}"
+    uncertain.subject = label + " uncertain"
+    asked = AgentDemand(from_agent="test-suite", from_agent_id=test_suite_agent, target_agent_id=test_suite_agent,
+        subject=label + " asked", body="needs an answer", origin_type="task", working_path="/tmp")
+    pending = AgentDemand(from_agent="test-suite", from_agent_id=test_suite_agent, target_agent_id=test_suite_agent,
+        subject=label + " pending", body="needs approval", origin_type="task", working_path="/tmp",
+        requires_approval=True, approval_status="pending")
+    db.add_all([asked, pending])
+    await db.flush()
+    question = AgentQuestion(agent_id=test_suite_agent, origin_demand_id=asked.id, question="Which format?",
+        blocking=True, status="pending", notify_after=datetime.now(timezone.utc))
+    db.add(question)
+    await db.commit()
+    try:
+        result = await _work(client, label, view="approvals_queue")
+        assert {row["id"] for row in result["items"]} == {str(uncertain.id), str(pending.id)}
+        assert result["counts"]["approvals_queue"] == 2
+        assert result["counts"]["decision"] == 3  # "Sua decisão" in Tarefas still includes the question
+        question.status = "cancelled"
+        await db.commit()
+        assert (await _work(client, label, view="approvals_queue"))["counts"]["approvals_queue"] == 2
+    finally:
+        await db.execute(delete(AgentQuestion).where(AgentQuestion.id == question.id))
+        await db.commit()
