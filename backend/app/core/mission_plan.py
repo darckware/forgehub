@@ -69,7 +69,7 @@ TARGET_TYPE = "project_plan"
 APPROVAL_TYPE = "mission_plan_baseline"
 CR_MISSION_STATES = ("ready", "active", "verifying")
 # Roles that plan, coordinate or review; any other active role executes.
-NON_EXECUTOR_ROLES = frozenset({"coordinator", "planner", "reviewer", "security_reviewer"})
+NON_EXECUTOR_ROLES = frozenset({"coordinator", "planner", "reviewer", "security_reviewer", "homologation"})
 # 04 "Validação do plano" checks that need M.1 data (§10).
 NOT_EVALUATED_CHECKS = (
     ("critical_path_vs_deadline", "The critical path against the deadline needs plan phases (M.1h)"),
@@ -180,8 +180,6 @@ async def plan_checks(
     deadline_budget = []
     if mission.deadline_at is None:
         deadline_budget.append({"code": "DEADLINE_MISSING", "message": "deadline_at is not set"})
-    if mission.budget_limit is None:
-        deadline_budget.append({"code": "BUDGET_MISSING", "message": "budget_limit is not set"})
     skill_gaps, skill_not_evaluated = await skill_check_items(db, tasks, executors, memberships)
     environment = environment_items(tasks) + await environment_prerequisite_items(db, tasks)
 
@@ -198,11 +196,21 @@ async def plan_checks(
                [{"code": "DEPENDENCY_CYCLE", "message": "Task dependencies form a cycle",
                  "task_ids": [str(t) for t in cycle]}] if cycle else [],
                "The dependency graph is acyclic"),
-        _check("deadline_and_budget", deadline_budget, "deadline_at and budget_limit are set"),
+        _check("deadline_and_budget", deadline_budget, "deadline_at is set (budget_limit is optional)"),
         _check("brief_approved", await brief_items(db, mission), "The brief is approved with a final version"),
         _check("required_skills", skill_gaps, "Executors and reviewers hold the required skills"),
         _check("environment", environment, "Every listed task records its environment and prerequisites"),
     ]
+    # Mission phases (MISSION_PHASES_PLAN.md). A mission-level task outside
+    # any phase is allowed: reported as a warning that never fails the plan.
+    from app.core.mission_phases import phase_plan_items
+
+    phase_unmet, phase_warnings = await phase_plan_items(db, mission)
+    checks.append(_check("phases", phase_unmet,
+                         "The mission has phases, each with an objective, and every planning item's tasks "
+                         "are sequenced"))
+    if phase_warnings:
+        checks.append({"key": "tasks_in_phases", "status": "warning", "passed": True, "detail": phase_warnings})
     not_evaluated = [(key, message) for key, message in NOT_EVALUATED_CHECKS]
     not_evaluated += [("skill_runtime_presence", item["message"]) for item in skill_not_evaluated]
     if change_request is not None:

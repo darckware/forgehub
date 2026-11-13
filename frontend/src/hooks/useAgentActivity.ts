@@ -230,6 +230,8 @@ export const activityIncidentSchema = z.object({
     "provider_error",
     "usage_anomaly",
     "routine_missed",
+    "routine_failed",
+    "routine_skipped_budget",
   ]),
   severity: z.enum(["info", "warning", "error", "critical"]),
   title: z.string(),

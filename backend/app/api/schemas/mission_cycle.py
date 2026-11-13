@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.mission_cycle import N0_ACTIONS
+from app.core.mission_learning import LearningEvidence
 from app.db.models.mission_cycle import SKILL_PROPOSAL_KINDS
 
 
@@ -136,6 +137,7 @@ class AvailabilityOut(BaseModel):
 class SkillProposalIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    learning: LearningEvidence | None = None
     kind: str = Field(pattern=f"^({'|'.join(SKILL_PROPOSAL_KINDS)})$")
     task_id: uuid.UUID | None = None
     skill_id: uuid.UUID | None = None
@@ -147,6 +149,8 @@ class SkillProposalIn(BaseModel):
 
 class SkillProposalOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
+    learning: dict[str, Any] | None = None
 
     id: uuid.UUID
     mission_project_id: uuid.UUID

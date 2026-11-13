@@ -16,7 +16,10 @@ recorded with its name and the reason -- and only with an active delegation
 for ``remote_access.execute`` whose risk ceiling fits the script; run_remote_command
 needs a temporary ``remote_access.direct`` access opened by a human admin. The mission
 tools (M0.2a: create_internal_project, manage_project_members; M0.2d:
-attach_project_document, get_my_mission_role, list_my_tasks) act as the
+attach_project_document, get_my_mission_role, list_my_tasks; phases, 2026-11-12:
+list/create/update/reorder_mission_phases, sequence_planning_tasks,
+request/report_phase_homologation; 2026-11-13: request_marcelo_approval and the
+Operação 24x7 routine tools, which need operations.routines.manage) act as the
 caller too (every write with a required idempotency_key). Messages continues to use its narrowly
 scoped bridge token. API failures are always surfaced as tool errors.
 """
@@ -47,6 +50,14 @@ def _load_messages_server():
 
 messages = _load_messages_server()
 mcp = messages.mcp
+# Canonical browser tools use the same individual file credential as maintenance.
+# They (and propose_verified_learning) are in the shared catalog only when the
+# Messages module registered them: FORGEHUB_TASK_BROWSER_ENABLED /
+# FORGEHUB_MISSION_LEARNING_ENABLED, both off by default.
+get_workspace_browser_capabilities = messages.get_workspace_browser_capabilities
+task_browser = messages.task_browser
+get_task_context = messages.get_task_context
+propose_verified_learning = messages.propose_verified_learning
 BASE_URL = os.environ.get("FORGEHUB_API_URL", "http://localhost:8000").rstrip("/")
 
 
@@ -717,8 +728,37 @@ async def get_my_mission_role(project_id: str) -> dict[str, Any]:
     """Your own role in a mission (or internal project) you are an active
     member of: role, can_review, responsibilities, the orchestrator, your
     tasks (as executor or reviewer, with the latest execution state) and your
-    reviews. A project you are not a member of answers not found."""
+    reviews. Also the study material: `docs_path` (the project's docs/ folder,
+    `docs_status` ok/empty/missing/unverified) and `docs_files` -- read the
+    mission's context and those documents before registering the product or
+    planning tasks in the Service Factory. `product_registration_pending: true`
+    means you, the orchestrator, must complete the product's registration
+    (complete_mission_product_registration). A project you are not a member of
+    answers not found."""
     return await _factory_call("GET", f"/api/v1/missions/{project_id}/me")
+
+
+@mcp.tool()
+async def complete_mission_product_registration(
+    project_id: str,
+    description: str,
+    name: str | None = None,
+    kind: str | None = None,
+) -> dict[str, Any]:
+    """When get_my_mission_role shows `product_registration_pending: true`,
+    the mission was created for a product/service that did not exist yet:
+    ForgeHub registered only its name and kind. As the orchestrator, first
+    study Marcelo's context (the mission's description) and the documents he
+    left in `docs_path` (listed in `docs_files`), then write the product's
+    description (what it is, for whom, what it delivers), optionally correcting
+    its `name` or `kind` (software, service, infrastructure, client_it). The
+    product becomes `active`. Only while it is pending."""
+    body: dict[str, Any] = {"description": description}
+    if name is not None:
+        body["name"] = name
+    if kind is not None:
+        body["kind"] = kind
+    return await _factory_call("POST", f"/api/v1/missions/{project_id}/product:complete-registration", json=body)
 
 
 @mcp.tool()
@@ -886,6 +926,342 @@ async def return_task_for_correction(
 
 
 # ---------------------------------------------------------------------------
+# Mission phases (docs/architecture/MISSION_PHASES_PLAN.md, 2026-11-12)
+# ---------------------------------------------------------------------------
+async def _mission_send(method: str, path: str, body: dict[str, Any]) -> tuple[Any, bool]:
+    """A mission write with any method (same rules as _mission_write)."""
+    if method == "POST":
+        return await _mission_write(path, body)
+    import json as _json
+
+    if len(_json.dumps(body, default=str).encode()) > MAX_COMMAND_BODY_BYTES:
+        raise FactoryError("PAYLOAD_TOO_LARGE: request body exceeds 64 KiB")
+    if not str(body.get("idempotency_key") or "").strip():
+        raise FactoryError("idempotency_key is required (1-150 chars), e.g. <agent>-<purpose>-<uuid4>")
+    response = await _factory_request(method, path, json=body, write=True)
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise FactoryError(f"ForgeHub {method} {path} returned invalid JSON") from exc
+    return data, response.headers.get("idempotent-replay", "").lower() == "true"
+
+
+async def _phase_id(project_id: str, phase: str | int) -> str:
+    """A phase given by its position (1, 2, ...) or by its phase_id."""
+    text = str(phase).strip()
+    if not text.isdigit():
+        return text
+    data = await _factory_call("GET", f"/api/v1/missions/{project_id}/phases")
+    for row in data.get("phases", []):
+        if row.get("position") == int(text):
+            return row["phase_id"]
+    raise FactoryError(f"PHASE_NOT_FOUND: mission {project_id} has no phase at position {text}")
+
+
+@mcp.tool()
+async def list_mission_phases(project_id: str) -> dict[str, Any]:
+    """The phases of a mission, in order. Each phase is an executor project
+    of the mission with a `name`, an `objective` (what it delivers and what it
+    leaves out) and a `phase_status` (planned, in_progress, homologating,
+    awaiting_approval, approved, returned), its homologation record and its
+    planning items in order, each with its tasks in order (number, title,
+    status, position, assignee, depends_on numbers, and `sequenced`). Rules:
+    phases run strictly in order -- no task of phase N is dispatched until
+    every earlier phase is approved by Marcelo; planning items of one phase
+    may run in parallel; the tasks of one planning item always run in
+    sequence. Readable by administrators and the mission's active members."""
+    return await _factory_call("GET", f"/api/v1/missions/{project_id}/phases")
+
+
+@mcp.tool()
+async def create_mission_phase(project_id: str, name: str, objective: str, idempotency_key: str) -> dict[str, Any]:
+    """Add a phase at the end of a mission you orchestrate (needs a
+    mission.orchestrate delegation). ForgeHub creates the phase's executor
+    project in the same step (same product version and working directory as
+    the mission, named "<mission> · Fase N · <name>") and makes you its
+    coordinator: staff it with manage_project_members, then create its
+    planning items and tasks in that project. `objective` states what the
+    phase delivers AND what it deliberately leaves out -- the external
+    homologator tests the delivery against it. Only while the mission is
+    draft/planning with no baseline (else MISSION_PHASES_FROZEN). Returns the
+    phases and the new `phase_id`."""
+    data, replayed = await _mission_write(f"/api/v1/missions/{project_id}/phases", {
+        "name": name, "objective": objective, "idempotency_key": idempotency_key})
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def update_mission_phase(
+    project_id: str,
+    phase: str,
+    idempotency_key: str,
+    name: str | None = None,
+    objective: str | None = None,
+) -> dict[str, Any]:
+    """Rename a phase or rewrite its objective. `phase` is its position (1,
+    2, ...) or its phase_id. The orchestrator (mission.orchestrate) or an
+    administrator, only while the mission is draft/planning with no baseline
+    (MISSION_PHASES_FROZEN otherwise)."""
+    body: dict[str, Any] = {"idempotency_key": idempotency_key}
+    if name is not None:
+        body["name"] = name
+    if objective is not None:
+        body["objective"] = objective
+    phase_id = await _phase_id(project_id, phase)
+    data, replayed = await _mission_send("PATCH", f"/api/v1/missions/{project_id}/phases/{phase_id}", body)
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def reorder_mission_phases(project_id: str, phases: list[str], idempotency_key: str) -> dict[str, Any]:
+    """Put a mission's phases in a new order: `phases` lists every phase once
+    (by phase_id, or by its current position), first to last. The
+    orchestrator or an administrator, only while the mission is
+    draft/planning with no baseline."""
+    ids = [await _phase_id(project_id, p) for p in phases]
+    data, replayed = await _mission_write(f"/api/v1/missions/{project_id}/phases:reorder", {
+        "phase_ids": ids, "idempotency_key": idempotency_key})
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def sequence_planning_tasks(
+    project_id: str, planning_item_id: str, tasks: list[str], idempotency_key: str,
+) -> dict[str, Any]:
+    """Fix the order in which a planning item's tasks run. `tasks` lists every
+    non-cancelled task of the planning item once, first to last, by task
+    number (as shown by list_mission_phases) or task id. ForgeHub sets their
+    positions 1..n and replaces the dependencies between them with the chain
+    t1 <- t2 <- ... <- tn (finish_to_start); dependencies on tasks outside the
+    planning item are kept. Every planning item of a phase with more than one
+    task must be sequenced before the plan passes (TASKS_NOT_SEQUENCED).
+    Refused for a task already frozen in a baseline (TASK_IN_BASELINE). The
+    orchestrator (mission.orchestrate) or an administrator."""
+    ids: list[str] = []
+    numbers = [t for t in tasks if str(t).strip().lstrip("#").isdigit()]
+    by_number: dict[int, str] = {}
+    if numbers:
+        data = await _factory_call("GET", f"/api/v1/missions/{project_id}/phases")
+        for row in data.get("phases", []):
+            for item in row.get("planning_items", []):
+                if item.get("planning_item_id") == planning_item_id:
+                    by_number = {t["number"]: t["task_id"] for t in item.get("tasks", [])}
+    for task in tasks:
+        text = str(task).strip().lstrip("#")
+        if text.isdigit():
+            if int(text) not in by_number:
+                raise FactoryError(f"TASK_NOT_FOUND: task #{text} is not in planning item {planning_item_id} "
+                                   "of a phase; pass task ids instead")
+            ids.append(by_number[int(text)])
+        else:
+            ids.append(text)
+    data, replayed = await _mission_write(
+        f"/api/v1/missions/{project_id}/plannings/{planning_item_id}/tasks:sequence",
+        {"task_ids": ids, "idempotency_key": idempotency_key})
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def request_phase_homologation(
+    project_id: str, phase: str, homologator_agent_id: str, idempotency_key: str, replace: bool = False,
+) -> dict[str, Any]:
+    """When every task of a phase is done, send the phase to homologation.
+    The homologator must be EXTERNAL (an active claude/codex/agy agent,
+    else HOMOLOGATOR_NOT_EXTERNAL), hold an active `homologation` membership
+    in the mission (add it with manage_project_members; else
+    HOMOLOGATOR_NOT_MEMBER) and be INDEPENDENT: it never executed nor reviewed
+    any task of the phase (else HOMOLOGATOR_NOT_INDEPENDENT). Open tasks
+    refuse with PHASE_TASKS_OPEN listing them. The homologator gets one
+    Messages task with the objective, the planning items and their tasks
+    with evidence, and answers with report_phase_homologation. `phase` is the
+    position or the phase_id. `replace=True` re-sends a phase that is already
+    homologating (e.g. the homologator never answered): the previous task is
+    withdrawn if it has not started; a run still in flight refuses
+    (HOMOLOGATION_RUN_IN_FLIGHT). The orchestrator (mission.orchestrate) or an
+    administrator."""
+    phase_id = await _phase_id(project_id, phase)
+    data, replayed = await _mission_write(
+        f"/api/v1/missions/{project_id}/phases/{phase_id}:request-homologation",
+        {"homologator_agent_id": homologator_agent_id, "idempotency_key": idempotency_key, "replace": replace})
+    return {**data, "replayed": replayed}
+
+
+@mcp.tool()
+async def report_phase_homologation(
+    project_id: str, phase: str, verdict: str, summary: str, evidence: list[str], idempotency_key: str,
+) -> dict[str, Any]:
+    """Your verdict as the phase's homologator (only the agent the phase was
+    sent to may call it, while it is homologating). Test the delivery against
+    the phase objective first. `verdict`: approved | rejected; `summary`: what
+    you tested and found; `evidence`: refs (git:<sha>, file:<path>, URLs),
+    required when approved. Approved sends the phase to Marcelo, who approves
+    or returns it; rejected returns it to the orchestrator with your findings.
+    `phase` is the position or the phase_id."""
+    if verdict not in ("approved", "rejected"):
+        raise FactoryError("verdict must be approved or rejected.")
+    phase_id = await _phase_id(project_id, phase)
+    data, replayed = await _mission_write(
+        f"/api/v1/missions/{project_id}/phases/{phase_id}:report-homologation",
+        {"verdict": verdict, "summary": summary, "evidence": evidence, "idempotency_key": idempotency_key})
+    return {**data, "replayed": replayed}
+
+
+# ---------------------------------------------------------------------------
+# Marcelo's authorization (2026-11-13)
+# ---------------------------------------------------------------------------
+@mcp.tool()
+async def request_marcelo_approval(
+    project_id: str, action: str, justification: str, instructions: str, idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    """Ask Marcelo to authorize something OUTSIDE your mandate as a mission's
+    orchestrator: extra cost, anything touching production, a scope change,
+    an irreversible action (deleting data, publishing, contracting). Use it
+    instead of doing the thing and instead of asking in free text.
+    `project_id` is the mission; `action` names what you want to do (one
+    line); `justification` says why it is needed now and the risk of not
+    doing it; `instructions` is exactly what YOU will execute once approved
+    (self-contained: paths, commands, criteria to verify).
+    ForgeHub files it as a task from you to yourself, held for approval in
+    Pessoal -> Tarefas dos agentes, and notifies Marcelo. Nothing runs until
+    he approves; once approved, the instructions are dispatched back to you
+    as an ordinary Messages task. Rejected = do NOT do it (the rejection and
+    its reason come back to your inbox). Needs mission.orchestrate on that
+    mission; refused on a completed/cancelled mission (MISSION_TERMINAL).
+    Pass your own idempotency_key (e.g. <agent>-auth-<uuid4>) to make a
+    retry safe; when omitted one is generated, so a retry files a new request.
+    For a matter that is not about a mission, use send_agent_message with
+    requires_approval=True instead."""
+    import uuid as _uuid
+
+    data, replayed = await _mission_write(f"/api/v1/missions/{project_id}/approval-requests", {
+        "action": action, "justification": justification, "instructions": instructions,
+        "idempotency_key": idempotency_key or f"auth-{_uuid.uuid4()}"})
+    return {**data, "replayed": replayed}
+
+
+# ---------------------------------------------------------------------------
+# Operação 24x7 routines (2026-11-13)
+# ---------------------------------------------------------------------------
+_ROUTINE_RULES = """Routines are recurring work an agent owes: each occurrence becomes an
+    ordinary Messages task addressed to the routine's agent, sent from the
+    agent that created the routine. `schedule` is a standard 5-field cron
+    (minute hour day-of-month month day-of-week, e.g. "0 8 * * 1-5" = 08:00 on
+    weekdays, "*/30 * * * *" = every 30 min) evaluated in `timezone` (IANA
+    name, default America/Sao_Paulo); never more often than every 15 minutes.
+    Changes take effect immediately (no approval), are audited under your
+    name, and are bounded: the target must be an active agent with a charter
+    (ROUTINE_TARGET_INACTIVE, ROUTINE_TARGET_WITHOUT_CHARTER), never a
+    claude/codex/agy agent -- code work goes through missions/Messages with
+    review (ROUTINE_TARGET_NOT_ALLOWED) -- and the busiest day of its enabled
+    routines must fit its charter's daily run budget (ROUTINE_EXCEEDS_CHARTER).
+    You edit, delete and run now only the routines you created
+    (ROUTINE_NOT_OWNED). Every write takes an idempotency_key: pass your own
+    (e.g. <agent>-routine-<uuid4>) so a retry after a timeout replays instead
+    of acting twice; when omitted one is generated, so a retry acts again.
+    Needs an operations.routines.manage delegation (and MISSION_TOOLS_ENABLED)."""
+
+
+def _routine_doc(fn):
+    """Append the shared routine rules to a tool's docstring (read by FastMCP)."""
+    fn.__doc__ = f"{fn.__doc__}\n\n    {_ROUTINE_RULES}"
+    return fn
+
+
+def _routine_key(idempotency_key: str | None) -> str:
+    import uuid as _uuid
+
+    return idempotency_key or f"routine-{_uuid.uuid4()}"
+
+
+async def _routine_write(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+    response = await _factory_request(method, path, json=body, write=True)
+    return response.json()
+
+
+@mcp.tool()
+@_routine_doc
+async def list_routines(agent_id: str | None = None) -> list[dict[str, Any]]:
+    """List Operação 24x7 routines (optionally of one agent): id, agent,
+    title, instructions, schedule, timezone, enabled, next_occurrences and
+    created_by ("agent:<slug>" or an admin's username)."""
+    return await _factory_call("GET", _query("/api/v1/operations/agent/routines", agent_id=agent_id))
+
+
+@mcp.tool()
+@_routine_doc
+async def create_routine(
+    agent_id: str, title: str, instructions: str, schedule: str, timezone: str = "America/Sao_Paulo",
+    kind: str = "monitoring", expected_evidence: str | None = None, deadline_minutes: int = 60,
+    enabled: bool = True, idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    """Create a routine for an agent (agent_id from list_agents). `kind`:
+    monitoring | maintenance | improvement | report | coordination;
+    `instructions` is the prompt each occurrence sends (self-contained);
+    `deadline_minutes` (5-1440) is how long an occurrence may wait before it
+    counts as missed. A Hermes agent never edits code: give it monitoring,
+    reporting or coordination work."""
+    body: dict[str, Any] = {"agent_id": agent_id, "title": title, "instructions": instructions,
+                            "schedule": schedule, "timezone": timezone, "kind": kind,
+                            "deadline_minutes": deadline_minutes, "enabled": enabled,
+                            "idempotency_key": _routine_key(idempotency_key)}
+    if expected_evidence is not None:
+        body["expected_evidence"] = expected_evidence
+    return await _routine_write("POST", "/api/v1/operations/agent/routines", body)
+
+
+@mcp.tool()
+@_routine_doc
+async def update_routine(
+    routine_id: str, enabled: bool | None = None, schedule: str | None = None, timezone: str | None = None,
+    title: str | None = None, instructions: str | None = None, expected_evidence: str | None = None,
+    deadline_minutes: int | None = None, idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    """Change a routine YOU created: enable or disable it, reschedule it,
+    rename it or rewrite its prompt (`instructions`). Only the fields you
+    pass change; re-enabling or rescheduling starts from now (no replay of
+    past occurrences). The budget is re-checked only when the schedule,
+    timezone or enabled flag changes."""
+    body: dict[str, Any] = {key: value for key, value in (
+        ("enabled", enabled), ("schedule", schedule), ("timezone", timezone), ("title", title),
+        ("instructions", instructions), ("expected_evidence", expected_evidence),
+        ("deadline_minutes", deadline_minutes)) if value is not None}
+    if not body:
+        raise FactoryError("Pass at least one field to change.")
+    body["idempotency_key"] = _routine_key(idempotency_key)
+    return await _routine_write("PATCH", f"/api/v1/operations/agent/routines/{routine_id}", body)
+
+
+@mcp.tool()
+async def delete_routine(routine_id: str, idempotency_key: str | None = None) -> dict[str, Any]:
+    """Delete a routine YOU created (others: ROUTINE_NOT_OWNED), with its run
+    history. Prefer update_routine(enabled=False) to pause it. Audited. Pass
+    your own idempotency_key to make a retry safe."""
+    path = _query(f"/api/v1/operations/agent/routines/{routine_id}", idempotency_key=_routine_key(idempotency_key))
+    return await _routine_write("DELETE", path)
+
+
+@mcp.tool()
+async def run_routine_now(routine_id: str, idempotency_key: str | None = None) -> dict[str, Any]:
+    """Run one extra occurrence of a routine YOU created now, outside its
+    schedule (its cursor does not move; others: ROUTINE_NOT_OWNED). It still
+    counts against the agent's daily run budget: past it, the run is recorded
+    as skipped_budget. Audited. Pass your own idempotency_key to make a retry
+    safe."""
+    return await _routine_write("POST", f"/api/v1/operations/agent/routines/{routine_id}:run-now",
+                                {"idempotency_key": _routine_key(idempotency_key)})
+
+
+@mcp.tool()
+async def list_routine_runs(routine_id: str | None = None, agent_id: str | None = None,
+                            limit: int = 50) -> list[dict[str, Any]]:
+    """Recent occurrences of routines, newest first: status (scheduled,
+    running, completed, failed, missed, skipped_budget), the Messages task
+    number, detail and whether it is overdue."""
+    return await _factory_call("GET", _query("/api/v1/operations/agent/runs", routine_id=routine_id,
+                                             agent_id=agent_id, limit=str(limit)))
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator decision cycle (M0.8, MISSION_ORCHESTRATOR_CYCLE_SPEC.md §2.3, §7)
 # ---------------------------------------------------------------------------
 @mcp.tool()
@@ -973,11 +1349,14 @@ async def set_agent_unavailable(agent_id: str, until: str | None, reason: str, i
 async def propose_skill_change(
     project_id: str, kind: str, reason: str, idempotency_key: str, task_id: str | None = None,
     skill_id: str | None = None, agent_id: str | None = None, cycle_id: str | None = None,
+    learning: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Propose a skill change for a mission task (kind: assign_other_agent |
     grant_to_agent | create_skill). Only records the proposal and hands it to
     the skill's owner; it never grants, installs or edits a skill."""
     body = {"kind": kind, "reason": reason, "idempotency_key": idempotency_key}
+    if learning is not None:
+        body["learning"] = learning
     for key, value in (("task_id", task_id), ("skill_id", skill_id), ("agent_id", agent_id), ("cycle_id", cycle_id)):
         if value:
             body[key] = value

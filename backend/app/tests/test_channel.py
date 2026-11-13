@@ -190,7 +190,7 @@ async def test_ad_hoc_channel_dispatch_is_executable_without_project_task(
 
     dispatched_paths: list[str] = []
 
-    async def fake_dispatch(run_id, agent, prompt, project_path):
+    async def fake_dispatch(run_id, agent, prompt, project_path, **_kwargs):
         dispatched_paths.append(project_path)
         return {"run_id": run_id, "status": "queued"}
 

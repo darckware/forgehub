@@ -48,7 +48,7 @@ async def mission_content_part(db, mission: ProjectMission) -> dict[str, Any]:
         select(MissionAcceptanceCriterion)
         .where(MissionAcceptanceCriterion.mission_project_id == mission.project_id)
     )).scalars().all()
-    return {
+    part = {
         "brief_artifact_id": mission.brief_artifact_id,
         "brief_artifact_version_id": brief_version_id,
         "criteria": sorted(
@@ -59,6 +59,15 @@ async def mission_content_part(db, mission: ProjectMission) -> dict[str, Any]:
             for c in criteria
         ),
     }
+    # Mission phases (MISSION_PHASES_PLAN.md): the ordered phases and their
+    # objectives are part of the approved plan. Only present when the mission
+    # has a phase, so a mission without phases hashes exactly as before.
+    from app.core.mission_phases import phase_hash_part
+
+    phases = await phase_hash_part(db, mission)
+    if phases:
+        part["phases"] = phases
+    return part
 
 
 async def task_content_part(db, task: ProjectTask) -> dict[str, Any]:

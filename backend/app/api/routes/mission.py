@@ -50,6 +50,7 @@ from app.api.schemas.mission import (
     MissionDocumentOut,
     MissionOrchestratorRef,
     MissionOut,
+    MissionProductRegistrationIn,
     MissionTransitionIn,
     MissionUpdate,
     MyMissionRoleOut,
@@ -107,7 +108,8 @@ from app.db.models.mission import (
 )
 from app.db.models.operations import AgentCharter
 from app.db.models.orchestration import PROJECT_AGENT_ROLES, ProjectAgentMembership, TaskExecutionReview
-from app.db.models.product import ProductVersion
+from app.db.models.product import Product, ProductVersion
+from app.core.mission_docs import read_mission_docs
 from app.db.models.project import ChangeRequest, Project
 from app.db.models.task import TASK_STATUSES, ProjectTask, TaskAssignment, TaskExecution
 
@@ -162,6 +164,7 @@ async def _out(db: AsyncSession, project: Project, mission: ProjectMission) -> M
         current_baseline_id=mission.current_baseline_id,
         deadline_at=mission.deadline_at,
         budget_limit=mission.budget_limit,
+        product_registration_pending=mission.product_registration_pending,
         paused_seconds=mission.paused_seconds,
         state_changed_at=mission.state_changed_at,
         state_reason=mission.state_reason,
@@ -226,12 +229,20 @@ async def create_mission(
     command = f"mission.create_internal_project.{payload.project_type}"
     body_hash = request_hash(command, payload.model_dump(mode="json"))
 
-    version = await db.get(ProductVersion, payload.product_version_id)
-    if version is None:
-        raise mission_error(404, "PRODUCT_VERSION_NOT_FOUND", "Product version not found")
+    if (payload.product_version_id is None) == (payload.new_product is None):
+        if payload.product_version_id is None and not is_mission:
+            raise mission_error(422, "PRODUCT_VERSION_REQUIRED", "product_version_id is required")
+        raise mission_error(422, "PRODUCT_CHOICE_REQUIRED",
+                            "Give exactly one of product_version_id or new_product")
+    version = None
+    if payload.product_version_id is not None:
+        version = await db.get(ProductVersion, payload.product_version_id)
+        if version is None:
+            raise mission_error(404, "PRODUCT_VERSION_NOT_FOUND", "Product version not found")
     if principal.principal_type == "user" and not principal.is_admin:
         raise mission_error(403, "MISSION_ADMIN_ONLY", "Only an administrator creates a mission in M0")
-    source, delegation = await _authorize_manage(db, principal, product_id=version.product_id)
+    source, delegation = await _authorize_manage(
+        db, principal, product_id=version.product_id if version is not None else None)
     if payload.idempotency_key is not None:
         replay = await begin_command(db, principal, payload.idempotency_key, command, body_hash)
         if replay is not None:
@@ -246,13 +257,17 @@ async def create_mission(
                                 fields=misplaced)
     if payload.working_directory_path is not None and not payload.working_directory_path.startswith("/"):
         raise mission_error(422, "PATH_NOT_ABSOLUTE", "working_directory_path must be absolute")
-    await _assert_name_free_in_version(db, payload.product_version_id, payload.name)
+    if version is None:
+        version = await _register_new_product_shell(db, payload, principal)
+    else:
+        await _assert_name_free_in_version(db, version.id, payload.name)
 
     if is_mission:
-        project = await _add_mission(db, payload, principal, source, delegation)
+        project = await _add_mission(db, payload, principal, source, delegation, version_id=version.id,
+                                     product_registration_pending=payload.new_product is not None)
     else:
         project = await build_project(db, ProjectCreate(
-            name=payload.name, description=payload.description, product_version_id=payload.product_version_id,
+            name=payload.name, description=payload.description, product_version_id=version.id,
             owner=principal.display_name, working_directory_path=payload.working_directory_path,
         ), project_type=payload.project_type)
         if principal.principal_type == "agent":
@@ -302,8 +317,44 @@ async def _assert_name_free_in_version(db: AsyncSession, version_id: uuid.UUID, 
                             project_id=str(existing.id), project_type=existing.project_type)
 
 
+async def _register_new_product_shell(
+    db: AsyncSession, payload: MissionCreate, principal: ActorPrincipal,
+) -> ProductVersion:
+    """A mission for a product/service that does not exist yet (2026-11-12).
+
+    ForgeHub registers only the minimal shell -- name, kind, status
+    ``concept`` and the 0.1.0 ``planned`` version rule 6.1.3 requires -- in the
+    mission's own transaction, so the chain product -> version -> mission is
+    never broken. Everything else is the orchestrator's job
+    (complete_mission_product_registration)."""
+    new = payload.new_product
+    assert new is not None
+    name = new.name.strip()
+    if not name:
+        raise mission_error(422, "PRODUCT_NAME_REQUIRED", "new_product.name cannot be blank")
+    existing = await db.scalar(select(Product.id).where(func.lower(func.btrim(Product.name)) == name.lower()).limit(1))
+    if existing is not None:
+        raise mission_error(409, "PRODUCT_NAME_EXISTS", "A product with this name already exists; pick it instead",
+                            product_id=str(existing))
+    product = Product(
+        kind=new.kind, sellable=False, name=name, status="concept",
+        description=(new.notes or "").strip() or None,
+    )
+    version = ProductVersion(product=product, version="0.1.0", status="planned")
+    db.add(product)
+    db.add(version)
+    await db.flush()
+    db.add(AuditEvent(
+        entity_type="product", entity_id=product.id, event_type="product_shell_created_for_mission",
+        actor=principal.display_name,
+        payload={"kind": new.kind, "product_version_id": str(version.id), "mission_name": payload.name},
+    ))
+    return version
+
+
 async def _add_mission(
-    db: AsyncSession, payload: MissionCreate, principal: ActorPrincipal, source: str, delegation,
+    db: AsyncSession, payload: MissionCreate, principal: ActorPrincipal, source: str, delegation, *,
+    version_id: uuid.UUID, product_registration_pending: bool = False,
 ) -> Project:
     orchestrator_id = payload.orchestrator_agent_id
     if orchestrator_id is None:
@@ -328,7 +379,7 @@ async def _add_mission(
     project = Project(
         name=payload.name,
         description=payload.description,
-        product_version_id=payload.product_version_id,
+        product_version_id=version_id,
         owner=principal.display_name,
         project_type="mission",
         status=MISSION_STATUS_PROJECTION["draft"],
@@ -345,6 +396,7 @@ async def _add_mission(
         brief_artifact_id=payload.brief_artifact_id,
         deadline_at=payload.deadline_at,
         budget_limit=payload.budget_limit,
+        product_registration_pending=product_registration_pending,
         state_changed_at=utcnow(),
     ))
     # Exactly one orchestrator, and it is the mission's active coordinator.
@@ -353,6 +405,7 @@ async def _add_mission(
         responsibilities="Mission orchestrator",
     ))
     for executor_id in executors:
+        # A plain executor link, not a phase (phases come from POST /phases).
         db.add(MissionProjectLink(
             mission_project_id=project.id, executor_project_id=executor_id, linked_by=principal.display_name,
         ))
@@ -523,17 +576,26 @@ async def get_my_mission_role(
         raise mission_error(404, "PROJECT_NOT_FOUND", "Project not found")
     mission_state = None
     orchestrator = None
+    registration_pending = None
+    product = (await db.execute(select(Product).join(ProductVersion, ProductVersion.product_id == Product.id)
+                                .where(ProductVersion.id == project.product_version_id))).scalar_one_or_none()
     if project.project_type == "mission":
         _project, mission = await _load(db, project_id)
         mission_state = mission.state
+        registration_pending = mission.product_registration_pending
         agent = await db.get(Agent, mission.orchestrator_agent_id)
         if agent is not None:
             orchestrator = MissionOrchestratorRef(agent_id=agent.id, name=agent.name)
     tasks, reviews = await _my_work(db, agent_id, [membership])
+    docs = await read_mission_docs(project.working_directory_path)
     return MyMissionRoleOut(
         project_id=project.id, project_type=project.project_type, mission_state=mission_state,
         membership_id=membership.id, role=membership.role, can_review=membership.can_review,
         responsibilities=membership.responsibilities, orchestrator=orchestrator,
+        product_id=product.id if product is not None else None,
+        product_name=product.name if product is not None else None,
+        product_registration_pending=registration_pending,
+        docs_path=docs.path, docs_status=docs.status, docs_files=docs.files,
         my_tasks=tasks, my_reviews=reviews,
     )
 
@@ -593,6 +655,59 @@ async def update_mission(
         entity_type="mission", entity_id=project_id, event_type="mission_updated", actor=principal.display_name,
         payload=_audit_payload(principal, source, delegation, reason=payload.reason,
                                changes={k: [str(before[k]), str(v)] for k, v in data.items()}),
+    ))
+    await db.commit()
+    project, mission = await _load(db, project_id)
+    return await _out(db, project, mission)
+
+
+@router.post("/{project_id}/product:complete-registration", response_model=MissionOut)
+async def complete_product_registration(
+    project_id: uuid.UUID,
+    payload: MissionProductRegistrationIn,
+    principal: ActorPrincipal = Depends(get_actor_principal),
+    db: AsyncSession = Depends(get_db),
+) -> MissionOut:
+    """The orchestrator (or an admin) completes the registration of the new
+    product/service the mission was created with (2026-11-12): description,
+    optionally a corrected name/kind, written from Marcelo's context and the
+    study material in <working dir>/docs/; the product leaves ``concept`` for
+    ``active`` and the mission's PRODUCT_REGISTRATION_PENDING condition lifts.
+    Only while the flag is set -- afterwards the product is edited in its
+    own screen like any other."""
+    project, mission = await _load(db, project_id, lock=True)
+    source, delegation, role = await _authorize_conduct(db, principal, mission)
+    _check_row_version(mission, payload.expected_row_version)
+    if mission.state in ("completed", "cancelled"):
+        raise mission_error(409, "MISSION_TERMINAL", "A completed or cancelled mission is read-only")
+    if not mission.product_registration_pending:
+        raise mission_error(409, "PRODUCT_REGISTRATION_NOT_PENDING",
+                            "This mission's product registration is not pending")
+    product = (await db.execute(select(Product).join(ProductVersion, ProductVersion.product_id == Product.id)
+                                .where(ProductVersion.id == project.product_version_id)
+                                .with_for_update(of=Product))).scalar_one()
+    before = {"name": product.name, "kind": product.kind, "status": product.status}
+    if payload.name is not None and payload.name.strip().lower() != product.name.strip().lower():
+        name = payload.name.strip()
+        clash = await db.scalar(select(Product.id).where(
+            func.lower(func.btrim(Product.name)) == name.lower(), Product.id != product.id).limit(1))
+        if clash is not None:
+            raise mission_error(409, "PRODUCT_NAME_EXISTS", "A product with this name already exists",
+                                product_id=str(clash))
+        product.name = name
+    if payload.kind is not None:
+        product.kind = payload.kind
+    product.description = payload.description.strip()
+    if product.status == "concept":
+        product.status = "active"
+    mission.product_registration_pending = False
+    mission.row_version += 1
+    db.add(AuditEvent(
+        entity_type="mission", entity_id=project_id, event_type="mission_product_registered",
+        actor=principal.display_name,
+        payload=_audit_payload(principal, source, delegation, role=role, product_id=str(product.id),
+                               before=before, after={"name": product.name, "kind": product.kind,
+                                                     "status": product.status}),
     ))
     await db.commit()
     project, mission = await _load(db, project_id)
@@ -905,6 +1020,11 @@ async def apply_project_members(
         if role in CODE_ROLES and agent.runtime_type not in CODE_RUNTIMES:
             violations.append(_violation(index, op, "CODE_ROLE_REQUIRES_EXTERNAL_RUNTIME",
                                          "Code roles are only for claude/codex/agy agents",
+                                         role=role, runtime_type=agent.runtime_type))
+        if role == "homologation" and agent.runtime_type not in CODE_RUNTIMES:
+            # MISSION_PHASES_PLAN.md: a phase is homologated by an external agent.
+            violations.append(_violation(index, op, "HOMOLOGATION_REQUIRES_EXTERNAL_RUNTIME",
+                                         "The homologation role is only for claude/codex/agy agents",
                                          role=role, runtime_type=agent.runtime_type))
         if op.can_approve:
             violations.append(_violation(index, op, "CAN_APPROVE_NOT_FOR_AGENTS",

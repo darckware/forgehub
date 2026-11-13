@@ -16,9 +16,10 @@ from app.api.schemas.execution import (
     WorkPackageOut,
 )
 from app.core.config import settings
+from app.core.agent_runs import AgentRunDispatchError, dispatch_agent_run
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
-from app.core.dispatch_targets import ACTIVE_EXECUTION_STATES, DISPATCH_ADMISSION_LOCK, assert_task_targets_free
 from app.core.secrets import decrypt_secret
+from app.core.dispatch_targets import ACTIVE_EXECUTION_STATES, DISPATCH_ADMISSION_LOCK, assert_task_targets_free
 from app.core.task_baseline_guard import assert_task_baseline_current
 from app.core.task_dependencies import blocking_task_dependencies, ensure_task_dependencies_satisfied
 from app.db.base import get_db
@@ -100,6 +101,50 @@ async def _checkpoint(db: AsyncSession, principal: ActorPrincipal, wave: Executi
         message=message, actor_type=principal.principal_type, actor_id=principal.principal_id,
         actor_name=principal.display_name, idempotency_key=key,
     ))
+
+
+async def _mark_reconciling(db: AsyncSession, principal: ActorPrincipal, wave: ExecutionWave, execution: TaskExecution, _reason: str) -> None:
+    if execution.status in {"completed", "failed", "cancelled"}:
+        return
+    execution.status = "reconciling"
+    # Lease statuses are intentionally limited to claimed/running/terminal.
+    # Keep the live lease unreleased while the TaskExecution carries the
+    # reconciliation barrier.
+    await _event(db, execution.id, "reconciliation_required", {}, f"{execution.id}:reconciliation-required")
+    await _checkpoint(db, principal, wave, execution, "heartbeat_lost", "runtime_reconcile",
+                      "Runner acknowledgement is uncertain; reconcile the reserved attempt", f"runner:{execution.id}:reconciliation-required")
+
+
+async def _lock_fresh_execution(db: AsyncSession, execution_id: uuid.UUID) -> TaskExecution:
+    execution = await db.scalar(select(TaskExecution).where(TaskExecution.id == execution_id)
+        .with_for_update().execution_options(populate_existing=True))
+    if execution is None:
+        raise HTTPException(404, "Governed execution not found")
+    return execution
+
+
+async def _terminal_execution_response(db: AsyncSession, execution: TaskExecution) -> ExecutionRuntimeOut | None:
+    if execution.status not in {"completed", "failed", "cancelled"}:
+        return None
+    existing = (await db.execute(select(ExecutionResult).where(
+        ExecutionResult.task_execution_id == execution.id))).scalar_one_or_none()
+    if execution.status == "completed" and existing is None:
+        raise HTTPException(409, detail={"code": "TERMINAL_RESULT_MISSING",
+            "message": "Execution is marked completed without its validated result; operator reconciliation is required"})
+    return ExecutionRuntimeOut(execution_id=execution.id, status=execution.status,
+        run={"run_id": execution.runtime_session_ref, "status": execution.status,
+             "reconciled_from_database": True}, result=existing.result_payload if existing else None)
+
+
+async def _terminal_dispatch_response(db: AsyncSession, execution: TaskExecution,
+                                      package: ExecutionWorkPackage) -> DispatchOut:
+    lease = (await db.execute(select(ExecutionLease).where(
+        ExecutionLease.task_execution_id == execution.id))).scalar_one_or_none()
+    if lease is None:
+        raise HTTPException(409, "Execution lease is unavailable for the reserved attempt")
+    return DispatchOut(execution_id=execution.id, work_package_id=package.id,
+        lease_id=lease.id, run_id=execution.runtime_session_ref or str(execution.id),
+        status=execution.status, runtime_type=execution.runtime_type)
 
 
 async def _wave_tasks(db: AsyncSession, wave_id: uuid.UUID) -> list[ExecutionWaveTask]:
@@ -259,6 +304,9 @@ def _safe_paths(values: list[str]) -> bool:
 
 @router.post("/execution-waves/{wave_id}/tasks/{task_id}/work-packages", response_model=WorkPackageOut, status_code=201)
 async def build_work_package(wave_id: uuid.UUID, task_id: uuid.UUID, payload: WorkPackageCreate, principal: ActorPrincipal = Depends(get_actor_principal), db: AsyncSession = Depends(get_db)) -> ExecutionWorkPackage:
+    if payload.runtime_intent is not None and not settings.RUNTIME_CONTRACT_ENABLED:
+        raise HTTPException(422, detail={"code": "RUNTIME_CONTRACT_DISABLED",
+            "message": "runtime_intent requires RUNTIME_CONTRACT_ENABLED"})
     wave = await _wave(db, wave_id); await authorize_action(db, principal, "planning.execution.manage", project_id=wave.project_id)
     if wave.status != "active": raise HTTPException(409, "Execution wave must be active")
     if not await db.scalar(select(ExecutionWaveTask.id).where(ExecutionWaveTask.execution_wave_id == wave.id, ExecutionWaveTask.task_id == task_id)): raise HTTPException(404, "Task is not part of this wave")
@@ -280,11 +328,20 @@ async def build_work_package(wave_id: uuid.UUID, task_id: uuid.UUID, payload: Wo
         "baseline_id": str(wave.baseline_id), "execution_wave_id": str(wave.id), "pipeline_stage_id": str(wave.pipeline_stage_id) if wave.pipeline_stage_id else None,
         "task": {"id": str(task.id), "title": task.title, "description": task.description, "priority": task.priority, "acceptance_criteria": payload.acceptance_criteria, "definition_of_done": payload.definition_of_done},
         "assignment": {"id": str(assignment.id), "membership_id": str(membership.id)},
-        "runtime": {"type": runtime, "profile_id": str(profile.id), "model_ref": profile.model_ref, "routing_group": profile.routing_group},
+        "runtime": {"type": runtime, "mode": payload.execution_mode, "profile_id": str(profile.id), "model_ref": profile.model_ref, "routing_group": profile.routing_group},
         "constraints": {"allowed_paths": payload.allowed_paths, "denied_paths": payload.denied_paths, "max_seconds": payload.max_seconds},
         "inputs": {"artifact_ids": [str(x) for x in payload.input_artifact_ids]},
         "verification": {"commands": payload.verification_commands}, "prompt_addendum": payload.prompt_addendum,
     }
+    if settings.RUNTIME_CONTRACT_ENABLED:
+        from app.core.runtime_intent import resolve_runtime_intent
+        try:
+            package_payload['runtime_intent'] = await resolve_runtime_intent(
+                db, task_id, membership.agent_id or (await db.get(SubAgent, membership.sub_agent_id)).agent_id,
+                payload.runtime_intent.model_dump() if payload.runtime_intent is not None else {},
+                sub_agent_id=membership.sub_agent_id)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
     errors = []
     if not project.working_directory_path: errors.append("project_working_directory_missing")
     if not payload.acceptance_criteria: errors.append("acceptance_criteria_missing")
@@ -372,11 +429,29 @@ async def dispatch_package(package_id: uuid.UUID, principal: ActorPrincipal = De
     if credential_agent_id is None:
         sub = await db.get(SubAgent, membership.sub_agent_id); credential_agent_id = sub.agent_id
     agent = await db.get(Agent, credential_agent_id)
-    if not agent or not agent.forgerouter_api_key_encrypted: raise HTTPException(409, "Assigned agent has no ForgeRouter credential")
-    api_key = decrypt_secret(agent.forgerouter_api_key_encrypted)
+    if not agent: raise HTTPException(409, "Assigned agent not found")
+    # A Hermes run of a work package has always carried the agent's ForgeRouter
+    # key (claude/codex/agy run on their own login and never receive one).
+    api_key = ""
+    if profile.runtime_type == "hermes":
+        if not agent.forgerouter_api_key_encrypted: raise HTTPException(409, "Assigned agent has no ForgeRouter credential")
+        api_key = decrypt_secret(agent.forgerouter_api_key_encrypted)
     config = (await db.execute(select(ProjectForgeRouterConfig).where(ProjectForgeRouterConfig.project_id == wave.project_id))).scalar_one_or_none()
     config_field = "antigravity_enabled" if profile.runtime_type in {"antigravity", "agy"} else f"{profile.runtime_type}_enabled"
     if not config or not getattr(config, config_field, False): raise HTTPException(409, "Runtime is not enabled for this project")
+    if package.payload_hash != _hash(package.payload):
+        raise HTTPException(409, 'Work package payload hash mismatch')
+    resolved_intent = None
+    if settings.RUNTIME_CONTRACT_ENABLED:
+        from app.core.runtime_intent import resolve_runtime_intent
+        try:
+            resolved_intent = await resolve_runtime_intent(
+                db, package.task_id, credential_agent_id, package.payload.get('runtime_intent') or {},
+                sub_agent_id=membership.sub_agent_id)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        if resolved_intent != package.payload.get('runtime_intent'):
+            raise HTTPException(409, 'Runtime skill requirements changed; issue a fresh work package')
     runner = await _runner(db)
     if runner.status != "online" or runner.disabled: raise HTTPException(503, "No healthy execution runner is available")
     runtime_key = "agy" if profile.runtime_type == "antigravity" else profile.runtime_type
@@ -386,18 +461,51 @@ async def dispatch_package(package_id: uuid.UUID, principal: ActorPrincipal = De
     max_attempt = int(await db.scalar(select(func.coalesce(func.max(TaskExecution.attempt_number), 0)).where(TaskExecution.task_id == package.task_id)) or 0)
     execution = TaskExecution(task_id=package.task_id, assignment_id=package.assignment_id, runtime_profile_id=package.runtime_profile_id, work_package_id=package.id, attempt_number=max_attempt + 1, executor_type="sub_agent" if membership.sub_agent_id else "agent", runtime_type="agy" if profile.runtime_type == "antigravity" else profile.runtime_type, status="pending")
     db.add(execution); await db.flush()
+    # Persist the reserved identity before the external start. A lost reply
+    # cannot establish that the bridge did not accept this exact attempt.
+    execution.runtime_session_ref = str(execution.id)
     now = datetime.now(timezone.utc); lease = ExecutionLease(work_package_id=package.id, runner_id=runner.id, task_execution_id=execution.id, status="claimed", leased_at=now, expires_at=now + timedelta(seconds=int(package.payload["constraints"]["max_seconds"]) + 120), heartbeat_at=now)
     db.add(lease); await db.flush(); await _event(db, execution.id, "claimed", {"lease_id": str(lease.id)}, f"{execution.id}:claimed"); await db.commit()
     project = await db.get(Project, wave.project_id)
-    body = {"run_id": str(execution.id), "runtime_type": execution.runtime_type, "agent_slug": agent.profile_slug, "project_path": project.working_directory_path, "prompt": _prompt(package), "model_ref": profile.model_ref, "routing_group": profile.routing_group, "api_key": api_key, "mode": "execute", "max_seconds": package.payload["constraints"]["max_seconds"], "max_budget_usd": float(profile.max_budget_usd) if profile.max_budget_usd is not None else None, "work_package_hash": package.payload_hash}
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(f"{settings.CHAT_BRIDGE_URL}/v1/agent-runs", json=body, headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN}); response.raise_for_status(); run = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
+        run = await dispatch_agent_run(
+            str(execution.id), agent, _prompt(package), project.working_directory_path,
+            runtime_type=execution.runtime_type,
+            mode=package.payload['runtime'].get('mode', 'execute'),
+            model_ref=profile.model_ref, routing_group=profile.routing_group,
+            max_seconds=package.payload['constraints']['max_seconds'],
+            max_budget_usd=float(profile.max_budget_usd) if profile.max_budget_usd is not None else None,
+            work_package_hash=package.payload_hash, runtime_intent=resolved_intent,
+            api_key=api_key,
+        )
+    except AgentRunDispatchError as exc:
+        execution = await _lock_fresh_execution(db, execution.id)
+        terminal = await _terminal_execution_response(db, execution)
+        if terminal:
+            return await _terminal_dispatch_response(db, execution, package)
+        lease = (await db.execute(select(ExecutionLease).where(
+            ExecutionLease.task_execution_id == execution.id))).scalar_one()
         execution.status = "failed"; execution.finished_at = datetime.now(timezone.utc); execution.outcome_summary = f"Runner dispatch failed: {exc}"; lease.status = "released"; lease.released_at = datetime.now(timezone.utc)
+        await _revoke_run_credential(db, execution, "dispatch_refused")
         await _event(db, execution.id, "failed", {"error": str(exc)}, f"{execution.id}:dispatch-failed"); await _checkpoint(db, principal, wave, execution, "failed", "dispatch", str(exc), f"runner:{execution.id}:dispatch-failed"); await db.commit()
         raise HTTPException(502, f"CLI runner dispatch failed: {exc}") from exc
-    execution.status = "running"; execution.started_at = datetime.now(timezone.utc); execution.runtime_session_ref = run["run_id"]; execution.process_ref = str(run.get("pid") or run["run_id"]); execution.adapter_version = runner.adapter_version
+    except (httpx.HTTPError, ValueError) as exc:
+        execution = await _lock_fresh_execution(db, execution.id)
+        terminal = await _terminal_execution_response(db, execution)
+        if terminal:
+            return await _terminal_dispatch_response(db, execution, package)
+        await _mark_reconciling(db, principal, wave, execution, str(exc))
+        await db.commit()
+        raise HTTPException(502, 'Runner start acknowledgement unavailable; reconcile the reserved attempt') from exc
+    execution = await _lock_fresh_execution(db, execution.id)
+    terminal = await _terminal_execution_response(db, execution)
+    if terminal:
+        return await _terminal_dispatch_response(db, execution, package)
+    if not isinstance(run, dict) or run.get('run_id') != execution.runtime_session_ref:
+        await _mark_reconciling(db, principal, wave, execution, 'start acknowledgement identity mismatch')
+        await db.commit()
+        raise HTTPException(502, 'Runner start acknowledgement unavailable; reconcile the reserved attempt')
+    execution.status = "running"; execution.started_at = datetime.now(timezone.utc); execution.process_ref = str(run.get("pid") or run["run_id"]); execution.adapter_version = runner.adapter_version
     lease.status = "running"; task = await db.get(ProjectTask, execution.task_id); task.status = "in_progress"
     await _event(db, execution.id, "started", {"run_id": run["run_id"], "runtime": execution.runtime_type}, f"{execution.id}:started"); await _checkpoint(db, principal, wave, execution, "started", "cli_execution", "CLI process started", f"runner:{execution.id}:started"); await _audit(db, "task_execution", execution.id, "execution_dispatched", principal, {"work_package_id": str(package.id), "runtime_type": execution.runtime_type}); await db.commit()
     return DispatchOut(execution_id=execution.id, work_package_id=package.id, lease_id=lease.id, run_id=run["run_id"], status=execution.status, runtime_type=execution.runtime_type)
@@ -458,29 +566,114 @@ def _result_payload(run: dict) -> tuple[dict, list[str]]:
     return parsed, errors
 
 
+async def _revoke_run_credential(db: AsyncSession, execution: TaskExecution, outcome: str) -> None:
+    """Close the individual agt_ credential dispatch_agent_run minted for this
+    attempt (label dispatch:<execution id>) in the transaction that records its
+    terminal state, as Messages does for its own runs."""
+    from app.db.models.agent import AgentServiceCredential
+    rows = (await db.scalars(select(AgentServiceCredential).where(
+        AgentServiceCredential.label == f"dispatch:{execution.id}",
+        AgentServiceCredential.revoked_at.is_(None)).with_for_update())).all()
+    now = datetime.now(timezone.utc)
+    for credential in rows:
+        credential.revoked_at = now
+        await _event(db, execution.id, "dispatch_credential_revoked",
+                     {"credential_id": str(credential.id), "outcome": outcome},
+                     f"{execution.id}:credential-revoked:{credential.id}")
+
+
+async def _ingest_terminal_result(db, principal, wave, package, execution, lease, run) -> ExecutionRuntimeOut:
+    """Persist the same validated result regardless of whether refresh or cancel observed exit."""
+    payload, errors = _result_payload(run)
+    existing = (await db.execute(select(ExecutionResult).where(
+        ExecutionResult.task_execution_id == execution.id))).scalar_one_or_none()
+    if not existing:
+        existing = ExecutionResult(task_execution_id=execution.id,
+            contract_version="forge-engineering-result/v1", result_payload=payload,
+            result_hash=_hash(payload), validation_errors=errors,
+            is_stale=package.payload_hash != _hash(package.payload))
+        db.add(existing)
+    terminal = "completed" if (run.get("status") == "completed" and payload.get("status") == "completed"
+                               and not errors and not existing.is_stale) else "failed"
+    await _revoke_run_credential(db, execution, terminal)
+    execution.status = terminal
+    execution.finished_at = datetime.now(timezone.utc)
+    execution.exit_code = run.get("exit_code")
+    execution.outcome_summary = str(payload.get("summary", ""))[-4000:]
+    execution.evidence_ref = f"forgehub://execution-results/{execution.id}"
+    if lease:
+        lease.status = "released"
+        lease.released_at = datetime.now(timezone.utc)
+    await _event(db, execution.id, terminal,
+                 {"result_hash": existing.result_hash, "validation_errors": errors}, f"{execution.id}:{terminal}")
+    await _checkpoint(db, principal, wave, execution,
+        "completed" if terminal == "completed" else "failed", "result_ingested",
+        execution.outcome_summary or terminal, f"runner:{execution.id}:{terminal}",
+        {"result_hash": existing.result_hash, "validation_errors": errors})
+    await db.commit()
+    return ExecutionRuntimeOut(execution_id=execution.id, status=execution.status, run=run, result=payload)
+
+
+async def _record_confirmed_cancel(db, principal, wave, execution, lease, run) -> ExecutionRuntimeOut:
+    """Record process exit as an unaccepted failed attempt; it carries no task result."""
+    await _revoke_run_credential(db, execution, "cancelled")
+    execution.status = "failed"
+    execution.finished_at = datetime.now(timezone.utc)
+    execution.exit_code = run.get("exit_code")
+    execution.outcome_summary = "Execution cancelled by authorized operator"
+    if lease:
+        lease.status = "cancelled"
+        lease.released_at = datetime.now(timezone.utc)
+    await _event(db, execution.id, "cancelled", {}, f"{execution.id}:cancelled")
+    await _checkpoint(db, principal, wave, execution, "failed", "cancelled",
+                       execution.outcome_summary, f"runner:{execution.id}:cancelled")
+    await db.commit()
+    return ExecutionRuntimeOut(execution_id=execution.id, status=execution.status, run=run)
+
+
 @router.post("/executions/{execution_id}:refresh-runtime", response_model=ExecutionRuntimeOut)
 async def refresh_runtime(execution_id: uuid.UUID, principal: ActorPrincipal = Depends(get_actor_principal), db: AsyncSession = Depends(get_db)) -> ExecutionRuntimeOut:
     execution = await db.get(TaskExecution, execution_id)
     if not execution or not execution.work_package_id: raise HTTPException(404, "Governed execution not found")
     package = await _package(db, execution.work_package_id); wave = await _wave(db, package.execution_wave_id); await authorize_action(db, principal, "planning.execution.view", project_id=wave.project_id)
+    terminal = await _terminal_execution_response(db, execution)
+    if terminal:
+        return terminal
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             response = await client.get(f"{settings.CHAT_BRIDGE_URL}/v1/agent-runs/{execution.runtime_session_ref}", headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN}); response.raise_for_status(); run = response.json()
-    except httpx.HTTPError as exc:
-        execution.status = "reconciling"; await _event(db, execution.id, "heartbeat_lost", {"error": str(exc)}, f"{execution.id}:heartbeat-lost"); await _checkpoint(db, principal, wave, execution, "heartbeat_lost", "runtime_reconcile", str(exc), f"runner:{execution.id}:heartbeat-lost"); await db.commit(); raise HTTPException(502, "Runner unavailable; execution marked for reconciliation") from exc
+    except (httpx.HTTPError, ValueError) as exc:
+        execution = await _lock_fresh_execution(db, execution_id)
+        terminal = await _terminal_execution_response(db, execution)
+        if terminal:
+            return terminal
+        await _mark_reconciling(db, principal, wave, execution, str(exc)); await db.commit(); raise HTTPException(502, "Runner unavailable; execution marked for reconciliation") from exc
+    execution = await _lock_fresh_execution(db, execution_id)
+    terminal = await _terminal_execution_response(db, execution)
+    if terminal:
+        return terminal
+    if not isinstance(run, dict):
+        await _mark_reconciling(db, principal, wave, execution, "invalid response shape"); await db.commit()
+        raise HTTPException(502, "Runner response is invalid; execution marked for reconciliation")
+    if run.get("run_id") != execution.runtime_session_ref:
+        await _mark_reconciling(db, principal, wave, execution, "identity mismatch"); await db.commit()
+        raise HTTPException(502, "Runner response does not match the reserved attempt")
+    if run.get("status") in {"starting", "running"}:
+        execution.status = "running"
+        lease = (await db.execute(select(ExecutionLease).where(
+            ExecutionLease.task_execution_id == execution.id))).scalar_one_or_none()
+        if lease:
+            lease.heartbeat_at = datetime.now(timezone.utc)
+        await db.commit()
+        return ExecutionRuntimeOut(execution_id=execution.id, status=execution.status, run=run)
+    if run.get("status") not in {"completed", "failed", "cancelled"}:
+        await _mark_reconciling(db, principal, wave, execution, "nonterminal observation"); await db.commit()
+        return ExecutionRuntimeOut(execution_id=execution.id, status=execution.status, run=run)
     lease = (await db.execute(select(ExecutionLease).where(ExecutionLease.task_execution_id == execution.id))).scalar_one_or_none()
     if lease: lease.heartbeat_at = datetime.now(timezone.utc)
-    if run.get("status") == "running":
-        await _event(db, execution.id, "heartbeat", {"pid": run.get("pid")}, f"{execution.id}:heartbeat:{run.get('heartbeat_at') or run.get('updated_at')}")
-        await db.commit(); return ExecutionRuntimeOut(execution_id=execution.id, status=execution.status, run=run)
-    payload, errors = _result_payload(run); existing = (await db.execute(select(ExecutionResult).where(ExecutionResult.task_execution_id == execution.id))).scalar_one_or_none()
-    if not existing:
-        existing = ExecutionResult(task_execution_id=execution.id, contract_version="forge-engineering-result/v1", result_payload=payload, result_hash=_hash(payload), validation_errors=errors, is_stale=package.payload_hash != _hash(package.payload)); db.add(existing)
-    terminal = "completed" if run.get("status") == "completed" and not errors and not existing.is_stale else "failed"
-    execution.status = terminal; execution.finished_at = datetime.now(timezone.utc); execution.exit_code = run.get("exit_code"); execution.outcome_summary = str(payload.get("summary", ""))[-4000:]; execution.evidence_ref = f"forgehub://execution-results/{execution.id}"
-    if lease: lease.status = "released"; lease.released_at = datetime.now(timezone.utc)
-    await _event(db, execution.id, terminal, {"result_hash": existing.result_hash, "validation_errors": errors}, f"{execution.id}:{terminal}"); await _checkpoint(db, principal, wave, execution, "completed" if terminal == "completed" else "failed", "result_ingested", execution.outcome_summary or terminal, f"runner:{execution.id}:{terminal}", {"result_hash": existing.result_hash, "validation_errors": errors})
-    await db.commit(); return ExecutionRuntimeOut(execution_id=execution.id, status=execution.status, run=run, result=payload)
+    if run.get("status") == "cancelled":
+        return await _record_confirmed_cancel(db, principal, wave, execution, lease, run)
+    return await _ingest_terminal_result(db, principal, wave, package, execution, lease, run)
 
 
 @router.post("/executions/{execution_id}:cancel-runtime", response_model=ExecutionRuntimeOut)
@@ -488,13 +681,40 @@ async def cancel_runtime(execution_id: uuid.UUID, principal: ActorPrincipal = De
     execution = await db.get(TaskExecution, execution_id)
     if not execution or not execution.work_package_id: raise HTTPException(404, "Governed execution not found")
     package = await _package(db, execution.work_package_id); wave = await _wave(db, package.execution_wave_id); await authorize_action(db, principal, "planning.execution.cancel", project_id=wave.project_id)
-    async with httpx.AsyncClient(timeout=15) as client:
-        response = await client.post(f"{settings.CHAT_BRIDGE_URL}/v1/agent-runs/{execution.runtime_session_ref}/cancel", headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN}); response.raise_for_status(); run = response.json()
-    execution.status = "failed"; execution.finished_at = datetime.now(timezone.utc); execution.outcome_summary = "Execution cancelled by authorized operator"
+    terminal = await _terminal_execution_response(db, execution)
+    if terminal:
+        return terminal
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(f"{settings.CHAT_BRIDGE_URL}/v1/agent-runs/{execution.runtime_session_ref}/cancel", headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN}); response.raise_for_status(); run = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        execution = await _lock_fresh_execution(db, execution_id)
+        terminal = await _terminal_execution_response(db, execution)
+        if terminal:
+            return terminal
+        await _mark_reconciling(db, principal, wave, execution, str(exc)); await db.commit()
+        raise HTTPException(502, "Cancel acknowledgement unavailable; reconcile the reserved attempt") from exc
+    execution = await _lock_fresh_execution(db, execution_id)
+    terminal = await _terminal_execution_response(db, execution)
+    if terminal:
+        return terminal
+    if not isinstance(run, dict):
+        await _mark_reconciling(db, principal, wave, execution, "invalid response shape"); await db.commit()
+        raise HTTPException(502, "Runner response is invalid; execution marked for reconciliation")
+    if run.get("run_id") != execution.runtime_session_ref:
+        await _mark_reconciling(db, principal, wave, execution, "identity mismatch"); await db.commit()
+        raise HTTPException(502, "Runner response does not match the reserved attempt")
+    if run.get("status") in {"starting", "running"}:
+        execution.status = "running"
+        await db.commit()
+        return ExecutionRuntimeOut(execution_id=execution.id, status=execution.status, run=run)
+    if run.get("status") not in {"completed", "failed", "cancelled"}:
+        await _mark_reconciling(db, principal, wave, execution, "nonterminal cancel observation"); await db.commit()
+        return ExecutionRuntimeOut(execution_id=execution.id, status=execution.status, run=run)
     lease = (await db.execute(select(ExecutionLease).where(ExecutionLease.task_execution_id == execution.id))).scalar_one_or_none()
-    if lease: lease.status = "cancelled"; lease.released_at = datetime.now(timezone.utc)
-    await _event(db, execution.id, "cancelled", {}, f"{execution.id}:cancelled"); await _checkpoint(db, principal, wave, execution, "failed", "cancelled", execution.outcome_summary, f"runner:{execution.id}:cancelled"); await db.commit()
-    return ExecutionRuntimeOut(execution_id=execution.id, status=execution.status, run=run)
+    if run.get("status") == "cancelled":
+        return await _record_confirmed_cancel(db, principal, wave, execution, lease, run)
+    return await _ingest_terminal_result(db, principal, wave, package, execution, lease, run)
 
 
 @router.get("/execution-runners", response_model=list[RunnerOut])

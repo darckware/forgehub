@@ -20,6 +20,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.core.config import is_test_environment, settings
+from app.core.worker_observation import initialize_worker_observations, observe_worker_pass
 from app.core.agent_session import (
     EVENT_AREA_READ,
     EVENT_REQUEST_DENIED,
@@ -69,6 +70,8 @@ from app.api.routes import (
     mission,
     mission_plan,
     mission_task,
+    mission_authorization,
+    mission_phase,
     mission_cycle,
     agent_availability,
     mission_records,
@@ -148,6 +151,10 @@ async def _lifespan(_app: FastAPI):
         await _bootstrap_admin()
     await _recover_host_executions()
     await _seed_system_scripts()
+    await initialize_worker_observations(
+        background_enabled=settings.background_workers_enabled,
+        mission_enabled=settings.MISSION_CYCLE_ENABLED,
+    )
     if settings.background_workers_enabled:
         await _start_background_tasks()
     else:
@@ -236,6 +243,9 @@ def is_agent_command_path(method: str, path: str) -> bool:
         # 2026-10-29 (M0.0): the mission's orchestrator acts with its own
         # agt_; every /missions route calls authorize_action itself.
         "/api/v1/missions/",
+        # 2026-11-13: an agent programs Operação 24x7; every route checks the
+        # operations.routines.manage delegation itself.
+        "/api/v1/operations/agent/",
     )) or path == "/api/v1/missions" or (
         # M0.7: the single writer of environment_releases; the route checks
         # environment.release.record itself.
@@ -539,11 +549,14 @@ app.include_router(vpn.router)
 app.include_router(forgerouter.router)
 app.include_router(operations.router)
 app.include_router(orchestration.router)
+# Before mission.router: /missions/pending-decisions is not a {project_id}.
+app.include_router(mission_authorization.router)
 app.include_router(mission.router)
 app.include_router(mission_records.router)
 app.include_router(mission_acceptance.router)
 app.include_router(mission_plan.router)
 app.include_router(mission_task.router)
+app.include_router(mission_phase.router)
 app.include_router(mission_board.router)
 app.include_router(environment.router)
 app.include_router(mission_cycle.router)
@@ -658,8 +671,9 @@ async def _scheduled_dispatch_poll_loop() -> None:
 
     while True:
         try:
-            async with AsyncSessionLocal() as db:
-                await run_scheduled_dispatch_pass(db)
+            async with observe_worker_pass('scheduled-dispatch-poll'):
+                async with AsyncSessionLocal() as db:
+                    await run_scheduled_dispatch_pass(db)
         except Exception:
             logger.exception("Scheduled dispatch poll failed")
         # Normal path: a committed message wakes this immediately. Timeout is
@@ -703,10 +717,11 @@ async def _routine_poll_loop() -> None:
 
     while True:
         try:
-            async with AsyncSessionLocal() as db:
-                await run_routine_generation_pass(db)
-            async with AsyncSessionLocal() as db:
-                await run_routine_sync_pass(db)
+            async with observe_worker_pass('routine-poll'):
+                async with AsyncSessionLocal() as db:
+                    await run_routine_generation_pass(db)
+                async with AsyncSessionLocal() as db:
+                    await run_routine_sync_pass(db)
         except Exception:
             logger.exception("Routine poll failed")
         try:
@@ -734,12 +749,13 @@ async def _mission_cycle_poll_loop() -> None:
     from app.db.base import AsyncSessionLocal
 
     while True:
-        if settings.MISSION_CYCLE_ENABLED:
-            try:
-                async with AsyncSessionLocal() as db:
-                    await run_mission_cycle_pass(db)
-            except Exception:
-                logger.exception("Mission cycle pass failed")
+        try:
+            async with observe_worker_pass('mission-cycle-poll', enabled=settings.MISSION_CYCLE_ENABLED):
+                if settings.MISSION_CYCLE_ENABLED:
+                    async with AsyncSessionLocal() as db:
+                        await run_mission_cycle_pass(db)
+        except Exception:
+            logger.exception("Mission cycle pass failed")
         await asyncio.sleep(MISSION_CYCLE_POLL_INTERVAL_SECONDS)
 
 
@@ -893,8 +909,9 @@ async def _feedback_poll_loop() -> None:
 
     while True:
         try:
-            async with AsyncSessionLocal() as db:
-                await run_feedback_pass(db)
+            async with observe_worker_pass('feedback-poll'):
+                async with AsyncSessionLocal() as db:
+                    await run_feedback_pass(db)
         except Exception:
             logger.exception("Feedback poll failed")
         await asyncio.sleep(FEEDBACK_POLL_INTERVAL_SECONDS)
@@ -1048,8 +1065,10 @@ async def _machine_status_poll_loop() -> None:
 
     while True:
         try:
-            async with AsyncSessionLocal() as db:
-                await run_machine_status_pass(db)
+            async with observe_worker_pass('machine-status-poll') as observation:
+                async with AsyncSessionLocal() as db:
+                    result = await run_machine_status_pass(db)
+                    observation.unavailable = result.source_unavailable
         except Exception:
             logger.exception("Machine status poll failed")
         await asyncio.sleep(MACHINE_STATUS_POLL_SECONDS)

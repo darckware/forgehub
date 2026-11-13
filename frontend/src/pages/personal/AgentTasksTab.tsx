@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { MoodleApprovalPanel } from "./MoodleApprovalPanel";
+import { MissionDecisionsCard } from "./MissionDecisionsCard";
 import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, Loader2 } from "lucide-react";
@@ -63,9 +64,10 @@ export function AgentTasksTab() {
     </ConfirmDialog>
   );
 
-  if (vm.group === "moodle") return <div className="space-y-4 pt-4">{groups}{questionSection}<MoodleApprovalPanel />{questionDialog}</div>;
+  if (vm.group === "moodle") return <div className="space-y-4 pt-4"><MissionDecisionsCard />{groups}{questionSection}<MoodleApprovalPanel />{questionDialog}</div>;
 
   return <div className="space-y-4 pt-4">
+    <MissionDecisionsCard />
     {groups}
     <p className="text-sm text-muted-foreground">{t(`agentTasks.groupDescriptions.${vm.group}`)}</p>
     {questionSection}

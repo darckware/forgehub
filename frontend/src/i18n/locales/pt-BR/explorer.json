@@ -32,7 +32,9 @@
     "unpin": "Desafixar do Acesso rápido",
     "pinCurrent": "Fixar esta pasta no Acesso rápido",
     "unpinCurrent": "Desafixar esta pasta do Acesso rápido",
-    "renameQuickAccess": "Renomear"
+    "renameQuickAccess": "Renomear",
+    "compress": "Compactar em ZIP…",
+    "extract": "Extrair arquivo…"
   },
   "view": {
     "details": "Detalhes",
@@ -115,7 +117,10 @@
     "conflictTitle_other": "{{count}} itens já existem",
     "conflictDescription": "Substituir os arquivos existentes ou pular os que já existem? As pastas são mescladas nos dois casos.",
     "replace": "Substituir existentes",
-    "skipExisting": "Pular arquivos existentes"
+    "skipExisting": "Pular arquivos existentes",
+    "compressTitle": "Nome do arquivo ZIP",
+    "extractTitle": "Nome da pasta de extração",
+    "archiveDefault": "Arquivo"
   },
   "editor": {
     "contentLabel": "Conteúdo do arquivo",

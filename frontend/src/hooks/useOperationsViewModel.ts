@@ -55,6 +55,9 @@ export interface Routine extends RoutineInput {
   agent_name: string | null;
   last_occurrence_at: string | null;
   next_occurrences: string[];
+  /** "agent:<slug>" when an agent created it (2026-11-13), else an admin's username; null before then. */
+  created_by?: string | null;
+  updated_by?: string | null;
   created_at: string;
   updated_at: string;
 }

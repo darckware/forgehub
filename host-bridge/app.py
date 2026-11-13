@@ -28,6 +28,7 @@ import base64
 import codecs
 import contextlib
 import fcntl
+import hashlib
 import io
 import json
 import logging
@@ -60,6 +61,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, SecretStr
 
 from agent_runtime import resolve_runtime_executable, validate_working_directory
+from runtime_contract import RuntimeContractError
 from vpn_control import VpnControl, VpnPolicyError
 from remote_fs import make_remote_fs_router
 from remote_file_transfer import make_transfer_router
@@ -885,7 +887,7 @@ def _allocate_test_browser_port() -> int:
     raise HTTPException(status_code=503, detail="No free port available for an isolated test browser")
 
 
-def _launch_test_browser(test_run_id: str, port: int) -> subprocess.Popen:
+def _launch_test_browser(test_run_id: str, port: int, *, allow_remote_origins: bool = True) -> subprocess.Popen:
     binary = Path(WORKSPACE_BROWSER_BINARY)
     if not binary.is_file():
         raise HTTPException(status_code=503, detail=f"Chromium binary not found: {binary}")
@@ -895,7 +897,10 @@ def _launch_test_browser(test_run_id: str, port: int) -> subprocess.Popen:
         [
             str(binary), "--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
             "--disable-gpu", "--no-first-run", "--no-default-browser-check",
-            "--remote-allow-origins=*", "--remote-debugging-address=127.0.0.1",
+            # The task browser's CDP client sends no Origin header, so it needs
+            # no origin allowance; the test-run browser keeps its old flags.
+            *(["--remote-allow-origins=*"] if allow_remote_origins else []),
+            "--remote-debugging-address=127.0.0.1",
             f"--remote-debugging-port={port}",
             f"--user-data-dir={profile_dir}", "--window-size=1440,900",
             "about:blank",
@@ -918,6 +923,58 @@ async def _test_browser_target(port: int) -> dict:
                 pass
             await asyncio.sleep(0.1)
     raise HTTPException(status_code=503, detail="Isolated test browser did not expose a CDP page")
+
+
+# Task navigation never attaches to the operator's browser/profile/port.
+_TASK_BROWSER_PORT = int(os.environ.get("FORGEHUB_TASK_BROWSER_CDP_PORT", "9299"))
+_task_browser_process = None
+_task_browser_launch_lock = asyncio.Lock()
+
+
+async def _launch_task_browser():
+    global _task_browser_process
+    async with _task_browser_launch_lock:
+        if _task_browser_process is None or _task_browser_process.poll() is not None:
+            # Never attach to an unknown listener after a bridge restart.
+            try:
+                with socket.create_connection(("127.0.0.1", _TASK_BROWSER_PORT), timeout=0.2):
+                    raise HTTPException(409, "Task browser listener already exists; operator reconciliation required")
+            except OSError:
+                pass
+            _task_browser_process = _launch_test_browser(
+                "governed-task-browser", _TASK_BROWSER_PORT, allow_remote_origins=False)
+            # Recorded so the next bridge start can stop it (recover_after_restart).
+            _task_browser_broker.record_browser(_task_browser_process.pid, _TASK_BROWSER_PORT)
+            await _test_browser_target(_TASK_BROWSER_PORT)
+
+
+async def _task_context_cdp(target_id, method, params=None):
+    async with httpx.AsyncClient(timeout=3) as client:
+        if target_id is None:
+            response = await client.get(f"http://127.0.0.1:{_TASK_BROWSER_PORT}/json/version")
+            response.raise_for_status()
+            ws_url = response.json()["webSocketDebuggerUrl"]
+        else:
+            response = await client.get(f"http://127.0.0.1:{_TASK_BROWSER_PORT}/json/list")
+            response.raise_for_status()
+            target = next((row for row in response.json() if row.get("id") == target_id), None)
+            if not target:
+                raise HTTPException(409, "Task browser context was lost; no fallback target is permitted")
+            ws_url = target["webSocketDebuggerUrl"]
+    return await _test_browser_cdp(ws_url, method, params)
+
+
+# Off by default: without FORGEHUB_TASK_BROWSER_ENABLED=1 the task-context
+# routes are never registered (404) and no Chromium is ever launched for them.
+TASK_BROWSER_ENABLED = os.environ.get("FORGEHUB_TASK_BROWSER_ENABLED", "").strip() == "1"
+_task_browser_broker = None
+if TASK_BROWSER_ENABLED:
+    from task_browser import register_task_browser
+    _task_browser_broker = register_task_browser(
+        app, _check_token, _launch_task_browser, _task_context_cdp,
+        Path(os.environ.get("FORGEHUB_TASK_BROWSER_STATE", "/root/.forgehub/browser/task-contexts.sqlite")),
+        port=_TASK_BROWSER_PORT,
+    )
 
 
 async def _test_browser_cdp(ws_url: str, method: str, params: dict | None = None) -> dict:
@@ -1261,6 +1318,9 @@ def _validate_project_path(project_path: str) -> Path:
     return path
 
 
+from runtime_contract import RuntimeIntent, prepare_runtime_contract, runtime_version
+
+
 class AgentRunRequest(BaseModel):
     agent_service_token: SecretStr | None = Field(default=None, repr=False, exclude=True)
     run_id: str
@@ -1278,6 +1338,7 @@ class AgentRunRequest(BaseModel):
     hermes_profile: str | None = None
     max_budget_usd: float | None = None
     work_package_hash: str | None = None
+    runtime_intent: RuntimeIntent | None = None
     # The agent's autonomous_runs flag (2026-10-28): in execute mode, run the
     # external CLI without permission prompts. Headless runs have nobody to
     # approve a tool, so a prompt is an automatic denial. Plan mode ignores it.
@@ -1576,6 +1637,19 @@ def _monitor_agent_run(run_id: str, proc: subprocess.Popen, max_seconds: int, cr
         run = _agent_runs.get(run_id)
         if run is None:
             return
+        if (run.get('runtime_contract') or {}).get('strategy') == 'delegate':
+            from native_delegation import delegation_result, read_delegation_trace
+            try:
+                trace = read_delegation_trace(stdout or '')
+                assessment = delegation_result(trace, exit_code=proc.returncode,
+                    interrupted=state != 'completed' or bool(run.get('cancel_requested')))
+            except Exception:
+                # Trace corruption must not strand an exited native run as running.
+                assessment = delegation_result([], exit_code=proc.returncode, interrupted=True)
+                assessment['trace_unavailable'] = True
+            run['delegation'] = assessment
+            if state == 'completed' and assessment['status'] != 'reports_returned':
+                state = 'failed' if assessment['status'] == 'failed' else 'stale'
         if run.get("cancel_requested"):
             state = "cancelled"
         run.update(
@@ -1602,6 +1676,14 @@ async def start_restricted_agent_run(
     return await start_agent_run(req, x_bridge_token)
 
 
+@app.post("/v1/agent-runs/contextual", status_code=202)
+async def start_contextual_agent_run(req: AgentRunRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    _check_token(x_bridge_token)
+    if req.runtime_intent is None or req.restricted_toolsets:
+        raise HTTPException(status_code=400, detail="A contextual run requires an unrestricted runtime intent")
+    return await start_agent_run(req, x_bridge_token)
+
+
 @app.post("/v1/agent-runs", status_code=202)
 async def start_agent_run(
     req: AgentRunRequest, x_bridge_token: str | None = Header(default=None)
@@ -1615,14 +1697,75 @@ async def start_agent_run(
     if req.restricted_toolsets and req.agent_service_token:
         raise HTTPException(status_code=400, detail="a restricted run never receives a credential")
     credential_path = None
+    runtime_manifest = None
     try:
         project_dir = validate_working_directory(req.project_path)
+        if req.runtime_intent is not None:
+            runtime_key = "agy" if req.runtime_type == "antigravity" else req.runtime_type
+            resolved_prompt, runtime_manifest = prepare_runtime_contract(req.runtime_intent, runtime_key, req.prompt)
+            runtime_manifest["runtime_version"] = runtime_version(resolve_runtime_executable(runtime_key))
+            from native_delegation import delegation_options, single_strategy_options
+            native_args, native_env = [], {}
+            if req.runtime_intent.strategy == 'delegate':
+                if req.agent_service_token:
+                    raise RuntimeContractError('Delegated review runs cannot inherit a mutable ForgeHub credential')
+                try:
+                    native_args, native_env, native_manifest = delegation_options(runtime_key, req.runtime_intent.max_children,
+                        mode=req.mode, runtime_version=runtime_manifest['runtime_version'], package_id=req.run_id)
+                except ValueError as exc:
+                    raise RuntimeContractError(str(exc)) from exc
+                resolved_prompt += '\n\n' + native_manifest['instructions']
+                runtime_manifest['native_strategy'] = native_manifest
+            elif req.runtime_intent.strategy == 'single':
+                try:
+                    native_args, native_env, native_manifest = single_strategy_options(runtime_key)
+                except ValueError as exc:
+                    raise RuntimeContractError(str(exc)) from exc
+                runtime_manifest['native_strategy'] = native_manifest
+            runtime_manifest['input_sha256'] = hashlib.sha256(resolved_prompt.encode()).hexdigest()
+            runtime_manifest.pop("sha256", None)
+            runtime_manifest["sha256"] = hashlib.sha256(json.dumps(runtime_manifest, sort_keys=True).encode()).hexdigest()
+            req = req.model_copy(update={"prompt": resolved_prompt})
         if req.agent_service_token:
             # mkstemp creates 0600; random filename, outside the repo, never a token in argv.
             fd, credential_path = tempfile.mkstemp(prefix="forgehub-run-", suffix=".credential")
             with os.fdopen(fd, "w") as credential_file:
                 credential_file.write(req.agent_service_token.get_secret_value())
         command, env = _agent_run_command(req, project_dir, credential_path)
+        if runtime_manifest and native_args:
+            if req.runtime_intent and req.runtime_intent.strategy == 'delegate':
+                from native_delegation import (secure_delegated_codex_command,
+                    discover_codex_mcp_names, verify_codex_mcp_disabled)
+                codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+                config_paths = [codex_home / "config.toml", Path("/etc/codex/managed_config.toml"),
+                                Path("/etc/codex/requirements.toml")]
+                config_paths.extend(parent / ".codex" / "config.toml"
+                                    for parent in (project_dir.resolve(), *project_dir.resolve().parents))
+                try:
+                    effective_mcps = discover_codex_mcp_names(
+                        resolve_runtime_executable('codex'), project_dir, env)
+                    command = secure_delegated_codex_command(
+                        command, config_paths, native_args, effective_mcps)
+                    if not verify_codex_mcp_disabled(resolve_runtime_executable('codex'),
+                                                     project_dir, env, command):
+                        raise RuntimeContractError('Codex could not confirm MCP isolation for delegated review')
+                    runtime_manifest['native_strategy']['mcp_servers_disabled'] = sorted(
+                        set(effective_mcps) | {'forgehub'})
+                    runtime_manifest['native_strategy']['apps_disabled'] = True
+                    runtime_manifest['native_strategy']['plugins_disabled'] = True
+                    runtime_manifest.pop('sha256', None)
+                    runtime_manifest['sha256'] = hashlib.sha256(
+                        json.dumps(runtime_manifest, sort_keys=True).encode()).hexdigest()
+                except ValueError as exc:
+                    raise RuntimeContractError(str(exc)) from exc
+            else:
+                separator = -2 if runtime_key == 'claude' else -1
+                command = command[:separator] + native_args + command[separator:]
+            env.update(native_env)
+    except RuntimeContractError as exc:
+        if credential_path:
+            Path(credential_path).unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail={"code": "RUNTIME_CONTRACT_REFUSED", "message": str(exc)}) from exc
     except (ValueError, RuntimeError, HTTPException) as exc:
         if credential_path:
             Path(credential_path).unlink(missing_ok=True)
@@ -1649,6 +1792,8 @@ async def start_agent_run(
             "error": "",
             "adapter_version": AGENT_RUN_ADAPTER_VERSION,
             "work_package_hash": req.work_package_hash,
+            "runtime_contract": runtime_manifest,
+            "launch_sha256": hashlib.sha256(json.dumps(command).encode()).hexdigest(),
             "heartbeat_at": datetime.now().isoformat(),
         }
         _persist_agent_run(req.run_id)
@@ -1681,7 +1826,7 @@ async def start_agent_run(
         args=(req.run_id, proc, req.max_seconds, credential_path),
         daemon=True,
     ).start()
-    return {"run_id": req.run_id, "status": "running", "runtime_type": "agy" if req.runtime_type == "antigravity" else req.runtime_type, "pid": proc.pid, "adapter_version": AGENT_RUN_ADAPTER_VERSION}
+    return {"run_id": req.run_id, "status": "running", "runtime_type": "agy" if req.runtime_type == "antigravity" else req.runtime_type, "pid": proc.pid, "adapter_version": AGENT_RUN_ADAPTER_VERSION, "runtime_contract": runtime_manifest}
 
 
 @app.get("/v1/agent-runs/availability")
@@ -5202,6 +5347,8 @@ async def _agent_socket_for(key_ref: str) -> str:
     return await _agent_cache.socket_for(key_ref)
 
 
+from explorer_archive_routes import make_archive_router
+app.include_router(make_archive_router(_check_token))
 app.include_router(make_remote_fs_router(_check_token, _resolve_key_path, _agent_socket_for))
 app.include_router(make_transfer_router(_check_token, _resolve_key_path, _agent_socket_for))
 # See host_exec.py (Remote Access phase 4: one script on one machine).

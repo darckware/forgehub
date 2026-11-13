@@ -13,7 +13,8 @@ Business rules implemented (SPEC.md section 6.1):
 4. Published versions cannot be mutated directly -> update_version rejects
    (422) any update where the version's *current* status is "published".
    Transitioning a non-published version *into* "published" is allowed via
-   the same endpoint.
+   the same endpoint, unless PUBLISH_PROOF_RECHECK_ENABLED: then publication
+   uses only the dedicated :publish action, which rechecks delivery.
 5. Fixes for published versions must create patch/hotfix flows -> out of
    scope for this domain (belongs to Backlog/Planning domains); not
    implemented here (see model file docstring).
@@ -84,6 +85,16 @@ async def _bridge_request(method: str, path: str, **kwargs) -> dict:
 router = APIRouter(prefix="/api/v1/products", tags=["products"])
 
 
+def _require_publish_action(version_status: str | None) -> None:
+    """PUBLISH_PROOF_RECHECK_ENABLED only: publication goes through :publish.
+    Off, a version can still be set to published directly (pre-357e985)."""
+    if settings.PUBLISH_PROOF_RECHECK_ENABLED and version_status == "published":
+        raise HTTPException(409, detail={
+            "code": "VERSION_PUBLISH_ACTION_REQUIRED",
+            "message": "Publish through the version :publish action after delivery verification",
+        })
+
+
 async def _get_product_or_404(db: AsyncSession, product_id: uuid.UUID) -> Product:
     product = await db.get(Product, product_id)
     if product is None:
@@ -137,6 +148,7 @@ async def create_product(payload: ProductCreate, db: AsyncSession = Depends(get_
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid version status '{initial_version_payload.status}'",
         )
+    _require_publish_action(initial_version_payload.status)
 
     # Business rule 6.1.3: a product is never persisted without a version —
     # both rows are added to the same session/transaction.
@@ -610,6 +622,7 @@ async def create_product_version(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid version status '{payload.status}'",
         )
+    _require_publish_action(payload.status)
 
     version = ProductVersion(
         product_id=product_id,
@@ -667,6 +680,7 @@ async def update_product_version(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid version status '{update_data['status']}'",
         )
+    _require_publish_action(update_data.get("status"))
 
     for field, value in update_data.items():
         setattr(version, field, value)
@@ -693,6 +707,15 @@ async def publish_product_version(version_id: uuid.UUID, db: AsyncSession = Depe
     work -- Marcelo: publishing should never invent completion that didn't
     happen.
     """
+    if not settings.PUBLISH_PROOF_RECHECK_ENABLED:
+        return await _publish_checking_task_statuses(db, version_id)
+    return await _publish_rechecking_proof(db, version_id)
+
+
+async def _publish_checking_task_statuses(db: AsyncSession, version_id: uuid.UUID) -> ProductVersion:
+    """PUBLISH_PROOF_RECHECK_ENABLED off: exactly the pre-357e985 gate -- every
+    task of the version's projects (through planning items) must be
+    done/deployed/cancelled; stored statuses are trusted."""
     version = await _get_version_or_404(db, version_id)
     if version.status == "published":
         return version
@@ -726,6 +749,105 @@ async def publish_product_version(version_id: uuid.UUID, db: AsyncSession = Depe
             "message": "This version has unfinished tasks and cannot be published yet",
             "blocking": blocking,
         })
+
+    version.status = "published"
+    for project in projects:
+        project.status = "completed"
+        # Also ensure all planning items are marked as done
+        proj_planning_items = list((await db.execute(
+            select(PlanningItem).where(PlanningItem.project_id == project.id)
+        )).scalars())
+        for pi in proj_planning_items:
+            pi.status = "done"
+
+    await db.commit()
+    await db.refresh(version)
+    return version
+
+
+async def _publish_rechecking_proof(db: AsyncSession, version_id: uuid.UUID) -> ProductVersion:
+    """PUBLISH_PROOF_RECHECK_ENABLED on: mission acceptance, row locks,
+    CR-owned tasks included, and every task's completion proof rechecked."""
+    from app.core.task_completion_guard import assert_task_completion_allowed
+    from app.db.models.governance import ApprovalDecisionRecord, ApprovalRequest
+    from app.db.models.mission import ProjectMission
+
+    version = await db.scalar(select(ProductVersion).where(ProductVersion.id == version_id)
+        .with_for_update().execution_options(populate_existing=True))
+    if version is None:
+        raise HTTPException(404, "Product version not found")
+    if version.status == "published":
+        return version
+
+    # Acceptance owns the mission state and its Project projection. Take its
+    # lock before the project/task locks, matching the governed decision path.
+    missions = list((await db.scalars(select(ProjectMission).join(
+        Project, Project.id == ProjectMission.project_id).where(Project.product_version_id == version_id)
+        .order_by(ProjectMission.project_id).with_for_update(of=ProjectMission)
+        .execution_options(populate_existing=True))).all())
+    for mission in missions:
+        request = await db.get(ApprovalRequest, mission.acceptance_request_id) if mission.acceptance_request_id else None
+        accepted = await db.scalar(select(ApprovalDecisionRecord.id).where(
+            ApprovalDecisionRecord.approval_request_id == request.id,
+            ApprovalDecisionRecord.decision == "approved", ApprovalDecisionRecord.decided_by_type == "user",
+        )) if request is not None else None
+        if (mission.state != "completed" or request is None or request.status != "decided"
+                or request.target_type != "mission_dossier" or request.target_id != mission.project_id
+                or request.approval_type != "mission_acceptance" or accepted is None):
+            raise HTTPException(409, detail={"code": "VERSION_MISSION_NOT_ACCEPTED",
+                "message": "Mission delivery requires its governed human acceptance before version publication",
+                "project_id": str(mission.project_id), "version_id": str(version_id)})
+
+    projects = list((await db.execute(
+        select(Project).where(Project.product_version_id == version_id).order_by(Project.id).with_for_update()
+    )).scalars())
+    blocking: list[dict] = []
+    task_count = 0
+    delivery_tasks = []
+    for project in projects:
+        # Lock the sources as well: creating more tasks for this delivery must
+        # not race the closure check. CR-owned work is part of the same version.
+        item_ids = list((await db.scalars(select(PlanningItem.id)
+            .where(PlanningItem.project_id == project.id).order_by(PlanningItem.id).with_for_update())).all())
+        change_ids = list((await db.scalars(select(ChangeRequest.id)
+            .where(ChangeRequest.project_id == project.id).order_by(ChangeRequest.id).with_for_update())).all())
+        tasks = list((await db.execute(
+            select(ProjectTask).where(or_(ProjectTask.planning_item_id.in_(item_ids),
+                ProjectTask.change_request_id.in_(change_ids)))
+            .order_by(ProjectTask.id).with_for_update().execution_options(populate_existing=True)
+        )).scalars())
+        task_count += len(tasks)
+        delivery_tasks.extend((project, task) for task in tasks)
+        for task in tasks:
+            if task.status not in ("done", "deployed", "cancelled"):
+                blocking.append({
+                    "project_id": str(project.id), "project_name": project.name,
+                    "task_id": str(task.id), "task_number": task.number,
+                    "title": task.title, "status": task.status,
+                })
+    if task_count == 0:
+        raise HTTPException(status_code=409, detail={
+            "message": "This version needs at least one task before it can be published",
+            "blocking": [],
+        })
+    if blocking:
+        raise HTTPException(status_code=409, detail={
+            "message": "This version has unfinished tasks and cannot be published yet",
+            "blocking": blocking,
+        })
+
+    for project, task in delivery_tasks:
+        if task.status == "cancelled":
+            continue
+        try:
+            # Recheck proof at publication; a stored "done" label cannot stand
+            # in for evidence or a currently authorized independent review.
+            # Service cycles use the same applicable proof and no deploy gate.
+            await assert_task_completion_allowed(db, task, "done")
+        except HTTPException as exc:
+            raise HTTPException(exc.status_code, detail={**exc.detail,
+                "task_id": str(task.id), "project_id": str(project.id),
+                "version_id": str(version_id)}) from exc
 
     version.status = "published"
     for project in projects:

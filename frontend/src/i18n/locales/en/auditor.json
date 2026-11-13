@@ -44,7 +44,8 @@
       "error": "Error",
       "timeout": "Timeout",
       "never": "Never run",
-      "disabled": "Disabled"
+      "disabled": "Disabled",
+      "stale": "Expired evidence"
     },
     "monitor": {
       "healthy": "Scheduler healthy",
@@ -94,6 +95,10 @@
       "athosRemediation": "Athos remediation",
       "verification": "Post-remediation verification",
       "manual": "Manual"
-    }
+    },
+    "stale": "Expired evidence",
+    "recordedResult": "Recorded result: {{result}}",
+    "expiresAt": "Evidence valid until: {{date}}",
+    "lastCompleteCronRun": "Last complete scheduled audit"
   }
 }

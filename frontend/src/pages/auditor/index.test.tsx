@@ -82,3 +82,24 @@ it("filters the checklist by category and state", () => {
   fireEvent.change(screen.getByRole("combobox", { name: "Status" }), { target: { value: "fail" } });
   expect(screen.getByText("Nenhum controle corresponde aos filtros.")).toBeInTheDocument();
 });
+
+it.each([['pt-BR', 'Evidência expirada'], ['en', 'Expired evidence'], ['es', 'Evidencia vencida']])('shows stale evidence and filters it without changing the recorded verdict in %s', async (locale, label) => {
+  await i18n.changeLanguage(locale);
+  mocks.checks.mockReturnValue({ data: [{ ...check, evidence_state: 'stale', expires_at: '2026-10-12T00:00:00Z', last_run: { ...check.last_run, status: 'ok' } }], isLoading: false, isError: false });
+  show();
+  expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+  const select = screen.getAllByRole('combobox').find(element => element.querySelector('option[value="stale"]'))!;
+  fireEvent.change(select, { target: { value: 'stale' } });
+  expect(screen.getByText('ECO-001')).toBeInTheDocument();
+  fireEvent.change(select, { target: { value: 'ok' } });
+  expect(screen.queryByText('ECO-001')).not.toBeInTheDocument();
+});
+
+it.each(['pt-BR', 'en', 'es'])('formats evidence expiration and run times using the configured %s UI locale', async (locale) => {
+  await i18n.changeLanguage(locale);
+  const expiry = '2026-10-12T16:45:30Z';
+  mocks.checks.mockReturnValue({ data: [{ ...check, evidence_state: 'stale', expires_at: expiry }], isLoading: false, isError: false });
+  show();
+  expect(screen.getByText(i18n.t('auditor.expiresAt', { ns: 'auditor', date: new Date(expiry).toLocaleString(locale) }))).toBeInTheDocument();
+  expect(screen.getAllByText(new Date(check.last_run.created_at).toLocaleString(locale)).length).toBeGreaterThan(0);
+});

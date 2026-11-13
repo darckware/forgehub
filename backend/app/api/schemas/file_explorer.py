@@ -49,6 +49,11 @@ class ExplorerZipRequest(BaseModel):
     name: str = "download.zip"
 
 
+class ExplorerArchiveRequest(BaseModel):
+    paths: list[str] = Field(min_length=1, max_length=1000)
+    destination: str = Field(min_length=1)
+
+
 class QuickAccessEntryOut(BaseModel):
     path: str
     label: str | None = None

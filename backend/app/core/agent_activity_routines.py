@@ -27,7 +27,7 @@ from typing import Any, Iterable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.schemas.agent_activity import ActivityIncidentOut, TimelineRoutineOccurrenceOut
+from app.api.schemas.agent_activity import ActivityIncidentOut, ActivityRecordLinkOut, TimelineRoutineOccurrenceOut
 from app.core.routine_schedule import occurrences_between
 from app.db.models.demand import AgentDemand
 from app.db.models.operations import AgentRoutine, AgentRoutineRun
@@ -53,13 +53,15 @@ def _utc(moment: datetime) -> datetime:
 
 def _run_outcome(run: Any, demand: Any, deadline_at: datetime, now: datetime) -> tuple[str, str | None]:
     outcome = _RUN_OUTCOME.get(run.status)
-    if outcome is not None:
+    if outcome is not None and run.status != "running":
         return outcome, run.detail
-    # status "scheduled": its Messages task exists. The sync pass copies the dispatch
+    # Open runs: their Messages task exists. The sync pass copies the dispatch
     # outcome every few minutes, so read the dispatch itself before calling it a miss.
     dispatched = _DISPATCH_OUTCOME.get(getattr(demand, "dispatch_status", None) or "")
     if dispatched is not None:
-        return dispatched, run.detail
+        return dispatched, (getattr(demand, "dispatch_error", None) or run.detail) if dispatched == "failed" else run.detail
+    if outcome == "running":
+        return outcome, run.detail
     if now > deadline_at:
         return "missed", run.detail or "not started before its deadline"
     return "pending", run.detail
@@ -179,44 +181,59 @@ async def collect_routine_occurrences(
 def routine_missed_incidents(
     occurrences: Iterable[TimelineRoutineOccurrenceOut], agents_by_id: dict[uuid.UUID, Any], *, now: datetime
 ) -> list[ActivityIncidentOut]:
-    """One incident per routine with missed occurrences, keyed by its newest miss.
+    """One incident per routine and exception kind, keyed by its newest exception.
 
     A routine that misses every hour while the generator is down is one alert that grows,
     not one per hour; a new miss after a good run is a new key. It is about the routine
     only: an agent's Telegram channel (installed or not) plays no part in it.
     """
-    missed: dict[uuid.UUID, list[TimelineRoutineOccurrenceOut]] = {}
+    missed: dict[tuple[uuid.UUID, str], list[TimelineRoutineOccurrenceOut]] = {}
     for item in occurrences:
-        if item.outcome == "missed":
-            missed.setdefault(item.routine_id, []).append(item)
+        # A budget cap is an intentional scheduling decision, not an execution
+        # failure. It becomes an unfulfilled occurrence only after its deadline.
+        if item.outcome in {"missed", "failed"} or (item.outcome == "skipped" and now > item.deadline_at):
+            missed.setdefault((item.routine_id, item.outcome), []).append(item)
     incidents = []
-    for routine_id, items in missed.items():
+    for (routine_id, outcome), items in missed.items():
         items.sort(key=lambda item: item.occurrence_at)
         latest = items[-1]
         agent = agents_by_id.get(latest.agent_id)
         name = agent.name if agent is not None else "?"
         count = len(items)
+        kind = {"missed": "routine_missed", "failed": "routine_failed", "skipped": "routine_skipped_budget"}[outcome]
+        description = {"missed": "missed", "failed": "failed", "skipped": "was skipped for budget"}[outcome]
+        explanation = {
+            "missed": "its deadline passed without a run",
+            "failed": "its execution failed",
+            "skipped": "its budget prevented execution before its deadline",
+        }[outcome]
         incidents.append(ActivityIncidentOut(
-            key=f"routine_missed:{routine_id}:{latest.occurrence_at.isoformat()}",
-            kind="routine_missed",
-            severity="error" if count >= 3 else "warning",
+            key=f"{kind}:{routine_id}:{latest.occurrence_at.isoformat()}",
+            kind=kind,
+            severity="error" if count >= 3 or outcome == "failed" else "warning",
             title=(
-                f"{name}: routine {latest.title} missed"
-                if count == 1 else f"{name}: routine {latest.title} missed {count} times"
+                f"{name}: routine {latest.title} {description}"
+                if count == 1 else f"{name}: routine {latest.title} {description} {count} times"
             ),
             occurred_at=latest.occurrence_at,
             source_type="agent_routine",
             source_id=routine_id,
             affected_agent_id=latest.agent_id,
-            error_code="routine_missed",
+            error_code=kind,
             summary=(
-                f"Due at {latest.occurrence_at.isoformat()} ({latest.timezone}); its deadline "
-                f"{latest.deadline_at.isoformat()} passed without a run. {latest.detail or ''}"
+                f"Due at {latest.occurrence_at.isoformat()} ({latest.timezone}); {explanation}. "
+                f"{latest.detail or ''} Later successful occurrences do not establish "
+                "service acceptance or remediation of this occurrence."
             ).strip(),
             recommended_action="open_agent",
             last_observed_at=now,
             runtime_type=getattr(agent, "runtime_type", None),
             current_owner_agent_id=latest.agent_id,
-            canonical_path="/operations",
+            canonical_path=latest.canonical_path,
+            related_records=[ActivityRecordLinkOut(
+                source_type="agent_routine_run", source_id=item.run_id,
+                canonical_path=item.canonical_path or "/operations",
+                label=f"{item.title}: {item.occurrence_at.isoformat()}",
+            ) for item in items if item.run_id is not None],
         ))
     return incidents

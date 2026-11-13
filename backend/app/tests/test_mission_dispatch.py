@@ -36,9 +36,16 @@ def runner(monkeypatch):
     prompt) instead of starting it; capacity pinned."""
     runner = m06b.Runner()
     runner.prompts = []
+    runner.intents = []
 
-    async def run(run_id, agent, prompt, project_path):
+    async def run(run_id, agent, prompt, project_path, **kwargs):
         runner.prompts.append(prompt)
+        runner.intents.append(kwargs.get('runtime_intent'))
+        if settings.RUNTIME_CONTRACT_ENABLED and agent.runtime_type in ('claude', 'codex', 'agy'):
+            assert kwargs['runtime_intent']['strategy'] == 'native'
+        elif not settings.RUNTIME_CONTRACT_ENABLED:
+            # Switch off: exactly the pre-contract call (plain /v1/agent-runs).
+            assert 'runtime_intent' not in kwargs
         return await m06b.Runner.__call__(runner, run_id, agent, prompt, project_path)
 
     async def slots(db):
@@ -238,6 +245,58 @@ async def test_dispatch_guards_order_and_retry(world, runner):
     audit = (await _audits(task.id, "task.dispatched"))[0]
     assert audit.actor != "forgehub" and audit.payload["principal_id"] == str(orchestrator)
     assert audit.payload["idempotency_key"] == key and audit.payload["context_manifest"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("contract", [False, True])
+async def test_runtime_contract_follows_its_switch(world, runner, monkeypatch, contract):
+    monkeypatch.setattr(settings, "RUNTIME_CONTRACT_ENABLED", contract)
+    mission = await _mission(world)
+    agt = await world.agent_token((await _mission_row(mission)).orchestrator_agent_id, [PLAN])
+    task = await mission.task("contract")
+    await mission.baseline([task.id])
+    response = await _dispatch(world, task.id, agt, idempotency_key=_key(world))
+    assert response.status_code == 200, response.text
+    assert len(runner.intents) == 1
+    if contract:
+        assert runner.intents[0]["strategy"] == "native"
+    else:
+        assert runner.intents[0] is None
+
+
+@pytest.mark.asyncio
+async def test_unsatisfiable_runtime_contract_is_a_notified_failure(world, runner, monkeypatch):
+    """RUNTIME_CONTRACT_ENABLED: a contract the executor can't satisfy fails
+    the queued item visibly (status failed + notification), never an
+    invisible forever-queued WorkflowBlocked."""
+    from app.core import runtime_intent
+    from app.db.models.notification import Notification
+    monkeypatch.setattr(settings, "RUNTIME_CONTRACT_ENABLED", True)
+    mission = await _mission(world)
+    agt = await world.agent_token((await _mission_row(mission)).orchestrator_agent_id, [PLAN])
+    task = await mission.task("unsatisfiable")
+    await mission.baseline([task.id])
+    when = datetime.now(timezone.utc) + timedelta(days=30)
+    queued = await _dispatch(world, task.id, agt, idempotency_key=_key(world), scheduled_at=when.isoformat())
+    assert queued.status_code == 200, queued.text
+    demand_id = uuid.UUID(queued.json()["demand_id"])
+    await _update(AgentDemand, demand_id, scheduled_at=m06b.DUE)
+
+    async def unsatisfiable(*args, **kwargs):
+        raise ValueError("Mandatory runtime skill example is not approved and granted")
+
+    monkeypatch.setattr(runtime_intent, "resolve_runtime_intent", unsatisfiable)
+    await m06b._scheduled_pass(monkeypatch)
+    demand = await m06b._demand(demand_id)
+    assert demand.dispatch_status == "failed"
+    assert "Runtime contract cannot be satisfied" in (demand.dispatch_error or "")
+    assert runner.runs == []
+    async with AsyncSessionLocal() as db:
+        assert await db.scalar(select(func.count(Notification.id)).where(
+            Notification.event_key.like(f"demand-dispatch-failed:{demand_id}:%"))) == 1
+        await db.execute(text("DELETE FROM company.notifications WHERE event_key LIKE :k"),
+                         {"k": f"demand-dispatch-failed:{demand_id}:%"})
+        await db.commit()
 
 
 @pytest.mark.asyncio

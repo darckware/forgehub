@@ -89,9 +89,10 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
       // 4. Central de Projetos & Backlog
       // 5. Gate de Governança
       // 6. Fechamento de Versão
+      // Missão first (2026-11-12, Marcelo: "o negócio começa nesse momento").
+      { type: "link", to: "/missions", labelKey: "nav.missions", icon: Target, module: "product" },
       { type: "link", to: "/cockpit", labelKey: "nav.cockpit", icon: Gauge, module: "product" },
       { type: "link", to: "/product", labelKey: "nav.products", icon: Boxes, module: "product" },
-      { type: "link", to: "/missions", labelKey: "nav.missions", icon: Target, module: "product" },
       { type: "link", to: "/conception", labelKey: "nav.conception", icon: Lightbulb, module: "product" },
       { type: "link", to: "/screen-inspector", labelKey: "nav.screenInspector", icon: Layout, module: "product" },
       { type: "link", to: "/concept-erd", labelKey: "nav.conceptDatabaseDiagram", icon: Share2, module: "database" },

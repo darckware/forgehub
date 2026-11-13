@@ -529,7 +529,12 @@ async def list_pending_for_agent(
     cron-driven caller isn't guaranteed to come back afterward. A message
     only shows up here once (per agent), the same way a queue dequeues,
     so the caller's own loop body is the only record of what it decided to
-    do with it."""
+    do with it.
+
+    A task gated by Marcelo's approval is handed out only once approved with
+    its approved content unchanged (``assert_execution_allowed``, the runner's
+    own gate) -- never while waiting. A rejected one is handed out once, as information,
+    and archived in the same call so nothing can run it (2026-11-13)."""
     if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid bridge token")
     resolved = await _get_agent_by_slug_or_404(db, agent)
@@ -557,6 +562,18 @@ async def list_pending_for_agent(
     )
     pending = []
     for candidate in result.scalars().all():
+        if candidate.requires_approval and candidate.approval_status == "rejected":
+            # Marcelo refused it: handed out once, as information only, and
+            # archived on acknowledgment below, so nothing can run it.
+            pending.append(candidate)
+            continue
+        if candidate.requires_approval:
+            # Same gate as the runner: awaiting approval, or an approval an
+            # edit voided (content hash), is never pulled as work.
+            try:
+                assert_execution_allowed(candidate)
+            except WorkflowBlocked:
+                continue
         if candidate.failure_check_source_id is not None:
             try:
                 await ensure_workflow_allowed(db, candidate)
@@ -577,6 +594,11 @@ async def list_pending_for_agent(
             demand.decision_reason = "Completed return acknowledged; no execution remains pending."
             record_transition(db, demand, "archive", actor=agent,
                 extra={"reason": demand.decision_reason})
+        elif demand.requires_approval and demand.approval_status == "rejected":
+            demand.status = "archived"
+            demand.scheduled_at = None
+            record_transition(db, demand, "archive", actor=agent,
+                extra={"reason": "Rejected by the operator; delivered to its owner as information only."})
     await db.commit()
     for demand in pending:
         await db.refresh(demand)
@@ -1553,6 +1575,15 @@ async def _execute_dispatch(
             restriction = {"restricted_toolsets": run_toolsets(
                 demand.requires_approval, demand.channel_ref, moodle_linked=moodle_linked,
                 sti_approval=is_sti_approval(demand) and demand.approval_status == "approved")}
+        if (settings.RUNTIME_CONTRACT_ENABLED and demand.task_execution_id
+                and agent.runtime_type in ('claude', 'codex', 'agy')):
+            from app.core.runtime_intent import resolve_runtime_intent
+            attempt = await db.get(TaskExecution, demand.task_execution_id)
+            if attempt:
+                try:
+                    restriction['runtime_intent'] = await resolve_runtime_intent(db, attempt.task_id, target_agent_id)
+                except ValueError as exc:
+                    raise AgentRunDispatchError(str(exc)) from exc
         run = await dispatch_agent_run(run_id, agent, with_completion_contract(prompt), project_path, **restriction)
     except AgentRunDispatchError as exc:
         demand.dispatch_attempts = (demand.dispatch_attempts or 0) + 1
@@ -1959,6 +1990,21 @@ async def run_incubation_maturation_pass(db: AsyncSession) -> int:
     return len(matured)
 
 
+async def mark_dispatch_queue_examined(db: AsyncSession, demand_ids: list[uuid.UUID], now: datetime) -> None:
+    """Observation only: a dependency/capacity wait is not an abandoned queue.
+
+    Preserve content updated_at so the audit pass cannot invalidate contextual
+    advice or postpone terminal feedback. Commit even if every item is deferred.
+    """
+    if demand_ids:
+        await db.execute(update(AgentDemand).where(
+            AgentDemand.id.in_(demand_ids), AgentDemand.dispatch_status.is_(None),
+            AgentDemand.status != 'archived',
+        ).values(executor_wait_checked_at=now, updated_at=AgentDemand.updated_at)
+          .execution_options(synchronize_session=False))
+        await db.commit()
+
+
 async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
     """Run when a new due Message wakes the worker, with periodic fallback.
 
@@ -2019,6 +2065,7 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
         .order_by(AgentDemand.scheduled_at, AgentDemand.number)
     )
     due = list(result.scalars().all())
+    await mark_dispatch_queue_examined(db, [item.id for item in due], now)
     # M0.8 (cycle spec §6.1): a mission task goes by its mission's priority
     # (1 = most urgent), everything else by the default 100; scheduled_at
     # breaks ties, then the message number preserves creation order for equal

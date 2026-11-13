@@ -18,7 +18,7 @@ resolves them lazily once every domain's models are imported centrally
 """
 import uuid
 
-from sqlalchemy import CheckConstraint, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -120,6 +120,10 @@ class PlanningItem(Base, TimestampMixin):
     # Set once baseline approval happens (SPEC 6.3 rule 1: "Approved
     # planning becomes baseline"). Post-baseline edits should flow through
     # a Change Request in the Project domain, not a direct mutation here.
+    # Order inside its project (a mission phase lists its planning items by
+    # it; MISSION_PHASES_PLAN.md). NULL = not ordered yet.
+    position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     baselined: Mapped[bool] = mapped_column(
         nullable=False, default=False, server_default="false"
     )

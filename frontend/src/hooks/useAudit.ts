@@ -11,6 +11,7 @@ import { apiClient } from "@/lib/api";
 export const auditRunSchema = z.object({
   id: z.string(),
   check_id: z.string(),
+  batch_id: z.string().nullable().optional(),
   status: z.enum(["ok", "fail", "error", "timeout"]),
   exit_code: z.number().nullable(),
   output: z.string().nullable(),
@@ -45,6 +46,8 @@ export const auditCheckSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
   last_run: auditRunSchema.nullable(),
+  evidence_state: z.enum(["fresh", "stale", "never"]).optional(),
+  expires_at: z.string().nullable().optional(),
 });
 
 export type AuditCheck = z.infer<typeof auditCheckSchema>;
@@ -70,6 +73,8 @@ const auditStatusSchema = z.object({
   ok: z.number(),
   fail: z.number(),
   never_ran: z.number(),
+  stale: z.number().default(0),
+  last_complete_cron_run_at: z.string().nullable().default(null),
   last_run_at: z.string().nullable(),
   athos_monitor: athosAuditMonitorSchema.nullish(),
 });
@@ -90,6 +95,8 @@ export interface AuditCheckInput {
 }
 
 const RESOURCE = "/api/v1/audit";
+// Evidence can expire without any mutation; keep mounted status and rows current.
+const EVIDENCE_REFRESH_MS = 60_000;
 
 export const auditKeys = {
   checks: ["audit-checks"] as const,
@@ -109,6 +116,9 @@ function useInvalidateAudit() {
 export function useAuditChecks() {
   return useQuery({
     queryKey: auditKeys.checks,
+    refetchInterval: EVIDENCE_REFRESH_MS,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
     queryFn: async () => z.array(auditCheckSchema).parse(await apiClient.get<unknown>(`${RESOURCE}/checks`)),
   });
 }
@@ -116,6 +126,9 @@ export function useAuditChecks() {
 export function useAuditStatus() {
   return useQuery({
     queryKey: auditKeys.status,
+    refetchInterval: EVIDENCE_REFRESH_MS,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
     queryFn: async () => auditStatusSchema.parse(await apiClient.get<unknown>(`${RESOURCE}/status`)),
   });
 }

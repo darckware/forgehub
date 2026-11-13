@@ -35,6 +35,7 @@ from app.core.dispatch_targets import _first_holder, demand_targets, normalize_t
 from app.core.evidence_bridge import EvidenceUnverifiable, commit_is_integrated
 from app.core.mission import ALLOWED_TRANSITIONS, executor_project_ids, mission_error, planning_exit_conditions
 from app.core.mission_dispatch import OPEN_REVIEW_STATUSES, _hash, task_run_in_flight
+from app.core.mission_phases import phases_view
 from app.core.mission_plan import NON_EXECUTOR_ROLES, mission_scope_tasks
 from app.core.mission_records import current_plan, plan_items
 from app.core.task_baseline_guard import assert_task_baseline_current
@@ -835,11 +836,16 @@ async def build_board(
                              "name": orchestrator.name if orchestrator else None},
             "deadline_at": _iso(mission.deadline_at), "paused": mission.state == "paused",
             "paused_seconds": mission.paused_seconds, "state_reason": mission.state_reason,
+            # 2026-11-12: a new product/service still waiting for the orchestrator's registration.
+            "product_registration_pending": bool(mission.product_registration_pending),
+            "working_directory_path": project.working_directory_path,
             "baseline": {"id": str(baseline.id), "name": baseline.name, "content_hash": getattr(
                 baseline, "content_hash", None), "approved_at": _iso(baseline.frozen_at),
                 "superseded": baseline.superseded_at is not None} if baseline else None,
             "allowed_actions": header_allowed, "blocked_actions": header_blocked,
         },
+        # MISSION_PHASES_PLAN.md: ordered phases with their planning items and tasks.
+        "phases": await phases_view(db, mission),
         "tasks": task_rows,
         "conflicts": conflicts,
         "conflicts_status": "ok",

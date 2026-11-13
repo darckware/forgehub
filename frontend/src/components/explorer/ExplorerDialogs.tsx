@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { formatSize, isValidName, useExplorerFileContent } from "@/hooks/useFileExplorer";
+import { archiveFolderName, formatSize, isValidName, useExplorerFileContent } from "@/hooks/useFileExplorer";
 import { errorMessage, type FileExplorerViewModel } from "@/hooks/useFileExplorerViewModel";
 import {
   summarizeUpload,
@@ -31,6 +31,21 @@ export function ExplorerDialogs({ vm, quickAccess }: { vm: FileExplorerViewModel
   const error = vm.operation.status === "error" ? vm.operation.message ?? null : null;
 
   if (!dialog) return null;
+
+  if (dialog.kind === "archive") {
+    const compress = dialog.mode === "compress";
+    const initial = compress
+      ? `${dialog.entries.length === 1 ? dialog.entries[0].name : t("dialogs.archiveDefault")}.zip`
+      : archiveFolderName(dialog.entries[0].name);
+    return <NameDialog
+      key={`${dialog.mode}:${dialog.entries.map((entry) => entry.path).join(";")}`}
+      title={t(compress ? "dialogs.compressTitle" : "dialogs.extractTitle")}
+      confirmLabel={t(compress ? "actions.compress" : "actions.extract")}
+      initial={initial} selectStem={compress} loading={working} error={error}
+      onCancel={() => { vm.dismissError(); vm.closeDialog(); }}
+      onSubmit={(name) => vm.processArchive(dialog.mode, dialog.entries, name.trim())}
+    />;
+  }
 
   if (dialog.kind === "newFolder" || dialog.kind === "newFile" || dialog.kind === "rename") {
     const initial = dialog.kind === "rename" ? dialog.entry.name : dialog.kind === "newFolder" ? t("dialogs.defaultFolderName") : t("dialogs.defaultFileName");
@@ -214,7 +229,7 @@ function NameDialog({
       onConfirm={() => void submit()}
       onCancel={onCancel}
     >
-      <form onSubmit={(e) => void submit(e)}>
+      <form noValidate onSubmit={(e) => void submit(e)}>
         <Input
           {...field}
           ref={(el) => {

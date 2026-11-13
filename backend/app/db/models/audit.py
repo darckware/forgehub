@@ -59,6 +59,8 @@ class AuditCheckRun(Base, TimestampMixin):
         nullable=False,
         index=True,
     )
+    # Full checklist executions share identity without changing observation time.
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # stdout+stderr, truncated by the route layer (never store unbounded).

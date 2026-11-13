@@ -42,6 +42,7 @@ from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.file_explorer import (
+    ExplorerArchiveRequest,
     ExplorerContentUpdate,
     ExplorerEntry,
     ExplorerFileContent,
@@ -177,6 +178,29 @@ async def list_directory(
     # server knows -- /root is the VPS's default, not everyone's.
     params = {"path": _normalize(path)} if path or not target.server else {}
     return await _bridge(target, "GET", "list", params=params)
+
+
+async def _archive(mode: str, payload: ExplorerArchiveRequest, target: ExplorerTarget, user: User) -> dict:
+    paths = [_normalize(p) for p in payload.paths]
+    destination = _normalize(payload.destination)
+    _assert_not_root(destination)
+    data = await _bridge(target, 'POST', mode, timeout=180,
+                         json={'paths': paths, 'destination': destination})
+    await _audit(target, 'files_compressed' if mode == 'compress' else 'archive_extracted',
+                 destination, user, {'sources': paths})
+    return data
+
+
+@router.post('/compress', response_model=ExplorerEntry)
+async def compress_archive(payload: ExplorerArchiveRequest, target: ExplorerTarget = Depends(explorer_target),
+                           user: User = Depends(get_current_admin)) -> dict:
+    return await _archive('compress', payload, target, user)
+
+
+@router.post('/extract', response_model=ExplorerEntry)
+async def extract_archive(payload: ExplorerArchiveRequest, target: ExplorerTarget = Depends(explorer_target),
+                          user: User = Depends(get_current_admin)) -> dict:
+    return await _archive('extract', payload, target, user)
 
 
 @router.get("/search", response_model=ExplorerSearchResult)

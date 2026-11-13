@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,7 +53,21 @@ from app.db.models.web_automation import (
     WebAutomationTestRun,
 )
 
-router = APIRouter(prefix="/api/v1/workspace-browser", tags=["workspace-browser"])
+from app.core.deps import ActorPrincipal, get_actor_principal
+
+
+async def _shared_context_boundary(request: Request, principal: ActorPrincipal = Depends(get_actor_principal)):
+    # The legacy UI can log in as the operator; its page is never an agent context.
+    if request.url.path == "/api/v1/workspace-browser/task-context":
+        return
+    if principal.principal_type != "user":
+        raise HTTPException(403, "Shared authenticated browser access requires a human; use the isolated task context")
+
+
+router = APIRouter(prefix="/api/v1/workspace-browser", tags=["workspace-browser"],
+                   dependencies=[Depends(_shared_context_boundary)])
+from app.api.routes.task_browser import router as task_browser_router
+router.include_router(task_browser_router)
 
 
 async def _bridge(method: str, path: str, payload: dict | None = None) -> WorkspaceBrowserStateOut:

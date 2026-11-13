@@ -32,7 +32,9 @@
     "unpin": "Desanclar de Acceso rápido",
     "pinCurrent": "Anclar esta carpeta a Acceso rápido",
     "unpinCurrent": "Desanclar esta carpeta de Acceso rápido",
-    "renameQuickAccess": "Cambiar nombre"
+    "renameQuickAccess": "Cambiar nombre",
+    "compress": "Comprimir en ZIP…",
+    "extract": "Extraer archivo…"
   },
   "view": {
     "details": "Detalles",
@@ -115,7 +117,10 @@
     "conflictTitle_other": "{{count}} elementos ya existen",
     "conflictDescription": "¿Reemplazar los archivos existentes u omitir los que ya existen? Las carpetas se combinan en ambos casos.",
     "replace": "Reemplazar existentes",
-    "skipExisting": "Omitir archivos existentes"
+    "skipExisting": "Omitir archivos existentes",
+    "compressTitle": "Nombre del archivo ZIP",
+    "extractTitle": "Nombre de la carpeta de extracción",
+    "archiveDefault": "Archivo"
   },
   "editor": {
     "contentLabel": "Contenido del archivo",
