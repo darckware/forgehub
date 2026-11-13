@@ -414,14 +414,33 @@
       "incubation": "Incubaciones",
       "tasks": "Tareas de los agentes"
     },
-    "tasksTabs": {
+    "tabs": {
       "label": "Pestañas de Tareas de los agentes",
-      "list": "Tareas",
-      "moodle": "Aprobaciones Moodle",
-      "moodleCount": "Aprobaciones Moodle ({{count}})",
+      "tasks": "Tareas",
+      "incubation": "Incubaciones",
+      "approvalsCount": "Aprobaciones ({{count}})",
+      "answersCount": "Respuestas ({{count}})",
       "moodleInDecision_one": "{{count}} aprobación Moodle más espera tu decisión.",
       "moodleInDecision_other": "{{count}} aprobaciones Moodle más esperan tu decisión.",
-      "openMoodle": "Abrir Aprobaciones Moodle"
+      "openApprovals": "Abrir Aprobaciones"
+    },
+    "tabDescriptions": {
+      "tasks": "Todas las tareas de los agentes, con filtros. Autoriza trabajos, sigue la ejecución y revisa los resultados.",
+      "incubation": "Decide qué ideas deben convertirse en tareas, esperar una nueva fecha o descartarse.",
+      "approvals": "Todo lo que espera tu aprobación o decisión: tareas, aprobaciones Moodle, decisiones de misión y conclusiones de tareas de proyecto.",
+      "answers": "Preguntas de los agentes que bloquean una tarea hasta que respondas."
+    },
+    "approvalSections": {
+      "queue": "Tareas que esperan tu decisión ({{count}})",
+      "moodleCount": "Aprobaciones Moodle ({{count}})",
+      "empty": "Nada espera tu aprobación ahora."
+    },
+    "answersEmpty": "Ninguna pregunta espera respuesta.",
+    "archiveQuestion": {
+      "label": "Archivar",
+      "button": "Archivar pregunta #{{number}}",
+      "title": "¿Archivar la pregunta #{{number}}?",
+      "hint": "La pregunta se cierra sin respuesta y queda en el historial. El agente no recibe aviso. La tarea que bloqueaba deja de esperarla y sigue las reglas normales de la cola (aprobación, dependencias y agenda); si la tarea realmente necesitaba la respuesta, puede fallar o el agente puede volver a preguntar."
     },
     "groupDescriptions": {
       "tasks": "Autorice trabajos, siga la ejecución y revise los resultados de los agentes.",

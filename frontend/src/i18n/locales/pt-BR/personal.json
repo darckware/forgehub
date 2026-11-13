@@ -414,14 +414,33 @@
       "incubation": "Incubações",
       "tasks": "Tarefas dos agentes"
     },
-    "tasksTabs": {
+    "tabs": {
       "label": "Abas de Tarefas dos agentes",
-      "list": "Tarefas",
-      "moodle": "Aprovações Moodle",
-      "moodleCount": "Aprovações Moodle ({{count}})",
+      "tasks": "Tarefas",
+      "incubation": "Incubações",
+      "approvalsCount": "Aprovações ({{count}})",
+      "answersCount": "Respostas ({{count}})",
       "moodleInDecision_one": "Mais {{count}} aprovação Moodle aguarda sua decisão.",
       "moodleInDecision_other": "Mais {{count}} aprovações Moodle aguardam sua decisão.",
-      "openMoodle": "Abrir Aprovações Moodle"
+      "openApprovals": "Abrir Aprovações"
+    },
+    "tabDescriptions": {
+      "tasks": "Todas as tarefas dos agentes, com filtros. Autorize trabalhos, acompanhe a execução e revise os resultados.",
+      "incubation": "Decida quais ideias devem virar tarefas, aguardar uma nova data ou ser descartadas.",
+      "approvals": "Tudo o que espera a sua aprovação ou decisão: tarefas, aprovações Moodle, decisões de missão e conclusões de tarefas de projeto.",
+      "answers": "Perguntas dos agentes que bloqueiam uma tarefa até você responder."
+    },
+    "approvalSections": {
+      "queue": "Tarefas aguardando sua decisão ({{count}})",
+      "moodleCount": "Aprovações Moodle ({{count}})",
+      "empty": "Nada aguarda a sua aprovação agora."
+    },
+    "answersEmpty": "Nenhuma pergunta aguardando resposta.",
+    "archiveQuestion": {
+      "label": "Arquivar",
+      "button": "Arquivar pergunta #{{number}}",
+      "title": "Arquivar pergunta #{{number}}?",
+      "hint": "A pergunta é encerrada sem resposta e fica no histórico. O agente não é avisado. A tarefa que ela bloqueava deixa de esperar por ela e segue as regras normais da fila (aprovação, dependências e agenda); se a tarefa precisava mesmo da resposta, ela pode falhar ou o agente pode perguntar de novo."
     },
     "groupDescriptions": {
       "tasks": "Autorize trabalhos, acompanhe a execução e revise os resultados dos agentes.",

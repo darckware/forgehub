@@ -9,14 +9,29 @@ import { useProjects } from "./useProject";
 import { useTasks, useTaskDependencies } from "./useTask";
 import { useGovernedApprovalRequests, useDecideGovernedApproval } from "./useGovernance";
 import { useOperationsViewModel } from "./useOperationsViewModel";
+import { missionDecisionsKey } from "./useMissions";
+import { useAuthStore } from "@/store/authStore";
 
-export const WORK_VIEWS = ["decision", "processing", "waiting", "resolved", "attention", "approval", "incubation", "failed", "queued", "running", "completed", "archived"] as const;
+export const WORK_VIEWS = ["decision", "approvals_queue", "processing", "waiting", "resolved", "attention", "approval", "incubation", "failed", "queued", "running", "completed", "archived"] as const;
 export type WorkView = typeof WORK_VIEWS[number];
-/** The two top-level groups. Moodle approvals live inside "tasks" as its own tab. */
+/** Server-side group of the agent-work list a tab reads. */
 export type WorkGroup = "tasks" | "incubation";
-/** Tabs inside "Tarefas dos agentes". The URL keeps `workGroup=moodle` for the Moodle tab, so older links still land on it. */
-export type TasksTab = "list" | "moodle";
+/** One tab strip beside "Analisar e encaminhar" (Marcelo, 2026-11-13). */
+export const WORK_TABS = ["tasks", "incubation", "approvals", "answers"] as const;
+export type WorkTab = typeof WORK_TABS[number];
 type MoodleApprovalsSummary = { items: unknown[] };
+
+/** `workTab` wins; older links still land: a question id opens Respostas,
+ * `workGroup=moodle` Aprovações and `workGroup=incubation` Incubações. */
+export function resolveWorkTab(params: URLSearchParams): WorkTab {
+  const explicit = params.get("workTab");
+  if (WORK_TABS.includes(explicit as WorkTab)) return explicit as WorkTab;
+  if (params.get("questionId")) return "answers";
+  const legacy = params.get("workGroup");
+  if (legacy === "moodle") return "approvals";
+  if (legacy === "incubation" || (!legacy && params.get("workView") === "incubation")) return "incubation";
+  return "tasks";
+}
 /** Same key and request as MoodleApprovalPanel, so both read one cached response. */
 export const MOODLE_APPROVALS_KEY = ["personal", "moodle-approvals"] as const;
 export type WorkAction = "approve" | "reject" | "postpone" | "drop" | "archive" | "restore" | "delete" | "reconcile" | "retry" | "authorize_retry" | "record_investigation" | "confirm_inactive";
@@ -43,14 +58,14 @@ export function useAgentTasksViewModel() {
   const { t } = useTranslation("personal");
   const readableContext = (value: string | null | undefined) => value?.startsWith("instructor:") ? t("agentTasks.instructorContext") : value;
   const [params, setParams] = useSearchParams();
-  const rawGroup = params.get("workGroup");
-  const group: WorkGroup = rawGroup === "incubation" || (!rawGroup && params.get("workView") === "incubation") ? "incubation" : "tasks";
-  const tasksTab: TasksTab = group === "tasks" && rawGroup === "moodle" ? "moodle" : "list";
-  const paramKey = (key: string) => group === "incubation" ? key.replace(/^work/, "incubation") : key;
+  const tab = resolveWorkTab(params);
+  const group: WorkGroup = tab === "incubation" ? "incubation" : "tasks";
+  // Each list tab keeps its own filters/page in the URL.
+  const paramKey = (key: string) => tab === "incubation" ? key.replace(/^work/, "incubation") : tab === "approvals" ? key.replace(/^work/, "approvals") : key;
   const value = (key: string) => params.get(paramKey(key));
   const rawView = value("workView");
   const views = WORK_VIEWS.filter(view => ["decision", "processing", "waiting", "resolved", "archived", rawView].includes(view));
-  const view: WorkView = WORK_VIEWS.includes(rawView as WorkView) ? rawView as WorkView : "decision";
+  const view: WorkView = tab === "approvals" ? "approvals_queue" : WORK_VIEWS.includes(rawView as WorkView) ? rawView as WorkView : "decision";
   const search = value("workSearch") ?? "", context = value("workContext") ?? "all";
   const agent = value("workAgent") ?? "all", from = value("workFrom") ?? "", to = value("workTo") ?? "";
   const requestedPage = Math.max(1, Number(value("workPage")) || 1);
@@ -58,18 +73,26 @@ export function useAgentTasksViewModel() {
   const debouncedSearch = searchTerm.group === group ? searchTerm.search : search;
   useEffect(() => { if (composing) return; const timer = setTimeout(() => setSearchTerm({ group, search }), search ? 300 : 0); return () => clearTimeout(timer); }, [group, search, composing]);
   const day = (value: string, end: boolean) => { const date = new Date(`${value}T${end ? "23:59:59.999" : "00:00:00"}`); return value && Number.isFinite(date.getTime()) ? date.toISOString() : undefined; };
-  const query = useAgentWork({ group, view, search: debouncedSearch, context, agent_id: agent === "all" ? undefined : agent,
-    created_from: day(from, false), created_to: day(to, true), page: requestedPage, page_size: 25 }, tasksTab === "list");
+  // Aprovações badge: always the unfiltered queue, whichever tab is open.
+  const approvalsQueue = useAgentWork({ group: "tasks", view: "approvals_queue", page: 1, page_size: 1 }, true);
+  const listed = tab !== "answers";
+  const query = useAgentWork(tab === "approvals" ? { group, view, page: requestedPage, page_size: 25 } : { group, view, search: debouncedSearch, context, agent_id: agent === "all" ? undefined : agent,
+    created_from: day(from, false), created_to: day(to, true), page: requestedPage, page_size: 25 }, listed);
   const analysis = useAgentWorkAnalysis({ agent_id: agent === "all" ? undefined : agent, context: context === "all" ? undefined : context }, group === "tasks");
   // Pending Moodle approvals are decisions too. The "tasks" group excludes
   // Moodle messages server-side, so adding them here never counts one twice.
   // Only the owner may read them; any other session just shows no number.
   const moodle = useQuery({ queryKey: MOODLE_APPROVALS_KEY, queryFn: () => apiClient.get<MoodleApprovalsSummary>("/api/v1/personal/moodle-approvals"),
     enabled: group === "tasks", refetchInterval: 30_000, retry: false });
+  const isAdmin = useAuthStore(state => state.user?.is_admin ?? false);
+  const missions = useQuery({ queryKey: missionDecisionsKey, queryFn: () => apiClient.get<unknown[]>("/api/v1/missions/pending-decisions"),
+    enabled: isAdmin, refetchInterval: 60_000, retry: false });
+  const missionPending = isAdmin && Array.isArray(missions.data) ? missions.data.length : 0;
   const moodlePending = Array.isArray(moodle.data?.items) ? moodle.data.items.length : null;
   const agents = useAgents(), projects = useProjects(), tasks = useTasks();
   const approvals = useGovernedApprovalRequests("pending"), decideApproval = useDecideGovernedApproval();
   const operations = useOperationsViewModel("questions");
+  const [archiving, setArchiving] = useState<{ id: string; number: number; question: string } | null>(null);
   const questions = (operations.questions.data ?? []).filter(question => question.status === "pending" && question.blocking);
   const [selectedId, setSelectedId] = useState<string | null>(null), [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [confirmation, setConfirmation] = useState<{ item: AgentWorkItem; action: WorkAction } | null>(null);
@@ -85,7 +108,7 @@ export function useAgentTasksViewModel() {
   useEffect(() => { setSelectedId(null); setSelectedIds([]); }, [filterKey]);
   const resultFilterKey = `${group}:${view}:${context}:${agent}:${from}:${to}:${debouncedSearch}`;
   useEffect(() => { setBulkResults([]); }, [resultFilterKey]);
-  useEffect(() => { if (tasksTab === "list" && query.data && query.data.page !== requestedPage) setParams(prev => { const next = new URLSearchParams(prev); next.set(paramKey("workPage"), String(query.data.page)); return next; }, { replace: true }); }, [tasksTab, query.data?.page, requestedPage, setParams]);
+  useEffect(() => { if (listed && query.data && query.data.page !== requestedPage) setParams(prev => { const next = new URLSearchParams(prev); next.set(paramKey("workPage"), String(query.data.page)); return next; }, { replace: true }); }, [listed, query.data?.page, requestedPage, setParams]);
   const history = useQuery({ queryKey: [...demandKeys.all, "history", selectedId], queryFn: ({ signal }) => apiClient.get<HistoryEvent[]>(`/api/v1/demands/${selectedId}/history`, { signal }), enabled: Boolean(selectedId) });
   const sources = useQuery({ queryKey: [...demandKeys.all, "sources", selectedId], queryFn: ({ signal }) => apiClient.get<Demand[]>(`/api/v1/demands/${selectedId}/sources`, { signal }), enabled: Boolean(selectedId) });
   const dependencies = useTaskDependencies(selected?.origin_id ?? "");
@@ -117,11 +140,21 @@ export function useAgentTasksViewModel() {
   const setFilter = (key: string, value: string) => setParams(prev => { const next = new URLSearchParams(prev); next.set("tab", "agent-work"); if (value && value !== "all") next.set(paramKey(key), value); else next.delete(paramKey(key)); if (key !== "workPage") next.delete(paramKey("workPage")); return next; }, { replace: true });
   const agentName = (item: Demand) => agents.data?.find(row => row.id === (item.incubation_owner_id ?? item.target_agent_id))?.name ?? item.from_agent;
   const contextName = (item: AgentWorkItem) => readableContext(item.display_context || (projects.data?.find(row => row.id === item.project_id)?.name ?? item.context_area));
-  const goTo = (workGroup: "tasks" | "incubation" | "moodle") => { setSelectedId(null); setSelectedIds([]); setBulkResults([]); setNotice(false); setPromotedTask(null); setConfirmation(null); setParams(prev => { const next = new URLSearchParams(prev); next.set("tab", "agent-work"); next.set("workGroup", workGroup); return next; }); };
+  const setTab = (nextTab: WorkTab) => { setSelectedId(null); setSelectedIds([]); setBulkResults([]); setNotice(false); setPromotedTask(null); setConfirmation(null); setParams(prev => { const next = new URLSearchParams(prev); next.set("tab", "agent-work"); next.set("workTab", nextTab); next.delete("workGroup"); next.delete("questionId"); return next; }); };
   const counts: Record<string, number> = query.data?.counts ?? {};
+  const taskApprovals = (approvals.data ?? []).filter(request => request.target_type === "project_task");
+  const queueCount = approvalsQueue.data?.counts?.approvals_queue ?? 0;
+  // Disjoint sources: the queue excludes Moodle messages, incubations and
+  // question-blocked items; missions and governed task approvals aren't messages.
+  const approvalsCount = queueCount + (moodlePending ?? 0) + missionPending + taskApprovals.length;
+  const cancelQuestion = operations.cancelQuestion;
   return {
-    group, tasksTab, views, promotedTask, setGroup: (nextGroup: WorkGroup) => goTo(nextGroup),
-    setTasksTab: (tab: TasksTab) => goTo(tab === "moodle" ? "moodle" : "tasks"),
+    tab, setTab, group, views, promotedTask,
+    approvalsCount, answersCount: questions.length, queueCount, taskApprovals, missionPending,
+    archiving, askArchiveQuestion: (item: { id: string; number: number; question: string }) => { cancelQuestion.reset(); setArchiving(item); },
+    cancelArchiveQuestion: () => { if (!cancelQuestion.isPending) setArchiving(null); },
+    confirmArchiveQuestion: () => { if (archiving) cancelQuestion.mutate(archiving.id, { onSuccess: () => { setArchiving(null); void invalidate(); } }); },
+    archivingQuestion: cancelQuestion.isPending, archiveQuestionError: failureText(cancelQuestion.error),
     moodlePending,
     /** "Sua decisão": the queue's own count plus, for tasks, the pending Moodle approvals. */
     decisionCount: counts.decision === undefined ? undefined : counts.decision + (group === "tasks" ? moodlePending ?? 0 : 0),

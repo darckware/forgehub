@@ -8,7 +8,7 @@ import { apiClient } from "@/lib/api";
 import type { Demand } from "@/hooks/useDemands";
 import { AgentTasksTab } from "./AgentTasksTab";
 
-const mocks = vi.hoisted(() => ({ demands: vi.fn(), post: vi.fn(), approvals: vi.fn(), questions: vi.fn(), answerQuestion: vi.fn() }));
+const mocks = vi.hoisted(() => ({ demands: vi.fn(), post: vi.fn(), approvals: vi.fn(), questions: vi.fn(), answerQuestion: vi.fn(), cancelQuestion: vi.fn() }));
 vi.mock("@/hooks/useDemands", async importOriginal => ({ ...await importOriginal<object>(), useAgentWork: mocks.demands }));
 vi.mock("@/hooks/useAgent", () => ({ useAgents: () => ({ data: [] }), useStreamTelegramImprovePrompt: () => vi.fn() }));
 vi.mock("@/hooks/useProject", () => ({ useProjects: () => ({ data: [] }) }));
@@ -17,7 +17,7 @@ vi.mock("@/hooks/useGovernance", () => ({
   useGovernedApprovalRequests: mocks.approvals,
   useDecideGovernedApproval: () => ({ reset: vi.fn() }),
 }));
-vi.mock("@/hooks/useOperationsViewModel", () => ({ useOperationsViewModel: () => ({ questions: mocks.questions(), answerQuestion: { reset: vi.fn(), mutate: mocks.answerQuestion } }) }));
+vi.mock("@/hooks/useOperationsViewModel", () => ({ useOperationsViewModel: () => ({ questions: mocks.questions(), answerQuestion: { reset: vi.fn(), mutate: mocks.answerQuestion }, cancelQuestion: { reset: vi.fn(), mutate: mocks.cancelQuestion, isPending: false, error: null } }) }));
 vi.mock("@/components/Markdown", () => ({ Markdown: ({ content }: { content: string }) => <div>{content}</div> }));
 
 function item(overrides: Partial<Demand> = {}): Demand {
@@ -28,6 +28,11 @@ function item(overrides: Partial<Demand> = {}): Demand {
     dispatch_attempts: 0, dispatch_error: null, context_area: "Backup", project_id: null, agent_run_id: null,
     matures_at: null, updated_at: "2026-10-20T00:00:00Z", allowed_actions: ["approve", "reject", "archive", "delete"], ...overrides,
   } as Demand;
+}
+
+function questionRow(id: string, text: string) {
+  return { id, number: Number(id.split("-")[1]), agent_id: "agent-1", agent_name: "Athos", question: text, context: null,
+    blocking: true, status: "pending", origin_demand_id: "work-1", created_at: "2026-11-13T00:00:00Z" };
 }
 
 function open(entry = "/personal?tab=agent-work") {
@@ -167,44 +172,67 @@ describe("operator deliberation", () => {
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Transformar em tarefa" }));
     expect(await screen.findByRole("link", { name: /Ver tarefa #42/ })).toHaveAttribute("href", "/demands?message=work-1");
   });
-  it("separates Moodle, incubations and tasks using server group filters", async () => {
-    open();
-    expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ group: "tasks" }), expect.any(Boolean));
-    fireEvent.click(screen.getByRole("tab", { name: "Incubações" }));
-    expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ group: "incubation" }), true);
-    expect(screen.queryByRole("tab", { name: /Aprovações Moodle/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "Tarefas dos agentes" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Aprovações Moodle" }));
-    expect(screen.queryByRole("table")).not.toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Aprovações Moodle" })).toBeInTheDocument();
-  });
-
-  it("keeps Moodle approvals as a tab inside agent tasks, beside the analysis button", async () => {
+  it("shows one tab strip beside the analysis button: Tarefas, Incubações, Aprovações (N), Respostas (N)", async () => {
     vi.spyOn(apiClient, "get").mockImplementation(async (url: string) => url === "/api/v1/personal/moodle-approvals" ? { items: [{}, {}], activity: [] } : []);
-    mocks.demands.mockReturnValue({ data: { items: [item()], total: 1, page: 1, page_size: 25, counts: { decision: 3 }, contexts: [] }, isLoading: false, isError: false });
+    mocks.demands.mockReturnValue({ data: { items: [item()], total: 1, page: 1, page_size: 25, counts: { decision: 4, approvals_queue: 3 }, contexts: [] }, isLoading: false, isError: false });
+    mocks.approvals.mockReturnValue({ data: [{ id: "req-1", target_type: "project_task", target_id: "task-1", requested_by_name: "Athos", created_at: "2026-11-13T00:00:00Z" },
+      { id: "req-2", target_type: "project_plan", target_id: "plan-1", requested_by_name: "Athos", created_at: "2026-11-13T00:00:00Z" }] });
+    mocks.questions.mockReturnValue({ data: [questionRow("question-1", "Which format?")], isLoading: false, isError: false });
     open();
-    const groups = screen.getByRole("tablist", { name: "Grupos de trabalho" });
-    expect(within(groups).getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Incubações", "Tarefas dos agentes"]);
-    const tabs = screen.getByRole("tablist", { name: "Abas de Tarefas dos agentes" });
-    expect(within(tabs).getByRole("tab", { name: "Tarefas" })).toHaveAttribute("aria-selected", "true");
-    expect(tabs.parentElement).toContainElement(screen.getByRole("button", { name: "Analisar e encaminhar" }));
-    expect(await within(tabs).findByRole("tab", { name: "Aprovações Moodle (2)" })).toBeInTheDocument();
-    // "Sua decisão" = the queue's decisions plus the pending Moodle approvals.
-    expect(screen.getByRole("option", { name: "Sua decisão (5)" })).toBeInTheDocument();
-    expect(screen.getByText("Mais 2 aprovações Moodle aguardam sua decisão.")).toBeInTheDocument();
-    fireEvent.click(within(tabs).getByRole("tab", { name: "Aprovações Moodle (2)" }));
-    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.queryByRole("tablist", { name: "Grupos de trabalho" })).not.toBeInTheDocument();
+    const strip = screen.getByRole("tablist", { name: "Abas de Tarefas dos agentes" });
+    expect(strip.parentElement).toContainElement(screen.getByRole("button", { name: "Analisar e encaminhar" }));
+    // Aprovações = queue 3 + Moodle 2 + project_task approvals 1 (missions: not admin).
+    await waitFor(() => expect(within(strip).getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Tarefas", "Incubações", "Aprovações (6)", "Respostas (1)"]));
+    expect(within(strip).getByRole("tab", { name: "Tarefas" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("option", { name: "Sua decisão (6)" })).toBeInTheDocument();
+    expect(screen.queryByText("Which format?")).not.toBeInTheDocument();
+    expect(mocks.demands).toHaveBeenCalledWith({ group: "tasks", view: "approvals_queue", page: 1, page_size: 1 }, true);
+
+    fireEvent.click(within(strip).getByRole("tab", { name: "Aprovações (6)" }));
+    expect(mocks.demands).toHaveBeenLastCalledWith({ group: "tasks", view: "approvals_queue", page: 1, page_size: 25 }, true);
+    expect(screen.getByText("Tarefas aguardando sua decisão (3)")).toBeInTheDocument();
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByText("Aprovações Moodle (2)")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Aprovações Moodle" })).toBeInTheDocument();
+    expect(screen.getByText(/Aprovação da conclusão da tarefa: /)).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Situação" })).not.toBeInTheDocument();
+
+    fireEvent.click(within(strip).getByRole("tab", { name: "Respostas (1)" }));
+    expect(screen.getByText("Which format?")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
-  it("opens the Moodle tab of agent tasks from the legacy workGroup=moodle link", () => {
-    open("/personal?tab=agent-work&workGroup=moodle");
-    // The task list is hidden here, so it isn't fetched.
-    expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ group: "tasks" }), false);
-    expect(screen.getByRole("tab", { name: "Tarefas dos agentes" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: /^Aprovações Moodle/ })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("region", { name: "Aprovações Moodle" })).toBeInTheDocument();
-    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  it.each([
+    ["/personal?tab=agent-work", "Tarefas"],
+    ["/personal?tab=agent-work&workGroup=moodle", "Aprovações"],
+    ["/personal?tab=agent-work&workGroup=incubation", "Incubações"],
+    ["/personal?tab=agent-work&workView=incubation", "Incubações"],
+    ["/personal?tab=agent-work&workTab=approvals", "Aprovações"],
+    ["/personal?tab=agent-work&workTab=answers", "Respostas"],
+    ["/personal?tab=agent-work&workGroup=tasks&questionId=question-1", "Respostas"],
+  ])("opens %s on the %s tab", (entry, tab) => {
+    open(entry);
+    const strip = screen.getByRole("tablist", { name: "Abas de Tarefas dos agentes" });
+    expect(within(strip).getByRole("tab", { selected: true }).textContent).toMatch(new RegExp(`^${tab}`));
+  });
+
+  it("archives a question without an answer only after confirmation", async () => {
+    mocks.questions.mockReturnValue({ data: [questionRow("question-7", "Still needed?")], isLoading: false, isError: false });
+    open("/personal?tab=agent-work&workTab=answers");
+    fireEvent.click(screen.getByRole("button", { name: "Arquivar pergunta #7" }));
+    expect(mocks.cancelQuestion).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/encerrada sem resposta/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Arquivar" }));
+    expect(mocks.cancelQuestion).toHaveBeenCalledWith("question-7", expect.anything());
+  });
+
+  it("opens a question link on Respostas with that card focused", () => {
+    mocks.questions.mockReturnValue({ data: [questionRow("question-9", "Which host?")], isLoading: false, isError: false });
+    open("/personal?tab=agent-work&workTab=answers&questionId=question-9");
+    expect(screen.getByRole("tab", { name: "Respostas (1)" })).toHaveAttribute("aria-selected", "true");
+    expect(document.getElementById("operator-question-question-9")).toHaveFocus();
   });
 
   it("offers archive on the task row before opening its details", async () => {

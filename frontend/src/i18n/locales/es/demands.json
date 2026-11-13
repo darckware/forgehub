@@ -248,9 +248,10 @@
     "authority": "Solo una autorización o decisión humana real enlaza a Personal. Esperar ejecutor, cuota o servicio no requiere otra aprobación. Cada mensaje muestra hasta tres etiquetas.",
     "waitUntil": "Próxima comprobación: {{date}}",
     "destinations": {
-      "agent_tasks": "Personal · Tareas de los agentes",
-      "incubations": "Personal · Incubaciones",
-      "moodle_approvals": "Personal · Tareas de los agentes · Aprobaciones Moodle"
+      "agent_tasks": "Personal · Tareas de los agentes · Aprobaciones",
+      "incubations": "Personal · Tareas de los agentes · Incubaciones",
+      "moodle_approvals": "Personal · Tareas de los agentes · Aprobaciones",
+      "answers": "Personal · Tareas de los agentes · Respuestas"
     },
     "items": {
       "analysis_pending": {

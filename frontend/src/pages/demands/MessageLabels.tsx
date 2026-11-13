@@ -8,7 +8,7 @@ export function MessageOperatorLink({ demand }: { demand: Demand }) {
   const { t } = useTranslation("demands");
   const destination = operatorDestination(demand);
   return destination ? <Link className="block w-fit max-w-full break-words text-xs text-primary underline hover:text-primary/80 focus-visible:outline focus-visible:outline-2" to={destination}>
-    {t(`messageLabels.destinations.${demand.operator_destination}`)}
+    {t(`messageLabels.destinations.${demand.operator_decision === "question" ? "answers" : demand.operator_destination}`)}
   </Link> : null;
 }
 

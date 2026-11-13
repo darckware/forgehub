@@ -88,9 +88,9 @@ it("keeps executor waits only in the existing Execution folder with tags in row 
   expect(screen.queryByText("Aguardando sua autorização")).not.toBeInTheDocument();
 });
 it.each([
-  ["agent_tasks", "Pessoal · Tarefas dos agentes", "workGroup=tasks"],
-  ["incubations", "Pessoal · Incubações", "workGroup=incubation"],
-  ["moodle_approvals", "Pessoal · Tarefas dos agentes · Aprovações Moodle", "workGroup=moodle"],
+  ["agent_tasks", "Pessoal · Tarefas dos agentes · Aprovações", "workTab=approvals"],
+  ["incubations", "Pessoal · Tarefas dos agentes · Incubações", "workTab=incubation"],
+  ["moodle_approvals", "Pessoal · Tarefas dos agentes · Aprovações", "workTab=approvals"],
 ])("links genuine authorization to %s from row and reading pane", (destination, label, query) => {
   state.rows = [labelItem({ message_labels: ["authorization_pending"], operator_destination: destination, operator_decision: "authorization" })];
   openLabels(); fireEvent.click(screen.getByRole("button", { name: /^Entrada/ }));

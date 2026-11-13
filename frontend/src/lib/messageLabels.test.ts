@@ -20,20 +20,19 @@ describe("automatic message labels", () => {
       expect(locale.messageLabels.items[key].description).toBeTruthy();
     }
   });
-  it("links genuine authorization and question decisions to their owning workflow", () => {
+  it("links genuine authorization and question decisions to their owning tab", () => {
     const row = { operator_destination: "agent_tasks", operator_decision: "authorization", operator_question_id: null } as Demand;
-    expect(operatorDestination(row)).toBe("/personal?tab=agent-work&workGroup=tasks&workView=decision");
-    expect(operatorDestination({ ...row, operator_destination: "incubations" })).toContain("workGroup=incubation");
-    expect(operatorDestination({ ...row, operator_destination: "moodle_approvals" })).toContain("workGroup=moodle");
+    expect(operatorDestination(row)).toBe("/personal?tab=agent-work&workTab=approvals");
+    expect(operatorDestination({ ...row, operator_destination: "incubations" })).toBe("/personal?tab=agent-work&workTab=incubation&incubationView=decision");
+    expect(operatorDestination({ ...row, operator_destination: "moodle_approvals" })).toBe("/personal?tab=agent-work&workTab=approvals");
     const question = { ...row, operator_decision: "question" as const, operator_question_id: "question-42" };
-    expect(operatorDestination(question)).toContain("questionId=question-42");
-    expect(operatorDestination({ ...question, operator_destination: "incubations" })).toContain("questionId=question-42");
-    expect(operatorDestination({ ...question, operator_destination: "moodle_approvals" })).toContain("questionId=question-42");
+    expect(operatorDestination(question)).toBe("/personal?tab=agent-work&workTab=answers&questionId=question-42");
+    expect(operatorDestination({ ...question, operator_destination: "incubations" })).toContain("workTab=answers&questionId=question-42");
     expect(operatorDestination({ ...row, operator_decision: null })).toBeNull();
   });
-  it("links failures that only a person can move forward to the decision queue", () => {
+  it("links failures that only a person can move forward to Aprovações", () => {
     const row = { operator_destination: "agent_tasks", operator_decision: "correction", operator_question_id: null } as Demand;
-    expect(operatorDestination(row)).toBe("/personal?tab=agent-work&workGroup=tasks&workView=decision");
-    expect(operatorDestination({ ...row, operator_decision: "reconciliation" })).toBe("/personal?tab=agent-work&workGroup=tasks&workView=decision");
+    expect(operatorDestination(row)).toBe("/personal?tab=agent-work&workTab=approvals");
+    expect(operatorDestination({ ...row, operator_decision: "reconciliation" })).toBe("/personal?tab=agent-work&workTab=approvals");
   });
 });

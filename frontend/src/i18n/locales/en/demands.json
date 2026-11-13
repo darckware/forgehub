@@ -248,9 +248,10 @@
     "authority": "Only a real human authorization or decision links to Personal. Waiting for an executor, quota or service does not request another approval. Each message shows up to three labels.",
     "waitUntil": "Next check: {{date}}",
     "destinations": {
-      "agent_tasks": "Personal · Agent tasks",
-      "incubations": "Personal · Incubations",
-      "moodle_approvals": "Personal · Agent tasks · Moodle approvals"
+      "agent_tasks": "Personal · Agent tasks · Approvals",
+      "incubations": "Personal · Agent tasks · Incubations",
+      "moodle_approvals": "Personal · Agent tasks · Approvals",
+      "answers": "Personal · Agent tasks · Answers"
     },
     "items": {
       "analysis_pending": {

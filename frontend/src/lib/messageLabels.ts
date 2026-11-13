@@ -24,12 +24,14 @@ export function operatorDestination(item: {
   operator_destination?: string | null; operator_decision?: string | null; operator_question_id?: string | null;
 }): string | null {
   if (!["authorization", "question", "correction", "reconciliation"].includes(item.operator_decision ?? "")) return null;
-  const question = item.operator_decision === "question" && item.operator_question_id
-    ? `&questionId=${encodeURIComponent(item.operator_question_id)}` : "";
+  // A question is answered in Respostas, whichever group the message is in.
+  if (item.operator_decision === "question") return item.operator_question_id
+    ? `/personal?tab=agent-work&workTab=answers&questionId=${encodeURIComponent(item.operator_question_id)}`
+    : "/personal?tab=agent-work&workTab=answers";
   switch (item.operator_destination) {
-    case "agent_tasks": return `/personal?tab=agent-work&workGroup=tasks&workView=decision${question}`;
-    case "incubations": return `/personal?tab=agent-work&workGroup=incubation&incubationView=decision${question}`;
-    case "moodle_approvals": return `/personal?tab=agent-work&workGroup=moodle${question}`;
+    case "agent_tasks": return "/personal?tab=agent-work&workTab=approvals";
+    case "incubations": return "/personal?tab=agent-work&workTab=incubation&incubationView=decision";
+    case "moodle_approvals": return "/personal?tab=agent-work&workTab=approvals";
     default: return null;
   }
 }

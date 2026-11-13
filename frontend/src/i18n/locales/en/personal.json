@@ -414,14 +414,33 @@
       "incubation": "Incubations",
       "tasks": "Agent tasks"
     },
-    "tasksTabs": {
+    "tabs": {
       "label": "Agent tasks tabs",
-      "list": "Tasks",
-      "moodle": "Moodle approvals",
-      "moodleCount": "Moodle approvals ({{count}})",
+      "tasks": "Tasks",
+      "incubation": "Incubations",
+      "approvalsCount": "Approvals ({{count}})",
+      "answersCount": "Answers ({{count}})",
       "moodleInDecision_one": "{{count}} more Moodle approval awaits your decision.",
       "moodleInDecision_other": "{{count}} more Moodle approvals await your decision.",
-      "openMoodle": "Open Moodle approvals"
+      "openApprovals": "Open Approvals"
+    },
+    "tabDescriptions": {
+      "tasks": "Every agent task, with filters. Authorize work, follow execution and review results.",
+      "incubation": "Decide which ideas should become tasks, wait for a new date or be discarded.",
+      "approvals": "Everything awaiting your approval or decision: tasks, Moodle approvals, mission decisions and project task completions.",
+      "answers": "Agent questions that block a task until you answer."
+    },
+    "approvalSections": {
+      "queue": "Tasks awaiting your decision ({{count}})",
+      "moodleCount": "Moodle approvals ({{count}})",
+      "empty": "Nothing is awaiting your approval right now."
+    },
+    "answersEmpty": "No questions awaiting an answer.",
+    "archiveQuestion": {
+      "label": "Archive",
+      "button": "Archive question #{{number}}",
+      "title": "Archive question #{{number}}?",
+      "hint": "The question is closed without an answer and kept in history. The agent is not notified. The task it blocked stops waiting for it and follows the normal queue rules (approval, dependencies, schedule); if the task really needed the answer, it may fail or the agent may ask again."
     },
     "groupDescriptions": {
       "tasks": "Authorize work, follow execution and review agent results.",

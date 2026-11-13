@@ -248,9 +248,10 @@
     "authority": "Só uma autorização ou decisão humana real leva a Pessoal. Esperar por executor, cota ou serviço não pede nova aprovação. Até três etiquetas aparecem por mensagem.",
     "waitUntil": "Próxima verificação: {{date}}",
     "destinations": {
-      "agent_tasks": "Pessoal · Tarefas dos agentes",
-      "incubations": "Pessoal · Incubações",
-      "moodle_approvals": "Pessoal · Tarefas dos agentes · Aprovações Moodle"
+      "agent_tasks": "Pessoal · Tarefas dos agentes · Aprovações",
+      "incubations": "Pessoal · Tarefas dos agentes · Incubações",
+      "moodle_approvals": "Pessoal · Tarefas dos agentes · Aprovações",
+      "answers": "Pessoal · Tarefas dos agentes · Respostas"
     },
     "items": {
       "analysis_pending": {
