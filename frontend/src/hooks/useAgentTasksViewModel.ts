@@ -12,7 +12,13 @@ import { useOperationsViewModel } from "./useOperationsViewModel";
 
 export const WORK_VIEWS = ["decision", "processing", "waiting", "resolved", "attention", "approval", "incubation", "failed", "queued", "running", "completed", "archived"] as const;
 export type WorkView = typeof WORK_VIEWS[number];
-export type WorkGroup = "tasks" | "incubation" | "moodle";
+/** The two top-level groups. Moodle approvals live inside "tasks" as its own tab. */
+export type WorkGroup = "tasks" | "incubation";
+/** Tabs inside "Tarefas dos agentes". The URL keeps `workGroup=moodle` for the Moodle tab, so older links still land on it. */
+export type TasksTab = "list" | "moodle";
+type MoodleApprovalsSummary = { items: unknown[] };
+/** Same key and request as MoodleApprovalPanel, so both read one cached response. */
+export const MOODLE_APPROVALS_KEY = ["personal", "moodle-approvals"] as const;
 export type WorkAction = "approve" | "reject" | "postpone" | "drop" | "archive" | "restore" | "delete" | "reconcile" | "retry" | "authorize_retry" | "record_investigation" | "confirm_inactive";
 type HistoryEvent = { id: string; action: string; actor: string; created_at: string; payload: Record<string, unknown> | null };
 type BulkResult = { id: string; status: "success" | "blocked" | "missing" | "stale"; detail: string | null; number?: number; subject?: string };
@@ -37,7 +43,9 @@ export function useAgentTasksViewModel() {
   const { t } = useTranslation("personal");
   const readableContext = (value: string | null | undefined) => value?.startsWith("instructor:") ? t("agentTasks.instructorContext") : value;
   const [params, setParams] = useSearchParams();
-  const group: WorkGroup = ["tasks", "incubation", "moodle"].includes(params.get("workGroup") ?? "") ? params.get("workGroup") as WorkGroup : params.get("workView") === "incubation" ? "incubation" : "tasks";
+  const rawGroup = params.get("workGroup");
+  const group: WorkGroup = rawGroup === "incubation" || (!rawGroup && params.get("workView") === "incubation") ? "incubation" : "tasks";
+  const tasksTab: TasksTab = group === "tasks" && rawGroup === "moodle" ? "moodle" : "list";
   const paramKey = (key: string) => group === "incubation" ? key.replace(/^work/, "incubation") : key;
   const value = (key: string) => params.get(paramKey(key));
   const rawView = value("workView");
@@ -50,9 +58,15 @@ export function useAgentTasksViewModel() {
   const debouncedSearch = searchTerm.group === group ? searchTerm.search : search;
   useEffect(() => { if (composing) return; const timer = setTimeout(() => setSearchTerm({ group, search }), search ? 300 : 0); return () => clearTimeout(timer); }, [group, search, composing]);
   const day = (value: string, end: boolean) => { const date = new Date(`${value}T${end ? "23:59:59.999" : "00:00:00"}`); return value && Number.isFinite(date.getTime()) ? date.toISOString() : undefined; };
-  const query = useAgentWork({ group: group === "moodle" ? "tasks" : group, view, search: debouncedSearch, context, agent_id: agent === "all" ? undefined : agent,
-    created_from: day(from, false), created_to: day(to, true), page: requestedPage, page_size: 25 }, group !== "moodle");
-  const analysis = useAgentWorkAnalysis({ agent_id: agent === "all" ? undefined : agent, context: context === "all" ? undefined : context }, group !== "moodle");
+  const query = useAgentWork({ group, view, search: debouncedSearch, context, agent_id: agent === "all" ? undefined : agent,
+    created_from: day(from, false), created_to: day(to, true), page: requestedPage, page_size: 25 }, true);
+  const analysis = useAgentWorkAnalysis({ agent_id: agent === "all" ? undefined : agent, context: context === "all" ? undefined : context }, group === "tasks");
+  // Pending Moodle approvals are decisions too. The "tasks" group excludes
+  // Moodle messages server-side, so adding them here never counts one twice.
+  // Only the owner may read them; any other session just shows no number.
+  const moodle = useQuery({ queryKey: MOODLE_APPROVALS_KEY, queryFn: () => apiClient.get<MoodleApprovalsSummary>("/api/v1/personal/moodle-approvals"),
+    enabled: group === "tasks", refetchInterval: 30_000, retry: false });
+  const moodlePending = Array.isArray(moodle.data?.items) ? moodle.data.items.length : null;
   const agents = useAgents(), projects = useProjects(), tasks = useTasks();
   const approvals = useGovernedApprovalRequests("pending"), decideApproval = useDecideGovernedApproval();
   const operations = useOperationsViewModel("questions");
@@ -71,7 +85,7 @@ export function useAgentTasksViewModel() {
   useEffect(() => { setSelectedId(null); setSelectedIds([]); }, [filterKey]);
   const resultFilterKey = `${group}:${view}:${context}:${agent}:${from}:${to}:${debouncedSearch}`;
   useEffect(() => { setBulkResults([]); }, [resultFilterKey]);
-  useEffect(() => { if (group !== "moodle" && query.data && query.data.page !== requestedPage) setParams(prev => { const next = new URLSearchParams(prev); next.set(paramKey("workPage"), String(query.data.page)); return next; }, { replace: true }); }, [group, query.data?.page, requestedPage, setParams]);
+  useEffect(() => { if (tasksTab === "list" && query.data && query.data.page !== requestedPage) setParams(prev => { const next = new URLSearchParams(prev); next.set(paramKey("workPage"), String(query.data.page)); return next; }, { replace: true }); }, [tasksTab, query.data?.page, requestedPage, setParams]);
   const history = useQuery({ queryKey: [...demandKeys.all, "history", selectedId], queryFn: ({ signal }) => apiClient.get<HistoryEvent[]>(`/api/v1/demands/${selectedId}/history`, { signal }), enabled: Boolean(selectedId) });
   const sources = useQuery({ queryKey: [...demandKeys.all, "sources", selectedId], queryFn: ({ signal }) => apiClient.get<Demand[]>(`/api/v1/demands/${selectedId}/sources`, { signal }), enabled: Boolean(selectedId) });
   const dependencies = useTaskDependencies(selected?.origin_id ?? "");
@@ -103,9 +117,15 @@ export function useAgentTasksViewModel() {
   const setFilter = (key: string, value: string) => setParams(prev => { const next = new URLSearchParams(prev); next.set("tab", "agent-work"); if (value && value !== "all") next.set(paramKey(key), value); else next.delete(paramKey(key)); if (key !== "workPage") next.delete(paramKey("workPage")); return next; }, { replace: true });
   const agentName = (item: Demand) => agents.data?.find(row => row.id === (item.incubation_owner_id ?? item.target_agent_id))?.name ?? item.from_agent;
   const contextName = (item: AgentWorkItem) => readableContext(item.display_context || (projects.data?.find(row => row.id === item.project_id)?.name ?? item.context_area));
+  const goTo = (workGroup: "tasks" | "incubation" | "moodle") => { setSelectedId(null); setSelectedIds([]); setBulkResults([]); setNotice(false); setPromotedTask(null); setConfirmation(null); setParams(prev => { const next = new URLSearchParams(prev); next.set("tab", "agent-work"); next.set("workGroup", workGroup); return next; }); };
+  const counts: Record<string, number> = query.data?.counts ?? {};
   return {
-    group, views, promotedTask, setGroup: (nextGroup: WorkGroup) => { setSelectedId(null); setSelectedIds([]); setBulkResults([]); setNotice(false); setPromotedTask(null); setConfirmation(null); setParams(prev => { const next = new URLSearchParams(prev); next.set("tab", "agent-work"); next.set("workGroup", nextGroup); return next; }); },
-    analysis, query, items, filtered: items, view, search, context, agent, from, to, page, total: query.data?.total ?? 0, counts: query.data?.counts ?? {},
+    group, tasksTab, views, promotedTask, setGroup: (nextGroup: WorkGroup) => goTo(nextGroup),
+    setTasksTab: (tab: TasksTab) => goTo(tab === "moodle" ? "moodle" : "tasks"),
+    moodlePending,
+    /** "Sua decisão": the queue's own count plus, for tasks, the pending Moodle approvals. */
+    decisionCount: counts.decision === undefined ? undefined : counts.decision + (group === "tasks" ? moodlePending ?? 0 : 0),
+    analysis, query, items, filtered: items, view, search, context, agent, from, to, page, total: query.data?.total ?? 0, counts,
     agents: agents.data ?? [], selected, setSelectedId, contextName, agentName, state: (item: AgentWorkItem) => item.status === "archived" ? "archived" : item.operator_state ?? workState(item), setComposing, notice,
     questions, questionsError: operations.questions.isError, questionsLoading: operations.questions.isLoading, answerQuestion: operations.answerQuestion,
     setView: (value: string) => setFilter("workView", value), setSearch: (value: string) => setFilter("workSearch", value), setContext: (value: string) => setFilter("workContext", value),

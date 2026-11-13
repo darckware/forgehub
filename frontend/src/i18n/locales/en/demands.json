@@ -250,7 +250,7 @@
     "destinations": {
       "agent_tasks": "Personal · Agent tasks",
       "incubations": "Personal · Incubations",
-      "moodle_approvals": "Personal · Moodle approvals"
+      "moodle_approvals": "Personal · Agent tasks · Moodle approvals"
     },
     "items": {
       "analysis_pending": {

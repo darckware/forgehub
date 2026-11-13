@@ -172,9 +172,37 @@ describe("operator deliberation", () => {
     expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ group: "tasks" }), expect.any(Boolean));
     fireEvent.click(screen.getByRole("tab", { name: "Incubações" }));
     expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ group: "incubation" }), true);
+    expect(screen.queryByRole("tab", { name: /Aprovações Moodle/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Tarefas dos agentes" }));
     fireEvent.click(screen.getByRole("tab", { name: "Aprovações Moodle" }));
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Aprovações Moodle" })).toBeInTheDocument();
+  });
+
+  it("keeps Moodle approvals as a tab inside agent tasks, beside the analysis button", async () => {
+    vi.spyOn(apiClient, "get").mockImplementation(async (url: string) => url === "/api/v1/personal/moodle-approvals" ? { items: [{}, {}], activity: [] } : []);
+    mocks.demands.mockReturnValue({ data: { items: [item()], total: 1, page: 1, page_size: 25, counts: { decision: 3 }, contexts: [] }, isLoading: false, isError: false });
+    open();
+    const groups = screen.getByRole("tablist", { name: "Grupos de trabalho" });
+    expect(within(groups).getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Incubações", "Tarefas dos agentes"]);
+    const tabs = screen.getByRole("tablist", { name: "Abas de Tarefas dos agentes" });
+    expect(within(tabs).getByRole("tab", { name: "Tarefas" })).toHaveAttribute("aria-selected", "true");
+    expect(tabs.parentElement).toContainElement(screen.getByRole("button", { name: "Analisar e encaminhar" }));
+    expect(await within(tabs).findByRole("tab", { name: "Aprovações Moodle (2)" })).toBeInTheDocument();
+    // "Sua decisão" = the queue's decisions plus the pending Moodle approvals.
+    expect(screen.getByRole("option", { name: "Sua decisão (5)" })).toBeInTheDocument();
+    expect(screen.getByText("Mais 2 aprovações Moodle aguardam sua decisão.")).toBeInTheDocument();
+    fireEvent.click(within(tabs).getByRole("tab", { name: "Aprovações Moodle (2)" }));
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Aprovações Moodle" })).toBeInTheDocument();
+  });
+
+  it("opens the Moodle tab of agent tasks from the legacy workGroup=moodle link", () => {
+    open("/personal?tab=agent-work&workGroup=moodle");
+    expect(screen.getByRole("tab", { name: "Tarefas dos agentes" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: /^Aprovações Moodle/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("region", { name: "Aprovações Moodle" })).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
   it("offers archive on the task row before opening its details", async () => {

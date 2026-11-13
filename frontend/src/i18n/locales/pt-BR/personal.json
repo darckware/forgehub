@@ -414,6 +414,15 @@
       "incubation": "Incubações",
       "tasks": "Tarefas dos agentes"
     },
+    "tasksTabs": {
+      "label": "Abas de Tarefas dos agentes",
+      "list": "Tarefas",
+      "moodle": "Aprovações Moodle",
+      "moodleCount": "Aprovações Moodle ({{count}})",
+      "moodleInDecision_one": "Mais {{count}} aprovação Moodle aguarda sua decisão.",
+      "moodleInDecision_other": "Mais {{count}} aprovações Moodle aguardam sua decisão.",
+      "openMoodle": "Abrir Aprovações Moodle"
+    },
     "groupDescriptions": {
       "tasks": "Autorize trabalhos, acompanhe a execução e revise os resultados dos agentes.",
       "incubation": "Decida quais ideias devem virar tarefas, aguardar uma nova data ou ser descartadas."

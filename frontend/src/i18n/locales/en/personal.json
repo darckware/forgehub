@@ -414,6 +414,15 @@
       "incubation": "Incubations",
       "tasks": "Agent tasks"
     },
+    "tasksTabs": {
+      "label": "Agent tasks tabs",
+      "list": "Tasks",
+      "moodle": "Moodle approvals",
+      "moodleCount": "Moodle approvals ({{count}})",
+      "moodleInDecision_one": "{{count}} more Moodle approval awaits your decision.",
+      "moodleInDecision_other": "{{count}} more Moodle approvals await your decision.",
+      "openMoodle": "Open Moodle approvals"
+    },
     "groupDescriptions": {
       "tasks": "Authorize work, follow execution and review agent results.",
       "incubation": "Decide which ideas become tasks, wait for a new date or are discarded."

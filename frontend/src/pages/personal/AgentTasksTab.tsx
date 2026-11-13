@@ -52,7 +52,7 @@ export function AgentTasksTab() {
     </section>)}
   </section> : null;
   const groups = <div role="tablist" aria-label={t("agentTasks.groupLabel")} className="flex flex-wrap gap-2">
-    {(["moodle", "incubation", "tasks"] as const).map(group => <Button key={group} role="tab" aria-selected={vm.group === group}
+    {(["incubation", "tasks"] as const).map(group => <Button key={group} role="tab" aria-selected={vm.group === group}
       variant={vm.group === group ? "default" : "outline"} onClick={() => vm.setGroup(group)}>{t(`agentTasks.groups.${group}`)}</Button>)}
   </div>;
 
@@ -64,7 +64,25 @@ export function AgentTasksTab() {
     </ConfirmDialog>
   );
 
-  if (vm.group === "moodle") return <div className="space-y-4 pt-4"><MissionDecisionsCard />{groups}{questionSection}<MoodleApprovalPanel />{questionDialog}</div>;
+  const moodleLabel = vm.moodlePending === null ? t("agentTasks.tasksTabs.moodle") : t("agentTasks.tasksTabs.moodleCount", { count: vm.moodlePending });
+  // Same scrolling strip as components/ui/tabs.tsx on a phone; wraps beside the button from sm up.
+  const tasksTabs = vm.group === "tasks" ? <div role="tablist" aria-label={t("agentTasks.tasksTabs.label")}
+    className="flex max-w-full gap-1 overflow-x-auto rounded-md bg-muted p-1 max-sm:w-full sm:flex-wrap">
+    {(["list", "moodle"] as const).map(tab => <button key={tab} type="button" role="tab" aria-selected={vm.tasksTab === tab}
+      className={`shrink-0 whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 ${vm.tasksTab === tab ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+      onClick={() => vm.setTasksTab(tab)}>{tab === "list" ? t("agentTasks.tasksTabs.list") : moodleLabel}</button>)}
+  </div> : null;
+  const analysisButton = <Button aria-busy={vm.analysis.busy} disabled={vm.analysis.busy || vm.analysis.loading || vm.analysis.unavailable} onClick={() => vm.analysis.start.mutate()}>{t("agentTasks.analysis.start")}</Button>;
+
+  if (vm.tasksTab === "moodle") return <div className="space-y-4 pt-4">
+    <MissionDecisionsCard />
+    {groups}
+    <p className="text-sm text-muted-foreground">{t("agentTasks.groupDescriptions.tasks")}</p>
+    {questionSection}
+    <div className="flex flex-wrap items-center gap-2">{analysisButton}{tasksTabs}</div>
+    <MoodleApprovalPanel />
+    {questionDialog}
+  </div>;
 
   return <div className="space-y-4 pt-4">
     <MissionDecisionsCard />
@@ -72,7 +90,7 @@ export function AgentTasksTab() {
     <p className="text-sm text-muted-foreground">{t(`agentTasks.groupDescriptions.${vm.group}`)}</p>
     {questionSection}
     <div className="space-y-2">
-      <Button aria-busy={vm.analysis.busy} disabled={vm.analysis.busy || vm.analysis.loading || vm.analysis.unavailable} onClick={() => vm.analysis.start.mutate()}>{t("agentTasks.analysis.start")}</Button>
+      <div className="flex flex-wrap items-center gap-2">{analysisButton}{tasksTabs}</div>
       <p className="text-xs text-muted-foreground">{t("agentTasks.analysis.scope")}</p>
       <div className="min-h-12 text-sm" aria-live="polite" aria-atomic="true">
         {vm.analysis.loading ? <p role="status">{t("agentTasks.analysis.loading")}</p>
@@ -86,7 +104,7 @@ export function AgentTasksTab() {
     {vm.promotedTask && <Link className="text-sm underline" to={`/demands?message=${vm.promotedTask.id}`}>{t("agentTasks.viewPromotedTask", { number: vm.promotedTask.number })}</Link>}
     <div className="flex flex-wrap gap-2">
       <Select aria-label={t("agentTasks.view")} value={vm.view} onChange={e => vm.setView(e.target.value)} className="w-full sm:w-56">
-        {vm.views.map(view => <option key={view} value={view}>{t(`agentTasks.views.${view}`)}{vm.counts[view] !== undefined ? ` (${vm.counts[view]})` : ""}</option>)}
+        {vm.views.map(view => <option key={view} value={view}>{t(`agentTasks.views.${view}`)}{(view === "decision" ? vm.decisionCount : vm.counts[view]) !== undefined ? ` (${view === "decision" ? vm.decisionCount : vm.counts[view]})` : ""}</option>)}
       </Select>
       <Select aria-label={t("agentTasks.context")} value={vm.context} onChange={e => vm.setContext(e.target.value)} className="w-full sm:w-56">
         <option value="all">{t("agentTasks.allContexts")}</option>
@@ -100,6 +118,9 @@ export function AgentTasksTab() {
       <label className="space-y-1 text-sm">{t("agentTasks.createdFrom")}<Input type="date" value={vm.from} onChange={e => vm.setFrom(e.target.value)} /></label>
       <label className="space-y-1 text-sm">{t("agentTasks.createdTo")}<Input type="date" value={vm.to} min={vm.from || undefined} onChange={e => vm.setTo(e.target.value)} /></label>
     </div>
+    {vm.group === "tasks" && vm.view === "decision" && (vm.moodlePending ?? 0) > 0 && <p className="text-sm">
+      {t("agentTasks.tasksTabs.moodleInDecision", { count: vm.moodlePending ?? 0 })}{" "}
+      <button type="button" className="cursor-pointer text-primary underline" onClick={() => vm.setTasksTab("moodle")}>{t("agentTasks.tasksTabs.openMoodle")}</button></p>}
     {vm.selectedIds.length > 0 && <div className="flex flex-wrap items-center gap-2" role="region" aria-label={t("agentTasks.bulkSelection")}>
       <span className="text-sm">{t("agentTasks.selectedCount", { count: vm.selectedIds.length })}</span>
       <Button variant="outline" size="sm" onClick={() => vm.askBulk(vm.view === "archived" ? "restore" : "archive")}>{t(vm.view === "archived" ? "agentTasks.bulkRestore" : "agentTasks.bulkArchive")}</Button>

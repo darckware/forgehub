@@ -250,7 +250,7 @@
     "destinations": {
       "agent_tasks": "Pessoal · Tarefas dos agentes",
       "incubations": "Pessoal · Incubações",
-      "moodle_approvals": "Pessoal · Aprovações Moodle"
+      "moodle_approvals": "Pessoal · Tarefas dos agentes · Aprovações Moodle"
     },
     "items": {
       "analysis_pending": {
