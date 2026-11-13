@@ -17,6 +17,9 @@ export const PROJECT_AGENT_ROLES = [
   // had no function that fit).
   "compliance",
   "knowledge_management",
+  // 2026-11-12, docs/architecture/MISSION_PHASES_PLAN.md -- the external
+  // (claude/codex/agy) agent that homologates a mission phase.
+  "homologation",
 ] as const;
 export const LOOP_PHASES = ["documentation", "planning", "implementation", "testing", "review"] as const;
 

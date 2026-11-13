@@ -112,6 +112,17 @@ async def project_id_for_task_source(
     return None
 
 
+async def _mission_owning(db: AsyncSession, project_id: uuid.UUID) -> ProjectMission | None:
+    """The mission a task's project belongs to: itself, or the mission it is
+    a phase of (MISSION_PHASES_PLAN.md; a plain executor link is not)."""
+    mission = await db.get(ProjectMission, project_id)
+    if mission is not None:
+        return mission
+    mission_id = await db.scalar(select(MissionProjectLink.mission_project_id).where(
+        MissionProjectLink.executor_project_id == project_id, MissionProjectLink.is_phase.is_(True)).limit(1))
+    return await db.get(ProjectMission, mission_id) if mission_id else None
+
+
 async def assert_required_skills_writable(
     db: AsyncSession,
     project_id: uuid.UUID | None,
@@ -130,7 +141,7 @@ async def assert_required_skills_writable(
                             skill_ids=sorted(str(i) for i in unknown))
     if project_id is None:
         return
-    mission = await db.get(ProjectMission, project_id)
+    mission = await _mission_owning(db, project_id)
     if mission is not None and mission.state != "planning":
         raise mission_error(
             409, "REQUIRED_SKILLS_LOCKED",
@@ -145,7 +156,7 @@ async def assert_task_environment_writable(db: AsyncSession, project_id: uuid.UU
     the mission is `planning`, like its required skills."""
     if project_id is None:
         return
-    mission = await db.get(ProjectMission, project_id)
+    mission = await _mission_owning(db, project_id)
     if mission is not None and mission.state != "planning":
         raise mission_error(
             409, "TASK_ENVIRONMENT_LOCKED",
@@ -189,7 +200,7 @@ async def executor_project_ids(db: AsyncSession, project_id: uuid.UUID) -> list[
     return list((await db.execute(
         select(MissionProjectLink.executor_project_id)
         .where(MissionProjectLink.mission_project_id == project_id)
-        .order_by(MissionProjectLink.created_at)
+        .order_by(MissionProjectLink.position, MissionProjectLink.created_at)
     )).scalars())
 
 
@@ -319,11 +330,27 @@ async def skill_check_items(
     return gaps, not_evaluated
 
 
+async def _plan_scope(
+    db: AsyncSession, project_id: uuid.UUID,
+) -> tuple[list[ProjectTask], list[ProjectAgentMembership]]:
+    """The tasks a plan covers -- the mission's own and its phases' (executor
+    projects', MISSION_PHASES_PLAN.md) -- and the active memberships an
+    executor or reviewer of those tasks can hold."""
+    tasks = await mission_tasks(db, project_id)
+    memberships = await _active_memberships(db, project_id)
+    for executor_id in await executor_project_ids(db, project_id):
+        tasks += await mission_tasks(db, executor_id)
+        memberships += await _active_memberships(db, executor_id)
+    return tasks, memberships
+
+
 async def _validator_items(db: AsyncSession, mission: ProjectMission) -> tuple[list[dict], list[dict]]:
     """The P2/P7 plan validator over what M0.0 can read."""
+    from app.core.mission_phases import phase_plan_items
+
     project_id = mission.project_id
     _plan, _version, unmet = await current_plan_version(db, project_id)
-    tasks = await mission_tasks(db, project_id)
+    tasks, memberships = await _plan_scope(db, project_id)
     if not tasks:
         unmet.append(_item("NO_TASKS", "The mission has no tasks"))
     task_ids = [t.id for t in tasks]
@@ -336,7 +363,7 @@ async def _validator_items(db: AsyncSession, mission: ProjectMission) -> tuple[l
     cycle = _find_cycle(edges)
     if cycle:
         unmet.append(_item("DEPENDENCY_CYCLE", "Task dependencies form a cycle", task_ids=[str(t) for t in cycle]))
-    memberships = await _active_memberships(db, project_id)
+    unmet.extend((await phase_plan_items(db, mission))[0])
     executors = await _executors_by_task(db, task_ids, memberships)
     for task in tasks:
         executor = executors.get(task.id)
@@ -354,20 +381,23 @@ async def _validator_items(db: AsyncSession, mission: ProjectMission) -> tuple[l
 
 
 async def _draft_plan_items(db: AsyncSession, mission: ProjectMission) -> list[dict[str, Any]]:
+    from app.core.mission_phases import phase_plan_items
+
     project_id = mission.project_id
     _plan, _version, unmet = await current_plan_version(db, project_id)
-    tasks = await mission_tasks(db, project_id)
+    tasks, memberships = await _plan_scope(db, project_id)
     if not tasks:
         unmet.append(_item("NO_TASKS", "The mission has no tasks"))
     unmet.extend(environment_items(tasks))
+    unmet.extend((await phase_plan_items(db, mission))[0])
     task_ids = {t.id for t in tasks}
-    executors = await _executors_by_task(db, list(task_ids), await _active_memberships(db, project_id))
+    executors = await _executors_by_task(db, list(task_ids), memberships)
     for task in tasks:
         if task.id not in executors:
             unmet.append(_item("TASK_WITHOUT_ROLE", "Task has no active assignment through a mission member",
                                task_id=str(task.id), task_number=task.number))
     if task_ids:
-        scope = task_ids | {t.id for pid in await executor_project_ids(db, project_id) for t in await mission_tasks(db, pid)}
+        scope = task_ids
         for dep in (await db.execute(select(TaskDependency).where(TaskDependency.task_id.in_(task_ids)))).scalars():
             if dep.depends_on_task_id not in scope:
                 unmet.append(_item("DEPENDENCY_OUTSIDE_MISSION", "Task depends on a task outside the mission",
@@ -381,8 +411,6 @@ async def _draft_plan_items(db: AsyncSession, mission: ProjectMission) -> list[d
             unmet.append(_item("CRITERION_WITHOUT_TASK", "Acceptance criterion has no task", code_ref=criterion.code))
     if mission.deadline_at is None:
         unmet.append(_item("DEADLINE_MISSING", "deadline_at is not set"))
-    if mission.budget_limit is None:
-        unmet.append(_item("BUDGET_MISSING", "budget_limit is not set"))
     if mission.risk_level is None:
         unmet.append(_item("RISK_LEVEL_MISSING", "risk_level is not set"))
     if not mission.required_review_layers:
@@ -444,6 +472,27 @@ async def brief_items(db: AsyncSession, mission: ProjectMission) -> list[dict[st
     return []
 
 
+async def mission_docs_items(db: AsyncSession, project_id) -> list[dict[str, Any]]:
+    """The agents' study material must be in place before planning starts
+    (2026-11-12): a working directory whose docs/ holds at least one entry."""
+    from app.core.mission_docs import read_mission_docs
+    from app.db.models.project import Project
+
+    project = await db.get(Project, project_id)
+    docs = await read_mission_docs(project.working_directory_path if project else None)
+    if docs.status == "ok":
+        return []
+    code, message = {
+        "no_working_directory": ("WORKING_DIRECTORY_MISSING", "The mission has no working directory"),
+        "missing": ("DOCS_MISSING", "The working directory has no docs/ folder for the agents to study"),
+        "empty": ("DOCS_EMPTY", "The docs/ folder is empty"),
+    }.get(docs.status, ("DOCS_UNVERIFIED", "The docs/ folder could not be checked on the host"))
+    extra = {"docs_path": docs.path} if docs.path else {}
+    if docs.detail:
+        extra["detail"] = docs.detail
+    return [_item(code, message, **extra)]
+
+
 async def transition_preconditions(
     db: AsyncSession, mission: ProjectMission, to_state: str
 ) -> list[dict[str, Any]]:
@@ -465,8 +514,10 @@ async def transition_preconditions(
                                "The orchestrator has no active coordinator membership"))
         if mission.deadline_at is None:
             unmet.append(_item("DEADLINE_MISSING", "deadline_at is not set"))
-        if mission.budget_limit is None:
-            unmet.append(_item("BUDGET_MISSING", "budget_limit is not set"))
+        if mission.product_registration_pending:
+            unmet.append(_item("PRODUCT_REGISTRATION_PENDING",
+                               "The mission's new product/service still has to be registered by the orchestrator"))
+        unmet.extend(await mission_docs_items(db, project_id))
 
     elif (from_state, to_state) == ("planning", "ready"):
         if mission.planning_stage != "baseline":
@@ -481,8 +532,6 @@ async def transition_preconditions(
                                    code_ref=criterion.code))
         if mission.deadline_at is None:
             unmet.append(_item("DEADLINE_MISSING", "deadline_at is not set"))
-        if mission.budget_limit is None:
-            unmet.append(_item("BUDGET_MISSING", "budget_limit is not set"))
         if not await _current_baseline_valid(db, mission):
             unmet.append(_item("BASELINE_MISSING", "No current baseline of this mission's plan"))
 
@@ -517,6 +566,13 @@ async def transition_preconditions(
         if not criteria or any(c.status != "proven" for c in criteria):
             unmet.append(_item("CRITERIA_NOT_ALL_PROVEN", "Every acceptance criterion must be proven",
                                open=[c.code for c in criteria if c.status != "proven"]))
+        from app.core.mission_phases import mission_phases
+
+        open_phases = [p for p in await mission_phases(db, project_id) if p.phase_status != "approved"]
+        if open_phases:
+            unmet.append(_item("PHASES_NOT_APPROVED", "Every mission phase must be approved by Marcelo",
+                               phases=[{"phase_id": str(p.id), "position": p.position, "name": p.name,
+                                        "phase_status": p.phase_status} for p in open_phases]))
 
     elif (from_state, to_state) == ("verifying", "active"):
         criteria = await _criteria(db, project_id)

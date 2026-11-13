@@ -54,6 +54,10 @@ PROJECT_AGENT_ROLES = (
     # help/FORGEHUB_CHANNELS_AGENT_GUIDE.md §8.
     "compliance",
     "knowledge_management",
+    # 2026-11-12 (MISSION_PHASES_PLAN.md): the external agent that tests a
+    # mission phase's delivery against its objective before Marcelo approves
+    # the phase. Never an executor; only claude/codex/agy runtimes.
+    "homologation",
 )
 LOOP_PHASES = ("documentation", "planning", "implementation", "testing", "review")
 REVIEW_STATUSES = ("pending", "running", "approved", "changes_requested", "rejected", "failed")

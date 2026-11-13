@@ -1,4 +1,4 @@
-import type { MissionBoard, MissionTask } from "@/hooks/useMissions";
+import type { MissionBoard, MissionPhase, MissionTask } from "@/hooks/useMissions";
 
 /** Fictitious mission board (M0.7 tests): one task per §1 point. */
 export function missionTask(overrides: Partial<MissionTask> = {}): MissionTask {
@@ -26,10 +26,12 @@ export function missionBoard(overrides: Partial<MissionBoard> = {}): MissionBoar
       project_id: "m07-mission", name: "m07 Política de memória", state: "active", paused_from_state: null,
       planning_stage: null, priority: 50, row_version: 3, orchestrator: { id: "a-athos", name: "Athos" },
       deadline_at: new Date(Date.now() + 3 * 86400_000).toISOString(), paused: false,
+      product_registration_pending: false, working_directory_path: null,
       baseline: { id: "b-1", name: "baseline 1", approved_at: now, superseded: false },
       allowed_actions: ["pause", "cancel"],
       blocked_actions: [{ action: "resume", reason: "MISSION_TRANSITION_NOT_ALLOWED", message: "" }],
     },
+    phases: [],
     tasks: [
       missionTask(),
       missionTask({
@@ -61,6 +63,24 @@ export function missionBoard(overrides: Partial<MissionBoard> = {}): MissionBoar
     planning: null,
     viewer: { principal_type: "user", is_admin: true, can_act: true },
     generated_at: now,
+    ...overrides,
+  };
+}
+
+/** A fictitious mission phase (MISSION_PHASES_PLAN.md). */
+export function missionPhase(overrides: Partial<MissionPhase> = {}): MissionPhase {
+  return {
+    phase_id: "ph-1", position: 1, name: "Estrutura", objective: "Navegação e design system, sem regras de negócio",
+    phase_status: "planned", executor_project_id: "p-ph-1", executor_project_name: "m07 · Fase 1 · Estrutura",
+    homologator: null, homologation_verdict: null, homologation_summary: null, homologation_evidence: null,
+    homologated_at: null, decided_by: null, decided_at: null, decision_reason: null,
+    planning_items: [{
+      planning_item_id: "pi-1", title: "Menu e rotas", position: 1, status: "new", sequenced: true,
+      tasks: [
+        { task_id: "pt-1", number: 9101, title: "Layout base", status: "done", position: 1, assignee_name: "Porthus", depends_on: [] },
+        { task_id: "pt-2", number: 9102, title: "Rotas", status: "assigned", position: 2, assignee_name: "Aramis", depends_on: [9101] },
+      ],
+    }],
     ...overrides,
   };
 }

@@ -120,6 +120,9 @@ def test_tools_registered():
     tools = factory_server.mcp._tool_manager._tools
     assert {"create_internal_project", "manage_project_members", "attach_project_document",
             "get_my_mission_role", "list_my_tasks"} <= tools.keys()
+    # Mission phases (MISSION_PHASES_PLAN.md).
+    assert {"list_mission_phases", "create_mission_phase", "update_mission_phase", "reorder_mission_phases",
+            "sequence_planning_tasks", "request_phase_homologation", "report_phase_homologation"} <= tools.keys()
 
 
 async def test_m0_2d_tools_forward_the_contract(monkeypatch):

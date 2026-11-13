@@ -31,6 +31,7 @@ from app.tests.test_mission_base import (  # noqa: F401  (_clean_stale_mission_f
     _criterion,
     _force,
     _member,
+    _phase,
     _row_version,
     _task,
     _transition,
@@ -97,8 +98,10 @@ class Cast:
         await _force(self.project_id, state="planning", planning_stage="draft_plan")
         executor = await world.agent("exec")
         self.task = await _task(self.project_id)
-        await _assign(self.task.id, executor, await _member(self.project_id, executor))
+        executor_membership = await _member(self.project_id, executor)
+        await _assign(self.task.id, executor, executor_membership)
         await _criterion(self.project_id, await world.agent("verifier"), task_ids=[self.task.id])
+        await _phase(self.project_id, executor=(executor, executor_membership))
 
         self.orch = await world.agent_token(self.orchestrator, ["mission.orchestrate", REVIEW], pid)
         async with AsyncSessionLocal() as db:  # the orchestrator's coordinator membership can also review

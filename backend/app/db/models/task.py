@@ -120,6 +120,11 @@ class ProjectTask(Base, TimestampMixin):
 
     priority: Mapped[str] = mapped_column(String(20), nullable=False, default="medium")
 
+    # Order inside its planning item (MISSION_PHASES_PLAN.md: a mission
+    # phase's planning item runs its tasks in sequence; tasks:sequence sets
+    # 1..n together with the finish_to_start chain). NULL = not sequenced.
+    position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     estimated_cost: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     actual_cost: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
 

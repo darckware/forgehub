@@ -70,6 +70,8 @@ from app.api.routes import (
     mission,
     mission_plan,
     mission_task,
+    mission_authorization,
+    mission_phase,
     mission_cycle,
     agent_availability,
     mission_records,
@@ -241,6 +243,9 @@ def is_agent_command_path(method: str, path: str) -> bool:
         # 2026-10-29 (M0.0): the mission's orchestrator acts with its own
         # agt_; every /missions route calls authorize_action itself.
         "/api/v1/missions/",
+        # 2026-11-13: an agent programs Operação 24x7; every route checks the
+        # operations.routines.manage delegation itself.
+        "/api/v1/operations/agent/",
     )) or path == "/api/v1/missions" or (
         # M0.7: the single writer of environment_releases; the route checks
         # environment.release.record itself.
@@ -544,11 +549,14 @@ app.include_router(vpn.router)
 app.include_router(forgerouter.router)
 app.include_router(operations.router)
 app.include_router(orchestration.router)
+# Before mission.router: /missions/pending-decisions is not a {project_id}.
+app.include_router(mission_authorization.router)
 app.include_router(mission.router)
 app.include_router(mission_records.router)
 app.include_router(mission_acceptance.router)
 app.include_router(mission_plan.router)
 app.include_router(mission_task.router)
+app.include_router(mission_phase.router)
 app.include_router(mission_board.router)
 app.include_router(environment.router)
 app.include_router(mission_cycle.router)

@@ -1,6 +1,6 @@
 {
   "roles": {
-    "coordinator": "Coordinador", "planner": "Planificador", "architect": "Arquitecto", "designer": "Diseñador", "developer": "Desarrollador", "data_engineer": "Ingeniero de datos", "qa": "Calidad", "security_reviewer": "Revisor de seguridad", "reviewer": "Revisor", "release_manager": "Responsable de publicación", "documentation": "Documentación", "compliance": "Cumplimiento", "knowledge_management": "Gestión del conocimiento"
+    "coordinator": "Coordinador", "planner": "Planificador", "architect": "Arquitecto", "designer": "Diseñador", "developer": "Desarrollador", "data_engineer": "Ingeniero de datos", "qa": "Calidad", "security_reviewer": "Revisor de seguridad", "reviewer": "Revisor", "release_manager": "Responsable de publicación", "documentation": "Documentación", "compliance": "Cumplimiento", "knowledge_management": "Gestión del conocimiento", "homologation": "Homologación"
   },
   "purposes": { "general": "General", "draft": "Borrador", "review": "Revisión", "implementation": "Implementación", "testing": "Pruebas" },
   "phases": { "documentation": "Documentación", "planning": "Planificación", "implementation": "Implementación", "testing": "Pruebas", "review": "Revisión" },
