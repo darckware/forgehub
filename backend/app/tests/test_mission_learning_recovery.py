@@ -5,7 +5,9 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import delete, func, select
 
+from app.core.config import settings
 from app.db.base import AsyncSessionLocal
+from app.db.models.command_receipt import AgentCommandReceipt
 from app.db.models.agent import AgentSkill
 from app.db.models.demand import AgentDemand
 from app.db.models.governance import AuditEvent
@@ -19,7 +21,8 @@ from app.tests.test_mission_dispatch import runner, world  # noqa: F401
 
 
 @pytest.mark.asyncio
-async def test_learning_rejects_observation_then_preserves_reviewed_proposal_without_grant(cw):  # noqa: F811
+async def test_learning_rejects_observation_then_preserves_reviewed_proposal_without_grant(cw, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(settings, 'MISSION_LEARNING_ENABLED', True)
     mission = await _mission(cw)
     [task] = await _baselined(mission, 'learning-source')
     headers = await _orch_headers(cw, mission)
@@ -67,6 +70,49 @@ async def test_learning_rejects_observation_then_preserves_reviewed_proposal_wit
             async with AsyncSessionLocal() as db:
                 await db.execute(delete(AuditEvent).where(AuditEvent.entity_type == 'mission_skill_proposal', AuditEvent.entity_id == proposal_id))
                 await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_learning_field_refused_when_switched_off(cw, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(settings, 'MISSION_LEARNING_ENABLED', False)
+    mission = await _mission(cw)
+    headers = await _orch_headers(cw, mission)
+    body = {'kind': 'create_skill', 'reason': 'Learning while switched off', 'idempotency_key': _key(cw),
+            'learning': {'source_execution_ids': [str(uuid.uuid4())],
+                         'reproduction': 'Repeat the canonical database evidence check',
+                         'lesson': 'Check the stored artifact before reporting the result',
+                         'proposed_skill_version': '1.2.0', 'runtime_types': ['claude']}}
+    async with cw.client(headers) as client:
+        refused = await client.post(f'/api/v1/missions/{mission.project_id}/skill-proposals', json=body)
+    assert refused.status_code == 422, refused.text
+    assert refused.json()['detail']['code'] == 'MISSION_LEARNING_DISABLED'
+    async with AsyncSessionLocal() as db:
+        assert await db.scalar(select(func.count(MissionSkillProposal.id)).where(
+            MissionSkillProposal.mission_project_id == mission.project_id)) == 0
+
+
+@pytest.mark.asyncio
+async def test_legacy_skill_proposal_without_request_hash_replays(cw):  # noqa: F811
+    """A decision recorded before request hashes (and before receipts) replays
+    by its key as it always did; it is never a 409."""
+    mission = await _mission(cw)
+    headers = await _orch_headers(cw, mission)
+    key = _key(cw)
+    body = {'kind': 'create_skill', 'reason': 'Legacy proposal', 'idempotency_key': key}
+    async with cw.client(headers) as client:
+        created = await client.post(f'/api/v1/missions/{mission.project_id}/skill-proposals', json=body)
+        assert created.status_code == 201, created.text
+        # Make it look like a pre-357e985 record: no receipt, no request_hash.
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(AgentCommandReceipt).where(AgentCommandReceipt.idempotency_key == key))
+            decision = await db.scalar(select(MissionDecision).where(MissionDecision.idempotency_key == f'skill:{key}'))
+            decision.facts = {k: v for k, v in decision.facts.items() if k != 'request_hash'}
+            await db.commit()
+        replay = await client.post(f'/api/v1/missions/{mission.project_id}/skill-proposals',
+                                   json={**body, 'reason': 'Legacy proposal, resent'})
+        assert replay.status_code == 200, replay.text
+        assert replay.headers.get('Idempotent-Replay') == 'true'
+        assert replay.json()['id'] == created.json()['id']
 
 
 @pytest.mark.asyncio
@@ -120,3 +166,14 @@ async def test_admin_recovery_pack_flags_reconciling_work_package_without_demand
     assert pack.status_code == 200, pack.text
     assert pack.json()['next_step'] == 'reconcile_original_run'
     assert pack.json()['attempts'][0]['id'] == str(execution_id)
+
+
+@pytest.mark.asyncio
+async def test_recovery_pack_follows_mission_tools_switch(cw, monkeypatch):  # noqa: F811
+    mission = await _mission(cw)
+    [task] = await _baselined(mission, 'recovery-switch')
+    monkeypatch.setattr(settings, 'MISSION_TOOLS_ENABLED', False)
+    async with cw.client() as client:
+        off = await client.get(f'/api/v1/missions/{mission.project_id}/tasks/{task.id}/context')
+    assert off.status_code == 503, off.text
+    assert off.json()['detail']['code'] == 'MISSION_TOOLS_DISABLED'

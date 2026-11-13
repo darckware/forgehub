@@ -52,6 +52,7 @@ from app.api.schemas.mission_cycle import (
 from app.core.agent_availability import classify_infra_failure
 from app.core.command_receipts import (begin_command, enforce_command_limits, limit_command_body,
                                        record_command, request_hash, require_mission_tools)
+from app.core.config import settings
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
 from app.core.mission import mission_error
 from app.core.mission_cycle import (
@@ -78,7 +79,8 @@ from app.db.models.task import ProjectTask, TaskAssignment, TaskExecution
 router = APIRouter(prefix="/api/v1/missions", tags=["missions"])
 
 from app.core.task_recovery import router as task_recovery_router
-router.include_router(task_recovery_router)
+# Recovery is part of the mission MCP contract: same switch (503 when off).
+router.include_router(task_recovery_router, dependencies=[Depends(require_mission_tools)])
 
 ORCHESTRATE_ACTION = "mission.orchestrate"
 COMMAND_DEPENDENCIES = [Depends(require_mission_tools), Depends(limit_command_body)]
@@ -812,7 +814,10 @@ async def propose_skill_change(
         MissionDecision.actor_type == principal.principal_type, MissionDecision.actor_id == principal.principal_id,
         MissionDecision.idempotency_key == key))).scalar_one_or_none()
     if replay is not None:
-        if replay.facts.get("request_hash") != body_hash or replay.mission_project_id != project_id:
+        # A decision recorded before request hashes existed (legacy) replays as
+        # it always did; only a recorded hash can prove the payload differs.
+        recorded_hash = (replay.facts or {}).get("request_hash")
+        if recorded_hash is not None and (recorded_hash != body_hash or replay.mission_project_id != project_id):
             raise mission_error(409, "IDEMPOTENCY_KEY_REUSED", "The original skill proposal payload differs or requires reconciliation")
         proposal = await db.get(MissionSkillProposal, uuid.UUID(replay.facts["skill_proposal_id"]))
         audit = await db.scalar(select(AuditEvent).where(
@@ -831,6 +836,9 @@ async def propose_skill_change(
     if payload.skill_id is not None and await db.get(Skill, payload.skill_id) is None:
         raise mission_error(422, "SKILL_NOT_FOUND", "skill_id is not a registered skill")
     learning = None
+    if payload.learning is not None and not settings.MISSION_LEARNING_ENABLED:
+        raise mission_error(422, "MISSION_LEARNING_DISABLED",
+                            "Evidence-qualified learning is disabled (MISSION_LEARNING_ENABLED=false)")
     if payload.learning is not None:
         from app.core.mission_learning import validate_learning
         learning = await validate_learning(db, mission, payload.learning)
