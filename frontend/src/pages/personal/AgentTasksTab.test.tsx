@@ -199,6 +199,8 @@ describe("operator deliberation", () => {
 
   it("opens the Moodle tab of agent tasks from the legacy workGroup=moodle link", () => {
     open("/personal?tab=agent-work&workGroup=moodle");
+    // The task list is hidden here, so it isn't fetched.
+    expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ group: "tasks" }), false);
     expect(screen.getByRole("tab", { name: "Tarefas dos agentes" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: /^Aprovações Moodle/ })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("region", { name: "Aprovações Moodle" })).toBeInTheDocument();

@@ -59,7 +59,7 @@ export function useAgentTasksViewModel() {
   useEffect(() => { if (composing) return; const timer = setTimeout(() => setSearchTerm({ group, search }), search ? 300 : 0); return () => clearTimeout(timer); }, [group, search, composing]);
   const day = (value: string, end: boolean) => { const date = new Date(`${value}T${end ? "23:59:59.999" : "00:00:00"}`); return value && Number.isFinite(date.getTime()) ? date.toISOString() : undefined; };
   const query = useAgentWork({ group, view, search: debouncedSearch, context, agent_id: agent === "all" ? undefined : agent,
-    created_from: day(from, false), created_to: day(to, true), page: requestedPage, page_size: 25 }, true);
+    created_from: day(from, false), created_to: day(to, true), page: requestedPage, page_size: 25 }, tasksTab === "list");
   const analysis = useAgentWorkAnalysis({ agent_id: agent === "all" ? undefined : agent, context: context === "all" ? undefined : context }, group === "tasks");
   // Pending Moodle approvals are decisions too. The "tasks" group excludes
   // Moodle messages server-side, so adding them here never counts one twice.
