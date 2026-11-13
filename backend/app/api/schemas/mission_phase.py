@@ -45,6 +45,9 @@ class TasksSequenceIn(_In):
 
 class HomologationRequestIn(_In):
     homologator_agent_id: uuid.UUID
+    # Re-send a phase already `homologating` (the previous homologation task
+    # is withdrawn if it has not started; a run in flight refuses).
+    replace: bool = False
     expected_phase_status: Literal[PHASE_STATUSES] | None = None  # type: ignore[valid-type]
 
 

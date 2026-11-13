@@ -112,6 +112,17 @@ async def project_id_for_task_source(
     return None
 
 
+async def _mission_owning(db: AsyncSession, project_id: uuid.UUID) -> ProjectMission | None:
+    """The mission a task's project belongs to: itself, or the mission it is
+    a phase of (MISSION_PHASES_PLAN.md; a plain executor link is not)."""
+    mission = await db.get(ProjectMission, project_id)
+    if mission is not None:
+        return mission
+    mission_id = await db.scalar(select(MissionProjectLink.mission_project_id).where(
+        MissionProjectLink.executor_project_id == project_id, MissionProjectLink.is_phase.is_(True)).limit(1))
+    return await db.get(ProjectMission, mission_id) if mission_id else None
+
+
 async def assert_required_skills_writable(
     db: AsyncSession,
     project_id: uuid.UUID | None,
@@ -130,7 +141,7 @@ async def assert_required_skills_writable(
                             skill_ids=sorted(str(i) for i in unknown))
     if project_id is None:
         return
-    mission = await db.get(ProjectMission, project_id)
+    mission = await _mission_owning(db, project_id)
     if mission is not None and mission.state != "planning":
         raise mission_error(
             409, "REQUIRED_SKILLS_LOCKED",
@@ -145,7 +156,7 @@ async def assert_task_environment_writable(db: AsyncSession, project_id: uuid.UU
     the mission is `planning`, like its required skills."""
     if project_id is None:
         return
-    mission = await db.get(ProjectMission, project_id)
+    mission = await _mission_owning(db, project_id)
     if mission is not None and mission.state != "planning":
         raise mission_error(
             409, "TASK_ENVIRONMENT_LOCKED",

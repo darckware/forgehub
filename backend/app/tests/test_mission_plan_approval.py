@@ -154,7 +154,7 @@ class Plan:
         await _member(self.project_id, self.reviewer, role="reviewer", can_review=True)
         self.task = await self.add_task("first")
         await _criterion(self.project_id, self.reviewer, task_ids=[self.task.id])
-        await _phase(self.project_id)
+        await _phase(self.project_id, executor=(self.executor, self.executor_membership))
         self.orch_h = await world.agent_token(
             self.orchestrator,
             ["mission.plan.submit", "mission.orchestrate", "planning.execution.manage", "governance.approval.decide"],
@@ -219,7 +219,7 @@ async def test_submit_plan_never_approves(world, mcp_as):
     assert submitted["plan_id"] == plan.plan_id
     checks = {c["key"]: c for c in submitted["checks"]}
     assert all(c["status"] == "passed" for c in checks.values() if c["status"] not in ("not_evaluated", "warning"))
-    # The task is mission-level, outside any phase: allowed, reported as a warning only.
+    # The submitted task is mission-level, outside the phase: allowed, only a warning.
     assert checks["phases"]["status"] == "passed" and checks["tasks_in_phases"]["status"] == "warning"
     for key_name in ("critical_path_vs_deadline", "document_owners", "risk_list", "budget_sum"):
         assert checks[key_name]["status"] == "not_evaluated" and checks[key_name]["passed"] is None

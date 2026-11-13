@@ -38,8 +38,11 @@ def _item(code: str, message: str, **context: Any) -> dict[str, Any]:
 
 
 async def mission_phases(db, mission_project_id: uuid.UUID, *, lock: bool = False) -> list[MissionProjectLink]:
+    """The mission's phases (``is_phase`` links only; a plain executor link
+    is never a phase), in order."""
     stmt = (select(MissionProjectLink)
-            .where(MissionProjectLink.mission_project_id == mission_project_id)
+            .where(MissionProjectLink.mission_project_id == mission_project_id,
+                   MissionProjectLink.is_phase.is_(True))
             .order_by(MissionProjectLink.position, MissionProjectLink.created_at))
     if lock:
         stmt = stmt.with_for_update().execution_options(populate_existing=True)
@@ -115,6 +118,9 @@ async def phase_plan_items(db, mission: ProjectMission) -> tuple[list[dict[str, 
         ref = {"phase_id": str(phase.id), "phase_position": phase.position, "phase_name": phase.name}
         if not (phase.objective or "").strip():
             unmet.append(_item("PHASE_OBJECTIVE_MISSING", "The phase has no objective", **ref))
+        if not any(t.status != "cancelled" for t in await mission_tasks(db, phase.executor_project_id)):
+            # A phase with nothing to deliver could never be homologated.
+            unmet.append(_item("PHASE_WITHOUT_TASKS", "The phase has no task", **ref))
         items = await project_planning_items(db, phase.executor_project_id)
         tasks_by_item = await item_tasks(db, [i.id for i in items])
         edges = await dependency_edges(db, [t.id for ts in tasks_by_item.values() for t in ts])
@@ -143,6 +149,7 @@ async def _phase_of_task(db, task: ProjectTask, mission: ProjectMission) -> Miss
     return (await db.execute(select(MissionProjectLink).where(
         MissionProjectLink.mission_project_id == mission.project_id,
         MissionProjectLink.executor_project_id == project_id,
+        MissionProjectLink.is_phase.is_(True),
     ))).scalar_one_or_none()
 
 
@@ -193,15 +200,20 @@ async def phase_tasks(db, phase: MissionProjectLink) -> list[ProjectTask]:
 
 async def phase_participants(db, tasks: list[ProjectTask]) -> tuple[set[uuid.UUID], set[uuid.UUID]]:
     """(executor agent ids, reviewer agent ids) over every assignment,
-    execution and review of the tasks -- current or past."""
-    from app.core.task_completion_guard import resolve_executor_agent_id
+    execution and review of the tasks -- current or past. A sub-agent counts
+    as its parent agent, as in the completion guard (``_agent_identity``)."""
+    from app.core.task_completion_guard import _agent_identity, resolve_executor_agent_id
     from app.db.models.orchestration import ProjectAgentMembership, TaskExecutionReview
 
     task_ids = [t.id for t in tasks]
     if not task_ids:
         return set(), set()
-    executors = set((await db.execute(select(TaskAssignment.agent_id).where(
-        TaskAssignment.task_id.in_(task_ids), TaskAssignment.agent_id.is_not(None)))).scalars())
+    executors: set[uuid.UUID] = set()
+    for agent_id, sub_agent_id in (await db.execute(select(TaskAssignment.agent_id, TaskAssignment.sub_agent_id)
+                                                    .where(TaskAssignment.task_id.in_(task_ids)))).all():
+        identity = await _agent_identity(db, agent_id, sub_agent_id)
+        if identity is not None:
+            executors.add(identity)
     executions = list((await db.execute(select(TaskExecution).where(TaskExecution.task_id.in_(task_ids)))).scalars())
     for execution in executions:
         agent_id = await resolve_executor_agent_id(db, execution)
@@ -209,12 +221,14 @@ async def phase_participants(db, tasks: list[ProjectTask]) -> tuple[set[uuid.UUI
             executors.add(agent_id)
     reviewers: set[uuid.UUID] = set()
     if executions:
-        reviewers = set((await db.execute(
-            select(ProjectAgentMembership.agent_id)
+        for agent_id, sub_agent_id in (await db.execute(
+            select(ProjectAgentMembership.agent_id, ProjectAgentMembership.sub_agent_id)
             .join(TaskExecutionReview, TaskExecutionReview.reviewer_membership_id == ProjectAgentMembership.id)
-            .where(TaskExecutionReview.execution_id.in_([e.id for e in executions]),
-                   ProjectAgentMembership.agent_id.is_not(None))
-        )).scalars())
+            .where(TaskExecutionReview.execution_id.in_([e.id for e in executions]))
+        )).all():
+            identity = await _agent_identity(db, agent_id, sub_agent_id)
+            if identity is not None:
+                reviewers.add(identity)
     return executors, reviewers
 
 

@@ -284,6 +284,7 @@ async def test_plan_checks_for_phases(world):
 
     assert await check() == ({"PHASES_MISSING"}, set())
     phase = (await _create_phase(world, pid, objective=None)).json()["phases"][0]
+    assert await check() == ({"PHASE_OBJECTIVE_MISSING", "PHASE_WITHOUT_TASKS"}, set())
     item_id, (a, b) = await _item_with_tasks(phase["executor_project_id"], ["a", "b"])
     single, _ = await _item_with_tasks(phase["executor_project_id"], ["alone"])  # one task is sequenced
     assert await check() == ({"PHASE_OBJECTIVE_MISSING", "TASKS_NOT_SEQUENCED"}, set())
@@ -556,3 +557,168 @@ async def test_board_and_mcp_tools(world, mcp_as):  # noqa: F811
         board = (await client.get(f"/api/v1/missions/{pid}/executions")).json()
     assert [p["name"] for p in board["phases"]] == ["Telas", "Estrutura"]
     assert board["phases"][0]["planning_items"][0]["tasks"][1]["depends_on"] == [b.number]
+
+
+# ---------------------------------------------------------------------------
+# Review fixes: legacy links, re-sending a homologation, sub-agents, names, report guards
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_legacy_executor_link_is_not_a_phase_and_hash_is_unchanged(world):
+    """A mission with only a plain executor link (as every link was before
+    phases) hashes exactly as before: no `phases` key, the baseline items
+    match the pre-phases formula, and dispatch is not refused."""
+    from app.core.governed_approval import canonical_hash
+    from app.core.plan_baseline import mission_content_part, task_content_part
+    from app.db.models.project import PlanBaselineItem
+    from app.tests.test_mission_base import _brief
+
+    executor = await world.common_project()
+    mission = await world.create_mission(
+        brief_artifact_id=str(await _brief(world)), executor_project_ids=[executor["id"]],
+        working_directory_path=f"/srv/forgehub-test/phases-{world.tag}-legacy")
+    pid = mission["project_id"]
+    async with AsyncSessionLocal() as db:
+        link = (await db.execute(select(MissionProjectLink).where(
+            MissionProjectLink.mission_project_id == uuid.UUID(pid)))).scalar_one()
+    assert (link.is_phase, link.position, link.name) == (False, None, None)
+    legacy_task = await _task(executor["id"], "legacy work")
+    own_task = await _task(pid, "mission work")
+    await _force(pid, state="active")
+    baseline_id = await Mission(world, {"project_id": pid}, None, None).baseline([legacy_task.id, own_task.id])
+
+    async with AsyncSessionLocal() as db:
+        m = await db.get(ProjectMission, uuid.UUID(pid))
+        part = await mission_content_part(db, m)
+        assert set(part) == {"brief_artifact_id", "brief_artifact_version_id", "criteria"}
+        stored = {i.task_id: i.content_hash for i in (await db.execute(select(PlanBaselineItem).where(
+            PlanBaselineItem.baseline_id == baseline_id))).scalars()}
+        for task in (legacy_task, own_task):
+            fresh = await db.get(ProjectTask, task.id)
+            # The formula before phases existed: task part + {brief, criteria}.
+            before = canonical_hash({"task": await task_content_part(db, fresh), "mission": {
+                "brief_artifact_id": m.brief_artifact_id,
+                "brief_artifact_version_id": part["brief_artifact_version_id"], "criteria": part["criteria"]}})
+            assert stored[task.id] == before
+            await assert_task_baseline_current(db, fresh)  # no PHASE_* and no TASK_CONTENT_CHANGED
+        assert "PHASES_NOT_APPROVED" not in {u["code"] for u in await transition_preconditions(db, m, "verifying")}
+    listed = await _call(world, "GET", f"/api/v1/missions/{pid}/phases")
+    assert listed.json()["phases"] == []
+    # A plain link is not reachable through the phase routes.
+    missing = await _call(world, "POST", f"/api/v1/missions/{pid}/phases/{link.id}:request-homologation",
+                          {"homologator_agent_id": str(uuid.uuid4())})
+    assert missing.status_code == 404 and _code(missing) == "PHASE_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_replace_homologation_and_sub_agent_independence(world):
+    from app.db.models.agent import SubAgent
+
+    pid, _orchestrator, phase, task, _executor, _reviewer = await _homologation_world(world)
+    await _set_task(task.id, status="done")
+    url = f"/api/v1/missions/{pid}/phases/{phase['phase_id']}:request-homologation"
+
+    # A sub-agent reviewed a task of the phase: its parent is not independent.
+    parent = await world.agent("parent")
+    async with AsyncSessionLocal() as db:
+        sub = SubAgent(agent_id=parent, name=f"mission-test-sub-{world.tag}")
+        db.add(sub)
+        await db.flush()
+        membership = ProjectAgentMembership(project_id=uuid.UUID(phase["executor_project_id"]), sub_agent_id=sub.id,
+                                            role="reviewer", status="active", can_review=True)
+        db.add(membership)
+        await db.flush()
+        execution = (await db.execute(text("SELECT id FROM company.task_executions WHERE task_id = :t"),
+                                      {"t": str(task.id)})).scalar_one()
+        db.add(TaskExecutionReview(execution_id=execution, reviewer_membership_id=membership.id,
+                                   status="approved", feedback="ok"))
+        await db.commit()
+    await _member(pid, parent, role="homologation")
+    refused = await _call(world, "POST", url, {"homologator_agent_id": str(parent)})
+    assert refused.status_code == 409 and _code(refused) == "HOMOLOGATOR_NOT_INDEPENDENT", refused.text
+    assert refused.json()["detail"]["as_reviewer"] is True
+
+    first_h, second_h = await world.agent("hom-1"), await world.agent("hom-2")
+    await _member(pid, first_h, role="homologation")
+    await _member(pid, second_h, role="homologation")
+    first = await _call(world, "POST", url, {"homologator_agent_id": str(first_h)})
+    assert first.status_code == 200, first.text
+    # Without replace a homologating phase is not re-sent.
+    assert _code(await _call(world, "POST", url, {"homologator_agent_id": str(second_h)})) == "PHASE_STATE_CHANGED"
+    second = await _call(world, "POST", url, {"homologator_agent_id": str(second_h), "replace": True})
+    assert second.status_code == 200, second.text
+    assert second.json()["phases"][0]["homologator"]["agent_id"] == str(second_h)
+    async with AsyncSessionLocal() as db:
+        old = await db.get(AgentDemand, uuid.UUID(first.json()["demand_id"]))
+        assert old.status == "archived" and old.scheduled_at is None
+        audit = (await db.execute(select(AuditEvent).where(
+            AuditEvent.entity_id == uuid.UUID(pid), AuditEvent.event_type == "mission_phase_homologation_requested")
+            .order_by(AuditEvent.created_at.desc()).limit(1))).scalar_one()
+        assert audit.payload["replaced"]["previous_homologator_agent_id"] == str(first_h)
+        assert audit.payload["replaced"]["previous_demand_archived"] is True
+        # The new run is in flight: replacing it now is refused.
+        current = await db.get(AgentDemand, uuid.UUID(second.json()["demand_id"]))
+        current.dispatch_status = "running"
+        current.agent_run_id = str(uuid.uuid4())
+        await db.commit()
+    in_flight = await _call(world, "POST", url, {"homologator_agent_id": str(first_h), "replace": True})
+    assert in_flight.status_code == 409 and _code(in_flight) == "HOMOLOGATION_RUN_IN_FLIGHT"
+    async with AsyncSessionLocal() as db:
+        current = await db.get(AgentDemand, uuid.UUID(second.json()["demand_id"]))
+        current.dispatch_status = "completed"
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_rename_refuses_a_taken_project_name(world):
+    mission = await _mission(world)
+    pid = mission["project_id"]
+    first = (await _create_phase(world, pid, name="Estrutura")).json()["phases"][0]
+    second = (await _create_phase(world, pid, name="Telas")).json()["phases"][1]
+    async with AsyncSessionLocal() as db:
+        mission_project = await db.get(Project, uuid.UUID(pid))
+        db.add(Project(name=f"{mission_project.name} · Fase 1 · Regras", owner="test",
+                       product_version_id=mission_project.product_version_id))
+        await db.commit()
+    clash = await _call(world, "PATCH", f"/api/v1/missions/{pid}/phases/{first['phase_id']}", {"name": "Regras"})
+    assert clash.status_code == 409 and _code(clash) == "PROJECT_NAME_EXISTS_IN_VERSION", clash.text
+    assert (await _phase_row(first["phase_id"])).name == "Estrutura"
+    # Swapping two phases renames both projects without tripping on each other.
+    swapped = await _call(world, "POST", f"/api/v1/missions/{pid}/phases:reorder",
+                          {"phase_ids": [second["phase_id"], first["phase_id"]]})
+    assert swapped.status_code == 200, swapped.text
+    # Renumbering into a taken name is refused too.
+    async with AsyncSessionLocal() as db:
+        db.add(Project(name=f"{mission_project.name} · Fase 1 · Estrutura", owner="test",
+                       product_version_id=mission_project.product_version_id))
+        await db.commit()
+    back = await _call(world, "POST", f"/api/v1/missions/{pid}/phases:reorder",
+                       {"phase_ids": [first["phase_id"], second["phase_id"]]})
+    assert back.status_code == 409 and _code(back) == "PROJECT_NAME_EXISTS_IN_VERSION"
+
+
+@pytest.mark.asyncio
+async def test_report_refused_for_terminal_mission_or_lost_membership(world):
+    pid, _orchestrator, phase, task, _executor, _reviewer = await _homologation_world(world)
+    await _set_task(task.id, status="done")
+    homologator = await world.agent("hom")
+    membership = await _member(pid, homologator, role="homologation")
+    hom_h = await world.agent_token(homologator, None)
+    base = f"/api/v1/missions/{pid}/phases/{phase['phase_id']}"
+    sent = await _call(world, "POST", f"{base}:request-homologation", {"homologator_agent_id": str(homologator)})
+    assert sent.status_code == 200, sent.text
+
+    async def report():
+        return await _call(world, "POST", f"{base}:report-homologation", {
+            "verdict": "approved", "summary": "ok", "evidence": ["git:abc"], "idempotency_key": _key(world)}, hom_h)
+
+    async with AsyncSessionLocal() as db:
+        (await db.get(ProjectAgentMembership, membership)).status = "released"
+        await db.commit()
+    lost = await report()
+    assert lost.status_code == 409 and _code(lost) == "HOMOLOGATOR_NOT_MEMBER"
+    async with AsyncSessionLocal() as db:
+        (await db.get(ProjectAgentMembership, membership)).status = "active"
+        await db.commit()
+    await _force(pid, state="cancelled")
+    terminal = await report()
+    assert terminal.status_code == 409 and _code(terminal) == "MISSION_TERMINAL"

@@ -278,19 +278,40 @@ async def _criterion(project_id, verifier_agent_id, *, status="open", task_ids=(
         return criterion.id
 
 
-async def _phase(project_id, objective="Deliver the planned scope; leaves nothing else in", name="Fase") -> uuid.UUID:
+async def _phase(project_id, objective="Deliver the planned scope; leaves nothing else in", name="Fase",
+                 tasks=(), executor=None) -> uuid.UUID:
     """A mission phase (MISSION_PHASES_PLAN.md): an executor project in the
-    mission's version linked at the next position, with an objective."""
+    mission's version linked as a phase at the next position, with an
+    objective. ``tasks`` (built by _task) move into it with their planning
+    items; ``executor=(agent_id, membership_id)`` instead gives it a task of
+    its own that passes the plan checks (assigned, environment recorded). A
+    phase without tasks is PHASE_WITHOUT_TASKS."""
     async with AsyncSessionLocal() as db:
         mission_project = await db.get(Project, uuid.UUID(str(project_id)))
-        executor = Project(name=f"{mission_project.name} · {name} {uuid.uuid4().hex[:6]}", owner="test",
+        executor_project = Project(name=f"{mission_project.name} · {name} {uuid.uuid4().hex[:6]}", owner="test",
                            product_version_id=mission_project.product_version_id,
                            working_directory_path=mission_project.working_directory_path)
-        db.add(executor)
+        db.add(executor_project)
         await db.flush()
-        link = MissionProjectLink(mission_project_id=mission_project.id, executor_project_id=executor.id,
-                                  linked_by="test", name=name, objective=objective)
+        position = (await db.execute(text(
+            "SELECT COALESCE(MAX(position), 0) + 1 FROM company.mission_project_links "
+            "WHERE mission_project_id = :m AND is_phase"), {"m": mission_project.id})).scalar_one()
+        link = MissionProjectLink(mission_project_id=mission_project.id, executor_project_id=executor_project.id,
+                                  linked_by="test", name=name, objective=objective, position=position,
+                                  is_phase=True)
         db.add(link)
+        for task in tasks:
+            item = await db.get(PlanningItem, task.planning_item_id)
+            item.project_id = executor_project.id
+        if executor is not None:
+            item = PlanningItem(title=f"{name} item", item_type="feature", project_id=executor_project.id)
+            db.add(item)
+            await db.flush()
+            own = ProjectTask(planning_item_id=item.id, title=f"{name} task", target_environment="test",
+                              environment_prerequisites=[])
+            db.add(own)
+            await db.flush()
+            db.add(TaskAssignment(task_id=own.id, agent_id=executor[0], membership_id=executor[1], status="active"))
         await db.commit()
         return link.id
 
@@ -717,7 +738,7 @@ async def test_planning_stage_exit_conditions(world):
     task = await _task(project_id)
     await _assign(task.id, executor, await _member(project_id, executor))
     await _criterion(project_id, await world.agent("verifier"), task_ids=[task.id])
-    await _phase(project_id)
+    await _phase(project_id, tasks=[task])
     response = await _advance(world, project_id, "auto_check")
     assert _codes(response) == {"PLAN_VERSION_NOT_REGISTERED", "TASK_ENVIRONMENT_MISSING"}
 
@@ -808,8 +829,8 @@ async def test_auto_check_flags_missing_skill_for_executor_and_reviewer(world):
     skill = await world.skill()
     inactive = await world.skill(approved=False)
     executor, reviewer = await world.agent("exec"), await world.agent("rev")
-    await _phase(project_id)
     task = await _task(project_id)
+    await _phase(project_id, tasks=[task])
     await _assign(task.id, executor, await _member(project_id, executor))
     await _member(project_id, reviewer, role="reviewer", can_review=True)
     async with AsyncSessionLocal() as db:

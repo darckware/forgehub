@@ -404,11 +404,10 @@ async def _add_mission(
         project_id=project.id, agent_id=orchestrator.id, role="coordinator", status="active",
         responsibilities="Mission orchestrator",
     ))
-    for position, executor_id in enumerate(executors, start=1):
-        executor = await db.get(Project, executor_id)
+    for executor_id in executors:
+        # A plain executor link, not a phase (phases come from POST /phases).
         db.add(MissionProjectLink(
             mission_project_id=project.id, executor_project_id=executor_id, linked_by=principal.display_name,
-            position=position, name=executor.name[:255],
         ))
     db.add(AuditEvent(
         entity_type="mission", entity_id=project.id, event_type="mission_created", actor=principal.display_name,

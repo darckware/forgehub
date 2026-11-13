@@ -1,15 +1,17 @@
 """mission phases: ordered executor-project links with homologation and approval
 
-2026-11-12 (docs/architecture/MISSION_PHASES_PLAN.md): every
-mission_project_links row becomes a phase of its mission -- position, name,
-objective, phase_status and the homologation/decision record. Planning items
-and tasks gain a nullable ``position`` (order inside the project / planning
-item). PROJECT_AGENT_ROLES gains ``homologation``, so the four CHECKs built
-from that tuple are recreated.
+2026-11-12 (docs/architecture/MISSION_PHASES_PLAN.md): a
+mission_project_links row created through POST /missions/{id}/phases is a
+phase of its mission (``is_phase``) -- position, name, objective,
+phase_status and the homologation/decision record. Planning items and tasks
+gain a nullable ``position`` (order inside the project / planning item).
+PROJECT_AGENT_ROLES gains ``homologation``, so the four CHECKs built from that
+tuple are recreated.
 
 Hand-written, same pattern as f4b8d1a6c3e9 for the role CHECKs. Existing
-links are backfilled: position = row_number by created_at per mission, name =
-the executor project's name.
+links are NOT turned into phases: they stay ``is_phase = false`` with
+position/name NULL, so the plan hash of an already-baselined mission does not
+change.
 
 Revision ID: c7d9e1f3a5b8
 Revises: a3c5e7f9b1d2
@@ -51,6 +53,8 @@ def _recreate_role_checks(roles: tuple[str, ...]) -> None:
 
 
 def upgrade() -> None:
+    op.add_column("mission_project_links", sa.Column(
+        "is_phase", sa.Boolean(), nullable=False, server_default=sa.false()), schema=SCHEMA)
     op.add_column("mission_project_links", sa.Column("position", sa.Integer(), nullable=True), schema=SCHEMA)
     op.add_column("mission_project_links", sa.Column("name", sa.String(255), nullable=True), schema=SCHEMA)
     op.add_column("mission_project_links", sa.Column("objective", sa.Text(), nullable=True), schema=SCHEMA)
@@ -78,22 +82,16 @@ def upgrade() -> None:
                   schema=SCHEMA)
     op.add_column("mission_project_links", sa.Column("decision_reason", sa.Text(), nullable=True), schema=SCHEMA)
 
-    op.execute(f"""
-        UPDATE {SCHEMA}.mission_project_links l
-           SET position = r.rn, name = LEFT(p.name, 255)
-          FROM (SELECT id, row_number() OVER (PARTITION BY mission_project_id ORDER BY created_at, id) AS rn
-                  FROM {SCHEMA}.mission_project_links) r,
-               {SCHEMA}.projects p
-         WHERE r.id = l.id AND p.id = l.executor_project_id
-    """)
-    op.alter_column("mission_project_links", "position", nullable=False, schema=SCHEMA)
-    op.alter_column("mission_project_links", "name", nullable=False, schema=SCHEMA)
     op.create_unique_constraint(
         "uq_mission_project_links_position", "mission_project_links", ["mission_project_id", "position"],
         schema=SCHEMA, deferrable=True, initially="DEFERRED",
     )
     op.create_check_constraint("ck_mission_project_links_position", "mission_project_links", "position >= 1",
                                schema=SCHEMA)
+    op.create_check_constraint(
+        "ck_mission_project_links_phase_fields", "mission_project_links",
+        "NOT is_phase OR (position IS NOT NULL AND name IS NOT NULL)", schema=SCHEMA,
+    )
     op.create_check_constraint(
         "ck_mission_project_links_phase_status", "mission_project_links",
         f"phase_status IN {PHASE_STATUSES!r}", schema=SCHEMA,
@@ -122,10 +120,10 @@ def downgrade() -> None:
     op.drop_column("planning_items", "position", schema=SCHEMA)
 
     for name in ("ck_mission_project_links_homologation_verdict", "ck_mission_project_links_phase_status",
-                 "ck_mission_project_links_position"):
+                 "ck_mission_project_links_phase_fields", "ck_mission_project_links_position"):
         op.drop_constraint(name, "mission_project_links", schema=SCHEMA, type_="check")
     op.drop_constraint("uq_mission_project_links_position", "mission_project_links", schema=SCHEMA, type_="unique")
     for column in ("decision_reason", "decided_at", "decided_by", "homologated_at", "homologation_evidence",
                    "homologation_summary", "homologation_verdict", "homologation_demand_id",
-                   "homologator_agent_id", "phase_status", "objective", "name", "position"):
+                   "homologator_agent_id", "phase_status", "objective", "name", "position", "is_phase"):
         op.drop_column("mission_project_links", column, schema=SCHEMA)

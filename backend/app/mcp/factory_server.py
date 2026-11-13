@@ -1054,7 +1054,7 @@ async def sequence_planning_tasks(
 
 @mcp.tool()
 async def request_phase_homologation(
-    project_id: str, phase: str, homologator_agent_id: str, idempotency_key: str,
+    project_id: str, phase: str, homologator_agent_id: str, idempotency_key: str, replace: bool = False,
 ) -> dict[str, Any]:
     """When every task of a phase is done, send the phase to homologation.
     The homologator must be EXTERNAL (an active claude/codex/agy agent,
@@ -1065,12 +1065,15 @@ async def request_phase_homologation(
     refuse with PHASE_TASKS_OPEN listing them. The homologator gets one
     Messages task with the objective, the planning items and their tasks
     with evidence, and answers with report_phase_homologation. `phase` is the
-    position or the phase_id. The orchestrator (mission.orchestrate) or an
+    position or the phase_id. `replace=True` re-sends a phase that is already
+    homologating (e.g. the homologator never answered): the previous task is
+    withdrawn if it has not started; a run still in flight refuses
+    (HOMOLOGATION_RUN_IN_FLIGHT). The orchestrator (mission.orchestrate) or an
     administrator."""
     phase_id = await _phase_id(project_id, phase)
     data, replayed = await _mission_write(
         f"/api/v1/missions/{project_id}/phases/{phase_id}:request-homologation",
-        {"homologator_agent_id": homologator_agent_id, "idempotency_key": idempotency_key})
+        {"homologator_agent_id": homologator_agent_id, "idempotency_key": idempotency_key, "replace": replace})
     return {**data, "replayed": replayed}
 
 

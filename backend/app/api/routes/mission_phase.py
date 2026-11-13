@@ -137,7 +137,7 @@ async def _phase(db, mission: ProjectMission, phase_id: uuid.UUID) -> MissionPro
         select(MissionProjectLink).where(MissionProjectLink.id == phase_id)
         .with_for_update().execution_options(populate_existing=True)
     )).scalar_one_or_none()
-    if phase is None or phase.mission_project_id != mission.project_id:
+    if phase is None or phase.mission_project_id != mission.project_id or not phase.is_phase:
         raise mission_error(404, "PHASE_NOT_FOUND", "Phase not found in this mission")
     return phase
 
@@ -153,11 +153,32 @@ def _project_name(mission_name: str, position: int, name: str) -> str:
 
 
 async def _sync_project_names(db, mission_project: Project, phases: list[MissionProjectLink]) -> None:
-    """Keep each phase project's name in step with its phase (position, name)."""
+    """Keep each phase project's name in step with its phase (position, name).
+    A new name must be free in the product version among projects other than
+    the ones being renamed here (409 PROJECT_NAME_EXISTS_IN_VERSION)."""
+    renames: dict[uuid.UUID, str] = {}
     for phase in phases:
         project = await db.get(Project, phase.executor_project_id)
-        if project is not None:
-            project.name = _project_name(mission_project.name, phase.position, phase.name)
+        if project is None:
+            continue
+        name = _project_name(mission_project.name, phase.position, phase.name)
+        if project.name != name:
+            renames[project.id] = name
+    if not renames:
+        return
+    await db.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(
+        f"project-names:{mission_project.product_version_id}", 0))))
+    clash = (await db.execute(select(Project.id, Project.name).where(
+        Project.product_version_id == mission_project.product_version_id,
+        Project.id.notin_(list(renames)),
+        func.lower(func.btrim(Project.name)).in_([n.strip().lower() for n in renames.values()]),
+    ).limit(1))).first()
+    if clash is not None:
+        raise mission_error(409, "PROJECT_NAME_EXISTS_IN_VERSION",
+                            "A project with this name already exists in this product version",
+                            project_id=str(clash.id), name=clash.name)
+    for project_id, name in renames.items():
+        (await db.get(Project, project_id)).name = name
 
 
 async def _out(db, mission: ProjectMission, **extra: Any) -> dict[str, Any]:
@@ -258,7 +279,7 @@ async def create_phase(
     ))
     phase = MissionProjectLink(
         mission_project_id=mission.project_id, executor_project_id=executor.id, linked_by=principal.display_name,
-        position=position, name=name, objective=(payload.objective or "").strip() or None,
+        position=position, name=name, objective=(payload.objective or "").strip() or None, is_phase=True,
     )
     db.add(phase)
     await db.flush()
@@ -544,6 +565,34 @@ async def _homologation_body(db, mission_project: Project, phase: MissionProject
     return "\n\n".join([*header, "\n".join(delivered), *footer])
 
 
+def _demand_in_flight(demand: AgentDemand) -> bool:
+    """Started, reserved, or of unknown outcome (as reserve_dispatch reads it)."""
+    from app.core.demand_workflow import requires_reconciliation
+
+    return (demand.dispatch_status in ("dispatched", "running")
+            or (demand.dispatch_status is None and demand.agent_run_id is not None)
+            or requires_reconciliation(demand))
+
+
+async def _withdraw_homologation(db, phase: MissionProjectLink) -> dict[str, Any]:
+    """Replacing a homologation: the previous task is archived when it never
+    started; a run in flight (or of unknown outcome) refuses
+    (409 HOMOLOGATION_RUN_IN_FLIGHT); a finished one is left as history."""
+    demand = await db.get(AgentDemand, phase.homologation_demand_id) if phase.homologation_demand_id else None
+    withdrawn = False
+    if demand is not None:
+        if _demand_in_flight(demand):
+            raise mission_error(409, "HOMOLOGATION_RUN_IN_FLIGHT",
+                                "The current homologation run is in flight or of unknown outcome",
+                                demand_id=str(demand.id), dispatch_status=demand.dispatch_status)
+        if demand.dispatch_status is None and demand.status != "archived":
+            demand.status = "archived"
+            demand.scheduled_at = None
+            withdrawn = True
+    return {"previous_homologator_agent_id": str(phase.homologator_agent_id) if phase.homologator_agent_id else None,
+            "previous_demand_id": str(demand.id) if demand else None, "previous_demand_archived": withdrawn}
+
+
 @router.post("/{project_id}/phases/{phase_id}:request-homologation", dependencies=WRITE_DEPENDENCIES)
 async def request_homologation(
     project_id: uuid.UUID,
@@ -557,7 +606,11 @@ async def request_homologation(
     ``homologation`` membership in the mission that neither executed nor
     reviewed any task of the phase. It receives one Messages Task (from the
     orchestrator, fixed agent, in the mission's working directory) and
-    answers with report_phase_homologation."""
+    answers with report_phase_homologation. With ``replace: true`` a phase
+    already homologating is re-sent (same or another homologator): the
+    previous task is archived if it never started, a run in flight refuses
+    (409 HOMOLOGATION_RUN_IN_FLIGHT), and the audit keeps the previous
+    homologator."""
     from app.api.routes.mission import _active_membership
 
     command = "mission.phase.request_homologation"
@@ -569,7 +622,11 @@ async def request_homologation(
         return replay
     _assert_not_terminal(mission)
     phase = await _phase(db, mission, phase_id)
-    _assert_phase_status(phase, REQUESTABLE_STATUSES, payload.expected_phase_status)
+    allowed = REQUESTABLE_STATUSES + (("homologating",) if payload.replace else ())
+    _assert_phase_status(phase, allowed, payload.expected_phase_status)
+    replaced: dict[str, Any] | None = None
+    if phase.phase_status == "homologating":
+        replaced = await _withdraw_homologation(db, phase)
     tasks = [t for t in await phase_tasks(db, phase) if t.status != "cancelled"]
     if not tasks:
         raise mission_error(409, "PHASE_EMPTY", "The phase has no task to homologate")
@@ -620,7 +677,8 @@ async def request_homologation(
     phase.decided_by = phase.decided_at = phase.decision_reason = None
     _audit(db, principal, source, delegation, mission, "mission_phase_homologation_requested",
            payload.idempotency_key, role=role, phase_id=str(phase.id), position=phase.position,
-           previous_status=previous, homologator_agent_id=str(agent.id), demand_id=str(demand.id))
+           previous_status=previous, homologator_agent_id=str(agent.id), demand_id=str(demand.id),
+           replaced=replaced)
     await db.flush()
     out = await _out(db, mission, phase_id=str(phase.id), demand_id=str(demand.id), demand_number=demand.number)
     _finish(db, principal, payload.idempotency_key, command, body_hash, 200, out, phase.id)
@@ -650,7 +708,14 @@ async def report_homologation(
     body_hash, replay = await _begin(db, principal, payload.idempotency_key, command, body)
     if replay is not None:
         return replay
+    _assert_not_terminal(mission)
     _assert_phase_status(phase, ("homologating",))
+    from app.api.routes.mission import _active_membership
+
+    membership = await _active_membership(db, mission.project_id, principal.principal_id)
+    if membership is None or membership.role != "homologation":
+        raise mission_error(409, "HOMOLOGATOR_NOT_MEMBER",
+                            "The homologator no longer has an active homologation membership in the mission")
     evidence = [e.strip() for e in payload.evidence if e and e.strip()]
     if payload.verdict == "approved" and not evidence:
         raise mission_error(422, "EVIDENCE_REQUIRED", "An approved homologation lists its evidence")

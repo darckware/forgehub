@@ -192,9 +192,21 @@ the wrong agent; approve/return by admin only; verifying gate; role
 
 ## Decisions taken (implementation, 2026-11-12)
 
-- **Migration `c7d9e1f3a5b8`** (down `a3c5e7f9b1d2`). A `before_insert` listener on
-  `MissionProjectLink` fills `position` (next free) and `name` (executor
-  project's name) when a writer omits them, so older link writers keep working.
+- **Migration `c7d9e1f3a5b8`** (down `a3c5e7f9b1d2`). **Legacy executor links
+  are not phases** (review fix): `mission_project_links.is_phase` (bool, NOT
+  NULL, default false); `position`/`name` are nullable, with
+  `ck_mission_project_links_phase_fields` = `NOT is_phase OR (position IS NOT
+  NULL AND name IS NOT NULL)`; the deferrable unique (mission, position) lets
+  NULLs coexist. No backfill: existing links (and `POST /missions` with
+  `executor_project_ids`) stay plain links. Only `POST /phases` creates
+  `is_phase = true`, and every phase read, gate, hash part, plan check,
+  rename, delete, board and `GET /phases` reads only those rows -- so a mission
+  with only legacy links hashes exactly as before (tested against the
+  pre-phases formula).
+- **Locks follow phases.** A phase task's required skills and environment are
+  locked outside `planning` like a mission task's (`_mission_owning` in
+  `core/mission.py` resolves a phase project to its mission; a plain executor
+  link does not).
 - **Plan scope.** The draft_plan and auto_check exit conditions now read the
   tasks and memberships of the mission *and* of its phases (executor
   projects), as `plan_checks` already did; otherwise a mission whose work
@@ -224,11 +236,28 @@ the wrong agent; approve/return by admin only; verifying gate; role
   that is not exactly the item's non-cancelled tasks (422 `TASK_SET_MISMATCH`)
   and a resulting cycle (409 `DEPENDENCY_CYCLE`). It removes every dependency
   between the listed tasks (any type) before writing the chain.
+- **A phase with no non-cancelled task** blocks the plan
+  (`PHASE_WITHOUT_TASKS`, draft_plan exit and the `phases` submission check),
+  so a phase can never be stuck with nothing to homologate.
 - **Homologation request** also refuses a phase with no non-cancelled task
   (409 `PHASE_EMPTY`) and an inactive/unknown agent (422
   `HOMOLOGATOR_NOT_ELIGIBLE`). Independence covers every assignment (any
   status), every execution's resolved executor and every review's reviewer of
-  the phase's tasks. The Messages task has `origin_type="task"` with no
+  the phase's tasks; an agent and its sub-agents are one identity
+  (`_agent_identity`, as in the completion guard).
+- **Re-sending a homologation**: the same route with `replace: true` accepts a
+  `homologating` phase (same or another homologator). The previous task is
+  archived when it never started; a run dispatched, running, reserved or of
+  unknown outcome refuses 409 `HOMOLOGATION_RUN_IN_FLIGHT`; a finished one is
+  left as history. The audit's `replaced` records the previous homologator and
+  task. MCP `request_phase_homologation(..., replace=True)`.
+- **Project names**: renaming or renumbering re-checks that every new phase
+  project name is free in the product version, ignoring the projects being
+  renamed in the same call (so a swap works): 409
+  `PROJECT_NAME_EXISTS_IN_VERSION`.
+- **Report guards**: `:report-homologation` refuses a completed/cancelled
+  mission (409 `MISSION_TERMINAL`) and a homologator whose `homologation`
+  membership is no longer active (409 `HOMOLOGATOR_NOT_MEMBER`). The Messages task has `origin_type="task"` with no
   `origin_id` (so the phase gate it is closing never holds it), `project_id`
   = the phase project, `channel="factory"`, `channel_ref` = phase id. A new
   request clears the previous round's verdict and decision fields (the audit
@@ -246,5 +275,5 @@ the wrong agent; approve/return by admin only; verifying gate; role
 - **Read access** to `GET /phases` is admin or active member (as the spec
   says); the board's `phases` follows the board's own read rule.
 - **Test database**: stamped at a foreign revision, so the DDL was applied by
-  hand (idempotent), with `position`/`name` left nullable there so other
-  worktrees sharing the database keep inserting links.
+  hand (idempotent) to match the migration: same NULLability, constraint and
+  FK names (only the physical column order differs, `is_phase` last).
