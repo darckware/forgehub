@@ -2,11 +2,13 @@
 in the linux-target.test cycle, which runs for real."""
 import asyncio
 import hashlib
+import json
 import subprocess
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import httpx
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -261,6 +263,62 @@ async def test_linux_target_open_use_close(ctx, monkeypatch):
         events = (await db.scalars(select(AuditEvent).where(AuditEvent.entity_id == uuid.UUID(access["id"])))).all()
         assert {e.event_type for e in events} == {"direct_access_configured", "direct_access_closed"}
         assert all(e.actor == c.admin.username for e in events)
+
+
+@pytest.mark.asyncio
+async def test_agent_remote_command_forwards_forgevault_key_reference(ctx, monkeypatch):
+    """The agent authorizes a command; ForgeHub sends only the Vault ref to
+    the host bridge, which resolves the private key outside the agent run."""
+    c = ctx
+    key_ref = str(uuid.uuid4())
+    async with AsyncSessionLocal() as db:
+        server = await db.get(Server, c.lab.id)
+        server.remote_user = "darckware"
+        server.ssh_key_ref = key_ref
+        server.ssh_key_path = "/must/not/be/used"
+        await db.commit()
+
+    bridge_requests = []
+    original_client = httpx.AsyncClient
+
+    def fake_bridge_client(**kwargs):
+        async def respond(request):
+            bridge_requests.append(request)
+            return httpx.Response(200, json={
+                "exit_code": 0, "stdout": "darckware\n", "stderr": "",
+                "duration_ms": 1, "failure": None,
+            })
+        return original_client(**kwargs, transport=httpx.MockTransport(respond))
+
+    monkeypatch.setattr(host_exec_runner, "call_bridge_exec", ORIGINAL_BRIDGE_EXEC)
+    monkeypatch.setattr(host_exec_runner.httpx, "AsyncClient", fake_bridge_client)
+
+    access = await opened(c)
+    response = await c.client.post(RUN, json=command(c), headers=c.agent_h)
+    assert response.status_code == 201, response.text
+    execution_id = response.json()["id"]
+    await finished(c, execution_id)
+
+    assert len(bridge_requests) == 1
+    payload = json.loads(bridge_requests[0].content)
+    assert payload["key_ref"] == key_ref
+    assert payload["key_path"] is None
+    assert payload["password"] is None
+    assert payload["user"] == "darckware"
+    assert key_ref not in response.text
+
+    detail = await c.client.get(f"/api/v1/host-executions/agent/{execution_id}", headers=c.agent_h)
+    detail_data = detail.json()
+    assert detail_data["counts"]["succeeded"] == 1
+    assert detail_data["results"][0]["status"] == "succeeded"
+    history = await c.client.get(f"/api/v1/servers/{c.lab.id}/maintenance", headers=c.admin_h)
+    async with AsyncSessionLocal() as db:
+        events = (await db.scalars(select(AuditEvent).where(
+            AuditEvent.entity_id.in_([uuid.UUID(execution_id), uuid.UUID(access["id"])])
+        ))).all()
+    recorded = [detail.text, history.text, *(str(event.payload) for event in events)]
+    assert all(key_ref not in text and "PRIVATE KEY" not in text for text in recorded)
+    assert "PRIVATE KEY" not in bridge_requests[0].content.decode()
 
 
 @pytest.mark.asyncio
