@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +6,7 @@ import "@/i18n";
 import i18n from "@/i18n";
 import { apiClient } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
+import { useMissionPhaseMutation } from "@/hooks/useMissions";
 import { MissionDecisionsCard } from "./MissionDecisionsCard";
 
 const plan = {
@@ -27,8 +28,10 @@ function setAdmin(isAdmin: boolean) {
     profile_id: null, ui_language: "pt-BR" } });
 }
 
+let client: QueryClient;
+
 function open() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(<QueryClientProvider client={client}><MemoryRouter><MissionDecisionsCard /></MemoryRouter></QueryClientProvider>);
 }
 
@@ -102,5 +105,45 @@ describe("MissionDecisionsCard", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Recusar" }));
     await waitFor(() => expect(post).toHaveBeenCalledWith("/api/v1/governed/approval-requests/req-1:decide",
       expect.objectContaining({ decision: "rejected", comments: "Escopo grande demais" })));
+  });
+
+  it("refreshes the mission's board, timeline and record after a decision", async () => {
+    get.mockResolvedValue([phase]);
+    open();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    fireEvent.click(await screen.findByRole("button", { name: "Aprovar" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Aprovar" }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith("/api/v1/missions/m2/phases/ph-1:approve",
+      { reason: null, expected_phase_status: "awaiting_approval" }));
+    await waitFor(() => {
+      const keys = invalidate.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey));
+      for (const key of [["mission-pending-decisions"], ["mission-board", "m2"], ["mission-timeline", "m2"], ["mission-record", "m2"]]) {
+        expect(keys).toContain(JSON.stringify(key));
+      }
+    });
+  });
+
+  it("shows a load failure inline with a retry instead of hiding", async () => {
+    get.mockRejectedValueOnce(new Error("boom"));
+    open();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível carregar as decisões de missão.");
+    get.mockResolvedValue([plan]);
+    fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+    expect(await screen.findByText("Plano: plan v1")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("useMissionPhaseMutation", () => {
+  it("also refreshes the pending decisions", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useMissionPhaseMutation("m9"), {
+      wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>,
+    });
+    await result.current.mutateAsync({ method: "POST", path: "/phases/p1:approve", body: {} });
+    expect(post).toHaveBeenCalledWith("/api/v1/missions/m9/phases/p1:approve", {});
+    expect(invalidate.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey)))
+      .toContain(JSON.stringify(["mission-pending-decisions"]));
   });
 });

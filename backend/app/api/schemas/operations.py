@@ -74,6 +74,23 @@ class RoutineUpdate(BaseModel):
     deadline_minutes: int | None = Field(default=None, ge=5, le=1440)
 
 
+_Key = Field(default=None, min_length=1, max_length=150)
+
+
+class AgentRoutineCreate(RoutineCreate):
+    """An agent's create (2026-11-13): the route requires the key (§0.4)."""
+
+    idempotency_key: str | None = _Key
+
+
+class AgentRoutineUpdate(RoutineUpdate):
+    idempotency_key: str | None = _Key
+
+
+class AgentRoutineCommandIn(BaseModel):
+    idempotency_key: str | None = _Key
+
+
 class RoutineOut(RoutineBase):
     model_config = ConfigDict(from_attributes=True)
 
@@ -85,6 +102,7 @@ class RoutineOut(RoutineBase):
     # "agent:<slug>" or an admin's username; NULL for routines older than 2026-11-13.
     created_by: str | None = None
     updated_by: str | None = None
+    created_by_agent_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
 

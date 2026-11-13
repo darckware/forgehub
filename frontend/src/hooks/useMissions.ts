@@ -385,6 +385,10 @@ export interface MissionPhaseRequest {
   body?: Record<string, unknown>;
 }
 
+/** Marcelo's pending mission decisions (Pessoal → Tarefas dos agentes). Kept
+ * here so phase mutations can refresh it without an import cycle. */
+export const missionDecisionsKey = ["mission-pending-decisions"] as const;
+
 export function useMissionPhaseMutation(projectId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -397,6 +401,7 @@ export function useMissionPhaseMutation(projectId: string | undefined) {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["mission-board", projectId] });
       queryClient.invalidateQueries({ queryKey: ["mission-timeline", projectId] });
+      queryClient.invalidateQueries({ queryKey: missionDecisionsKey });
     },
   });
 }

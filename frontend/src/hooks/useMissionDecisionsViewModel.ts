@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { apiClient } from "@/lib/api";
+import { missionDecisionsKey } from "@/hooks/useMissions";
 import { phaseErrorText } from "@/hooks/useMissionPhasesViewModel";
 
 /** Marcelo's pending mission decisions, shown at the top of Pessoal → Tarefas
@@ -33,7 +34,7 @@ export const pendingMissionDecisionSchema = z.object({
 });
 export type PendingMissionDecision = z.infer<typeof pendingMissionDecisionSchema>;
 
-export const missionDecisionsKey = ["mission-pending-decisions"] as const;
+export { missionDecisionsKey };
 
 export type MissionDecisionChoice = "approve" | "reject";
 export type MissionDecisionsStatus = "loading" | "ready" | "confirming" | "submitting" | "error";
@@ -41,7 +42,7 @@ export type MissionDecisionsStatus = "loading" | "ready" | "confirming" | "submi
 export interface MissionDecisionsViewModel {
   status: MissionDecisionsStatus;
   items: PendingMissionDecision[];
-  /** The card is hidden while nothing is pending (or the reader isn't an admin). */
+  /** Hidden while nothing is pending; a load failure stays visible (inline error + retry). */
   visible: boolean;
   loadFailed: boolean;
   errorMessage?: string;
@@ -91,6 +92,8 @@ export function useMissionDecisionsViewModel(enabled = true): MissionDecisionsVi
       void client.invalidateQueries({ queryKey: missionDecisionsKey });
       void client.invalidateQueries({ queryKey: ["governed-approval-requests"] });
       void client.invalidateQueries({ queryKey: ["mission-board", item.mission_project_id] });
+      void client.invalidateQueries({ queryKey: ["mission-timeline", item.mission_project_id] });
+      void client.invalidateQueries({ queryKey: ["mission-record", item.mission_project_id] });
       void client.invalidateQueries({ queryKey: ["missions"] });
     },
   });
@@ -103,7 +106,7 @@ export function useMissionDecisionsViewModel(enabled = true): MissionDecisionsVi
   return {
     status,
     items,
-    visible: items.length > 0 || Boolean(errorMessage),
+    visible: items.length > 0 || query.isError || Boolean(errorMessage),
     loadFailed: query.isError,
     errorMessage,
     pending,

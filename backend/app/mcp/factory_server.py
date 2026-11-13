@@ -1135,21 +1135,39 @@ async def request_marcelo_approval(
 # Operação 24x7 routines (2026-11-13)
 # ---------------------------------------------------------------------------
 _ROUTINE_RULES = """Routines are recurring work an agent owes: each occurrence becomes an
-    ordinary Messages task addressed to the routine's agent. `schedule` is a
-    standard 5-field cron (minute hour day-of-month month day-of-week, e.g.
-    "0 8 * * 1-5" = 08:00 on weekdays, "*/30 * * * *" = every 30 min) evaluated
-    in `timezone` (IANA name, default America/Sao_Paulo); never more often than
-    every 15 minutes. Changes take effect immediately (no approval), are
-    audited under your name, and are bounded by the target agent's charter:
-    the busiest day of its enabled routines must fit its daily run budget
-    (ROUTINE_EXCEEDS_CHARTER), and an inactive/retired agent is refused
-    (ROUTINE_TARGET_INACTIVE). Needs an operations.routines.manage delegation."""
+    ordinary Messages task addressed to the routine's agent, sent from the
+    agent that created the routine. `schedule` is a standard 5-field cron
+    (minute hour day-of-month month day-of-week, e.g. "0 8 * * 1-5" = 08:00 on
+    weekdays, "*/30 * * * *" = every 30 min) evaluated in `timezone` (IANA
+    name, default America/Sao_Paulo); never more often than every 15 minutes.
+    Changes take effect immediately (no approval), are audited under your
+    name, and are bounded: the target must be an active agent with a charter
+    (ROUTINE_TARGET_INACTIVE, ROUTINE_TARGET_WITHOUT_CHARTER), never a
+    claude/codex/agy agent -- code work goes through missions/Messages with
+    review (ROUTINE_TARGET_NOT_ALLOWED) -- and the busiest day of its enabled
+    routines must fit its charter's daily run budget (ROUTINE_EXCEEDS_CHARTER).
+    You edit, delete and run now only the routines you created
+    (ROUTINE_NOT_OWNED). Every write takes an idempotency_key: pass your own
+    (e.g. <agent>-routine-<uuid4>) so a retry after a timeout replays instead
+    of acting twice; when omitted one is generated, so a retry acts again.
+    Needs an operations.routines.manage delegation (and MISSION_TOOLS_ENABLED)."""
 
 
 def _routine_doc(fn):
     """Append the shared routine rules to a tool's docstring (read by FastMCP)."""
     fn.__doc__ = f"{fn.__doc__}\n\n    {_ROUTINE_RULES}"
     return fn
+
+
+def _routine_key(idempotency_key: str | None) -> str:
+    import uuid as _uuid
+
+    return idempotency_key or f"routine-{_uuid.uuid4()}"
+
+
+async def _routine_write(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+    response = await _factory_request(method, path, json=body, write=True)
+    return response.json()
 
 
 @mcp.tool()
@@ -1161,26 +1179,26 @@ async def list_routines(agent_id: str | None = None) -> list[dict[str, Any]]:
     return await _factory_call("GET", _query("/api/v1/operations/agent/routines", agent_id=agent_id))
 
 
-
 @mcp.tool()
 @_routine_doc
 async def create_routine(
     agent_id: str, title: str, instructions: str, schedule: str, timezone: str = "America/Sao_Paulo",
     kind: str = "monitoring", expected_evidence: str | None = None, deadline_minutes: int = 60,
-    enabled: bool = True,
+    enabled: bool = True, idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     """Create a routine for an agent (agent_id from list_agents). `kind`:
     monitoring | maintenance | improvement | report | coordination;
     `instructions` is the prompt each occurrence sends (self-contained);
     `deadline_minutes` (5-1440) is how long an occurrence may wait before it
     counts as missed. A Hermes agent never edits code: give it monitoring,
-    reporting or coordination work, and leave code changes to claude/codex/agy."""
+    reporting or coordination work."""
     body: dict[str, Any] = {"agent_id": agent_id, "title": title, "instructions": instructions,
                             "schedule": schedule, "timezone": timezone, "kind": kind,
-                            "deadline_minutes": deadline_minutes, "enabled": enabled}
+                            "deadline_minutes": deadline_minutes, "enabled": enabled,
+                            "idempotency_key": _routine_key(idempotency_key)}
     if expected_evidence is not None:
         body["expected_evidence"] = expected_evidence
-    return await _factory_call("POST", "/api/v1/operations/agent/routines", json=body)
+    return await _routine_write("POST", "/api/v1/operations/agent/routines", body)
 
 
 @mcp.tool()
@@ -1188,35 +1206,41 @@ async def create_routine(
 async def update_routine(
     routine_id: str, enabled: bool | None = None, schedule: str | None = None, timezone: str | None = None,
     title: str | None = None, instructions: str | None = None, expected_evidence: str | None = None,
-    deadline_minutes: int | None = None,
+    deadline_minutes: int | None = None, idempotency_key: str | None = None,
 ) -> dict[str, Any]:
-    """Change a routine YOU created (others: ROUTINE_NOT_OWNED): enable or
-    disable it, reschedule it, rename it or rewrite its prompt
-    (`instructions`). Only the fields you pass change; re-enabling or
-    rescheduling starts from now (no replay of past occurrences)."""
-    body = {key: value for key, value in (
+    """Change a routine YOU created: enable or disable it, reschedule it,
+    rename it or rewrite its prompt (`instructions`). Only the fields you
+    pass change; re-enabling or rescheduling starts from now (no replay of
+    past occurrences). The budget is re-checked only when the schedule,
+    timezone or enabled flag changes."""
+    body: dict[str, Any] = {key: value for key, value in (
         ("enabled", enabled), ("schedule", schedule), ("timezone", timezone), ("title", title),
         ("instructions", instructions), ("expected_evidence", expected_evidence),
         ("deadline_minutes", deadline_minutes)) if value is not None}
     if not body:
         raise FactoryError("Pass at least one field to change.")
-    return await _factory_call("PATCH", f"/api/v1/operations/agent/routines/{routine_id}", json=body)
+    body["idempotency_key"] = _routine_key(idempotency_key)
+    return await _routine_write("PATCH", f"/api/v1/operations/agent/routines/{routine_id}", body)
 
 
 @mcp.tool()
-async def delete_routine(routine_id: str) -> dict[str, Any]:
+async def delete_routine(routine_id: str, idempotency_key: str | None = None) -> dict[str, Any]:
     """Delete a routine YOU created (others: ROUTINE_NOT_OWNED), with its run
-    history. Prefer update_routine(enabled=False) to pause it. Audited."""
-    await _factory_call("DELETE", f"/api/v1/operations/agent/routines/{routine_id}")
-    return {"deleted": True, "routine_id": routine_id}
+    history. Prefer update_routine(enabled=False) to pause it. Audited. Pass
+    your own idempotency_key to make a retry safe."""
+    path = _query(f"/api/v1/operations/agent/routines/{routine_id}", idempotency_key=_routine_key(idempotency_key))
+    return await _routine_write("DELETE", path)
 
 
 @mcp.tool()
-async def run_routine_now(routine_id: str) -> dict[str, Any]:
-    """Run one extra occurrence of any routine now, outside its schedule (its
-    cursor does not move). It still counts against the agent's daily run
-    budget: past it, the run is recorded as skipped_budget. Audited."""
-    return await _factory_call("POST", f"/api/v1/operations/agent/routines/{routine_id}:run-now")
+async def run_routine_now(routine_id: str, idempotency_key: str | None = None) -> dict[str, Any]:
+    """Run one extra occurrence of a routine YOU created now, outside its
+    schedule (its cursor does not move; others: ROUTINE_NOT_OWNED). It still
+    counts against the agent's daily run budget: past it, the run is recorded
+    as skipped_budget. Audited. Pass your own idempotency_key to make a retry
+    safe."""
+    return await _routine_write("POST", f"/api/v1/operations/agent/routines/{routine_id}:run-now",
+                                {"idempotency_key": _routine_key(idempotency_key)})
 
 
 @mcp.tool()

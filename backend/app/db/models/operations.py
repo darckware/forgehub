@@ -107,6 +107,13 @@ class AgentRoutine(Base, TimestampMixin):
     # /operations/agent/routines, else the admin's username. NULL = before then.
     created_by: Mapped[str | None] = mapped_column(String(150), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    # The agent that created it through the agent routes: ownership (edit,
+    # delete, run now) and the sender of its occurrences. NULL for people.
+    created_by_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("company.agents.id", ondelete="SET NULL", name="fk_agent_routines_created_by_agent_id"),
+        nullable=True,
+    )
 
     runs: Mapped[list["AgentRoutineRun"]] = relationship(back_populates="routine", cascade="all, delete-orphan")
 

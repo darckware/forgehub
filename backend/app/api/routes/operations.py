@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +32,9 @@ from app.api.routes.demand import create_demand_and_notify
 from app.api.schemas.demand import DemandSubmitIn
 from app.api.schemas.operations import (
     AgentChangeProposalIn,
+    AgentRoutineCommandIn,
+    AgentRoutineCreate,
+    AgentRoutineUpdate,
     AgentOperationsSummary,
     QuestionAnswerIn,
     QuestionAskIn,
@@ -49,6 +53,7 @@ from app.api.schemas.operations import (
 from app.core import agent_questions
 from app.core.briefing_evidence import BRIEFING_ACTION_CONTRACT, BRIEFING_TITLE
 from app.core.operations_evolution import execution_signals
+from app.core.command_receipts import begin_command, enforce_command_limits, record_command, request_hash
 from app.core.config import settings
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal, get_current_admin
 from app.core.routine_schedule import (
@@ -218,7 +223,11 @@ async def _materialize_occurrence(
         run.finished_at = now
         return run
 
-    sender = coordinator or agent
+    # An agent-created routine is sent from the agent that scheduled it, so
+    # Messages shows who programmed it; admin and mission routines keep the
+    # coordinator (2026-11-13).
+    creator = await db.get(Agent, routine.created_by_agent_id) if routine.created_by_agent_id else None
+    sender = creator or coordinator or agent
     demand = await create_demand_and_notify(
         db,
         DemandSubmitIn(
@@ -777,8 +786,11 @@ async def _routine_or_404(db: AsyncSession, routine_id: uuid.UUID) -> AgentRouti
     return routine
 
 
-def _new_routine(db: AsyncSession, payload: RoutineCreate, actor: str) -> AgentRoutine:
-    routine = AgentRoutine(**payload.model_dump(), created_by=actor[:150], updated_by=actor[:150])
+def _new_routine(
+    db: AsyncSession, payload: RoutineCreate, actor: str, creator_agent_id: uuid.UUID | None = None,
+) -> AgentRoutine:
+    routine = AgentRoutine(**payload.model_dump(exclude={"idempotency_key"}), created_by=actor[:150],
+                           updated_by=actor[:150], created_by_agent_id=creator_agent_id)
     db.add(routine)
     return routine
 
@@ -802,15 +814,19 @@ def _apply_routine_changes(routine: AgentRoutine, changes: dict, actor: str) -> 
         routine.last_occurrence_at = datetime.now(timezone.utc)
 
 
-async def _run_routine_now(db: AsyncSession, routine: AgentRoutine) -> RoutineRunOut:
-    """Extra occurrence now, outside the schedule (does not move the cursor)."""
+async def _run_routine_now(db: AsyncSession, routine: AgentRoutine, *, commit: bool = True) -> RoutineRunOut:
+    """Extra occurrence now, outside the schedule (does not move the cursor).
+    With ``commit=False`` the caller commits (and wakes the dispatcher)."""
     now = datetime.now(timezone.utc)
     coordinator = (await db.execute(select(Agent).where(Agent.profile_slug == COORDINATOR_SLUG))).scalar_one_or_none()
     run = await _materialize_occurrence(db, routine, now, now, coordinator)
     db.add(run)
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
     await db.refresh(run)
-    if run.status == "scheduled":
+    if commit and run.status == "scheduled":
         from app.core.dispatch_signal import wake_scheduled_dispatch
 
         wake_scheduled_dispatch()
@@ -911,12 +927,19 @@ async def list_runs(
 # 2026-11-13 (Marcelo: the orchestrator "pode utilizar e programar Operação
 # 24x7"; routines it creates take effect immediately, no approval). An agent
 # writes with its own agt_ and an active AuthorityDelegation for
-# ``operations.routines.manage`` (no project scope). Bounds: the target agent
-# must be active, and the schedule may not push the target's enabled
-# routines past its charter's daily run budget. An agent edits or deletes only
-# the routines it created; every write is audited under its name.
+# ``operations.routines.manage`` (no project scope), an idempotency_key and
+# the same switch/rate limit as mission writes (core/command_receipts.py).
+# Bounds, so "immediately" never bypasses an approval: the target must be an
+# active agent that has a charter and is not a code runtime (claude/codex/agy
+# do code work through missions/Messages with review); the schedule may not
+# push the target's enabled routines past its charter's daily run budget; an
+# agent edits, deletes and runs now only the routines it created
+# (created_by_agent_id). Every write is audited under its name.
 
 ROUTINES_ACTION = "operations.routines.manage"
+CODE_RUNTIMES = ("claude", "codex", "agy")
+# Fields whose change can alter how often the routine runs.
+_BUDGET_FIELDS = ("schedule", "timezone", "enabled")
 
 
 def _routine_error(status_code: int, code: str, message: str, **context) -> HTTPException:
@@ -931,27 +954,49 @@ async def _routine_agent(db: AsyncSession, principal: ActorPrincipal) -> tuple[A
     return agent, f"agent:{agent.profile_slug or agent.name}"
 
 
-async def _active_target(db: AsyncSession, agent_id: uuid.UUID) -> Agent:
+async def _begin_routine_write(
+    db: AsyncSession, principal: ActorPrincipal, key: str | None, command: str, body: dict,
+):
+    """Switch + per-agent rate limit, then the mandatory §0.4 receipt."""
+    enforce_command_limits(principal)
+    if not key:
+        raise _routine_error(422, "IDEMPOTENCY_KEY_REQUIRED", "idempotency_key is required")
+    body_hash = request_hash(command, body)
+    return body_hash, await begin_command(db, principal, key, command, body_hash)
+
+
+def _finish_routine_write(db, principal, key, command, body_hash, status_code, out, routine_id) -> None:
+    record_command(db, principal, key, command, body_hash, status_code, out,
+                   target_type="agent_routine", target_id=routine_id)
+
+
+async def _allowed_target(db: AsyncSession, agent_id: uuid.UUID) -> tuple[Agent, AgentCharter]:
     target = await db.get(Agent, agent_id)
     if target is None:
         raise _routine_error(404, "AGENT_NOT_FOUND", "Target agent not found")
     if not target.is_active or target.status != "active":
         raise _routine_error(422, "ROUTINE_TARGET_INACTIVE", "The target agent is inactive or retired",
                              agent_id=str(agent_id), status=target.status)
-    return target
+    if target.runtime_type in CODE_RUNTIMES:
+        raise _routine_error(422, "ROUTINE_TARGET_NOT_ALLOWED",
+                             "An agent may not schedule routines for claude/codex/agy: code work goes through "
+                             "missions or Messages with review", runtime_type=target.runtime_type)
+    charter = (await db.execute(select(AgentCharter).where(AgentCharter.agent_id == agent_id))).scalar_one_or_none()
+    if charter is None:
+        raise _routine_error(422, "ROUTINE_TARGET_WITHOUT_CHARTER",
+                             "The target agent has no charter (Operação 24x7 → Agentes), so it has no budget to "
+                             "bound the routine", agent_id=str(agent_id))
+    return target, charter
 
 
 async def assert_within_charter(
-    db: AsyncSession, agent_id: uuid.UUID, schedule: str, tz: str, exclude_routine_id: uuid.UUID | None = None,
+    db: AsyncSession, charter: AgentCharter, schedule: str, tz: str, exclude_routine_id: uuid.UUID | None = None,
 ) -> None:
     """The busiest local day (in ``tz``) of the next seven, counting this
     schedule plus the agent's other enabled routines, must fit the charter's
-    daily run budget. No charter = no limit to check."""
-    charter = (await db.execute(select(AgentCharter).where(AgentCharter.agent_id == agent_id))).scalar_one_or_none()
-    if charter is None:
-        return
+    daily run budget."""
     query = select(AgentRoutine.schedule, AgentRoutine.timezone).where(
-        AgentRoutine.agent_id == agent_id, AgentRoutine.enabled.is_(True))
+        AgentRoutine.agent_id == charter.agent_id, AgentRoutine.enabled.is_(True))
     if exclude_routine_id is not None:
         query = query.where(AgentRoutine.id != exclude_routine_id)
     schedules = [(schedule, tz), *(await db.execute(query)).all()]
@@ -972,9 +1017,13 @@ def _audit_routine(db: AsyncSession, routine_id: uuid.UUID, event: str, actor: s
                       payload=jsonable_encoder(payload)))
 
 
-async def _own_routine(db: AsyncSession, routine_id: uuid.UUID, actor: str) -> AgentRoutine:
-    routine = await _routine_or_404(db, routine_id)
-    if routine.created_by != actor:
+async def _own_routine(db: AsyncSession, routine_id: uuid.UUID, caller: Agent) -> AgentRoutine:
+    routine = (await db.execute(
+        select(AgentRoutine).where(AgentRoutine.id == routine_id).with_for_update()
+    )).scalar_one_or_none()
+    if routine is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Routine not found")
+    if routine.created_by_agent_id != caller.id:
         raise _routine_error(403, "ROUTINE_NOT_OWNED", "An agent changes only the routines it created",
                              created_by=routine.created_by)
     return routine
@@ -992,78 +1041,121 @@ async def agent_list_routines(
 
 @router.post("/agent/routines", response_model=RoutineOut, status_code=status.HTTP_201_CREATED)
 async def agent_create_routine(
-    payload: RoutineCreate,
+    payload: AgentRoutineCreate,
     principal: ActorPrincipal = Depends(get_actor_principal),
     db: AsyncSession = Depends(get_db),
-) -> RoutineOut:
-    _caller, actor = await _routine_agent(db, principal)
-    target = await _active_target(db, payload.agent_id)
+):
+    caller, actor = await _routine_agent(db, principal)
+    command = "operations.routine.create"
+    body = payload.model_dump(mode="json")
+    body_hash, replay = await _begin_routine_write(db, principal, payload.idempotency_key, command, body)
+    if replay is not None:
+        return replay
+    target, charter = await _allowed_target(db, payload.agent_id)
     if payload.enabled:
-        await assert_within_charter(db, target.id, payload.schedule, payload.timezone)
-    routine = _new_routine(db, payload, actor)
+        await assert_within_charter(db, charter, payload.schedule, payload.timezone)
+    routine = _new_routine(db, payload, actor, caller.id)
     await db.flush()
-    _audit_routine(db, routine.id, "routine_created", actor, **payload.model_dump(mode="json"))
-    await db.commit()
     await db.refresh(routine)
-    return _routine_out(routine, target.name)
+    _audit_routine(db, routine.id, "routine_created", actor,
+                   **payload.model_dump(mode="json", exclude={"idempotency_key"}))
+    out = _routine_out(routine, target.name).model_dump(mode="json")
+    _finish_routine_write(db, principal, payload.idempotency_key, command, body_hash, 201, out, routine.id)
+    await db.commit()
+    return JSONResponse(status_code=201, content=out)
 
 
 @router.patch("/agent/routines/{routine_id}", response_model=RoutineOut)
 async def agent_update_routine(
     routine_id: uuid.UUID,
-    payload: RoutineUpdate,
+    payload: AgentRoutineUpdate,
     principal: ActorPrincipal = Depends(get_actor_principal),
     db: AsyncSession = Depends(get_db),
-) -> RoutineOut:
-    _caller, actor = await _routine_agent(db, principal)
-    routine = await _own_routine(db, routine_id, actor)
-    changes = payload.model_dump(exclude_unset=True)
-    target = await _active_target(db, routine.agent_id)
+):
+    caller, actor = await _routine_agent(db, principal)
+    command = "operations.routine.update"
+    body = {"routine_id": str(routine_id), **payload.model_dump(mode="json", exclude_unset=True)}
+    body_hash, replay = await _begin_routine_write(db, principal, payload.idempotency_key, command, body)
+    if replay is not None:
+        return replay
+    routine = await _own_routine(db, routine_id, caller)
+    changes = payload.model_dump(exclude_unset=True, exclude={"idempotency_key"})
+    target, charter = await _allowed_target(db, routine.agent_id)
     schedule = changes.get("schedule", routine.schedule)
     tz = changes.get("timezone", routine.timezone)
-    if changes.get("enabled", routine.enabled):
+    budget_change = any(field in changes and changes[field] != getattr(routine, field) for field in _BUDGET_FIELDS)
+    if budget_change and changes.get("enabled", routine.enabled):
         try:
             validate_schedule(schedule, tz)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from None
-        await assert_within_charter(db, target.id, schedule, tz, exclude_routine_id=routine.id)
+        await assert_within_charter(db, charter, schedule, tz, exclude_routine_id=routine.id)
     before = {field: getattr(routine, field) for field in changes}
     _apply_routine_changes(routine, changes, actor)
     _audit_routine(db, routine.id, "routine_updated", actor,
                    changes={field: [before[field], value] for field, value in changes.items()
                             if before[field] != value})
-    await db.commit()
+    await db.flush()
     await db.refresh(routine)
-    return _routine_out(routine, target.name)
+    out = _routine_out(routine, target.name).model_dump(mode="json")
+    _finish_routine_write(db, principal, payload.idempotency_key, command, body_hash, 200, out, routine.id)
+    await db.commit()
+    return JSONResponse(status_code=200, content=out)
 
 
-@router.delete("/agent/routines/{routine_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/agent/routines/{routine_id}", status_code=status.HTTP_200_OK)
 async def agent_delete_routine(
     routine_id: uuid.UUID,
+    idempotency_key: str | None = Query(default=None, min_length=1, max_length=150),
     principal: ActorPrincipal = Depends(get_actor_principal),
     db: AsyncSession = Depends(get_db),
-) -> None:
-    _caller, actor = await _routine_agent(db, principal)
-    routine = await _own_routine(db, routine_id, actor)
+):
+    """Delete a routine the caller created (its runs go with it). The key is
+    a query parameter (DELETE has no body)."""
+    caller, actor = await _routine_agent(db, principal)
+    command = "operations.routine.delete"
+    body = {"routine_id": str(routine_id)}
+    body_hash, replay = await _begin_routine_write(db, principal, idempotency_key, command, body)
+    if replay is not None:
+        return replay
+    routine = await _own_routine(db, routine_id, caller)
     _audit_routine(db, routine.id, "routine_deleted", actor, title=routine.title, agent_id=str(routine.agent_id),
                    schedule=routine.schedule, timezone=routine.timezone)
+    out = {"deleted": True, "routine_id": str(routine.id)}
+    _finish_routine_write(db, principal, idempotency_key, command, body_hash, 200, out, routine.id)
     await db.delete(routine)
     await db.commit()
+    return JSONResponse(status_code=200, content=out)
 
 
 @router.post("/agent/routines/{routine_id}:run-now", response_model=RoutineRunOut,
              status_code=status.HTTP_201_CREATED)
 async def agent_run_routine_now(
     routine_id: uuid.UUID,
+    payload: AgentRoutineCommandIn,
     principal: ActorPrincipal = Depends(get_actor_principal),
     db: AsyncSession = Depends(get_db),
-) -> RoutineRunOut:
-    """Any routine; the run still counts against its agent's daily budget."""
-    _caller, actor = await _routine_agent(db, principal)
-    routine = await _routine_or_404(db, routine_id)
-    await _active_target(db, routine.agent_id)
+):
+    """Only a routine the caller created; the run still counts against its
+    agent's daily budget."""
+    caller, actor = await _routine_agent(db, principal)
+    command = "operations.routine.run_now"
+    body = {"routine_id": str(routine_id)}
+    body_hash, replay = await _begin_routine_write(db, principal, payload.idempotency_key, command, body)
+    if replay is not None:
+        return replay
+    routine = await _own_routine(db, routine_id, caller)
+    await _allowed_target(db, routine.agent_id)
     _audit_routine(db, routine.id, "routine_run_now", actor, title=routine.title)
-    return await _run_routine_now(db, routine)
+    run = await _run_routine_now(db, routine, commit=False)
+    out = run.model_dump(mode="json")
+    _finish_routine_write(db, principal, payload.idempotency_key, command, body_hash, 201, out, routine.id)
+    await db.commit()
+    if run.status == "scheduled":
+        from app.core.dispatch_signal import wake_scheduled_dispatch
+
+        wake_scheduled_dispatch()
+    return JSONResponse(status_code=201, content=out)
 
 
 @router.get("/agent/runs", response_model=list[RoutineRunOut])

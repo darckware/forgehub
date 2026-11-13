@@ -23,10 +23,11 @@ is not read as ``/{project_id}``.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.api.routes.mission import _audit_payload, _authorize_conduct, _load
 from app.api.routes.mission_phase import _assert_not_terminal, _begin, _notify, _respond
@@ -42,12 +43,13 @@ from app.db.base import get_db
 from app.db.models.agent import Agent
 from app.db.models.demand import AgentDemand
 from app.db.models.governance import ApprovalRequest, AuditEvent
-from app.db.models.mission import MissionPlanSubmission, MissionProjectLink
+from app.db.models.mission import MissionPlanSubmission, MissionProjectLink, ProjectMission
 from app.db.models.project import Project, ProjectPlan
 
 router = APIRouter(prefix="/api/v1/missions", tags=["missions"])
 
 AUTHORIZATION_SUBJECT_PREFIX = "[Autorização] "
+TERMINAL_STATES = ("completed", "cancelled")
 
 
 def authorization_body(mission_name: str, action: str, justification: str, instructions: str) -> str:
@@ -64,16 +66,22 @@ async def pending_decisions(
     principal: ActorPrincipal = Depends(get_actor_principal),
     db=Depends(get_db),
 ) -> list[PendingMissionDecision]:
-    """Every mission decision waiting for Marcelo, oldest first."""
+    """Every mission decision waiting for Marcelo, oldest first. An expired
+    plan request and anything of a completed/cancelled mission is left out
+    (nothing left to decide there)."""
     if principal.principal_type != "user" or not principal.is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Administrators only")
     out: list[PendingMissionDecision] = []
+    now = datetime.now(timezone.utc)
     plans = (await db.execute(
         select(ApprovalRequest, MissionPlanSubmission, ProjectPlan, Project)
         .join(MissionPlanSubmission, MissionPlanSubmission.approval_request_id == ApprovalRequest.id)
         .join(ProjectPlan, ProjectPlan.id == MissionPlanSubmission.project_plan_id)
         .join(Project, Project.id == MissionPlanSubmission.mission_project_id)
-        .where(ApprovalRequest.target_type == "project_plan", ApprovalRequest.status == "pending")
+        .join(ProjectMission, ProjectMission.project_id == Project.id)
+        .where(ApprovalRequest.target_type == "project_plan", ApprovalRequest.status == "pending",
+               or_(ApprovalRequest.expires_at.is_(None), ApprovalRequest.expires_at > now),
+               ProjectMission.state.notin_(TERMINAL_STATES))
     )).all()
     for request, submission, plan, mission in plans:
         count = len(submission.task_ids or [])
@@ -87,7 +95,9 @@ async def pending_decisions(
     phases = (await db.execute(
         select(MissionProjectLink, Project)
         .join(Project, Project.id == MissionProjectLink.mission_project_id)
-        .where(MissionProjectLink.is_phase.is_(True), MissionProjectLink.phase_status == "awaiting_approval")
+        .join(ProjectMission, ProjectMission.project_id == Project.id)
+        .where(MissionProjectLink.is_phase.is_(True), MissionProjectLink.phase_status == "awaiting_approval",
+               ProjectMission.state.notin_(TERMINAL_STATES))
     )).all()
     for phase, mission in phases:
         out.append(PendingMissionDecision(

@@ -20,8 +20,12 @@ export function MissionDecisionsCard() {
   const rejectLabel = (kind: string) => t(kind === "plan_approval" ? "missionDecisions.reject" : "missionDecisions.return");
 
   return <section aria-label={t("missionDecisions.title")} className="space-y-3 rounded-md border border-amber-500/40 p-4">
-    <h3 className="font-semibold">{t("missionDecisions.heading", { count: vm.items.length })}</h3>
+    <h3 className="font-semibold">{vm.loadFailed && !vm.items.length ? t("missionDecisions.title") : t("missionDecisions.heading", { count: vm.items.length })}</h3>
     <p className="text-sm text-muted-foreground">{t("missionDecisions.description")}</p>
+    {vm.loadFailed && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-destructive">
+      <span>{t("missionDecisions.loadError")}</span>
+      <Button size="sm" variant="outline" onClick={vm.retry}>{t("missionDecisions.retry")}</Button>
+    </div>}
     <ul className="space-y-3">
       {vm.items.map((item) => <li key={decisionKey(item)} className="space-y-2 rounded-md border p-3">
         <div className="flex flex-wrap items-center gap-2">

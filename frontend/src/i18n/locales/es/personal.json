@@ -593,6 +593,8 @@
     "return": "Devolver",
     "openMission": "Abrir misión",
     "reasonRequired": "Motivo (obligatorio)",
-    "reasonOptional": "Comentario (opcional)"
+    "reasonOptional": "Comentario (opcional)",
+    "loadError": "No se pudieron cargar las decisiones de misión.",
+    "retry": "Reintentar"
   }
 }

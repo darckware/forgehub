@@ -17,7 +17,7 @@ from app.core.demand_workflow import WorkflowBlocked, assert_execution_allowed, 
 from app.db.base import AsyncSessionLocal
 from app.db.models.agent import Agent
 from app.db.models.demand import AgentDemand
-from app.db.models.governance import AuditEvent
+from app.db.models.governance import ApprovalRequest, AuditEvent
 from app.db.models.notification import Notification
 from app.db.models.operations import AgentCharter, AgentRoutine, AgentRoutineRun
 from app.mcp import factory_server
@@ -135,6 +135,65 @@ async def test_authorization_request_is_held_until_marcelo_approves(world, mcp_a
         await _drop_mission_demands(pid)
 
 
+async def _pull(w, slug: str) -> list[str]:
+    from app.core.config import settings
+
+    async with w.client({"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN}) as client:
+        response = await client.get("/api/v1/demands/pending", params={"agent": slug})
+    assert response.status_code == 200, response.text
+    return [item["id"] for item in response.json()]
+
+
+@pytest.mark.asyncio
+async def test_pending_inbox_never_hands_out_gated_work(world):  # noqa: F811
+    mission = await world.create_mission(working_directory_path=f"/srv/forgehub-test/pull-{world.tag}")
+    pid = mission["project_id"]
+    world.mission_ids.append(pid)
+    orchestrator = uuid.UUID(mission["orchestrator_agent_id"])
+    slug = f"mt-orch-{uuid.uuid4().hex[:8]}"
+    async with AsyncSessionLocal() as db:
+        (await db.get(Agent, orchestrator)).profile_slug = slug
+        await db.commit()
+    url = f"/api/v1/missions/{pid}/approval-requests"
+    body = {"action": "a", "justification": "j", "instructions": "i"}
+    try:
+        async with world.client() as client:
+            first = (await client.post(url, json=body)).json()["demand_id"]
+            second = (await client.post(url, json=body)).json()["demand_id"]
+        # Awaiting approval: not pulled, not acknowledged.
+        assert not {first, second} & set(await _pull(world, slug))
+        async with world.client() as client:
+            assert (await client.post(f"/api/v1/demands/{first}/decision", json={"action": "approve"})).status_code == 200
+            assert (await client.post(f"/api/v1/demands/{second}/decision",
+                                      json={"action": "reject", "reason": "Não agora"})).status_code == 200
+        # An edit after approval voids it: not handed out.
+        async with AsyncSessionLocal() as db:
+            approved = await db.get(AgentDemand, uuid.UUID(first))
+            original, approved.body = approved.body, approved.body + " (editado)"
+            await db.commit()
+        pulled = await _pull(world, slug)
+        assert first not in pulled
+        # Rejected: handed out once, as information, archived in the same call.
+        assert second in pulled
+        async with AsyncSessionLocal() as db:
+            (await db.get(AgentDemand, uuid.UUID(first))).body = original
+            await db.commit()
+        pulled = await _pull(world, slug)
+        # Approved with its approved content: the same gate as the runner lets it through.
+        assert first in pulled and second not in pulled
+        async with AsyncSessionLocal() as db:
+            approved = await db.get(AgentDemand, uuid.UUID(first))
+            rejected = await db.get(AgentDemand, uuid.UUID(second))
+            assert approved.status != "archived" and approved.approval_status == "approved"
+            assert rejected.status == "archived" and rejected.approval_status == "rejected"
+            with pytest.raises(WorkflowBlocked):
+                assert_execution_allowed(rejected)
+            approved.scheduled_at = datetime.now(timezone.utc) + timedelta(days=365)
+            await db.commit()
+    finally:
+        await _drop_mission_demands(pid)
+
+
 @pytest.mark.asyncio
 async def test_authorization_request_needs_working_directory_and_rejection_never_runs(world):  # noqa: F811
     mission = await world.create_mission()
@@ -206,6 +265,20 @@ async def test_pending_decisions_lists_plans_and_phases_until_decided(world):  #
             assert phase_row["homologation_evidence"] == ["git:abc", "file:x.md"]
             assert phase_row["title"] == "Fase 1 · Estrutura"
 
+            # An expired request and a terminal mission have nothing left to decide.
+            async with AsyncSessionLocal() as db:
+                request = await db.get(ApprovalRequest, uuid.UUID(request_id))
+                kept_expiry, request.expires_at = request.expires_at, datetime.now(timezone.utc) - timedelta(minutes=1)
+                await db.commit()
+            await _force(pid, state="cancelled")
+            hidden = (await client.get("/api/v1/missions/pending-decisions")).json()
+            assert not any(r.get("approval_request_id") == request_id for r in hidden)
+            assert not any(r.get("phase_id") == phase["phase_id"] for r in hidden)
+            async with AsyncSessionLocal() as db:
+                (await db.get(ApprovalRequest, uuid.UUID(request_id))).expires_at = kept_expiry
+                await db.commit()
+            await _force(pid, state="draft")
+
             decided = await plan.decide(request_id, decision="rejected")
             assert decided.status_code == 200, decided.text
             approved = await client.post(f"/api/v1/missions/{pid}/phases/{phase['phase_id']}:approve",
@@ -221,41 +294,59 @@ async def test_pending_decisions_lists_plans_and_phases_until_decided(world):  #
 # ---------------------------------------------------------------------------
 # Feature B: Operação 24x7 by an agent
 # ---------------------------------------------------------------------------
+async def _ops_agent(w, label: str, runtime: str = "hermes", **fields) -> uuid.UUID:
+    async with AsyncSessionLocal() as db:
+        agent = Agent(name=f"mission-test-{label}-{w.tag}-{uuid.uuid4().hex[:4]}", runtime_type=runtime,
+                      profile_slug=f"mt-{label}-{uuid.uuid4().hex[:8]}", **fields)
+        db.add(agent)
+        await db.commit()
+        w.agent_ids.append(agent.id)
+        return agent.id
+
+
 @pytest_asyncio.fixture
 async def ops_world(world):  # noqa: F811
-    orchestrator = await world.agent("ops-orch")
-    target = await world.agent("ops-target")
-    retired = await world.agent("ops-retired")
+    orchestrator = await _ops_agent(world, "ops-orch")
+    other = await _ops_agent(world, "ops-other")
+    target = await _ops_agent(world, "ops-target")
+    retired = await _ops_agent(world, "ops-retired", status="retired")
+    coder = await _ops_agent(world, "ops-coder", runtime="codex")
+    no_charter = await _ops_agent(world, "ops-nocharter")
     async with AsyncSessionLocal() as db:
-        (await db.get(Agent, retired)).status = "retired"
-        db.add(AgentCharter(agent_id=target, mission="test", daily_run_budget=10))
+        for agent_id in (target, retired, coder):
+            db.add(AgentCharter(agent_id=agent_id, mission="test", daily_run_budget=10))
         await db.commit()
-        slug = (await db.get(Agent, orchestrator)).name
+        slug = (await db.get(Agent, orchestrator)).profile_slug
     world.ops = {
-        "orchestrator": orchestrator, "target": target, "retired": retired, "actor": f"agent:{slug}",
+        "orchestrator": orchestrator, "other_id": other, "target": target, "retired": retired, "coder": coder,
+        "no_charter": no_charter, "actor": f"agent:{slug}",
         "headers": await world.agent_token(orchestrator, ["operations.routines.manage"]),
+        "other": await world.agent_token(other, ["operations.routines.manage"]),
         "plain": await world.agent_token(await world.agent("ops-plain"), None),
     }
     yield world
     async with AsyncSessionLocal() as db:
-        ids = [orchestrator, target, retired]
+        ids = [orchestrator, other, target, retired, coder, no_charter]
         routine_ids = list((await db.execute(select(AgentRoutine.id).where(AgentRoutine.agent_id.in_(ids)))).scalars())
         if routine_ids:
-            demand_ids = list((await db.execute(select(AgentRoutineRun.demand_id).where(
-                AgentRoutineRun.routine_id.in_(routine_ids)))).scalars())
+            demand_ids = [d for d in (await db.execute(select(AgentRoutineRun.demand_id).where(
+                AgentRoutineRun.routine_id.in_(routine_ids)))).scalars() if d]
             await db.execute(text("DELETE FROM company.audit_events WHERE entity_id = ANY(:ids)"),
                              {"ids": routine_ids})
+            await db.execute(text("DELETE FROM company.agent_command_receipts WHERE target_id = ANY(:ids)"),
+                             {"ids": routine_ids})
             await db.execute(text("DELETE FROM company.agent_routines WHERE id = ANY(:ids)"), {"ids": routine_ids})
-            demand_ids = [d for d in demand_ids if d]
             if demand_ids:
                 await db.execute(text("DELETE FROM company.agent_demands WHERE id = ANY(:ids)"), {"ids": demand_ids})
         await db.execute(text("DELETE FROM company.agent_charters WHERE agent_id = ANY(:ids)"), {"ids": ids})
+        await db.execute(text("DELETE FROM company.agent_command_receipts WHERE principal_id = ANY(:ids)"),
+                         {"ids": ids})
         await db.commit()
 
 
 def _routine(target, **extra) -> dict:
     return {"agent_id": str(target), "title": "Verificar backups", "instructions": "Confira o último backup.",
-            "schedule": "0 8 * * *", "timezone": "America/Sao_Paulo", **extra}
+            "schedule": "0 8 * * *", "timezone": "America/Sao_Paulo", "idempotency_key": _key(), **extra}
 
 
 @pytest.mark.asyncio
@@ -267,44 +358,62 @@ async def test_agent_routines_crud_authorship_and_audit(ops_world):
         assert (await client.post(base, json=_routine(ops["target"]))).status_code == 403
     async with w.client() as client:  # A person uses the admin routes.
         assert (await client.post(base, json=_routine(ops["target"]))).status_code == 403
-        by_admin = await client.post("/api/v1/operations/routines", json=_routine(ops["target"], title="Admin"))
+        admin_body = {k: v for k, v in _routine(ops["target"], title="Admin").items() if k != "idempotency_key"}
+        by_admin = await client.post("/api/v1/operations/routines", json=admin_body)
         assert by_admin.status_code == 201 and by_admin.json()["created_by"].startswith("test-admin-")
+        assert by_admin.json()["created_by_agent_id"] is None
     admin_routine = by_admin.json()["id"]
 
     async with w.client(ops["headers"]) as client:
-        created = await client.post(base, json=_routine(ops["target"]))
+        no_key = await client.post(base, json={**_routine(ops["target"]), "idempotency_key": None})
+        assert no_key.status_code == 422 and _code(no_key) == "IDEMPOTENCY_KEY_REQUIRED"
+        body = _routine(ops["target"])
+        created = await client.post(base, json=body)
         assert created.status_code == 201, created.text
         routine = created.json()
         assert routine["created_by"] == ops["actor"] and routine["updated_by"] == ops["actor"]
+        assert routine["created_by_agent_id"] == str(ops["orchestrator"])
         assert routine["next_occurrences"]
+        replay = await client.post(base, json=body)
+        assert replay.headers.get("idempotent-replay") == "true" and replay.json()["id"] == routine["id"]
         listed = await client.get(base, params={"agent_id": str(ops["target"])})
         assert {r["id"] for r in listed.json()} == {routine["id"], admin_routine}
 
-        bad = await client.post(base, json=_routine(ops["target"], schedule="*/5 * * * *"))
-        assert bad.status_code == 422
-        inactive = await client.post(base, json=_routine(ops["retired"]))
-        assert inactive.status_code == 422 and _code(inactive) == "ROUTINE_TARGET_INACTIVE"
+        assert (await client.post(base, json=_routine(ops["target"], schedule="*/5 * * * *"))).status_code == 422
+        for target, code in ((ops["retired"], "ROUTINE_TARGET_INACTIVE"), (ops["coder"], "ROUTINE_TARGET_NOT_ALLOWED"),
+                             (ops["no_charter"], "ROUTINE_TARGET_WITHOUT_CHARTER")):
+            refused = await client.post(base, json=_routine(target))
+            assert refused.status_code == 422 and _code(refused) == code, refused.text
 
-        updated = await client.patch(f"{base}/{routine['id']}", json={"schedule": "30 9 * * 1-5",
-                                                                       "title": "Backups (dias úteis)"})
+        updated = await client.patch(f"{base}/{routine['id']}", json={
+            "schedule": "30 9 * * 1-5", "title": "Backups (dias úteis)", "idempotency_key": _key()})
         assert updated.status_code == 200, updated.text
         assert updated.json()["schedule"] == "30 9 * * 1-5" and updated.json()["updated_by"] == ops["actor"]
-        not_owned = await client.patch(f"{base}/{admin_routine}", json={"enabled": False})
-        assert not_owned.status_code == 403 and _code(not_owned) == "ROUTINE_NOT_OWNED"
-        not_owned = await client.delete(f"{base}/{admin_routine}")
+        for method, path, payload in (("PATCH", f"{base}/{admin_routine}", {"enabled": False, "idempotency_key": _key()}),
+                                      ("POST", f"{base}/{admin_routine}:run-now", {"idempotency_key": _key()})):
+            not_owned = await client.request(method, path, json=payload)
+            assert not_owned.status_code == 403 and _code(not_owned) == "ROUTINE_NOT_OWNED", not_owned.text
+        not_owned = await client.delete(f"{base}/{admin_routine}", params={"idempotency_key": _key()})
         assert not_owned.status_code == 403 and _code(not_owned) == "ROUTINE_NOT_OWNED"
 
-        run = await client.post(f"{base}/{routine['id']}:run-now")
+        run = await client.post(f"{base}/{routine['id']}:run-now", json={"idempotency_key": _key()})
         assert run.status_code == 201, run.text
         runs = await client.get("/api/v1/operations/agent/runs", params={"routine_id": routine["id"]})
         assert [r["id"] for r in runs.json()] == [run.json()["id"]]
-        async with AsyncSessionLocal() as db:  # Out of any real queue.
+        async with AsyncSessionLocal() as db:  # Sent from the agent that scheduled it; out of any real queue.
             demand = await db.get(AgentDemand, uuid.UUID(run.json()["demand_id"]))
+            assert demand.from_agent_id == ops["orchestrator"] and demand.target_agent_id == ops["target"]
             demand.scheduled_at = datetime.now(timezone.utc) + timedelta(days=365)
             await db.commit()
 
-        deleted = await client.delete(f"{base}/{routine['id']}")
-        assert deleted.status_code == 204
+    # Another delegated agent does not own it.
+    async with w.client(ops["other"]) as client:
+        foreign = await client.patch(f"{base}/{routine['id']}", json={"enabled": False, "idempotency_key": _key()})
+        assert foreign.status_code == 403 and _code(foreign) == "ROUTINE_NOT_OWNED"
+
+    async with w.client(ops["headers"]) as client:
+        deleted = await client.delete(f"{base}/{routine['id']}", params={"idempotency_key": _key()})
+        assert deleted.status_code == 200 and deleted.json()["deleted"] is True
     async with AsyncSessionLocal() as db:
         events = (await db.execute(select(AuditEvent).where(
             AuditEvent.entity_type == "agent_routine",
@@ -332,19 +441,73 @@ async def test_agent_routine_bounded_by_charter(ops_world):
         # Disabled, it is allowed; enabling it later is refused.
         paused = await client.post(base, json=_routine(ops["target"], schedule="0 18-20 * * *", enabled=False))
         assert paused.status_code == 201, paused.text
-        enable = await client.patch(f"{base}/{paused.json()['id']}", json={"enabled": True})
+        enable = await client.patch(f"{base}/{paused.json()['id']}", json={"enabled": True, "idempotency_key": _key()})
         assert enable.status_code == 422 and _code(enable) == "ROUTINE_EXCEEDS_CHARTER"
+        # Over budget already (the charter shrank): text edits still pass, the schedule is not re-checked.
+        async with AsyncSessionLocal() as db:
+            charter = (await db.execute(select(AgentCharter).where(
+                AgentCharter.agent_id == ops["target"]))).scalar_one()
+            charter.daily_run_budget = 2
+            await db.commit()
+        retitled = await client.patch(f"{base}/{eight.json()['id']}", json={
+            "title": "Novo título", "instructions": "Novo texto", "idempotency_key": _key()})
+        assert retitled.status_code == 200, retitled.text
+        resched = await client.patch(f"{base}/{eight.json()['id']}", json={
+            "schedule": "0 8-14 * * *", "idempotency_key": _key()})
+        assert resched.status_code == 422 and _code(resched) == "ROUTINE_EXCEEDS_CHARTER"
+        async with AsyncSessionLocal() as db:
+            charter = (await db.execute(select(AgentCharter).where(
+                AgentCharter.agent_id == ops["target"]))).scalar_one()
+            charter.daily_run_budget = 10
+            await db.commit()
         # Rescheduling the first routine counts it once, not twice.
-        smaller = await client.patch(f"{base}/{eight.json()['id']}", json={"schedule": "0 8-14 * * *"})
+        smaller = await client.patch(f"{base}/{eight.json()['id']}", json={
+            "schedule": "0 8-14 * * *", "idempotency_key": _key()})
         assert smaller.status_code == 200, smaller.text
-        assert (await client.patch(f"{base}/{paused.json()['id']}", json={"enabled": True})).status_code == 200
+        enabled = await client.patch(f"{base}/{paused.json()['id']}", json={"enabled": True, "idempotency_key": _key()})
+        assert enabled.status_code == 200, enabled.text
+
+
+@pytest.mark.asyncio
+async def test_agent_routine_writes_follow_the_mission_switch(ops_world, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "MISSION_TOOLS_ENABLED", False)
+    async with ops_world.client(ops_world.ops["headers"]) as client:
+        off = await client.post("/api/v1/operations/agent/routines", json=_routine(ops_world.ops["target"]))
+    assert off.status_code == 503 and _code(off) == "MISSION_TOOLS_DISABLED"
+
+
+@pytest.mark.asyncio
+async def test_admin_routine_keeps_the_coordinator_as_sender(ops_world, monkeypatch):
+    """Admin-created routines are unchanged: their occurrences are sent from
+    the coordinator handed to the generator, never from a creator agent."""
+    from app.api.routes import operations as ops_routes
+
+    ops = ops_world.ops
+    async with AsyncSessionLocal() as db:
+        routine = AgentRoutine(agent_id=ops["target"], title="Admin", instructions="x", schedule="0 8 * * *",
+                               created_by="someone")
+        db.add(routine)
+        await db.commit()
+        coordinator = await db.get(Agent, ops["other_id"])
+        now = datetime.now(timezone.utc)
+        run = await ops_routes._materialize_occurrence(db, routine, now, now, coordinator)
+        assert run.status == "scheduled"
+        await db.flush()
+        demand = await db.get(AgentDemand, run.demand_id)
+        assert demand.from_agent_id == ops["other_id"]
+        demand.scheduled_at = now + timedelta(days=365)
+        db.add(run)
+        await db.commit()
 
 
 @pytest.mark.asyncio
 async def test_routine_mcp_tools_and_delegation_grant(ops_world, mcp_as):  # noqa: F811
     w, ops = ops_world, ops_world.ops
     mcp_as(ops["headers"]["Authorization"][7:])
-    created = await factory_server.create_routine(str(ops["target"]), "Relatório", "Resuma o dia.", "0 18 * * *")
+    created = await factory_server.create_routine(str(ops["target"]), "Relatório", "Resuma o dia.", "0 18 * * *",
+                                                  idempotency_key=_key())
     assert created["created_by"] == ops["actor"]
     updated = await factory_server.update_routine(created["id"], enabled=False)
     assert updated["enabled"] is False
@@ -374,3 +537,12 @@ def test_tools_registered():
     tools = factory_server.mcp._tool_manager._tools
     assert {"request_marcelo_approval", "list_routines", "create_routine", "update_routine", "delete_routine",
             "run_routine_now", "list_routine_runs"} <= tools.keys()
+
+
+def test_message_header_marks_gated_work_not_runnable():
+    fmt = factory_server.messages._format_message
+    base = {"number": 7, "origin_type": "task", "subject": "s", "requires_approval": True}
+    assert "AGUARDANDO AUTORIZAÇÃO" in fmt({**base, "approval_status": "pending"})
+    assert "RECUSADA por Marcelo (motivo: caro) — não execute" in fmt(
+        {**base, "approval_status": "rejected", "decision_reason": "caro"})
+    assert "não execute" not in fmt({**base, "approval_status": "approved"})

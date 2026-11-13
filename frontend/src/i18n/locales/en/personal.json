@@ -593,6 +593,8 @@
     "return": "Return",
     "openMission": "Open mission",
     "reasonRequired": "Reason (required)",
-    "reasonOptional": "Comment (optional)"
+    "reasonOptional": "Comment (optional)",
+    "loadError": "Could not load mission decisions.",
+    "retry": "Try again"
   }
 }
