@@ -103,6 +103,10 @@ class AgentRoutine(Base, TimestampMixin):
     mission_project_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.projects.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # 2026-11-13: "agent:<slug>" for a routine an agent wrote through
+    # /operations/agent/routines, else the admin's username. NULL = before then.
+    created_by: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(150), nullable=True)
 
     runs: Mapped[list["AgentRoutineRun"]] = relationship(back_populates="routine", cascade="all, delete-orphan")
 

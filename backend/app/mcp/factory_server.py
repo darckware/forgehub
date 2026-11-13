@@ -18,7 +18,8 @@ needs a temporary ``remote_access.direct`` access opened by a human admin. The m
 tools (M0.2a: create_internal_project, manage_project_members; M0.2d:
 attach_project_document, get_my_mission_role, list_my_tasks; phases, 2026-11-12:
 list/create/update/reorder_mission_phases, sequence_planning_tasks,
-request/report_phase_homologation) act as the
+request/report_phase_homologation; 2026-11-13: request_marcelo_approval and the
+Operação 24x7 routine tools, which need operations.routines.manage) act as the
 caller too (every write with a required idempotency_key). Messages continues to use its narrowly
 scoped bridge token. API failures are always surfaced as tool errors.
 """
@@ -1095,6 +1096,137 @@ async def report_phase_homologation(
         f"/api/v1/missions/{project_id}/phases/{phase_id}:report-homologation",
         {"verdict": verdict, "summary": summary, "evidence": evidence, "idempotency_key": idempotency_key})
     return {**data, "replayed": replayed}
+
+
+# ---------------------------------------------------------------------------
+# Marcelo's authorization (2026-11-13)
+# ---------------------------------------------------------------------------
+@mcp.tool()
+async def request_marcelo_approval(
+    project_id: str, action: str, justification: str, instructions: str, idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    """Ask Marcelo to authorize something OUTSIDE your mandate as a mission's
+    orchestrator: extra cost, anything touching production, a scope change,
+    an irreversible action (deleting data, publishing, contracting). Use it
+    instead of doing the thing and instead of asking in free text.
+    `project_id` is the mission; `action` names what you want to do (one
+    line); `justification` says why it is needed now and the risk of not
+    doing it; `instructions` is exactly what YOU will execute once approved
+    (self-contained: paths, commands, criteria to verify).
+    ForgeHub files it as a task from you to yourself, held for approval in
+    Pessoal -> Tarefas dos agentes, and notifies Marcelo. Nothing runs until
+    he approves; once approved, the instructions are dispatched back to you
+    as an ordinary Messages task. Rejected = do NOT do it (the rejection and
+    its reason come back to your inbox). Needs mission.orchestrate on that
+    mission; refused on a completed/cancelled mission (MISSION_TERMINAL).
+    Pass your own idempotency_key (e.g. <agent>-auth-<uuid4>) to make a
+    retry safe; when omitted one is generated, so a retry files a new request.
+    For a matter that is not about a mission, use send_agent_message with
+    requires_approval=True instead."""
+    import uuid as _uuid
+
+    data, replayed = await _mission_write(f"/api/v1/missions/{project_id}/approval-requests", {
+        "action": action, "justification": justification, "instructions": instructions,
+        "idempotency_key": idempotency_key or f"auth-{_uuid.uuid4()}"})
+    return {**data, "replayed": replayed}
+
+
+# ---------------------------------------------------------------------------
+# Operação 24x7 routines (2026-11-13)
+# ---------------------------------------------------------------------------
+_ROUTINE_RULES = """Routines are recurring work an agent owes: each occurrence becomes an
+    ordinary Messages task addressed to the routine's agent. `schedule` is a
+    standard 5-field cron (minute hour day-of-month month day-of-week, e.g.
+    "0 8 * * 1-5" = 08:00 on weekdays, "*/30 * * * *" = every 30 min) evaluated
+    in `timezone` (IANA name, default America/Sao_Paulo); never more often than
+    every 15 minutes. Changes take effect immediately (no approval), are
+    audited under your name, and are bounded by the target agent's charter:
+    the busiest day of its enabled routines must fit its daily run budget
+    (ROUTINE_EXCEEDS_CHARTER), and an inactive/retired agent is refused
+    (ROUTINE_TARGET_INACTIVE). Needs an operations.routines.manage delegation."""
+
+
+def _routine_doc(fn):
+    """Append the shared routine rules to a tool's docstring (read by FastMCP)."""
+    fn.__doc__ = f"{fn.__doc__}\n\n    {_ROUTINE_RULES}"
+    return fn
+
+
+@mcp.tool()
+@_routine_doc
+async def list_routines(agent_id: str | None = None) -> list[dict[str, Any]]:
+    """List Operação 24x7 routines (optionally of one agent): id, agent,
+    title, instructions, schedule, timezone, enabled, next_occurrences and
+    created_by ("agent:<slug>" or an admin's username)."""
+    return await _factory_call("GET", _query("/api/v1/operations/agent/routines", agent_id=agent_id))
+
+
+
+@mcp.tool()
+@_routine_doc
+async def create_routine(
+    agent_id: str, title: str, instructions: str, schedule: str, timezone: str = "America/Sao_Paulo",
+    kind: str = "monitoring", expected_evidence: str | None = None, deadline_minutes: int = 60,
+    enabled: bool = True,
+) -> dict[str, Any]:
+    """Create a routine for an agent (agent_id from list_agents). `kind`:
+    monitoring | maintenance | improvement | report | coordination;
+    `instructions` is the prompt each occurrence sends (self-contained);
+    `deadline_minutes` (5-1440) is how long an occurrence may wait before it
+    counts as missed. A Hermes agent never edits code: give it monitoring,
+    reporting or coordination work, and leave code changes to claude/codex/agy."""
+    body: dict[str, Any] = {"agent_id": agent_id, "title": title, "instructions": instructions,
+                            "schedule": schedule, "timezone": timezone, "kind": kind,
+                            "deadline_minutes": deadline_minutes, "enabled": enabled}
+    if expected_evidence is not None:
+        body["expected_evidence"] = expected_evidence
+    return await _factory_call("POST", "/api/v1/operations/agent/routines", json=body)
+
+
+@mcp.tool()
+@_routine_doc
+async def update_routine(
+    routine_id: str, enabled: bool | None = None, schedule: str | None = None, timezone: str | None = None,
+    title: str | None = None, instructions: str | None = None, expected_evidence: str | None = None,
+    deadline_minutes: int | None = None,
+) -> dict[str, Any]:
+    """Change a routine YOU created (others: ROUTINE_NOT_OWNED): enable or
+    disable it, reschedule it, rename it or rewrite its prompt
+    (`instructions`). Only the fields you pass change; re-enabling or
+    rescheduling starts from now (no replay of past occurrences)."""
+    body = {key: value for key, value in (
+        ("enabled", enabled), ("schedule", schedule), ("timezone", timezone), ("title", title),
+        ("instructions", instructions), ("expected_evidence", expected_evidence),
+        ("deadline_minutes", deadline_minutes)) if value is not None}
+    if not body:
+        raise FactoryError("Pass at least one field to change.")
+    return await _factory_call("PATCH", f"/api/v1/operations/agent/routines/{routine_id}", json=body)
+
+
+@mcp.tool()
+async def delete_routine(routine_id: str) -> dict[str, Any]:
+    """Delete a routine YOU created (others: ROUTINE_NOT_OWNED), with its run
+    history. Prefer update_routine(enabled=False) to pause it. Audited."""
+    await _factory_call("DELETE", f"/api/v1/operations/agent/routines/{routine_id}")
+    return {"deleted": True, "routine_id": routine_id}
+
+
+@mcp.tool()
+async def run_routine_now(routine_id: str) -> dict[str, Any]:
+    """Run one extra occurrence of any routine now, outside its schedule (its
+    cursor does not move). It still counts against the agent's daily run
+    budget: past it, the run is recorded as skipped_budget. Audited."""
+    return await _factory_call("POST", f"/api/v1/operations/agent/routines/{routine_id}:run-now")
+
+
+@mcp.tool()
+async def list_routine_runs(routine_id: str | None = None, agent_id: str | None = None,
+                            limit: int = 50) -> list[dict[str, Any]]:
+    """Recent occurrences of routines, newest first: status (scheduled,
+    running, completed, failed, missed, skipped_budget), the Messages task
+    number, detail and whether it is overdue."""
+    return await _factory_call("GET", _query("/api/v1/operations/agent/runs", routine_id=routine_id,
+                                             agent_id=agent_id, limit=str(limit)))
 
 
 # ---------------------------------------------------------------------------

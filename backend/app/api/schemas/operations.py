@@ -82,6 +82,9 @@ class RoutineOut(RoutineBase):
     agent_name: str | None = None
     last_occurrence_at: datetime | None
     next_occurrences: list[datetime] = []
+    # "agent:<slug>" or an admin's username; NULL for routines older than 2026-11-13.
+    created_by: str | None = None
+    updated_by: str | None = None
     created_at: datetime
     updated_at: datetime
 
