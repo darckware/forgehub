@@ -91,7 +91,7 @@ export function MissionPhases({ projectId, phases, canEdit, canDecide }: {
         const open = vm.expanded.has(phase.phase_id);
         return <li key={phase.phase_id} className="rounded-md border" data-testid={`phase-${phase.position}`}>
           <div className="flex flex-wrap items-center gap-2 p-2">
-            <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left"
+            <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left max-md:basis-full"
               aria-expanded={open} onClick={() => vm.toggle(phase.phase_id)}>
               {open ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">
