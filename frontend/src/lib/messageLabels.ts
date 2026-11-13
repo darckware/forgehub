@@ -23,7 +23,7 @@ export const MESSAGE_LABEL_GROUPS = {
 export function operatorDestination(item: {
   operator_destination?: string | null; operator_decision?: string | null; operator_question_id?: string | null;
 }): string | null {
-  if (!["authorization", "question"].includes(item.operator_decision ?? "")) return null;
+  if (!["authorization", "question", "correction", "reconciliation"].includes(item.operator_decision ?? "")) return null;
   const question = item.operator_decision === "question" && item.operator_question_id
     ? `&questionId=${encodeURIComponent(item.operator_question_id)}` : "";
   switch (item.operator_destination) {

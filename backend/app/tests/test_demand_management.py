@@ -333,3 +333,89 @@ async def test_investigation_preserves_uncertainty_until_explicit_inactive_confi
     assert confirmed.json()["requires_approval"] is True
     history = (await client.get(f"/api/v1/demands/{failed.id}/history")).json()
     assert any(row["action"] == "demand_confirm_inactive" and row["payload"]["previous_run_id"] == run_id for row in history)
+
+
+async def _work(client, label, **params):
+    response = await client.get("/api/v1/demands/agent-work", params={"search": label, "group": "tasks", **params})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def test_known_failure_and_uncertain_run_wait_for_the_operator(client, consolidation_db, test_suite_agent):
+    """Marcelo 2026-11-13: what only a person can move forward is "Sua decisão"."""
+    from app.core.message_classification import classify_messages
+    from app.core.message_triage_context import context_stamp, source_stamp
+    from app.db.models.demand import AgentDemand
+    from app.db.models.message_triage import MessageTriageResult
+    db, uncertain, _ = consolidation_db
+    label = f"decision-{uuid.uuid4().hex}"
+    uncertain.subject = label + " uncertain"
+    partial = AgentDemand(from_agent="test-suite", from_agent_id=test_suite_agent, target_agent_id=test_suite_agent,
+        subject=label + " partial", body="Auditor work", origin_type="task", working_path="/tmp",
+        dispatch_status="failed", dispatch_attempts=1, agent_run_id=str(uuid.uuid4()),
+        dispatch_error="Agent reported STATUS: PARTIAL; the work is not complete.")
+    db.add(partial)
+    await db.commit()
+    await db.refresh(partial)
+    # A model's "waiting" advice never takes a failed attempt off the operator's desk.
+    context, versions = await context_stamp(db, partial)
+    db.add(MessageTriageResult(message_id=partial.id, source_updated_at=partial.updated_at,
+        source_fingerprint=source_stamp(partial), context_fingerprint=context, context_versions=versions,
+        operator_state="waiting", category="service", summary="advisory", reason="advisory",
+        recommendation="wait", proposed_action="none", evidence_refs=[], analyzed_at=datetime.now(timezone.utc)))
+    await db.commit()
+
+    result = await _work(client, label, view="decision")
+    assert {row["id"] for row in result["items"]} == {str(uncertain.id), str(partial.id)}
+    assert result["total"] == result["counts"]["decision"] == 2
+    assert result["counts"]["processing"] == 0 and result["counts"]["waiting"] == 0
+    assert all(row["operator_state"] == "decision" for row in result["items"])
+    labels = await classify_messages(db, [uncertain, partial])
+    assert labels[partial.id]["message_labels"] == ["needs_correction"]
+    assert (labels[partial.id]["operator_decision"], labels[partial.id]["operator_destination"]) == ("correction", "agent_tasks")
+    assert labels[uncertain.id]["operator_decision"] == "reconciliation"
+
+    # While an automatic diagnostic of the failure is open, it is not the operator's turn.
+    check = AgentDemand(from_agent="test-suite", from_agent_id=test_suite_agent, target_agent_id=test_suite_agent,
+        subject=label + " check", body="Diagnostic", origin_type="task", working_path="/tmp",
+        failure_check_source_id=partial.id, scheduled_at=datetime.now(timezone.utc) + timedelta(days=1))
+    db.add(check)
+    await db.commit()
+    result = await _work(client, label, view="decision")
+    assert {row["id"] for row in result["items"]} == {str(uncertain.id)}
+    assert result["counts"]["decision"] == 1
+    labels = await classify_messages(db, [partial])
+    assert labels[partial.id]["operator_decision"] is None
+    # The diagnostic ended (or failed): the failure is back with the operator.
+    check.dispatch_status = "completed"
+    await db.commit()
+    assert (await _work(client, label, view="decision"))["counts"]["decision"] == 2
+
+    # An explicit operator resolution (archive) takes it off the queue.
+    partial.status = "archived"
+    await db.commit()
+    result = await _work(client, label, view="decision")
+    assert result["counts"]["decision"] == 1
+    assert (await _work(client, label, view="resolved"))["counts"]["resolved"] >= 1
+
+
+async def test_direct_moodle_failure_and_incubation_stay_with_their_own_flow(client, consolidation_db, test_suite_agent):
+    from app.db.models.moodle_approval import MoodleApproval
+    db, failed, incubated = consolidation_db
+    label = f"own-flow-{uuid.uuid4().hex}"
+    failed.subject = label + " moodle"
+    failed.dispatch_error = "Agent reported STATUS: BLOCKED"
+    failed.agent_run_id = str(uuid.uuid4())
+    incubated.subject = label + " idea"
+    await db.flush()
+    db.add(MoodleApproval(message_id=failed.id, request_id=uuid.uuid4(), source_agent_id=test_suite_agent,
+        params_hash="b" * 64, expires_at=datetime.now(timezone.utc) + timedelta(days=1), state="claimed"))
+    await db.commit()
+    try:
+        result = (await client.get("/api/v1/demands/agent-work", params={"search": label, "view": "decision"})).json()
+        assert result["counts"]["decision"] == 0
+        ideas = await _work(client, label, group="incubation", view="decision")
+        assert ideas["counts"]["decision"] == 0
+    finally:
+        await db.execute(delete(MoodleApproval).where(MoodleApproval.message_id == failed.id))
+        await db.commit()

@@ -75,6 +75,10 @@ async def classify_messages(db, demands):
             MessageTriageResult.source_updated_at == AgentDemand.updated_at,
             MessageTriageResult.context_versions['revision'] == context_revision_sql())
         .execution_options(populate_existing=True))).all()}
+    checking = set((await db.scalars(select(AgentDemand.failure_check_source_id).where(
+        AgentDemand.failure_check_source_id.in_(ids), AgentDemand.status != 'archived',
+        or_(AgentDemand.dispatch_status.is_(None),
+            AgentDemand.dispatch_status.notin_(('completed', 'failed')))))).all())
     execution_ids = {row.task_execution_id for row in demands if row.task_execution_id}
     executions = {row.id: row for row in (await db.scalars(select(TaskExecution)
         .where(TaskExecution.id.in_(execution_ids)).execution_options(populate_existing=True))).all()}
@@ -101,6 +105,14 @@ async def classify_messages(db, demands):
         if approval and approval.state in {'pending', 'approved'}:
             pending_authorization |= (approval.state == 'pending' or approval.message_hash != fingerprint
                 or approval.executor_id != row.target_agent_id or approval.expires_at <= now)
+        def human_turn(kind, row=row, approval=approval):
+            # Same rule as demand_management.human_failure_sql: the operator's
+            # decision queue, unless a diagnostic is still open or the Moodle
+            # flow, an incubation owner or a consolidation already owns it.
+            if (approval or row.id in checking or row.origin_type == 'incubation'
+                    or row.status == 'archived' or row.consolidated_into_id):
+                return {}
+            return dict(decision=kind, destination='agent_tasks')
         own_tasks = {row.origin_id}
         execution = executions.get(row.task_execution_id)
         if execution:
@@ -109,7 +121,8 @@ async def classify_messages(db, demands):
         if _active(row):
             info = _metadata(['running'], 'Execução ativa ou reservada no executor registrado.')
         elif requires_reconciliation(row):
-            info = _metadata(['uncertain_execution'], 'Confirme o resultado da tentativa antes de qualquer repetição.')
+            info = _metadata(['uncertain_execution'], 'Confirme o resultado da tentativa antes de qualquer repetição.',
+                             **human_turn('reconciliation'))
         elif proof:
             info = _metadata(['delivery_verified'], 'Entrega verificada para o conteúdo atual; não executar novamente.')
         elif row.status == 'archived' or row.consolidated_into_id:
@@ -140,7 +153,8 @@ async def classify_messages(db, demands):
         elif not row.from_agent_id or not PurePosixPath(row.working_path or '').is_absolute():
             info = _metadata(['missing_context'], 'Defina o responsável e o diretório de execução.')
         elif row.dispatch_status == 'failed':
-            info = _metadata(['needs_correction'], 'A tentativa terminou com falha; analise a causa antes de repetir.')
+            info = _metadata(['needs_correction'], 'A tentativa terminou com falha; analise a causa antes de repetir.',
+                             **human_turn('correction'))
         else:
             executor = agents.get(row.target_agent_id)
             hold = availability.get(row.target_agent_id)

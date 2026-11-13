@@ -79,7 +79,7 @@ export const demandSchema = z.object({
   execution_wait_until: z.string().nullable().default(null),
   classification_summary: z.string().nullable().default(null),
   operator_destination: z.enum(["agent_tasks", "incubations", "moodle_approvals"]).nullable().default(null),
-  operator_decision: z.enum(["authorization", "question"]).nullable().default(null),
+  operator_decision: z.enum(["authorization", "question", "correction", "reconciliation"]).nullable().default(null),
   operator_question_id: z.string().nullable().default(null),
   failure_check_source_id: z.string().nullable().default(null),
   // Human-readable display number (#1, #2, ...) -- reference an existing

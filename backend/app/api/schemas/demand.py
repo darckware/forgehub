@@ -293,7 +293,7 @@ class DemandOut(BaseModel):
     execution_wait_until: datetime | None = None
     classification_summary: str | None = None
     operator_destination: Literal["agent_tasks", "incubations", "moodle_approvals"] | None = None
-    operator_decision: Literal["authorization", "question"] | None = None
+    operator_decision: Literal["authorization", "question", "correction", "reconciliation"] | None = None
     operator_question_id: uuid.UUID | None = None
     fixed_agent: bool = False
     failure_check_source_id: uuid.UUID | None = None

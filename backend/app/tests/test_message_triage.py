@@ -52,14 +52,15 @@ async def test_duplicate_analysis_requests_share_durable_job_and_ignore_paginati
     assert first.scope == {"agent_id": str(agent), "context": None}
 
 
-async def test_unanalyzed_failure_is_not_automatically_an_operator_decision(triage_db):
+async def test_known_failure_is_an_operator_decision_without_analysis(triage_db):
+    """Since 2026-11-13 (Marcelo): a known failure waits for a person, analyzed or not."""
     from app.core.demand_management import list_agent_work
     db, agent, _ = triage_db
     row = await message(db, agent, dispatch_status="failed", dispatch_error="STATUS: PARTIAL")
     result = await list_agent_work(db, view="decision", agent_id=agent, group="tasks")
-    assert row.id not in {uuid.UUID(x["id"]) for x in result["items"]}
+    assert row.id in {uuid.UUID(x["id"]) for x in result["items"]}
     result = await list_agent_work(db, view="processing", agent_id=agent, group="tasks")
-    assert str(row.id) in {x["id"] for x in result["items"]}
+    assert str(row.id) not in {x["id"] for x in result["items"]}
 
 
 async def test_real_authorization_stays_visible_without_model(triage_db):

@@ -1,5 +1,6 @@
 """Bounded operator queries and shared presentation of execution constraints."""
 from sqlalchemy import and_, case, exists, func, or_, select
+from sqlalchemy.orm import aliased
 
 from app.api.schemas.demand import DemandOut
 from app.db.models.demand import AgentDemand
@@ -45,6 +46,30 @@ def work_state_sql():
         (AgentDemand.origin_type == "incubation", "incubation"), else_="queued")
 
 
+def active_failure_check_sql(demand=AgentDemand):
+    """A diagnostic of this failure is still on its way: not the operator's turn yet."""
+    check = aliased(AgentDemand)
+    return exists(select(check.id).where(check.failure_check_source_id == demand.id,
+        check.status != "archived", or_(check.dispatch_status.is_(None),
+            check.dispatch_status.notin_(("completed", "failed")))))
+
+
+def human_failure_sql(demand=AgentDemand):
+    """A known failure or an uncertain run that only a person can move forward.
+
+    Covers the dispatch failures Messages shows as "needs correction" and the
+    uncertain runs that need reconciliation (``requires_reconciliation``: both
+    have ``dispatch_status='failed'``). Left out: archived/consolidated items
+    (already decided), incubations (their owner agent decides), direct Moodle
+    messages (the Moodle flow decides them; a new proposal is the way out) and a
+    failure whose automatic diagnostic is still open.
+    """
+    return and_(demand.dispatch_status == "failed", demand.status != "archived",
+        demand.consolidated_into_id.is_(None), demand.origin_type != "incubation",
+        ~exists(select(MoodleApproval.id).where(MoodleApproval.message_id == demand.id)),
+        ~active_failure_check_sql(demand))
+
+
 def operator_state_sql():
     question=exists(select(AgentQuestion.id).where(AgentQuestion.origin_demand_id==AgentDemand.id,
         AgentQuestion.status=="pending",AgentQuestion.blocking.is_(True)))
@@ -59,6 +84,10 @@ def operator_state_sql():
             AgentDemand.approval_status.is_(None),AgentDemand.approval_status=="pending"))),"decision"),
         (or_(AgentDemand.dispatch_status.in_(("dispatched","running")),and_(
             AgentDemand.dispatch_status.is_(None),AgentDemand.agent_run_id.isnot(None))),"processing"),
+        # Before the triage result: a model's "waiting"/"resolved" for a failed
+        # attempt never takes it off the operator's desk. A proven resolution
+        # archives the message, which the first branch already covers.
+        (human_failure_sql(),"decision"),
         (analyzed("resolved"),"resolved"),(analyzed("waiting"),"waiting"),
         (AgentDemand.dispatch_status=="completed","resolved"),
         (AgentDemand.origin_type=="incubation","waiting"),else_="processing")

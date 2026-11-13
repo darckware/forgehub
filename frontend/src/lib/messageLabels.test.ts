@@ -31,4 +31,9 @@ describe("automatic message labels", () => {
     expect(operatorDestination({ ...question, operator_destination: "moodle_approvals" })).toContain("questionId=question-42");
     expect(operatorDestination({ ...row, operator_decision: null })).toBeNull();
   });
+  it("links failures that only a person can move forward to the decision queue", () => {
+    const row = { operator_destination: "agent_tasks", operator_decision: "correction", operator_question_id: null } as Demand;
+    expect(operatorDestination(row)).toBe("/personal?tab=agent-work&workGroup=tasks&workView=decision");
+    expect(operatorDestination({ ...row, operator_decision: "reconciliation" })).toBe("/personal?tab=agent-work&workGroup=tasks&workView=decision");
+  });
 });
