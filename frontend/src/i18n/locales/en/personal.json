@@ -529,6 +529,14 @@
     "environment": "Environment",
     "destructive": "Destructive",
     "nonDestructive": "Non-destructive",
+    "agentSummary": "Agent's description",
+    "operationView": {
+      "suspend_user": "Suspend Moodle user id {{id}}",
+      "suspendNote": "Suspending ends this user's open sessions.",
+      "reactivate_user": "Reactivate Moodle user id {{id}}",
+      "confirm_accounts_one": "Confirm {{count}} Moodle account: id {{ids}}",
+      "confirm_accounts_other": "Confirm {{count}} Moodle accounts: ids {{ids}}"
+    },
     "executor": "Executor agent",
     "executorAccessHint": "The agent needs access to the Moodle MCP; selecting an agent does not grant access.",
     "chooseAgent": "Select an agent",

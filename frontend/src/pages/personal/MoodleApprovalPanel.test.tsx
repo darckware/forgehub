@@ -115,3 +115,27 @@ it('shows a student batch in readable form, with the list on opening and no raw 
   expect(within(dialog).getByText(/Contas novas: 2/)).toBeInTheDocument();
   expect(within(dialog).queryByText(/Parâmetros/)).not.toBeInTheDocument();
 });
+
+it('shows what a suspension does from the generated view, above the agent summary', async () => {
+  vi.spyOn(apiClient, 'get').mockResolvedValue({ items: [{ ...items[0], summary: 'Liberar o acesso do aluno', operation: 'core_user_update_users', destructive: false, params: { users: [{ id: 11, suspended: 1 }] }, operation_view: { kind: 'suspend_user', user_id: 11 } }] });
+  open();
+  const line = await screen.findByText('Suspender o usuário Moodle id 11');
+  expect(screen.getByText('A suspensão encerra as sessões abertas desse usuário.')).toBeInTheDocument();
+  const summary = screen.getByText('Descrição do agente: Liberar o acesso do aluno');
+  expect(line.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Aprovar #7' }));
+  const dialog = screen.getByRole('dialog');
+  expect(within(dialog).getByText('Suspender o usuário Moodle id 11')).toBeInTheDocument();
+  expect(within(dialog).getByText('Descrição do agente: Liberar o acesso do aluno')).toBeInTheDocument();
+});
+
+it('describes a reactivation and an account confirmation', async () => {
+  vi.spyOn(apiClient, 'get').mockResolvedValue({ items: [
+    { ...items[0], summary: 'Reativar', operation: 'core_user_update_users', destructive: false, params: { users: [{ id: 12, suspended: 0 }] }, operation_view: { kind: 'reactivate_user', user_id: 12 } },
+    { ...items[0], request_id: 'r2', message_id: 'm2', number: 8, summary: 'Confirmar contas', operation: 'local_moodle_accounts_confirm_users', destructive: false, params: { userids: [30, 31, 32] }, operation_view: { kind: 'confirm_accounts', user_ids: [30, 31, 32] } },
+  ] });
+  open();
+  await screen.findByText('Reativar o usuário Moodle id 12');
+  expect(screen.getByText('Confirmar 3 contas Moodle: ids 30, 31, 32')).toBeInTheDocument();
+  expect(screen.queryByText('A suspensão encerra as sessões abertas desse usuário.')).not.toBeInTheDocument();
+});
