@@ -19,7 +19,7 @@ from app.core.deps import ActorPrincipal, get_actor_principal, get_current_user
 from app.core.demand_workflow import approval_fingerprint, record_transition
 from app.core.dispatch_signal import wake_scheduled_dispatch
 from app.core.instructor_group import GROUP_CHANNEL, REJECTED_REPLY, result_note, send_to_group
-from app.core.moodle_proposal_verification import STUDENT_BATCH_FUNCTION, ProposalInvalid, student_batch_view, validate_proposal
+from app.core.moodle_proposal_verification import STUDENT_BATCH_FUNCTION, ProposalInvalid, operation_view, student_batch_view, validate_proposal
 from app.db.base import get_db
 from app.db.models.agent import Agent
 from app.db.models.demand import AgentDemand
@@ -140,7 +140,7 @@ async def list_approvals(user: User = Depends(get_current_user), db: AsyncSessio
         items.append({"request_id": str(link.request_id), "message_id": str(demand.id), "number": demand.number,
             "summary": proposal.get("summary", ""), "operation": proposal["wsfunction"],
             "environment": proposal["environment"], "host": proposal["host"], "destructive": proposal["destructive"],
-            "params": {} if batch else proposal["params"], "batch": batch,
+            "params": {} if batch else proposal["params"], "batch": batch, "operation_view": operation_view(proposal),
             "params_hash": link.params_hash, "message_updated_at": demand.updated_at, "expires_at": link.expires_at})
     recent = (await db.execute(select(MoodleApproval, AgentDemand).join(AgentDemand, MoodleApproval.message_id == AgentDemand.id)
         .where(MoodleApproval.state != "pending").order_by(MoodleApproval.updated_at.desc()).limit(20))).all()

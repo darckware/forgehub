@@ -187,6 +187,20 @@ def student_batch_view(params):
         "rows": rows, "held_rows": batch["held_rows"], "rejected_rows": batch["rejected_rows"]}
 
 
+def operation_view(proposal):
+    """The plain description a person reads before approving a suspension or an account
+    confirmation. Built only from the validated, hashed params, never from the agent's free
+    summary text, so the line shown always says what will run. None for other operations."""
+    function, params = proposal.get("wsfunction"), proposal.get("params")
+    if function == "core_user_update_users" and _is_suspension(params):
+        user = params["users"][0]
+        return {"kind": "suspend_user" if user["suspended"] == 1 else "reactivate_user", "user_id": user["id"]}
+    if function == CONFIRM_USERS_FUNCTION and isinstance(params, dict) and set(params) == {"userids"} \
+            and isinstance(params["userids"], list) and all(_positive_id(u) for u in params["userids"]):
+        return {"kind": "confirm_accounts", "user_ids": list(params["userids"])}
+    return None
+
+
 def validate_proposal(proposal, request_id):
     if not isinstance(proposal, dict) or proposal.get("request_id") != request_id:
         raise ProposalInvalid("Unknown proposal")
