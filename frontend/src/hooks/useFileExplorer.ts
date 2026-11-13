@@ -108,6 +108,11 @@ export function useExplorerMutations() {
   const invalidate = useInvalidateExplorer();
   const onSettled = () => void invalidate();
   return {
+    archive: useMutation({
+      mutationFn: ({ mode, paths, destination }: { mode: "compress" | "extract"; paths: string[]; destination: string }) =>
+        apiClient.post<ExplorerEntry>(`${RESOURCE}/${mode}`, { paths, destination }, { params }),
+      onSettled,
+    }),
     createFolder: useMutation({
       mutationFn: (path: string) => apiClient.post<ExplorerEntry>(`${RESOURCE}/directory`, { path }, { params }),
       onSettled,
@@ -201,6 +206,14 @@ export function parentPath(path: string): string | null {
 export function baseName(path: string): string {
   if (path === "/") return "/";
   return path.replace(/\/+$/, "").split("/").pop() ?? path;
+}
+
+export function isExtractableArchive(name: string): boolean {
+  return /\.(zip|tar|tar\.gz|tgz|tar\.bz2|tbz2|tar\.xz|txz)$/i.test(name);
+}
+
+export function archiveFolderName(name: string): string {
+  return name.replace(/\.(zip|tar\.gz|tar\.bz2|tar\.xz|tgz|tbz2|txz|tar)$/i, "") || "extracted";
 }
 
 /** Breadcrumb segments: "/root/project" -> [{/}, {root,/root}, {project,/root/project}]. */

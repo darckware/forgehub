@@ -45,6 +45,20 @@ def test_rejects_missing_token_and_bad_target(client):
     assert client.get("/v1/remote-fs/list", headers={**HEADERS, "X-Ssh-User": "a b"}).status_code == 400
 
 
+def test_archive_roundtrip_on_selected_server(client, tmp_path):
+    source = tmp_path / "file with 'quotes'.txt"
+    source.write_text('roundtrip')
+    destination = tmp_path / 'saved.zip'
+    payload = dict(paths=[str(source)], destination=str(destination))
+    response = client.post('/v1/remote-fs/compress', json=payload, headers=HEADERS)
+    assert response.status_code == 200, response.text
+    assert client.post('/v1/remote-fs/compress', json=payload, headers=HEADERS).status_code == 409
+    folder = tmp_path / 'extracted'
+    response = client.post('/v1/remote-fs/extract', json=dict(paths=[str(destination)], destination=str(folder)), headers=HEADERS)
+    assert response.status_code == 200, response.text
+    assert (folder / source.name).read_text() == 'roundtrip'
+
+
 def test_list_sorts_dirs_first_and_reports_symlinks(client, tmp_path):
     (tmp_path / "b.txt").write_text("hello")
     (tmp_path / "A dir").mkdir()

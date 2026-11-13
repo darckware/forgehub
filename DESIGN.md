@@ -63,6 +63,13 @@ Personal Demands preserve source independently of capture suggestions. Keep grou
 
 ## Overview
 
+Workspace Explorer archives use the existing context menu and NameDialog. ZIP
+creation saves the current selection in the displayed directory; extraction
+creates a new named folder there. Operations never merge into an existing
+destination. Errors remain in the dialog, progress disables submission, and the
+listing refreshes after completion. Local and selected SSH-server views share
+this behavior. Supported extraction formats are ZIP and TAR (gzip/bzip2/xz).
+
 ForgeHub is an operator console for Marcelo's agent ecosystem. Its product surfaces should feel like a calm mission-control ledger: dense enough to scan operational state, restrained enough that warnings and failures remain unmistakable. The interface is a product/admin surface, not a marketing page.
 
 The characteristic interaction is progressive disclosure inside operational lists. Summary rows carry identity and health; deeper configuration opens in place without losing the roster context. Avoid decorative dashboard tiles, novelty gradients, glass effects, or visual metaphors that compete with system state.

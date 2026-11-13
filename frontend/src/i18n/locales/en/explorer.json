@@ -32,7 +32,9 @@
     "unpin": "Unpin from Quick access",
     "pinCurrent": "Pin this folder to Quick access",
     "unpinCurrent": "Unpin this folder from Quick access",
-    "renameQuickAccess": "Rename"
+    "renameQuickAccess": "Rename",
+    "compress": "Compress to ZIP…",
+    "extract": "Extract archive…"
   },
   "view": {
     "details": "Details",
@@ -115,7 +117,10 @@
     "conflictTitle_other": "{{count}} items already exist",
     "conflictDescription": "Replace the existing files, or skip the ones that already exist? Folders are merged either way.",
     "replace": "Replace existing",
-    "skipExisting": "Skip existing files"
+    "skipExisting": "Skip existing files",
+    "compressTitle": "ZIP archive name",
+    "extractTitle": "Extraction folder name",
+    "archiveDefault": "Archive"
   },
   "editor": {
     "contentLabel": "File content",
