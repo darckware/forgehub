@@ -103,8 +103,86 @@ async def test_create_product_duplicate_name_returns_409(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_published_version_cannot_be_mutated_switch_off(client: AsyncClient):
+    """Business rule 6.1.4 with PUBLISH_PROOF_RECHECK_ENABLED off (default,
+    pre-357e985): a version may be set to published through PUT, and after
+    that it cannot be mutated."""
+    unique_name = f"Published Product {uuid.uuid4()}"
+    create_resp = await client.post("/api/v1/products", json={"name": unique_name})
+    assert create_resp.status_code == 201
+    body = create_resp.json()
+    product_id = body["id"]
+    version_id = body["versions"][0]["id"]
+
+    try:
+        publish_resp = await client.put(
+            f"/api/v1/products/versions/{version_id}", json={"status": "published"}
+        )
+        assert publish_resp.status_code == 200
+        assert publish_resp.json()["status"] == "published"
+
+        mutate_resp = await client.put(
+            f"/api/v1/products/versions/{version_id}", json={"version": "0.2.0"}
+        )
+        assert mutate_resp.status_code == 422
+    finally:
+        await _cleanup_product(uuid.UUID(product_id))
+
+
+@pytest.mark.asyncio
+async def test_version_may_be_created_published_when_switch_off(client: AsyncClient):
+    response = await client.post("/api/v1/products", json={
+        "name": f"Initially published {uuid.uuid4()}",
+        "initial_version": {"version": "1.0.0", "status": "published"}})
+    try:
+        assert response.status_code == 201, response.text
+        product_id = response.json()["id"]
+        added = await client.post(f"/api/v1/products/{product_id}/versions",
+                                  json={"version": "1.1.0", "status": "published"})
+        assert added.status_code == 201, added.text
+    finally:
+        if response.status_code == 201:
+            await _cleanup_product(uuid.UUID(response.json()["id"]))
+
+
+@pytest.mark.asyncio
+async def test_publish_does_not_recheck_proof_when_switch_off(client: AsyncClient):
+    """Off: :publish trusts stored task statuses (a done task with no
+    execution/review still lets the version publish)."""
+    create_resp = await client.post("/api/v1/products", json={"name": f"Label publish {uuid.uuid4()}"})
+    assert create_resp.status_code == 201
+    product_id = uuid.UUID(create_resp.json()["id"])
+    version_id = uuid.UUID(create_resp.json()["versions"][0]["id"])
+    project_id = None
+    try:
+        async with AsyncSessionLocal() as db:
+            project = Project(name="Label only", product_version_id=version_id)
+            db.add(project)
+            await db.flush()
+            project_id = project.id
+            item = PlanningItem(project_id=project.id, title="Label only", item_type="feature")
+            db.add(item)
+            await db.flush()
+            db.add(ProjectTask(planning_item_id=item.id, title="Done without proof", status="done"))
+            await db.commit()
+        published = await client.post(f"/api/v1/products/versions/{version_id}:publish")
+        assert published.status_code == 200, published.text
+        assert published.json()["status"] == "published"
+    finally:
+        async with AsyncSessionLocal() as db:
+            if project_id:
+                items = select(PlanningItem.id).where(PlanningItem.project_id == project_id)
+                await db.execute(delete(ProjectTask).where(ProjectTask.planning_item_id.in_(items)))
+                await db.execute(delete(PlanningItem).where(PlanningItem.project_id == project_id))
+                await db.execute(delete(Project).where(Project.id == project_id))
+                await db.commit()
+        await _cleanup_product(product_id)
+
+
+@pytest.mark.asyncio
 async def test_published_version_cannot_be_mutated(delivery):  # noqa: F811
-    """Business rule 6.1.4: published versions cannot be mutated directly."""
+    """Business rule 6.1.4 (PUBLISH_PROOF_RECHECK_ENABLED on, set by the
+    delivery fixture): published only through :publish, then immutable."""
     client, version_id = delivery["client"], delivery["version_id"]
     publish_resp = await client.post(f"/api/v1/products/versions/{version_id}:publish")
     assert publish_resp.status_code == 200, publish_resp.text
@@ -228,11 +306,14 @@ async def test_publish_version_requires_at_least_one_task(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_publish_version_blocks_on_unfinished_tasks(client: AsyncClient):
+@pytest.mark.parametrize("recheck", [False, True])
+async def test_publish_version_blocks_on_unfinished_tasks(client: AsyncClient, monkeypatch, recheck):
     """Pacote 4 (2026-08-01): :publish blocks (409 + blocking list) while any
     Project under the version has a non-terminal task -- publishing never
     force-completes work, per Marcelo's explicit choice. Idempotent once
-    actually published."""
+    actually published. Same gate with or without the proof recheck."""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "PUBLISH_PROOF_RECHECK_ENABLED", recheck)
     unique_name = f"Publish Gate Product {uuid.uuid4()}"
     create_resp = await client.post("/api/v1/products", json={"name": unique_name})
     assert create_resp.status_code == 201

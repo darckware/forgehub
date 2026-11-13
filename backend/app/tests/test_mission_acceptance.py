@@ -143,7 +143,9 @@ async def accepted_delivery(cw, tmp_path, monkeypatch, request):
 
 
 @pytest.mark.parametrize("accepted_delivery", ["software", "service_host"], indirect=True)
-async def test_version_publication_requires_governed_mission_acceptance(cw, accepted_delivery):
+async def test_version_publication_requires_governed_mission_acceptance(cw, accepted_delivery, monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "PUBLISH_PROOF_RECHECK_ENABLED", True)
     from app.core.agent_activity_routines import collect_routine_occurrences, routine_missed_incidents
     mission, _, _, _ = accepted_delivery
     async with AsyncSessionLocal() as db:

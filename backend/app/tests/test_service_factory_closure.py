@@ -19,7 +19,11 @@ from app.main import app
 
 
 @pytest_asyncio.fixture(params=["software", "service"])
-async def delivery(request, auth_headers):
+async def delivery(request, auth_headers, monkeypatch):
+    # These are the PUBLISH_PROOF_RECHECK_ENABLED (on) behaviors; off is
+    # test_product.py's pre-357e985 contract.
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "PUBLISH_PROOF_RECHECK_ENABLED", True)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers) as client:
         response = await client.post("/api/v1/products", json={
             "name": f"Qualified closure {uuid.uuid4()}", "kind": request.param,
@@ -140,7 +144,9 @@ async def test_new_version_cannot_start_published_without_delivery_proof(deliver
     assert response.status_code == 409, response.text
 
 
-async def test_new_product_cannot_start_published_without_delivery_proof(auth_headers):
+async def test_new_product_cannot_start_published_without_delivery_proof(auth_headers, monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "PUBLISH_PROOF_RECHECK_ENABLED", True)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=auth_headers) as client:
         response = await client.post("/api/v1/products", json={"name": f"Bypassed closure {uuid.uuid4()}",
             "initial_version": {"version": "unverified", "status": "published"}})

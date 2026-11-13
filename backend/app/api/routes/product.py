@@ -12,7 +12,9 @@ Business rules implemented (SPEC.md section 6.1):
    a product (delete_version returns 422 if it is the only version left).
 4. Published versions cannot be mutated directly -> update_version rejects
    (422) any update where the version's *current* status is "published".
-   Publication uses the dedicated :publish action, which rechecks delivery.
+   Transitioning a non-published version *into* "published" is allowed via
+   the same endpoint, unless PUBLISH_PROOF_RECHECK_ENABLED: then publication
+   uses only the dedicated :publish action, which rechecks delivery.
 5. Fixes for published versions must create patch/hotfix flows -> out of
    scope for this domain (belongs to Backlog/Planning domains); not
    implemented here (see model file docstring).
@@ -84,7 +86,9 @@ router = APIRouter(prefix="/api/v1/products", tags=["products"])
 
 
 def _require_publish_action(version_status: str | None) -> None:
-    if version_status == "published":
+    """PUBLISH_PROOF_RECHECK_ENABLED only: publication goes through :publish.
+    Off, a version can still be set to published directly (pre-357e985)."""
+    if settings.PUBLISH_PROOF_RECHECK_ENABLED and version_status == "published":
         raise HTTPException(409, detail={
             "code": "VERSION_PUBLISH_ACTION_REQUIRED",
             "message": "Publish through the version :publish action after delivery verification",
@@ -703,6 +707,67 @@ async def publish_product_version(version_id: uuid.UUID, db: AsyncSession = Depe
     work -- Marcelo: publishing should never invent completion that didn't
     happen.
     """
+    if not settings.PUBLISH_PROOF_RECHECK_ENABLED:
+        return await _publish_checking_task_statuses(db, version_id)
+    return await _publish_rechecking_proof(db, version_id)
+
+
+async def _publish_checking_task_statuses(db: AsyncSession, version_id: uuid.UUID) -> ProductVersion:
+    """PUBLISH_PROOF_RECHECK_ENABLED off: exactly the pre-357e985 gate -- every
+    task of the version's projects (through planning items) must be
+    done/deployed/cancelled; stored statuses are trusted."""
+    version = await _get_version_or_404(db, version_id)
+    if version.status == "published":
+        return version
+
+    projects = list((await db.execute(
+        select(Project).where(Project.product_version_id == version_id)
+    )).scalars())
+    blocking: list[dict] = []
+    task_count = 0
+    for project in projects:
+        tasks = list((await db.execute(
+            select(ProjectTask)
+            .join(PlanningItem, PlanningItem.id == ProjectTask.planning_item_id)
+            .where(PlanningItem.project_id == project.id)
+        )).scalars())
+        task_count += len(tasks)
+        for task in tasks:
+            if task.status not in ("done", "deployed", "cancelled"):
+                blocking.append({
+                    "project_id": str(project.id), "project_name": project.name,
+                    "task_id": str(task.id), "task_number": task.number,
+                    "title": task.title, "status": task.status,
+                })
+    if task_count == 0:
+        raise HTTPException(status_code=409, detail={
+            "message": "This version needs at least one task before it can be published",
+            "blocking": [],
+        })
+    if blocking:
+        raise HTTPException(status_code=409, detail={
+            "message": "This version has unfinished tasks and cannot be published yet",
+            "blocking": blocking,
+        })
+
+    version.status = "published"
+    for project in projects:
+        project.status = "completed"
+        # Also ensure all planning items are marked as done
+        proj_planning_items = list((await db.execute(
+            select(PlanningItem).where(PlanningItem.project_id == project.id)
+        )).scalars())
+        for pi in proj_planning_items:
+            pi.status = "done"
+
+    await db.commit()
+    await db.refresh(version)
+    return version
+
+
+async def _publish_rechecking_proof(db: AsyncSession, version_id: uuid.UUID) -> ProductVersion:
+    """PUBLISH_PROOF_RECHECK_ENABLED on: mission acceptance, row locks,
+    CR-owned tasks included, and every task's completion proof rechecked."""
     from app.core.task_completion_guard import assert_task_completion_allowed
     from app.db.models.governance import ApprovalDecisionRecord, ApprovalRequest
     from app.db.models.mission import ProjectMission
