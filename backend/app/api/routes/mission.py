@@ -404,9 +404,11 @@ async def _add_mission(
         project_id=project.id, agent_id=orchestrator.id, role="coordinator", status="active",
         responsibilities="Mission orchestrator",
     ))
-    for executor_id in executors:
+    for position, executor_id in enumerate(executors, start=1):
+        executor = await db.get(Project, executor_id)
         db.add(MissionProjectLink(
             mission_project_id=project.id, executor_project_id=executor_id, linked_by=principal.display_name,
+            position=position, name=executor.name[:255],
         ))
     db.add(AuditEvent(
         entity_type="mission", entity_id=project.id, event_type="mission_created", actor=principal.display_name,
@@ -1019,6 +1021,11 @@ async def apply_project_members(
         if role in CODE_ROLES and agent.runtime_type not in CODE_RUNTIMES:
             violations.append(_violation(index, op, "CODE_ROLE_REQUIRES_EXTERNAL_RUNTIME",
                                          "Code roles are only for claude/codex/agy agents",
+                                         role=role, runtime_type=agent.runtime_type))
+        if role == "homologation" and agent.runtime_type not in CODE_RUNTIMES:
+            # MISSION_PHASES_PLAN.md: a phase is homologated by an external agent.
+            violations.append(_violation(index, op, "HOMOLOGATION_REQUIRES_EXTERNAL_RUNTIME",
+                                         "The homologation role is only for claude/codex/agy agents",
                                          role=role, runtime_type=agent.runtime_type))
         if op.can_approve:
             violations.append(_violation(index, op, "CAN_APPROVE_NOT_FOR_AGENTS",

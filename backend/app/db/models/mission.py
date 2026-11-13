@@ -34,6 +34,8 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -74,6 +76,14 @@ REVIEW_LAYERS = (
 )
 
 CRITERION_STATUSES = ("open", "proven", "failed")
+
+# Mission phases (docs/architecture/MISSION_PHASES_PLAN.md, 2026-11-12): each
+# executor-project link is one ordered phase that ends in an external
+# homologation and Marcelo's approval.
+PHASE_STATUSES = (
+    "planned", "in_progress", "homologating", "awaiting_approval", "approved", "returned",
+)
+HOMOLOGATION_VERDICTS = ("approved", "rejected")
 
 # Cycle spec §4 plus `advance_planning` (M0.0 records every planning stage
 # change here, §3.1; the cycle's own actions arrive with M0.8).
@@ -190,15 +200,33 @@ class ProjectMission(Base, TimestampMixin):
 
 class MissionProjectLink(Base, TimestampMixin):
     """Coordinator mission -> executor project (D-3). An executor project may
-    serve several missions; a mission is never an executor (no nesting in M0)."""
+    serve several missions; a mission is never an executor (no nesting in M0).
+
+    Since 2026-11-12 every link is also a **phase** of the mission
+    (MISSION_PHASES_PLAN.md): ``position`` orders them (1-based, unique per
+    mission, deferrable so a reorder can swap), phases run strictly in order
+    and each ends in a homologation by an external, independent agent and
+    then Marcelo's approval (``phase_status``)."""
 
     __tablename__ = "mission_project_links"
     __table_args__ = (
         UniqueConstraint(
             "mission_project_id", "executor_project_id", name="uq_mission_project_links_pair"
         ),
+        UniqueConstraint(
+            "mission_project_id", "position", name="uq_mission_project_links_position",
+            deferrable=True, initially="DEFERRED",
+        ),
         CheckConstraint(
             "mission_project_id <> executor_project_id", name="ck_mission_project_links_distinct"
+        ),
+        CheckConstraint("position >= 1", name="ck_mission_project_links_position"),
+        CheckConstraint(
+            f"phase_status IN {_in(PHASE_STATUSES)}", name="ck_mission_project_links_phase_status"
+        ),
+        CheckConstraint(
+            f"homologation_verdict IS NULL OR homologation_verdict IN {_in(HOMOLOGATION_VERDICTS)}",
+            name="ck_mission_project_links_homologation_verdict",
         ),
     )
 
@@ -210,6 +238,42 @@ class MissionProjectLink(Base, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("company.projects.id", ondelete="RESTRICT"), nullable=False
     )
     linked_by: Mapped[str] = mapped_column(String(150), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # What the phase delivers and what it leaves out.
+    objective: Mapped[str | None] = mapped_column(Text, nullable=True)
+    phase_status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="planned", server_default="planned"
+    )
+    homologator_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agents.id"), nullable=True
+    )
+    # The Messages task sent to the homologator.
+    homologation_demand_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agent_demands.id", ondelete="SET NULL"), nullable=True
+    )
+    homologation_verdict: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    homologation_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    homologation_evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    homologated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decided_by: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+@event.listens_for(MissionProjectLink, "before_insert")
+def _fill_phase_defaults(mapper, connection, target: "MissionProjectLink") -> None:
+    """A writer that only links an executor project (older code, test
+    fixtures) still gets a valid phase: the next position of the mission and
+    the executor project's name. The phase routes set both explicitly."""
+    if target.position is None:
+        target.position = connection.execute(text(
+            "SELECT COALESCE(MAX(position), 0) + 1 FROM company.mission_project_links "
+            "WHERE mission_project_id = :m"), {"m": target.mission_project_id}).scalar_one()
+    if not target.name:
+        target.name = (connection.execute(text(
+            "SELECT name FROM company.projects WHERE id = :p"), {"p": target.executor_project_id},
+        ).scalar_one_or_none() or "Fase")[:255]
 
 
 class MissionAcceptanceCriterion(Base, TimestampMixin):
