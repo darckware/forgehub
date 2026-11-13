@@ -91,7 +91,12 @@ async def dispatch_agent_run(
         body['work_package_hash'] = work_package_hash
     if runtime_intent is not None:
         from app.api.schemas.runtime_intent import RuntimeIntent
-        body["runtime_intent"] = RuntimeIntent.model_validate(runtime_intent).model_dump()
+        try:
+            body["runtime_intent"] = RuntimeIntent.model_validate(runtime_intent).model_dump()
+        except ValueError as exc:  # pydantic ValidationError included
+            # e.g. a stored package asking for `delegate` after the switch was
+            # turned off: a refusal to run, never a 500.
+            raise AgentRunDispatchError(f"Runtime intent no longer valid: {exc}") from exc
     # Its own route: a bridge that doesn't know it answers 404 instead of running unrestricted.
     path = "/v1/agent-runs/contextual" if runtime_intent is not None else "/v1/agent-runs"
     if restricted_toolsets:

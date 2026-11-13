@@ -337,3 +337,58 @@ def test_native_strategies_need_their_switch(monkeypatch,strategy,children):
     assert RuntimeIntent.model_validate({}).strategy=='native'
     monkeypatch.setattr(settings,'NATIVE_DELEGATION_ENABLED',True)
     assert RuntimeIntent.model_validate({'strategy':strategy,'max_children':children}).strategy==strategy
+
+
+async def _run_credentials(execution_id):
+    from app.db.models.agent import AgentServiceCredential
+    async with AsyncSessionLocal() as db:
+        return list((await db.scalars(select(AgentServiceCredential).where(
+            AgentServiceCredential.label==f'dispatch:{execution_id}'))).all())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('ending',['completed','cancelled'])
+async def test_terminal_package_attempt_revokes_its_run_credential(package,monkeypatch,ending):
+    from app.db.models.execution import ExecutionEvent
+    client,execution_id=await start_package(package,monkeypatch)
+    [credential]=await _run_credentials(execution_id)
+    assert credential.revoked_at is None
+    if ending=='completed':
+        mock_runner(monkeypatch,lambda req:httpx.Response(200,json=completed_run(execution_id)))
+        response=await client.post(f'/api/v1/executions/{execution_id}:refresh-runtime',json={})
+    else:
+        mock_runner(monkeypatch,lambda req:httpx.Response(200,json={'run_id':str(execution_id),'status':'cancelled','exit_code':-15}))
+        response=await client.post(f'/api/v1/executions/{execution_id}:cancel-runtime',json={})
+    assert response.status_code==200,response.text
+    [credential]=await _run_credentials(execution_id)
+    assert credential.revoked_at is not None
+    async with AsyncSessionLocal() as db:
+        assert await db.scalar(select(ExecutionEvent.id).where(ExecutionEvent.task_execution_id==execution_id,
+            ExecutionEvent.event_type=='dispatch_credential_revoked')) is not None
+
+
+@pytest.mark.asyncio
+async def test_refused_package_start_revokes_its_run_credential(package,monkeypatch):
+    client,item=package
+    mock_runner(monkeypatch,lambda req:httpx.Response(400,json={'detail':'runner declined'}))
+    response=await client.post(f"/api/v1/work-packages/{item['id']}:dispatch",json={})
+    assert response.status_code==502,response.text
+    async with AsyncSessionLocal() as db:
+        attempt=await db.scalar(select(TaskExecution).where(TaskExecution.work_package_id==uuid.UUID(item['id'])))
+    credentials=await _run_credentials(attempt.id)
+    assert credentials and all(c.revoked_at is not None for c in credentials)
+
+
+@pytest.mark.asyncio
+async def test_stored_intent_that_no_longer_validates_is_a_refusal_not_500(monkeypatch):
+    from types import SimpleNamespace
+    from app.core import agent_runs
+    from app.core.config import settings
+    monkeypatch.setattr(settings,'RUNTIME_CONTRACT_ENABLED',True)
+    monkeypatch.setattr(settings,'NATIVE_DELEGATION_ENABLED',False)
+    agent=SimpleNamespace(id=None,name='a',runtime_type='codex',profile_slug='a',home_path=None,
+                          autonomous_runs=False,direct_access_allowed=False)
+    monkeypatch.setattr(agent_runs,'external_identity_preamble',lambda _agent:'')
+    with pytest.raises(agent_runs.AgentRunDispatchError,match='no longer valid'):
+        await agent_runs.dispatch_agent_run('run',agent,'Task','/tmp',
+                                            runtime_intent={'strategy':'delegate','max_children':2})

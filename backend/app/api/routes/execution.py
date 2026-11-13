@@ -486,6 +486,7 @@ async def dispatch_package(package_id: uuid.UUID, principal: ActorPrincipal = De
         lease = (await db.execute(select(ExecutionLease).where(
             ExecutionLease.task_execution_id == execution.id))).scalar_one()
         execution.status = "failed"; execution.finished_at = datetime.now(timezone.utc); execution.outcome_summary = f"Runner dispatch failed: {exc}"; lease.status = "released"; lease.released_at = datetime.now(timezone.utc)
+        await _revoke_run_credential(db, execution, "dispatch_refused")
         await _event(db, execution.id, "failed", {"error": str(exc)}, f"{execution.id}:dispatch-failed"); await _checkpoint(db, principal, wave, execution, "failed", "dispatch", str(exc), f"runner:{execution.id}:dispatch-failed"); await db.commit()
         raise HTTPException(502, f"CLI runner dispatch failed: {exc}") from exc
     except (httpx.HTTPError, ValueError) as exc:
@@ -565,6 +566,22 @@ def _result_payload(run: dict) -> tuple[dict, list[str]]:
     return parsed, errors
 
 
+async def _revoke_run_credential(db: AsyncSession, execution: TaskExecution, outcome: str) -> None:
+    """Close the individual agt_ credential dispatch_agent_run minted for this
+    attempt (label dispatch:<execution id>) in the transaction that records its
+    terminal state, as Messages does for its own runs."""
+    from app.db.models.agent import AgentServiceCredential
+    rows = (await db.scalars(select(AgentServiceCredential).where(
+        AgentServiceCredential.label == f"dispatch:{execution.id}",
+        AgentServiceCredential.revoked_at.is_(None)).with_for_update())).all()
+    now = datetime.now(timezone.utc)
+    for credential in rows:
+        credential.revoked_at = now
+        await _event(db, execution.id, "dispatch_credential_revoked",
+                     {"credential_id": str(credential.id), "outcome": outcome},
+                     f"{execution.id}:credential-revoked:{credential.id}")
+
+
 async def _ingest_terminal_result(db, principal, wave, package, execution, lease, run) -> ExecutionRuntimeOut:
     """Persist the same validated result regardless of whether refresh or cancel observed exit."""
     payload, errors = _result_payload(run)
@@ -578,6 +595,7 @@ async def _ingest_terminal_result(db, principal, wave, package, execution, lease
         db.add(existing)
     terminal = "completed" if (run.get("status") == "completed" and payload.get("status") == "completed"
                                and not errors and not existing.is_stale) else "failed"
+    await _revoke_run_credential(db, execution, terminal)
     execution.status = terminal
     execution.finished_at = datetime.now(timezone.utc)
     execution.exit_code = run.get("exit_code")
@@ -598,6 +616,7 @@ async def _ingest_terminal_result(db, principal, wave, package, execution, lease
 
 async def _record_confirmed_cancel(db, principal, wave, execution, lease, run) -> ExecutionRuntimeOut:
     """Record process exit as an unaccepted failed attempt; it carries no task result."""
+    await _revoke_run_credential(db, execution, "cancelled")
     execution.status = "failed"
     execution.finished_at = datetime.now(timezone.utc)
     execution.exit_code = run.get("exit_code")
