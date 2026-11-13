@@ -29,7 +29,7 @@ beforeEach(() => {
       instructions: "Revisar estado", schedule: "30 8 * * *", timezone: "America/Sao_Paulo",
       kind: "report", expected_evidence: "Resumo", linked_audit_checks: [], enabled: true,
       priority: 0, deadline_minutes: 60, next_occurrences: ["2026-10-05T11:30:00Z"],
-      last_occurrence_at: null, created_at: "2026-10-02T00:00:00Z", updated_at: "2026-10-02T00:00:00Z" }],
+      last_occurrence_at: null, created_by: "agent:athos", created_at: "2026-10-02T00:00:00Z", updated_at: "2026-10-02T00:00:00Z" }],
       isLoading: false, isError: false },
     runs: { data: [], isLoading: false, isError: false },
     questions: { data: [], isLoading: false, isError: false },
@@ -88,6 +88,12 @@ it("hides undo for non-admin users", () => {
   render(<MemoryRouter><OperationsPage /></MemoryRouter>);
   fireEvent.click(screen.getByRole("tab", { name: "Evolução" }));
   expect(screen.queryByRole("button", { name: "Desfazer Ajustar horário da rotina" })).not.toBeInTheDocument();
+});
+
+it("shows who created a routine", () => {
+  render(<MemoryRouter><OperationsPage /></MemoryRouter>);
+  fireEvent.click(screen.getByRole("tab", { name: "Programação" }));
+  expect(screen.getByText("Criada por agent:athos")).toBeInTheDocument();
 });
 
 it("requires confirmation before dispatching an extra routine run", () => {
