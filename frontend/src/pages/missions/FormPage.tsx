@@ -13,7 +13,6 @@ import { useMissionRecord, useSaveMission, useCancelMission, missionError } from
 import { MissionTeamEditor } from "@/components/missions/MissionTeamEditor";
 import { WorkingDirPicker } from "@/components/WorkingDirPicker";
 
-const NEW_PRODUCT = "__new__";
 const PRODUCT_KINDS = ["software", "service", "infrastructure", "client_it"] as const;
 
 export default function MissionFormPage() {
@@ -30,7 +29,7 @@ function MissionEditor({ projectId }: { projectId?: string }) {
   const [version, setVersion] = useState(""); const [orchestrator, setOrchestrator] = useState("");
   const [directory, setDirectory] = useState(""); const [priority, setPriority] = useState("100");
   const [deadline, setDeadline] = useState(""); const [reason, setReason] = useState("");
-  const [newProductName, setNewProductName] = useState(""); const [newProductKind, setNewProductKind] = useState<string>("software");
+  const [newProduct, setNewProduct] = useState(false); const [newProductName, setNewProductName] = useState(""); const [newProductKind, setNewProductKind] = useState<string>("software");
   const [error, setError] = useState(""); const [confirmation, setConfirmation] = useState<"cancel" | "leave" | null>(null);
   const [dirty, setDirty] = useState(false); const initialized = useRef<string | null>(null); const submitting = useRef(false);
   const [teamDirty, setTeamDirty] = useState(false);
@@ -59,8 +58,8 @@ function MissionEditor({ projectId }: { projectId?: string }) {
     const invalid = Array.from((e.currentTarget as HTMLFormElement).elements).find((field) =>
       (field instanceof HTMLInputElement || field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement) && !field.validity.valid);
     if (invalid instanceof HTMLElement) { setError(t("form.invalid")); invalid.focus(); return; }
-    const isNewProduct = !projectId && version === NEW_PRODUCT;
-    if (!name.trim() || (!projectId && (!version || !orchestrator))) { setError(t("form.required")); return; }
+    const isNewProduct = !projectId && newProduct;
+    if (!name.trim() || (!projectId && ((!version && !isNewProduct) || !orchestrator))) { setError(t("form.required")); return; }
     if (isNewProduct && (!newProductName.trim() || !directory.trim())) { setError(t("form.newProductRequired")); return; }
     submitting.current = true; setError("");
     const common = { priority: Number(priority), deadline_at: deadline ? new Date(deadline).toISOString() : null };
@@ -105,9 +104,12 @@ function MissionEditor({ projectId }: { projectId?: string }) {
         <label className="block space-y-2"><span>{t("form.name")}</span><Input required maxLength={255} value={name} disabled={fixed} onChange={(e) => setName(e.target.value)} /></label>
         <label className="block space-y-2"><span>{t("form.context")}</span><Textarea className="resize-none" value={description} disabled={fixed} onChange={(e) => setDescription(e.target.value)} rows={5} /></label>
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-          <label className="block space-y-2"><span>{t("form.version")}</span><select required disabled={Boolean(projectId)} className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={version} onChange={(e) => setVersion(e.target.value)}><option value="">{t("form.select")}</option>{!projectId && <option value={NEW_PRODUCT}>{t("form.newProductOption")}</option>}{versions.data?.filter((v) => v.id === version || !["published", "deprecated"].includes(v.status)).map((v) => <option key={v.id} value={v.id}>{products.data?.find((p) => p.id === v.product_id)?.name ?? v.product_id} · {v.version}</option>)}</select></label>
+          <div className="space-y-2">
+            <label className="block space-y-2"><span>{t("form.version")}</span>{newProduct ? <p className="flex h-10 items-center rounded-md border border-dashed px-3 text-sm text-muted-foreground">{t("form.newProductSelected")}</p> : <select required={!newProduct} disabled={Boolean(projectId)} className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={version} onChange={(e) => setVersion(e.target.value)}><option value="">{t("form.select")}</option>{versions.data?.filter((v) => v.id === version || !["published", "deprecated"].includes(v.status)).map((v) => <option key={v.id} value={v.id}>{products.data?.find((p) => p.id === v.product_id)?.name ?? v.product_id} · {v.version}</option>)}</select>}</label>
+            {!projectId && <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4" checked={newProduct} onChange={(e) => { setNewProduct(e.target.checked); if (e.target.checked) setVersion(""); }} />{t("form.newProductCheckbox")}</label>}
+          </div>
           <label className="block space-y-2"><span>{t("form.orchestrator")}</span><select required disabled={Boolean(projectId)} className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={orchestrator} onChange={(e) => setOrchestrator(e.target.value)}><option value="">{t("form.select")}</option>{agents.data?.filter((a) => a.id === orchestrator || (a.is_active && a.status === "active")).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
-          {version === NEW_PRODUCT && !projectId && <div className="space-y-4 rounded-lg border border-dashed p-4 sm:col-span-2">
+          {newProduct && !projectId && <div className="space-y-4 rounded-lg border border-dashed p-4 sm:col-span-2">
             <p className="text-sm text-muted-foreground">{t("form.newProductHint")}</p>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="block space-y-2"><span>{t("form.newProductName")}</span><Input required maxLength={255} value={newProductName} onChange={(e) => setNewProductName(e.target.value)} /></label>
@@ -116,12 +118,12 @@ function MissionEditor({ projectId }: { projectId?: string }) {
           </div>}
           <label className="block space-y-2"><span>{t("form.priority")}</span><Input required type="number" min={1} max={1000} value={priority} onChange={(e) => setPriority(e.target.value)} /></label>
           <label className="block space-y-2"><span>{t("form.deadline")}</span><Input type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} /></label>
-          <label className="block space-y-2 sm:col-span-2"><span>{t("form.directory")}{version === NEW_PRODUCT && !projectId ? " *" : ""}</span>
+          <label className="block space-y-2 sm:col-span-2"><span>{t("form.directory")}{newProduct && !projectId ? " *" : ""}</span>
             <div className="flex items-center gap-2">
-              <Input disabled={fixed} required={version === NEW_PRODUCT && !projectId} maxLength={1024} placeholder="/root/project/..." value={directory} onChange={(e) => setDirectory(e.target.value)} />
+              <Input disabled={fixed} required={newProduct && !projectId} maxLength={1024} placeholder="/root/project/..." value={directory} onChange={(e) => setDirectory(e.target.value)} />
               {!fixed && !terminal && <WorkingDirPicker workingDir={directory || undefined} onSelect={(path) => { setDirectory(path ?? ""); setDirty(true); }} />}
             </div>
-            {version === NEW_PRODUCT && !projectId && <span className="block text-xs text-muted-foreground">{t("form.directoryDocsHint")}</span>}
+            {newProduct && !projectId && <span className="block text-xs text-muted-foreground">{t("form.directoryDocsHint")}</span>}
           </label>
         </div>
         {projectId && <label className="block space-y-2"><span>{t("form.reason")}</span><Textarea className="resize-none" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={4000} /></label>}

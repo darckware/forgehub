@@ -56,6 +56,23 @@ describe("mission executions page (M0.7)", () => {
     if (kind === "server") expect(screen.getByRole("button", { name: "Tentar de novo" })).toBeInTheDocument();
   });
 
+  it("warns while the new product's registration is pending, and not otherwise", async () => {
+    const pending = missionBoard();
+    pending.mission = { ...pending.mission, state: "draft", product_registration_pending: true,
+      working_directory_path: "/root/project/suporte/" };
+    mockGet(pending);
+    const view = open();
+    const notice = await screen.findByTestId("product-registration-pending");
+    expect(notice).toHaveTextContent("Cadastro do produto pendente");
+    expect(notice).toHaveTextContent("/root/project/suporte/docs/");
+    view.unmount();
+    vi.restoreAllMocks();
+    mockGet(missionBoard());
+    open();
+    await screen.findByTestId("task-table");
+    expect(screen.queryByTestId("product-registration-pending")).not.toBeInTheDocument();
+  });
+
   it("renders an empty plan with a link to Planejamento", async () => {
     mockGet(missionBoard({ tasks: [], conflicts: [] }));
     open();

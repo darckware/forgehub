@@ -248,7 +248,6 @@
     "versionsLoadError": "Could not load product versions.",
     "agentsLoadError": "Could not load agents.",
     "recordLoadError": "Could not load this mission.",
-    "newProductOption": "+ New product or service (not registered yet)",
     "newProductHint": "ForgeHub registers only the name and kind (version 0.1.0). The orchestrator completes the registration and writes the creation documentation in the working directory's docs/ folder; the mission leaves draft only after that.",
     "newProductName": "New product or service name",
     "newProductKind": "Kind",
@@ -259,7 +258,9 @@
       "client_it": "Client IT"
     },
     "newProductRequired": "For a new product or service, enter its name and the working directory.",
-    "directoryDocsHint": "Required for a new product or service: the creation documentation goes in docs/ inside this folder."
+    "directoryDocsHint": "Required for a new product or service: the creation documentation goes in docs/ inside this folder.",
+    "newProductCheckbox": "New product or service (not registered yet)",
+    "newProductSelected": "New product or service, entered below"
   },
   "team": {
     "title": "Agents by role",
@@ -321,5 +322,9 @@
     "reason": "Reason for acceptance or requested changes",
     "approve": "Accept mission",
     "return": "Request changes"
+  },
+  "detail": {
+    "productPendingTitle": "Product registration pending",
+    "productPendingBody": "The orchestrator must complete the product or service registration and write its creation documentation in {{docs}}. The mission leaves draft only after that."
   }
 }

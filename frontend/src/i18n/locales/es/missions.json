@@ -248,7 +248,6 @@
     "versionsLoadError": "No se pudieron cargar las versiones de los productos.",
     "agentsLoadError": "No se pudieron cargar los agentes.",
     "recordLoadError": "No se pudo cargar esta misión.",
-    "newProductOption": "+ Nuevo producto o servicio (aún no registrado)",
     "newProductHint": "ForgeHub registra solo el nombre y el tipo (versión 0.1.0). El orquestador completa el registro y guarda la documentación de la creación en la carpeta docs/ de la carpeta de trabajo; la misión sale de borrador solo después de eso.",
     "newProductName": "Nombre del nuevo producto o servicio",
     "newProductKind": "Tipo",
@@ -259,7 +258,9 @@
       "client_it": "TI de cliente"
     },
     "newProductRequired": "Para un nuevo producto o servicio, indique el nombre y la carpeta de trabajo.",
-    "directoryDocsHint": "Obligatoria para un nuevo producto o servicio: la documentación de la creación va en docs/ dentro de esta carpeta."
+    "directoryDocsHint": "Obligatoria para un nuevo producto o servicio: la documentación de la creación va en docs/ dentro de esta carpeta.",
+    "newProductCheckbox": "Nuevo producto o servicio (aún no registrado)",
+    "newProductSelected": "Nuevo producto o servicio, indicado abajo"
   },
   "team": {
     "title": "Agentes por función",
@@ -321,5 +322,9 @@
     "reason": "Motivo de aceptación o devolución",
     "approve": "Aceptar misión",
     "return": "Solicitar correcciones"
+  },
+  "detail": {
+    "productPendingTitle": "Registro del producto pendiente",
+    "productPendingBody": "El orquestador debe completar el registro del producto o servicio y guardar la documentación de la creación en {{docs}}. La misión sale de borrador solo después de eso."
   }
 }

@@ -136,6 +136,8 @@ export const missionBoardSchema = z.object({
     orchestrator: z.object({ id: z.string(), name: z.string().nullable() }),
     deadline_at: z.string().nullable(),
     paused: z.boolean(),
+    product_registration_pending: z.boolean().optional().default(false),
+    working_directory_path: z.string().nullable().optional(),
     baseline: z.object({ id: z.string(), name: z.string().nullable().optional(), approved_at: z.string().nullable(), superseded: z.boolean() }).passthrough().nullable(),
     allowed_actions: z.array(z.string()),
     blocked_actions: z.array(blockedAction),

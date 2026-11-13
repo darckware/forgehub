@@ -248,7 +248,6 @@
     "versionsLoadError": "Não foi possível carregar as versões dos produtos.",
     "agentsLoadError": "Não foi possível carregar os agentes.",
     "recordLoadError": "Não foi possível carregar esta missão.",
-    "newProductOption": "+ Novo produto ou serviço (ainda não cadastrado)",
     "newProductHint": "O ForgeHub registra só o nome e o tipo (versão 0.1.0). O orquestrador completa o cadastro e grava a documentação da criação na pasta docs/ da pasta de trabalho; a missão só sai de rascunho depois disso.",
     "newProductName": "Nome do novo produto ou serviço",
     "newProductKind": "Tipo",
@@ -259,7 +258,9 @@
       "client_it": "TI de cliente"
     },
     "newProductRequired": "Para um novo produto ou serviço, informe o nome e a pasta de trabalho.",
-    "directoryDocsHint": "Obrigatória para novo produto ou serviço: a documentação da criação fica em docs/ dentro desta pasta."
+    "directoryDocsHint": "Obrigatória para novo produto ou serviço: a documentação da criação fica em docs/ dentro desta pasta.",
+    "newProductCheckbox": "Novo produto ou serviço (ainda não cadastrado)",
+    "newProductSelected": "Novo produto ou serviço, informado abaixo"
   },
   "team": {
     "title": "Agentes por função",
@@ -321,5 +322,9 @@
     "reason": "Motivo do aceite ou da devolução",
     "approve": "Aceitar missão",
     "return": "Solicitar correções"
+  },
+  "detail": {
+    "productPendingTitle": "Cadastro do produto pendente",
+    "productPendingBody": "O orquestrador precisa completar o cadastro do produto ou serviço e gravar a documentação da criação em {{docs}}. A missão só sai de rascunho depois disso."
   }
 }

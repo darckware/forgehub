@@ -46,7 +46,7 @@ it("creates a mission for a new product or service, requiring its working direct
   await screen.findByRole("option", { name: /FileNest.*0.4.0/ });
   expect(screen.queryByText("Limite de orçamento")).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Nome da missão"), { target: { value: "Suporte remoto" } });
-  fireEvent.change(screen.getByLabelText("Produto e serviço"), { target: { value: "__new__" } });
+  fireEvent.click(screen.getByLabelText("Novo produto ou serviço (ainda não cadastrado)"));
   fireEvent.change(screen.getByLabelText("Nome do novo produto ou serviço"), { target: { value: "Suporte Remoto" } });
   fireEvent.change(screen.getByLabelText("Tipo"), { target: { value: "service" } });
   fireEvent.change(screen.getByLabelText("Orquestrador"), { target: { value: "a" } });

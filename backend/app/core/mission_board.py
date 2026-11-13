@@ -835,6 +835,9 @@ async def build_board(
                              "name": orchestrator.name if orchestrator else None},
             "deadline_at": _iso(mission.deadline_at), "paused": mission.state == "paused",
             "paused_seconds": mission.paused_seconds, "state_reason": mission.state_reason,
+            # 2026-11-12: a new product/service still waiting for the orchestrator's registration.
+            "product_registration_pending": bool(mission.product_registration_pending),
+            "working_directory_path": project.working_directory_path,
             "baseline": {"id": str(baseline.id), "name": baseline.name, "content_hash": getattr(
                 baseline, "content_hash", None), "approved_at": _iso(baseline.frozen_at),
                 "superseded": baseline.superseded_at is not None} if baseline else None,

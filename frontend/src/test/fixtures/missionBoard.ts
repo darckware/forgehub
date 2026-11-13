@@ -26,6 +26,7 @@ export function missionBoard(overrides: Partial<MissionBoard> = {}): MissionBoar
       project_id: "m07-mission", name: "m07 Política de memória", state: "active", paused_from_state: null,
       planning_stage: null, priority: 50, row_version: 3, orchestrator: { id: "a-athos", name: "Athos" },
       deadline_at: new Date(Date.now() + 3 * 86400_000).toISOString(), paused: false,
+      product_registration_pending: false, working_directory_path: null,
       baseline: { id: "b-1", name: "baseline 1", approved_at: now, superseded: false },
       allowed_actions: ["pause", "cancel"],
       blocked_actions: [{ action: "resume", reason: "MISSION_TRANSITION_NOT_ALLOWED", message: "" }],
