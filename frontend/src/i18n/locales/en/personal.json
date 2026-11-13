@@ -286,6 +286,7 @@
     "newDeadline": "New decision date",
     "questionsError": "Could not load blocking questions.",
     "questionTitle": "Blocking question",
+    "questionTitleOpen": "Question",
     "answer": "Answer",
     "views": {
       "attention": "Needs attention",

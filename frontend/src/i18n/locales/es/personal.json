@@ -286,6 +286,7 @@
     "newDeadline": "Nueva fecha de decisión",
     "questionsError": "No se pudieron cargar las preguntas bloqueantes.",
     "questionTitle": "Pregunta bloqueante",
+    "questionTitleOpen": "Pregunta",
     "answer": "Responder",
     "views": {
       "attention": "Requieren atención",

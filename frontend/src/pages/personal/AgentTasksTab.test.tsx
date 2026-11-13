@@ -17,7 +17,7 @@ vi.mock("@/hooks/useGovernance", () => ({
   useGovernedApprovalRequests: mocks.approvals,
   useDecideGovernedApproval: () => ({ reset: vi.fn() }),
 }));
-vi.mock("@/hooks/useOperationsViewModel", () => ({ useOperationsViewModel: () => ({ questions: mocks.questions(), answerQuestion: { reset: vi.fn(), mutate: mocks.answerQuestion }, cancelQuestion: { reset: vi.fn(), mutate: mocks.cancelQuestion, isPending: false, error: null } }) }));
+vi.mock("@/hooks/useOperationsViewModel", () => ({ usePendingQuestions: () => mocks.questions(), useOperationsViewModel: () => ({ questions: mocks.questions(), answerQuestion: { reset: vi.fn(), mutate: mocks.answerQuestion }, cancelQuestion: { reset: vi.fn(), mutate: mocks.cancelQuestion, isPending: false, error: null } }) }));
 vi.mock("@/components/Markdown", () => ({ Markdown: ({ content }: { content: string }) => <div>{content}</div> }));
 
 function item(overrides: Partial<Demand> = {}): Demand {
@@ -233,6 +233,20 @@ describe("operator deliberation", () => {
     fireEvent.change(within(dialog).getByRole("textbox", { name: /Motivo/ }), { target: { value: "  Já resolvido por outra via. " } });
     fireEvent.click(confirm);
     expect(mocks.cancelQuestion).toHaveBeenCalledWith({ id: "question-7", reason: "Já resolvido por outra via." }, expect.anything());
+  });
+
+  it("lists non-blocking questions too, after the blocking ones", () => {
+    mocks.questions.mockReturnValue({ data: [
+      { ...questionRow("question-3", "Old non-blocking?"), blocking: false, created_at: "2026-10-04T00:00:00Z" },
+      questionRow("question-5", "Blocking now?"),
+      { ...questionRow("question-4", "Answered already"), status: "answered" },
+    ], isLoading: false, isError: false });
+    open("/personal?tab=agent-work&workTab=answers");
+    expect(screen.getByRole("tab", { name: "Respostas (2)" })).toBeInTheDocument();
+    const titles = screen.getAllByRole("heading", { level: 3 }).map(h => h.textContent ?? "").filter(text => text.includes("#"));
+    expect(titles[0]).toMatch(/^Pergunta bloqueante #5/);
+    expect(titles[1]).toMatch(/^Pergunta #3/);
+    expect(screen.queryByText("Answered already")).not.toBeInTheDocument();
   });
 
   it("opens a question link on Respostas with that card focused", () => {

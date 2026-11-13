@@ -8,7 +8,7 @@ import { useAgents } from "./useAgent";
 import { useProjects } from "./useProject";
 import { useTasks, useTaskDependencies } from "./useTask";
 import { useGovernedApprovalRequests, useDecideGovernedApproval } from "./useGovernance";
-import { useOperationsViewModel } from "./useOperationsViewModel";
+import { useOperationsViewModel, usePendingQuestions } from "./useOperationsViewModel";
 import { missionDecisionsKey } from "./useMissions";
 import { useAuthStore } from "@/store/authStore";
 
@@ -94,7 +94,11 @@ export function useAgentTasksViewModel() {
   const operations = useOperationsViewModel("questions");
   const [archiving, setArchiving] = useState<{ id: string; number: number; question: string } | null>(null);
   const [archiveReason, setArchiveReason] = useState("");
-  const questions = (operations.questions.data ?? []).filter(question => question.status === "pending" && question.blocking);
+  // Every pending question is the operator's to answer (2026-11-13, Marcelo: all that needs a
+  // human goes to Tarefas dos agentes); blocking ones first, then the oldest.
+  const pendingQuestions = usePendingQuestions();
+  const questions = (pendingQuestions.data ?? []).filter(question => question.status === "pending")
+    .sort((x, y) => Number(y.blocking) - Number(x.blocking) || x.created_at.localeCompare(y.created_at));
   const [selectedId, setSelectedId] = useState<string | null>(null), [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [confirmation, setConfirmation] = useState<{ item: AgentWorkItem; action: WorkAction } | null>(null);
   const [bulkConfirmation, setBulkConfirmation] = useState<{ action: "archive" | "restore"; items: AgentWorkItem[] } | null>(null);
@@ -161,7 +165,7 @@ export function useAgentTasksViewModel() {
 
     analysis, query, items, filtered: items, view, search, context, agent, from, to, page, total: query.data?.total ?? 0, counts,
     agents: agents.data ?? [], selected, setSelectedId, contextName, agentName, state: (item: AgentWorkItem) => item.status === "archived" ? "archived" : item.operator_state ?? workState(item), setComposing, notice,
-    questions, questionsError: operations.questions.isError, questionsLoading: operations.questions.isLoading, answerQuestion: operations.answerQuestion,
+    questions, questionsError: pendingQuestions.isError, questionsLoading: pendingQuestions.isLoading, answerQuestion: operations.answerQuestion,
     setView: (value: string) => setFilter("workView", value), setSearch: (value: string) => setFilter("workSearch", value), setContext: (value: string) => setFilter("workContext", value),
     setAgent: (value: string) => setFilter("workAgent", value), setFrom: (value: string) => setFilter("workFrom", value), setTo: (value: string) => setFilter("workTo", value), setPage: (value: number) => setFilter("workPage", String(value)),
     contexts: (query.data?.contexts ?? []).map(row => ({ key: row.project_id ? `project:${row.project_id}` : row.area ? `area:${row.area}` : "unclassified", label: readableContext(row.label ?? projects.data?.find(project => project.id === row.project_id)?.name ?? row.area) })),

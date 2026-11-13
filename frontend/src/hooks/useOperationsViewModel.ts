@@ -241,3 +241,13 @@ export function useOperationsViewModel(tab: OperationsTab) {
   return { overview, charters, routines, runs, questions, policy, policyVersions, improvements, evolution,
     refresh, saveCharter, saveRoutine, deleteRoutine, runNow, answerQuestion, cancelQuestion, publishPolicy, undoChange };
 }
+
+/** Every pending question, for Pessoal → Tarefas dos agentes › Respostas. Its own query: the
+ * Operações list is the newest 100 of every status, which would hide an old pending question.
+ * Same key prefix as operationsKeys.questions, so answer/cancel invalidations refresh it too. */
+export function usePendingQuestions() {
+  return useQuery({
+    queryKey: [...operationsKeys.questions, "pending"] as const,
+    queryFn: () => apiClient.get<AgentQuestion[]>(`${BASE}/questions?status=pending&limit=500`),
+  });
+}

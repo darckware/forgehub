@@ -43,7 +43,7 @@ export function AgentTasksTab() {
     <h3 className="font-semibold">{vm.questionsError || vm.questionsLoading ? t("agentTasks.questionsTitle") : t("agentTasks.questionsHeading", { count: vm.questions.length })}</h3>
     {vm.questionsError && <p role="alert">{t("agentTasks.questionsError")}</p>}
     {vm.questions.map(item => <section id={`operator-question-${item.id}`} tabIndex={-1} key={item.id} className="space-y-2 rounded-md border p-4 focus-visible:outline focus-visible:outline-2">
-      <h3 className="font-medium">{t("agentTasks.questionTitle")} #{item.number} · {item.agent_name} · {item.id}</h3>
+      <h3 className="font-medium">{t(item.blocking ? "agentTasks.questionTitle" : "agentTasks.questionTitleOpen")} #{item.number} · {item.agent_name} · {item.id}</h3>
       {item.origin_demand_id ? <Link className="text-sm underline" to={`/demands?message=${item.origin_demand_id}`}>{t("agentTasks.questionTask")}</Link> : <p className="text-sm text-muted-foreground">{t("agentTasks.questionUnlinked")}</p>}
       <p className="text-xs text-muted-foreground">{date(item.created_at)}</p>
       <p className="whitespace-pre-wrap text-sm">{item.question}</p>
