@@ -6,6 +6,7 @@ from pathlib import Path
 from sqlalchemy import func, select
 
 from app.core.agent_runs import AgentRunDispatchError
+from app.core.config import settings
 from app.core.demand_workflow import WorkflowBlocked, ensure_workflow_allowed, requires_reconciliation
 from app.db.models.demand import AgentDemand, DISPATCH_MAX_ATTEMPTS, DISPATCH_TIMEOUT_MINUTES
 from app.db.models.task import ProjectTask
@@ -25,6 +26,30 @@ async def ensure_task_dispatch_admissible(db, demand):
         if task is not None:
             await assert_task_baseline_current(db, task)
     await assert_targets_free(db, demand)
+
+
+async def _ensure_runtime_contract_satisfiable(db, current, target_agent_id):
+    """RUNTIME_CONTRACT_ENABLED only. A task's mandatory runtime skills that
+    the executor cannot satisfy are a permanent refusal, like a missing
+    working directory: AgentRunDispatchError, which every caller turns into a
+    notified failure (the scheduled pass through _fail_dispatch, the manual
+    routes into a 409). WorkflowBlocked would keep it queued forever, silently."""
+    from app.core.runtime_intent import resolve_runtime_intent
+    from app.db.models.agent import Agent
+    from app.db.models.task import TaskExecution
+
+    attempt = await db.get(TaskExecution, current.task_execution_id)
+    if attempt is None:
+        return
+    agent = await db.get(Agent, target_agent_id)
+    if agent is None:
+        raise AgentRunDispatchError("Target agent not found")
+    if agent.runtime_type not in ('claude', 'codex', 'agy'):
+        return
+    try:
+        await resolve_runtime_intent(db, attempt.task_id, target_agent_id)
+    except ValueError as exc:
+        raise AgentRunDispatchError(f"Runtime contract cannot be satisfied: {exc}") from exc
 
 
 async def reserve_dispatch(db, demand, target_agent_id, command_text):
@@ -63,17 +88,8 @@ async def reserve_dispatch(db, demand, target_agent_id, command_text):
     await _ensure_demand_dependencies_satisfied(db, current)
     if not Path((current.working_path or "").strip()).is_absolute():
         raise AgentRunDispatchError("An explicit absolute working directory is required")
-    if current.origin_type == 'task' and current.origin_id and current.task_execution_id:
-        from app.core.runtime_intent import resolve_runtime_intent
-        from app.db.models.task import TaskExecution
-        attempt = await db.get(TaskExecution, current.task_execution_id)
-        from app.db.models.agent import Agent
-        agent = await db.get(Agent, target_agent_id)
-        if attempt and agent.runtime_type in ('claude', 'codex', 'agy'):
-            try:
-                await resolve_runtime_intent(db, attempt.task_id, target_agent_id)
-            except ValueError as exc:
-                raise WorkflowBlocked(str(exc)) from exc
+    if settings.RUNTIME_CONTRACT_ENABLED and current.origin_type == 'task' and current.origin_id and current.task_execution_id:
+        await _ensure_runtime_contract_satisfiable(db, current, target_agent_id)
     from app.core.question_continuations import prepare_answer_context
     await prepare_answer_context(db, current)
     # A separately required approval remains bound to the actual final body.

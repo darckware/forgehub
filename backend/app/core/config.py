@@ -195,6 +195,28 @@ class Settings(BaseSettings):
     # routines are disabled at the next transition. Decisions/locks stay as
     # history. The loop also needs background_workers_enabled (never under test).
     MISSION_CYCLE_ENABLED: bool = False
+    # Rollout switches for the governed mission runtime (commit 357e985,
+    # docs/implementation/2026-11-10-implementation-checklist.md). Every one
+    # defaults to off, and off is exactly the behavior before that commit.
+    # RUNTIME_CONTRACT_ENABLED: dispatches resolve a runtime intent (task
+    # skills) and post to the bridge's /v1/agent-runs/contextual (SKILL.md
+    # injection, manifest, runtime --version probe). Off = plain /v1/agent-runs.
+    RUNTIME_CONTRACT_ENABLED: bool = False
+    # NATIVE_DELEGATION_ENABLED: a runtime intent may ask for the `single` or
+    # `delegate` strategy (native sub-agents). Off = only `native`; others 422.
+    NATIVE_DELEGATION_ENABLED: bool = False
+    # PUBLISH_PROOF_RECHECK_ENABLED: publishing a version only via :publish,
+    # which then requires mission acceptance and rechecks every task's
+    # completion proof. Off = PUT/POST status=published allowed and :publish
+    # only checks task statuses (pre-357e985).
+    PUBLISH_PROOF_RECHECK_ENABLED: bool = False
+    # TASK_BROWSER_ENABLED: /api/v1/workspace-browser/task-context[/control]
+    # (isolated task browser). Off = 503. The bridge and MCP have their own
+    # switches (FORGEHUB_TASK_BROWSER_ENABLED=1).
+    TASK_BROWSER_ENABLED: bool = False
+    # MISSION_LEARNING_ENABLED: the `learning` field of a skill proposal
+    # (evidence-qualified learning). Off = 422 when present.
+    MISSION_LEARNING_ENABLED: bool = False
 
     # Google reCAPTCHA v2 (login screen, see api/routes/auth.py +
     # core/recaptcha.py). Empty = feature off (fail-open, same convention as

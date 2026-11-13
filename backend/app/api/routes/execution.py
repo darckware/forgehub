@@ -18,6 +18,7 @@ from app.api.schemas.execution import (
 from app.core.config import settings
 from app.core.agent_runs import AgentRunDispatchError, dispatch_agent_run
 from app.core.deps import ActorPrincipal, authorize_action, get_actor_principal
+from app.core.secrets import decrypt_secret
 from app.core.dispatch_targets import ACTIVE_EXECUTION_STATES, DISPATCH_ADMISSION_LOCK, assert_task_targets_free
 from app.core.task_baseline_guard import assert_task_baseline_current
 from app.core.task_dependencies import blocking_task_dependencies, ensure_task_dependencies_satisfied
@@ -303,6 +304,9 @@ def _safe_paths(values: list[str]) -> bool:
 
 @router.post("/execution-waves/{wave_id}/tasks/{task_id}/work-packages", response_model=WorkPackageOut, status_code=201)
 async def build_work_package(wave_id: uuid.UUID, task_id: uuid.UUID, payload: WorkPackageCreate, principal: ActorPrincipal = Depends(get_actor_principal), db: AsyncSession = Depends(get_db)) -> ExecutionWorkPackage:
+    if payload.runtime_intent is not None and not settings.RUNTIME_CONTRACT_ENABLED:
+        raise HTTPException(422, detail={"code": "RUNTIME_CONTRACT_DISABLED",
+            "message": "runtime_intent requires RUNTIME_CONTRACT_ENABLED"})
     wave = await _wave(db, wave_id); await authorize_action(db, principal, "planning.execution.manage", project_id=wave.project_id)
     if wave.status != "active": raise HTTPException(409, "Execution wave must be active")
     if not await db.scalar(select(ExecutionWaveTask.id).where(ExecutionWaveTask.execution_wave_id == wave.id, ExecutionWaveTask.task_id == task_id)): raise HTTPException(404, "Task is not part of this wave")
@@ -329,14 +333,15 @@ async def build_work_package(wave_id: uuid.UUID, task_id: uuid.UUID, payload: Wo
         "inputs": {"artifact_ids": [str(x) for x in payload.input_artifact_ids]},
         "verification": {"commands": payload.verification_commands}, "prompt_addendum": payload.prompt_addendum,
     }
-    from app.core.runtime_intent import resolve_runtime_intent
-    try:
-        package_payload['runtime_intent'] = await resolve_runtime_intent(
-            db, task_id, membership.agent_id or (await db.get(SubAgent, membership.sub_agent_id)).agent_id,
-            payload.runtime_intent.model_dump() if payload.runtime_intent is not None else {},
-            sub_agent_id=membership.sub_agent_id)
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
+    if settings.RUNTIME_CONTRACT_ENABLED:
+        from app.core.runtime_intent import resolve_runtime_intent
+        try:
+            package_payload['runtime_intent'] = await resolve_runtime_intent(
+                db, task_id, membership.agent_id or (await db.get(SubAgent, membership.sub_agent_id)).agent_id,
+                payload.runtime_intent.model_dump() if payload.runtime_intent is not None else {},
+                sub_agent_id=membership.sub_agent_id)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
     errors = []
     if not project.working_directory_path: errors.append("project_working_directory_missing")
     if not payload.acceptance_criteria: errors.append("acceptance_criteria_missing")
@@ -425,21 +430,28 @@ async def dispatch_package(package_id: uuid.UUID, principal: ActorPrincipal = De
         sub = await db.get(SubAgent, membership.sub_agent_id); credential_agent_id = sub.agent_id
     agent = await db.get(Agent, credential_agent_id)
     if not agent: raise HTTPException(409, "Assigned agent not found")
+    # A Hermes run of a work package has always carried the agent's ForgeRouter
+    # key (claude/codex/agy run on their own login and never receive one).
+    api_key = ""
+    if profile.runtime_type == "hermes":
+        if not agent.forgerouter_api_key_encrypted: raise HTTPException(409, "Assigned agent has no ForgeRouter credential")
+        api_key = decrypt_secret(agent.forgerouter_api_key_encrypted)
     config = (await db.execute(select(ProjectForgeRouterConfig).where(ProjectForgeRouterConfig.project_id == wave.project_id))).scalar_one_or_none()
     config_field = "antigravity_enabled" if profile.runtime_type in {"antigravity", "agy"} else f"{profile.runtime_type}_enabled"
     if not config or not getattr(config, config_field, False): raise HTTPException(409, "Runtime is not enabled for this project")
     if package.payload_hash != _hash(package.payload):
         raise HTTPException(409, 'Work package payload hash mismatch')
     resolved_intent = None
-    from app.core.runtime_intent import resolve_runtime_intent
-    try:
-        resolved_intent = await resolve_runtime_intent(
-            db, package.task_id, credential_agent_id, package.payload.get('runtime_intent') or {},
-            sub_agent_id=membership.sub_agent_id)
-    except ValueError as exc:
-        raise HTTPException(409, str(exc)) from exc
-    if resolved_intent != package.payload.get('runtime_intent'):
-        raise HTTPException(409, 'Runtime skill requirements changed; issue a fresh work package')
+    if settings.RUNTIME_CONTRACT_ENABLED:
+        from app.core.runtime_intent import resolve_runtime_intent
+        try:
+            resolved_intent = await resolve_runtime_intent(
+                db, package.task_id, credential_agent_id, package.payload.get('runtime_intent') or {},
+                sub_agent_id=membership.sub_agent_id)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        if resolved_intent != package.payload.get('runtime_intent'):
+            raise HTTPException(409, 'Runtime skill requirements changed; issue a fresh work package')
     runner = await _runner(db)
     if runner.status != "online" or runner.disabled: raise HTTPException(503, "No healthy execution runner is available")
     runtime_key = "agy" if profile.runtime_type == "antigravity" else profile.runtime_type
@@ -464,6 +476,7 @@ async def dispatch_package(package_id: uuid.UUID, principal: ActorPrincipal = De
             max_seconds=package.payload['constraints']['max_seconds'],
             max_budget_usd=float(profile.max_budget_usd) if profile.max_budget_usd is not None else None,
             work_package_hash=package.payload_hash, runtime_intent=resolved_intent,
+            api_key=api_key,
         )
     except AgentRunDispatchError as exc:
         execution = await _lock_fresh_execution(db, execution.id)

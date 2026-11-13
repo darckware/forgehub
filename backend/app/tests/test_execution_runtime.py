@@ -20,7 +20,10 @@ from app.main import app
 
 
 @pytest_asyncio.fixture
-async def runtime_context():
+async def runtime_context(monkeypatch):
+    # Written for the runtime contract; switch-off cases override it.
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "RUNTIME_CONTRACT_ENABLED", True)
     async with AsyncSessionLocal() as db:
         product = Product(name=f"Runner product {uuid.uuid4()}")
         agent = Agent(name=f"runner-agent-{uuid.uuid4()}", agent_type="executor")
@@ -99,8 +102,12 @@ async def test_wave_release_and_immutable_package(runtime_context):
 
 
 @pytest.mark.asyncio
-async def test_runtime_intent_survives_immutable_work_package(runtime_context):
-    """A requested execution strategy must reach the actual issued package."""
+@pytest.mark.parametrize("native_delegation", [False, True])
+async def test_runtime_intent_survives_immutable_work_package(runtime_context, monkeypatch, native_delegation):
+    """A requested execution strategy must reach the actual issued package --
+    and `single` is refused (422) while NATIVE_DELEGATION_ENABLED is off."""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "NATIVE_DELEGATION_ENABLED", native_delegation)
     ctx=runtime_context
     headers={'Authorization':f"Bearer {create_access_token(ctx['admin_username'])}"}
     async with AsyncClient(transport=ASGITransport(app=app),base_url='http://test',headers=headers) as client:
@@ -110,6 +117,10 @@ async def test_runtime_intent_survives_immutable_work_package(runtime_context):
             assert response.status_code==200,response.text
         intent={'version':'forge-runtime-intent/v1','strategy':'single','max_children':0,'skills':[]}
         response=await client.post(f"/api/v1/execution-waves/{wave['id']}/tasks/{ctx['task']}/work-packages",json={'assignment_id':str(ctx['assignment']),'runtime_profile_id':str(ctx['profile']),'allowed_paths':['backend/app'],'acceptance_criteria':['Verified'],'definition_of_done':['Checks pass'],'runtime_intent':intent,'idempotency_key':f'package-{uuid.uuid4()}'})
+        if not native_delegation:
+            assert response.status_code==422,response.text
+            assert 'NATIVE_DELEGATION_ENABLED' in response.text
+            return
         assert response.status_code==201,response.text
         assert response.json()['payload']['runtime_intent']==intent
 

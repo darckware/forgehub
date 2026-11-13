@@ -22,7 +22,10 @@ from app.tests.test_execution_runtime import runtime_context  # noqa: F401
 HTTPX_CLIENT = httpx.AsyncClient
 
 @pytest_asyncio.fixture
-async def package(runtime_context,monkeypatch):  # noqa: F811
+async def package(runtime_context,monkeypatch,request):  # noqa: F811
+    from app.core.config import settings
+    contract=getattr(request,'param',True)  # indirect False = RUNTIME_CONTRACT_ENABLED off
+    monkeypatch.setattr(settings,'RUNTIME_CONTRACT_ENABLED',contract)
     ctx=runtime_context
     async with AsyncSessionLocal() as db:
         agent=await db.get(Agent,ctx['agent']); agent.runtime_type='codex'; agent.profile_slug='runner-test'
@@ -37,7 +40,7 @@ async def package(runtime_context,monkeypatch):  # noqa: F811
         wave=(await client.post(f"/api/v1/projects/{ctx['project']}/execution-waves",json={'baseline_id':str(ctx['baseline']),'name':'Recovery wave','task_ids':[str(ctx['task'])],'idempotency_key':f'wave-{uuid.uuid4()}'})).json()
         for action in ('preflight','approve','activate'):
             response=await client.post(f"/api/v1/execution-waves/{wave['id']}:{action}",json={}); assert response.status_code==200,response.text
-        response=await client.post(f"/api/v1/execution-waves/{wave['id']}/tasks/{ctx['task']}/work-packages",json={'assignment_id':str(ctx['assignment']),'runtime_profile_id':str(ctx['profile']),'allowed_paths':['backend/app'],'acceptance_criteria':['Verified'],'definition_of_done':['Checks pass'],'runtime_intent':{},'idempotency_key':f'package-{uuid.uuid4()}'})
+        response=await client.post(f"/api/v1/execution-waves/{wave['id']}/tasks/{ctx['task']}/work-packages",json={'assignment_id':str(ctx['assignment']),'runtime_profile_id':str(ctx['profile']),'allowed_paths':['backend/app'],'acceptance_criteria':['Verified'],'definition_of_done':['Checks pass'],**({'runtime_intent':{}} if contract else {}),'idempotency_key':f'package-{uuid.uuid4()}'})
         assert response.status_code==201,response.text
         item=response.json()
         response=await client.post(f"/api/v1/work-packages/{item['id']}:issue",json={}); assert response.status_code==200,response.text
@@ -291,3 +294,46 @@ async def test_delayed_start_ack_cannot_reopen_attempt_finalized_by_refresh(pack
         result=await db.scalar(select(ExecutionResult).where(ExecutionResult.task_execution_id==attempt.id))
         lease=await db.scalar(select(ExecutionLease).where(ExecutionLease.task_execution_id==attempt.id))
         assert attempt.status=='completed' and result is not None and lease.released_at is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('package',[False],indirect=True)
+async def test_switch_off_dispatch_uses_plain_agent_runs_without_contract(package,monkeypatch):
+    client,item=package
+    assert 'runtime_intent' not in item['payload']
+    seen=[]
+    def bridge(req):
+        body=json.loads(req.content)
+        seen.append((req.url.path,body))
+        return httpx.Response(202,json={'run_id':body['run_id'],'status':'running','pid':1})
+    monkeypatch.setattr(routes.httpx,'AsyncClient',lambda **kw:HTTPX_CLIENT(**kw,transport=httpx.MockTransport(bridge)))
+    response=await client.post(f"/api/v1/work-packages/{item['id']}:dispatch",json={})
+    assert response.status_code==202,response.text
+    starts=[(path,body) for path,body in seen if path.startswith('/v1/agent-runs')]
+    assert [path for path,_ in starts]==['/v1/agent-runs']
+    assert 'runtime_intent' not in starts[0][1]
+
+
+@pytest.mark.asyncio
+async def test_switch_off_refuses_runtime_intent_in_a_new_package(runtime_context,monkeypatch):  # noqa: F811
+    from app.core.config import settings
+    monkeypatch.setattr(settings,'RUNTIME_CONTRACT_ENABLED',False)
+    ctx=runtime_context
+    headers={'Authorization':f"Bearer {create_access_token(ctx['admin_username'])}"}
+    async with AsyncClient(transport=ASGITransport(app=app),base_url='http://test',headers=headers) as client:
+        response=await client.post(f"/api/v1/execution-waves/{uuid.uuid4()}/tasks/{ctx['task']}/work-packages",json={'assignment_id':str(ctx['assignment']),'runtime_profile_id':str(ctx['profile']),'allowed_paths':['backend/app'],'acceptance_criteria':['Verified'],'definition_of_done':['Checks pass'],'runtime_intent':{},'idempotency_key':f'package-{uuid.uuid4()}'})
+    assert response.status_code==422,response.text
+    assert response.json()['detail']['code']=='RUNTIME_CONTRACT_DISABLED'
+
+
+@pytest.mark.parametrize('strategy,children',[('single',0),('delegate',2)])
+def test_native_strategies_need_their_switch(monkeypatch,strategy,children):
+    from pydantic import ValidationError
+    from app.api.schemas.runtime_intent import RuntimeIntent
+    from app.core.config import settings
+    monkeypatch.setattr(settings,'NATIVE_DELEGATION_ENABLED',False)
+    with pytest.raises(ValidationError,match='NATIVE_DELEGATION_ENABLED'):
+        RuntimeIntent.model_validate({'strategy':strategy,'max_children':children})
+    assert RuntimeIntent.model_validate({}).strategy=='native'
+    monkeypatch.setattr(settings,'NATIVE_DELEGATION_ENABLED',True)
+    assert RuntimeIntent.model_validate({'strategy':strategy,'max_children':children}).strategy==strategy

@@ -42,6 +42,7 @@ async def dispatch_agent_run(
     runtime_intent: dict | None = None,
     work_package_hash: str | None = None,
     runtime_type: str | None = None,
+    api_key: str = "",
 ) -> dict:
     """POST /v1/agent-runs for `agent`. Raises AgentRunDispatchError if the
     agent can't be dispatched at all (no runtime_type/profile_slug); raises
@@ -51,7 +52,14 @@ async def dispatch_agent_run(
     default model, never ForgeRouter (2026-10-24): `forgerouter/auto` sent
     Aramis's runs to free models that stopped mid-task with exit 0. So no
     ForgeRouter credential is decrypted or sent; the bridge ignores
-    `model_ref`/`routing_group`/`api_key` for these runtimes."""
+    `model_ref`/`routing_group`/`api_key` for these runtimes. `api_key` is
+    only for a Hermes run of a governed work package (execution.py), which
+    has always carried the agent's ForgeRouter key.
+
+    `runtime_intent` is honoured only with RUNTIME_CONTRACT_ENABLED; off, the
+    run goes to the plain /v1/agent-runs exactly as before the contract."""
+    if not settings.RUNTIME_CONTRACT_ENABLED:
+        runtime_intent = None
     runtime = runtime_type or agent.runtime_type
     if not runtime:
         raise AgentRunDispatchError(f"Agent '{agent.name}' has no runtime_type for CLI dispatch")
@@ -72,7 +80,7 @@ async def dispatch_agent_run(
         "prompt": prompt,
         "model_ref": model_ref,
         "routing_group": routing_group,
-        "api_key": "",
+        "api_key": api_key,
         "mode": mode,
         "max_seconds": max_seconds,
         "max_budget_usd": max_budget_usd,

@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.core.config import settings
+
 
 class RuntimeSkillRequirement(BaseModel):
     model_config = ConfigDict(extra='forbid')
@@ -20,6 +22,9 @@ class RuntimeIntent(BaseModel):
 
     @model_validator(mode='after')
     def bounded_strategy(self):
+        if self.strategy != 'native' and not settings.NATIVE_DELEGATION_ENABLED:
+            # Native sub-agent strategies are off until NATIVE_DELEGATION_ENABLED.
+            raise ValueError(f"strategy '{self.strategy}' requires NATIVE_DELEGATION_ENABLED")
         if (self.strategy != 'delegate') != (self.max_children == 0):
             raise ValueError('single requires zero children; delegate requires a positive child limit')
         if len({s.name for s in self.skills}) != len(self.skills):

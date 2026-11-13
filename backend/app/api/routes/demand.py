@@ -1575,7 +1575,8 @@ async def _execute_dispatch(
             restriction = {"restricted_toolsets": run_toolsets(
                 demand.requires_approval, demand.channel_ref, moodle_linked=moodle_linked,
                 sti_approval=is_sti_approval(demand) and demand.approval_status == "approved")}
-        if demand.task_execution_id and agent.runtime_type in ('claude', 'codex', 'agy'):
+        if (settings.RUNTIME_CONTRACT_ENABLED and demand.task_execution_id
+                and agent.runtime_type in ('claude', 'codex', 'agy')):
             from app.core.runtime_intent import resolve_runtime_intent
             attempt = await db.get(TaskExecution, demand.task_execution_id)
             if attempt:
