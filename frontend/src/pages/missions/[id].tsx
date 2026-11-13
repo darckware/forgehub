@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { MissionAcceptance } from "@/components/missions/MissionAcceptance";
 import { MissionCriteria } from "@/components/missions/MissionCriteria";
+import { MissionDocsCard } from "@/components/missions/MissionDocsCard";
 import { MissionExecutionsBoard } from "@/components/missions/MissionExecutionsBoard";
 import { useMissionExecutionsViewModel } from "@/hooks/useMissionExecutionsViewModel";
 
@@ -47,10 +48,10 @@ export default function MissionDetailPage() {
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
       <div className="space-y-1">
         <p className="font-medium">{t("detail.productPendingTitle")}</p>
-        <p className="text-muted-foreground [overflow-wrap:anywhere]">{t("detail.productPendingBody", {
-          docs: board.mission.working_directory_path ? `${board.mission.working_directory_path.replace(/\/+$/, "")}/docs/` : "docs/" })}</p>
+        <p className="text-muted-foreground">{t("detail.productPendingBody")}</p>
       </div>
     </div>}
+    {admin && board && <MissionDocsCard workingDirectory={board.mission.working_directory_path} />}
     {projectId && board && <MissionCriteria projectId={projectId} tasks={board.tasks} reviewers={reviewers}
       canManage={canManageCriteria} />}
     {board?.mission.state === "awaiting_acceptance" && projectId && <MissionAcceptance projectId={projectId} canAct={admin} />}

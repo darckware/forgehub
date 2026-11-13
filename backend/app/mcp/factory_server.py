@@ -717,7 +717,13 @@ async def get_my_mission_role(project_id: str) -> dict[str, Any]:
     """Your own role in a mission (or internal project) you are an active
     member of: role, can_review, responsibilities, the orchestrator, your
     tasks (as executor or reviewer, with the latest execution state) and your
-    reviews. A project you are not a member of answers not found."""
+    reviews. Also the study material: `docs_path` (the project's docs/ folder,
+    `docs_status` ok/empty/missing/unverified) and `docs_files` -- read the
+    mission's context and those documents before registering the product or
+    planning tasks in the Service Factory. `product_registration_pending: true`
+    means you, the orchestrator, must complete the product's registration
+    (complete_mission_product_registration). A project you are not a member of
+    answers not found."""
     return await _factory_call("GET", f"/api/v1/missions/{project_id}/me")
 
 
@@ -725,22 +731,18 @@ async def get_my_mission_role(project_id: str) -> dict[str, Any]:
 async def complete_mission_product_registration(
     project_id: str,
     description: str,
-    documentation_paths: list[str],
     name: str | None = None,
     kind: str | None = None,
 ) -> dict[str, Any]:
     """When get_my_mission_role shows `product_registration_pending: true`,
     the mission was created for a product/service that did not exist yet:
-    ForgeHub registered only its name and kind. As the orchestrator, write the
-    product's description (what it is, for whom, what it delivers -- from the
-    mission's objective and context), optionally correct its `name` or `kind`
-    (software, service, infrastructure, client_it). First write the product's
-    creation documentation (concept, audience, scope, decisions) as files in
-    the `docs/` folder of the mission's working directory, and pass them in
-    `documentation_paths` relative to it (e.g. ["docs/PRODUTO.md"]): every
-    file must exist there, or nothing is changed. The product becomes
-    `active` and the mission may leave draft. Only while it is pending."""
-    body: dict[str, Any] = {"description": description, "documentation_paths": documentation_paths}
+    ForgeHub registered only its name and kind. As the orchestrator, first
+    study Marcelo's context (the mission's description) and the documents he
+    left in `docs_path` (listed in `docs_files`), then write the product's
+    description (what it is, for whom, what it delivers), optionally correcting
+    its `name` or `kind` (software, service, infrastructure, client_it). The
+    product becomes `active`. Only while it is pending."""
+    body: dict[str, Any] = {"description": description}
     if name is not None:
         body["name"] = name
     if kind is not None:

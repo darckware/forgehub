@@ -40,11 +40,6 @@ class MissionProductRegistrationIn(BaseModel):
     description: str = Field(min_length=1, max_length=20000)
     name: str | None = Field(default=None, min_length=1, max_length=255)
     kind: Literal["software", "service", "infrastructure", "client_it"] | None = None
-    # 2026-11-12 (Marcelo: "adicionar documento na pasta docs (obrigatório na
-    # pasta do projeto) com todas as documentações da criação do produto ou
-    # serviço"): files under <working_directory_path>/docs/, relative to the
-    # working directory (e.g. "docs/PRODUTO.md"); each must exist on the host.
-    documentation_paths: list[str] = Field(min_length=1, max_length=50)
     expected_row_version: int | None = None
 
 
@@ -444,6 +439,10 @@ class MyMissionRoleOut(BaseModel):
     product_id: uuid.UUID | None = None
     product_name: str | None = None
     product_registration_pending: bool | None = None
+    # The study material Marcelo left for the agents (<working dir>/docs/).
+    docs_path: str | None = None
+    docs_status: str | None = None
+    docs_files: list[str] = Field(default_factory=list)
     my_tasks: list[MyTaskItem] = Field(default_factory=list)
     my_reviews: list[MyReviewItem] = Field(default_factory=list)
 

@@ -248,7 +248,7 @@
     "versionsLoadError": "Could not load product versions.",
     "agentsLoadError": "Could not load agents.",
     "recordLoadError": "Could not load this mission.",
-    "newProductHint": "ForgeHub registers only the name and kind (version 0.1.0). The orchestrator completes the registration and writes the creation documentation in the working directory's docs/ folder; the mission leaves draft only after that.",
+    "newProductHint": "ForgeHub registers only the name and kind (version 0.1.0). The orchestrator completes the registration from your context and the documents in docs/.",
     "newProductName": "New product or service name",
     "newProductKind": "Kind",
     "productKind": {
@@ -257,10 +257,11 @@
       "infrastructure": "Infrastructure",
       "client_it": "Client IT"
     },
-    "newProductRequired": "For a new product or service, enter its name and the working directory.",
-    "directoryDocsHint": "Required for a new product or service: the creation documentation goes in docs/ inside this folder.",
+    "newProductRequired": "Enter the new product or service name.",
+    "directoryDocsHint": "Put in docs/ inside this folder the documents the agents must study. The mission leaves draft only with docs/ filled.",
     "newProductCheckbox": "New product or service (not registered yet)",
-    "newProductSelected": "New product or service, entered below"
+    "newProductSelected": "New product or service, entered below",
+    "directoryRequired": "Enter the project's working directory."
   },
   "team": {
     "title": "Agents by role",
@@ -325,6 +326,19 @@
   },
   "detail": {
     "productPendingTitle": "Product registration pending",
-    "productPendingBody": "The orchestrator must complete the product or service registration and write its creation documentation in {{docs}}. The mission leaves draft only after that."
+    "productPendingBody": "The orchestrator must complete the product or service registration from the mission's context and the documents in docs/."
+  },
+  "docs": {
+    "title": "Documents for the agents",
+    "description": "What the agents study before registering the product and launching tasks. The mission leaves draft only with at least one file here.",
+    "openExplorer": "Open in Explorer",
+    "explorerTitle": "Explorer",
+    "close": "Close",
+    "loading": "Reading the folder…",
+    "missing": "The docs/ folder doesn't exist yet. Open the Explorer to create it and upload the documents.",
+    "empty": "The docs/ folder is empty.",
+    "loadError": "Could not read the docs/ folder on the server.",
+    "noWorkingDirectory": "The mission has no working directory. Edit the mission and set the project folder.",
+    "createError": "Could not create the docs/ folder."
   }
 }

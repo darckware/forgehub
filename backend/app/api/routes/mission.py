@@ -25,7 +25,6 @@ mission's orchestrator. Errors use the object form ``{code, message, ...}``
 import asyncio
 import hashlib
 import json
-import posixpath
 import uuid
 from typing import Any
 
@@ -110,7 +109,7 @@ from app.db.models.mission import (
 from app.db.models.operations import AgentCharter
 from app.db.models.orchestration import PROJECT_AGENT_ROLES, ProjectAgentMembership, TaskExecutionReview
 from app.db.models.product import Product, ProductVersion
-from app.core.evidence_bridge import EvidenceUnverifiable, verify_on_host
+from app.core.mission_docs import read_mission_docs
 from app.db.models.project import ChangeRequest, Project
 from app.db.models.task import TASK_STATUSES, ProjectTask, TaskAssignment, TaskExecution
 
@@ -259,11 +258,6 @@ async def create_mission(
     if payload.working_directory_path is not None and not payload.working_directory_path.startswith("/"):
         raise mission_error(422, "PATH_NOT_ABSOLUTE", "working_directory_path must be absolute")
     if version is None:
-        if not (payload.working_directory_path or "").strip():
-            # The new product's documentation lives in <working dir>/docs/.
-            raise mission_error(422, "WORKING_DIRECTORY_REQUIRED",
-                                "A mission for a new product/service needs its working directory (its docs/ "
-                                "folder holds the product's documentation)")
         version = await _register_new_product_shell(db, payload, principal)
     else:
         await _assert_name_free_in_version(db, version.id, payload.name)
@@ -592,6 +586,7 @@ async def get_my_mission_role(
         if agent is not None:
             orchestrator = MissionOrchestratorRef(agent_id=agent.id, name=agent.name)
     tasks, reviews = await _my_work(db, agent_id, [membership])
+    docs = await read_mission_docs(project.working_directory_path)
     return MyMissionRoleOut(
         project_id=project.id, project_type=project.project_type, mission_state=mission_state,
         membership_id=membership.id, role=membership.role, can_review=membership.can_review,
@@ -599,6 +594,7 @@ async def get_my_mission_role(
         product_id=product.id if product is not None else None,
         product_name=product.name if product is not None else None,
         product_registration_pending=registration_pending,
+        docs_path=docs.path, docs_status=docs.status, docs_files=docs.files,
         my_tasks=tasks, my_reviews=reviews,
     )
 
@@ -664,34 +660,6 @@ async def update_mission(
     return await _out(db, project, mission)
 
 
-async def _verified_product_documentation(project: Project, paths: list[str]) -> list[str]:
-    """Every path is a file under <working_directory_path>/docs/ that exists
-    on the host (checked by the host-bridge's read-only evidence probe, the
-    same one task completion uses). Nothing unverified passes."""
-    root = (project.working_directory_path or "").rstrip("/")
-    if not root:
-        raise mission_error(422, "WORKING_DIRECTORY_REQUIRED",
-                            "Set the mission's working directory before registering the product")
-    cleaned: list[str] = []
-    for raw in paths:
-        ref = posixpath.normpath(raw.strip().lstrip("./")) if raw.strip() else ""
-        if not ref.startswith("docs/") or ref.startswith("/") or ".." in ref.split("/"):
-            raise mission_error(422, "DOC_PATH_NOT_ALLOWED", "Documentation must be a file under docs/ of the "
-                                "mission's working directory", path=raw)
-        cleaned.append(ref)
-    cleaned = list(dict.fromkeys(cleaned))
-    for ref in cleaned:
-        try:
-            ok, reason = await verify_on_host("file", root, ref, None)
-        except EvidenceUnverifiable as exc:
-            raise mission_error(409, "DOCUMENTATION_UNVERIFIED", "The documentation could not be checked on "
-                                "the host; nothing was changed", path=ref, reason=str(exc)) from exc
-        if not ok:
-            raise mission_error(422, "DOCUMENTATION_NOT_FOUND", "Documentation file not found",
-                                path=f"{root}/{ref}", reason=reason)
-    return cleaned
-
-
 @router.post("/{project_id}/product:complete-registration", response_model=MissionOut)
 async def complete_product_registration(
     project_id: uuid.UUID,
@@ -701,7 +669,8 @@ async def complete_product_registration(
 ) -> MissionOut:
     """The orchestrator (or an admin) completes the registration of the new
     product/service the mission was created with (2026-11-12): description,
-    optionally a corrected name/kind; the product leaves ``concept`` for
+    optionally a corrected name/kind, written from Marcelo's context and the
+    study material in <working dir>/docs/; the product leaves ``concept`` for
     ``active`` and the mission's PRODUCT_REGISTRATION_PENDING condition lifts.
     Only while the flag is set -- afterwards the product is edited in its
     own screen like any other."""
@@ -716,7 +685,6 @@ async def complete_product_registration(
     product = (await db.execute(select(Product).join(ProductVersion, ProductVersion.product_id == Product.id)
                                 .where(ProductVersion.id == project.product_version_id)
                                 .with_for_update(of=Product))).scalar_one()
-    documentation = await _verified_product_documentation(project, payload.documentation_paths)
     before = {"name": product.name, "kind": product.kind, "status": product.status}
     if payload.name is not None and payload.name.strip().lower() != product.name.strip().lower():
         name = payload.name.strip()
@@ -737,7 +705,7 @@ async def complete_product_registration(
         entity_type="mission", entity_id=project_id, event_type="mission_product_registered",
         actor=principal.display_name,
         payload=_audit_payload(principal, source, delegation, role=role, product_id=str(product.id),
-                               documentation_paths=documentation, before=before, after={"name": product.name, "kind": product.kind,
+                               before=before, after={"name": product.name, "kind": product.kind,
                                                      "status": product.status}),
     ))
     await db.commit()

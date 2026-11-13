@@ -37,7 +37,10 @@ it("creates a draft mission from a full page and selected real records", async (
   fireEvent.change(screen.getByLabelText("Produto e serviço"), { target: { value: "v" } });
   fireEvent.change(screen.getByLabelText("Orquestrador"), { target: { value: "a" } });
   fireEvent.click(screen.getByRole("button", { name: "Criar missão" }));
-  await waitFor(() => expect(post).toHaveBeenCalledWith("/api/v1/missions", expect.objectContaining({ name: "Validar FileNest", product_version_id: "v", orchestrator_agent_id: "a", project_type: "mission", autonomy_level: "N0" })));
+  expect(post).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText(/Pasta de trabalho/), { target: { value: "/root/project/filenest" } });
+  fireEvent.click(screen.getByRole("button", { name: "Criar missão" }));
+  await waitFor(() => expect(post).toHaveBeenCalledWith("/api/v1/missions", expect.objectContaining({ working_directory_path: "/root/project/filenest", name: "Validar FileNest", product_version_id: "v", orchestrator_agent_id: "a", project_type: "mission", autonomy_level: "N0" })));
   expect(await screen.findByText("Missão criada")).toBeInTheDocument();
 });
 it("creates a mission for a new product or service, requiring its working directory", async () => {

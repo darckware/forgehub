@@ -60,7 +60,8 @@ function MissionEditor({ projectId }: { projectId?: string }) {
     if (invalid instanceof HTMLElement) { setError(t("form.invalid")); invalid.focus(); return; }
     const isNewProduct = !projectId && newProduct;
     if (!name.trim() || (!projectId && ((!version && !isNewProduct) || !orchestrator))) { setError(t("form.required")); return; }
-    if (isNewProduct && (!newProductName.trim() || !directory.trim())) { setError(t("form.newProductRequired")); return; }
+    if (!projectId && !directory.trim()) { setError(t("form.directoryRequired")); return; }
+    if (isNewProduct && !newProductName.trim()) { setError(t("form.newProductRequired")); return; }
     submitting.current = true; setError("");
     const common = { priority: Number(priority), deadline_at: deadline ? new Date(deadline).toISOString() : null };
     const metadata = { name: name.trim(), description: description.trim() || null, working_directory_path: directory.trim() || null };
@@ -118,12 +119,12 @@ function MissionEditor({ projectId }: { projectId?: string }) {
           </div>}
           <label className="block space-y-2"><span>{t("form.priority")}</span><Input required type="number" min={1} max={1000} value={priority} onChange={(e) => setPriority(e.target.value)} /></label>
           <label className="block space-y-2"><span>{t("form.deadline")}</span><Input type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} /></label>
-          <label className="block space-y-2 sm:col-span-2"><span>{t("form.directory")}{newProduct && !projectId ? " *" : ""}</span>
+          <label className="block space-y-2 sm:col-span-2"><span>{t("form.directory")}{!projectId ? " *" : ""}</span>
             <div className="flex items-center gap-2">
-              <Input disabled={fixed} required={newProduct && !projectId} maxLength={1024} placeholder="/root/project/..." value={directory} onChange={(e) => setDirectory(e.target.value)} />
+              <Input disabled={fixed} required={!projectId} maxLength={1024} placeholder="/root/project/..." value={directory} onChange={(e) => setDirectory(e.target.value)} />
               {!fixed && !terminal && <WorkingDirPicker workingDir={directory || undefined} onSelect={(path) => { setDirectory(path ?? ""); setDirty(true); }} />}
             </div>
-            {newProduct && !projectId && <span className="block text-xs text-muted-foreground">{t("form.directoryDocsHint")}</span>}
+            <span className="block text-xs text-muted-foreground">{t("form.directoryDocsHint")}</span>
           </label>
         </div>
         {projectId && <label className="block space-y-2"><span>{t("form.reason")}</span><Textarea className="resize-none" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={4000} /></label>}

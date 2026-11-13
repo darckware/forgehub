@@ -248,7 +248,7 @@
     "versionsLoadError": "Não foi possível carregar as versões dos produtos.",
     "agentsLoadError": "Não foi possível carregar os agentes.",
     "recordLoadError": "Não foi possível carregar esta missão.",
-    "newProductHint": "O ForgeHub registra só o nome e o tipo (versão 0.1.0). O orquestrador completa o cadastro e grava a documentação da criação na pasta docs/ da pasta de trabalho; a missão só sai de rascunho depois disso.",
+    "newProductHint": "O ForgeHub registra só o nome e o tipo (versão 0.1.0). O orquestrador completa o cadastro a partir do seu contexto e dos documentos em docs/.",
     "newProductName": "Nome do novo produto ou serviço",
     "newProductKind": "Tipo",
     "productKind": {
@@ -257,10 +257,11 @@
       "infrastructure": "Infraestrutura",
       "client_it": "TI de cliente"
     },
-    "newProductRequired": "Para um novo produto ou serviço, informe o nome e a pasta de trabalho.",
-    "directoryDocsHint": "Obrigatória para novo produto ou serviço: a documentação da criação fica em docs/ dentro desta pasta.",
+    "newProductRequired": "Informe o nome do novo produto ou serviço.",
+    "directoryDocsHint": "Coloque em docs/ dentro desta pasta os documentos que os agentes devem estudar. A missão só sai de rascunho com docs/ preenchida.",
     "newProductCheckbox": "Novo produto ou serviço (ainda não cadastrado)",
-    "newProductSelected": "Novo produto ou serviço, informado abaixo"
+    "newProductSelected": "Novo produto ou serviço, informado abaixo",
+    "directoryRequired": "Informe a pasta de trabalho do projeto."
   },
   "team": {
     "title": "Agentes por função",
@@ -325,6 +326,19 @@
   },
   "detail": {
     "productPendingTitle": "Cadastro do produto pendente",
-    "productPendingBody": "O orquestrador precisa completar o cadastro do produto ou serviço e gravar a documentação da criação em {{docs}}. A missão só sai de rascunho depois disso."
+    "productPendingBody": "O orquestrador precisa completar o cadastro do produto ou serviço a partir do contexto da missão e dos documentos em docs/."
+  },
+  "docs": {
+    "title": "Documentos para os agentes",
+    "description": "O que os agentes estudam antes de cadastrar o produto e lançar as tarefas. A missão só sai de rascunho com pelo menos um arquivo aqui.",
+    "openExplorer": "Abrir no Explorador",
+    "explorerTitle": "Explorador",
+    "close": "Fechar",
+    "loading": "Lendo a pasta…",
+    "missing": "A pasta docs/ ainda não existe. Abra o Explorador para criá-la e enviar os documentos.",
+    "empty": "A pasta docs/ está vazia.",
+    "loadError": "Não foi possível ler a pasta docs/ no servidor.",
+    "noWorkingDirectory": "A missão não tem pasta de trabalho. Edite a missão e informe a pasta do projeto.",
+    "createError": "Não foi possível criar a pasta docs/."
   }
 }

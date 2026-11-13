@@ -64,7 +64,7 @@ describe("mission executions page (M0.7)", () => {
     const view = open();
     const notice = await screen.findByTestId("product-registration-pending");
     expect(notice).toHaveTextContent("Cadastro do produto pendente");
-    expect(notice).toHaveTextContent("/root/project/suporte/docs/");
+    expect(notice).toHaveTextContent("documentos em docs/");
     view.unmount();
     vi.restoreAllMocks();
     mockGet(missionBoard());

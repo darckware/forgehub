@@ -442,6 +442,27 @@ async def brief_items(db: AsyncSession, mission: ProjectMission) -> list[dict[st
     return []
 
 
+async def mission_docs_items(db: AsyncSession, project_id) -> list[dict[str, Any]]:
+    """The agents' study material must be in place before planning starts
+    (2026-11-12): a working directory whose docs/ holds at least one entry."""
+    from app.core.mission_docs import read_mission_docs
+    from app.db.models.project import Project
+
+    project = await db.get(Project, project_id)
+    docs = await read_mission_docs(project.working_directory_path if project else None)
+    if docs.status == "ok":
+        return []
+    code, message = {
+        "no_working_directory": ("WORKING_DIRECTORY_MISSING", "The mission has no working directory"),
+        "missing": ("DOCS_MISSING", "The working directory has no docs/ folder for the agents to study"),
+        "empty": ("DOCS_EMPTY", "The docs/ folder is empty"),
+    }.get(docs.status, ("DOCS_UNVERIFIED", "The docs/ folder could not be checked on the host"))
+    extra = {"docs_path": docs.path} if docs.path else {}
+    if docs.detail:
+        extra["detail"] = docs.detail
+    return [_item(code, message, **extra)]
+
+
 async def transition_preconditions(
     db: AsyncSession, mission: ProjectMission, to_state: str
 ) -> list[dict[str, Any]]:
@@ -466,6 +487,7 @@ async def transition_preconditions(
         if mission.product_registration_pending:
             unmet.append(_item("PRODUCT_REGISTRATION_PENDING",
                                "The mission's new product/service still has to be registered by the orchestrator"))
+        unmet.extend(await mission_docs_items(db, project_id))
 
     elif (from_state, to_state) == ("planning", "ready"):
         if mission.planning_stage != "baseline":
