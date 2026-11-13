@@ -81,9 +81,11 @@ package Hermes volta a exigir e enviar a chave ForgeRouter.
 
 Antes de ligar cada chave:
 
-- [ ] `RUNTIME_CONTRACT_ENABLED`: reiniciar o host-bridge com a versão que tem
-  `/v1/agent-runs/contextual` **antes** do backend; skills obrigatórias das
-  tarefas registradas e concedidas aos executores.
+- [ ] `RUNTIME_CONTRACT_ENABLED`: a rota `POST /v1/agent-runs/contextual`
+  existe sempre no host-bridge desta versão (não há chave do lado do bridge);
+  só a chave do backend decide se ela é usada. Ligar apenas **depois** de
+  reiniciar o host-bridge com esta versão; skills obrigatórias das tarefas
+  registradas e concedidas aos executores.
 - [ ] `NATIVE_DELEGATION_ENABLED`: qualificar a delegação no Codex CLI em uso.
 - [ ] `PUBLISH_PROOF_RECHECK_ENABLED`: versões em aberto com tarefas `done`
   antigas (sem execução verificada/revisão independente) deixam de publicar;

@@ -49,11 +49,12 @@ Changes made with the switches:
 
 - **SSRF policy** (bridge, `check_navigation_url`): navigation accepts only `http`/`https` without embedded credentials; the host is resolved and refused if any address is loopback, RFC 1918, CGNAT `100.64.0.0/10`, link-local (including `169.254.169.254`), IPv6 loopback/link-local/ULA, unspecified, multicast or otherwise non-global (IPv4-mapped IPv6 is unwrapped); an unresolvable host is refused. A refused URL is never recorded as an operation. Allow-listed hosts skip the check.
 - `--remote-allow-origins=*` is no longer passed to the task Chromium (its CDP client sends no `Origin`); the separate test-run browser keeps its flags.
-- Broker SQLite connections are always closed. The task Chromium's PID is recorded; at the next bridge start (only when enabled) it is stopped if that PID is still a Chromium on the task port, and every open session is marked closed. Recorded operations, including uncertain ones, are kept. An unknown listener on the port still refuses (409).
+- Broker SQLite connections are always closed. The task Chromium's PID is recorded; at the next bridge start (only when enabled) it is stopped if that PID is still a Chromium on the task port, and every open session is marked closed. Recorded operations, including uncertain ones, are kept. Startup waits up to 5 s for the task port to be free, and SIGKILLs the same verified PID if it is still listening. An unknown listener on the port still refuses (409).
 
 Requirements before turning it on:
 
-- Run the task Chromium as an unprivileged user. Today it runs as the bridge's user (root) with `--no-sandbox`. Not done in this change.
-- Add a network egress barrier (proxy or firewall) for the task browser: the SSRF check resolves before navigating, but Chromium resolves again (DNS rebinding) and follows redirects to internal addresses on its own.
+- Run the task Chromium as an unprivileged user and drop `--no-sandbox`. Today it runs as the bridge's user (root) with `--no-sandbox`. Not done in this change.
+- Close redirects and DNS rebinding: either intercept every request in the task context (CDP `Fetch` domain, applying the same address check to each request and redirect) or add an nftables egress rule for the task browser's user that drops private, CGNAT and link-local destinations. The current check resolves once before navigating, but Chromium resolves again and follows redirects to internal addresses on its own.
+- Turn on `FORGEHUB_TASK_BROWSER_ENABLED=1` on the bridge together with the backend switch. A backend on with the bridge off gets 404 from the bridge, reported as `refused`/`BROWSER_BRIDGE_DISABLED` (nothing ran), never as uncertain.
 - Grant `task.browser.execute` only to the qualified agent and project, with the risk ceiling the site needs.
 - Qualify the MCP in each native runtime (table above), which this change does not do.
