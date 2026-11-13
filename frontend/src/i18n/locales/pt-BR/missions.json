@@ -340,5 +340,47 @@
     "loadError": "Não foi possível ler a pasta docs/ no servidor.",
     "noWorkingDirectory": "A missão não tem pasta de trabalho. Edite a missão e informe a pasta do projeto.",
     "createError": "Não foi possível criar a pasta docs/."
+  },
+  "phases": {
+    "title": "Fases",
+    "description": "Cada fase é um projeto da missão. As fases correm em ordem: a próxima só começa depois que a anterior é homologada por um agente externo e aprovada por você. Os planejamentos de uma fase podem correr em paralelo; as tarefas de um planejamento correm em sequência.",
+    "empty": "Nenhuma fase cadastrada.",
+    "name": "Nome da fase",
+    "objective": "Objetivo",
+    "objectiveHint": "O que a fase entrega e o que deixa de fora",
+    "noObjective": "Sem objetivo definido.",
+    "noPlanning": "Nenhum planejamento nesta fase.",
+    "notSequenced": "Sem sequência",
+    "add": "Nova fase",
+    "addButton": "Adicionar fase",
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "edit": "Editar fase",
+    "delete": "Excluir fase",
+    "moveUp": "Mover para cima",
+    "moveDown": "Mover para baixo",
+    "deleteTitle": "Excluir fase?",
+    "deleteBody": "A fase \"{{name}}\" e o projeto dela serão removidos. Só é possível excluir uma fase sem planejamentos nem tarefas.",
+    "approve": "Aprovar fase",
+    "return": "Devolver",
+    "returnTitle": "Devolver fase?",
+    "returnBody": "A fase \"{{name}}\" volta ao orquestrador com o seu motivo.",
+    "returnReason": "Motivo",
+    "returnedBecause": "Devolvida: {{reason}}",
+    "evidence": "Evidências",
+    "homologation": "Homologação por {{agent}}: {{verdict}}",
+    "verdict": {
+      "approved": "aprovada",
+      "rejected": "reprovada",
+      "none": "pendente"
+    },
+    "status": {
+      "planned": "Planejada",
+      "in_progress": "Em execução",
+      "homologating": "Em homologação",
+      "awaiting_approval": "Aguardando sua aprovação",
+      "approved": "Aprovada",
+      "returned": "Devolvida"
+    }
   }
 }

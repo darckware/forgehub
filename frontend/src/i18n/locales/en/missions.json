@@ -340,5 +340,47 @@
     "loadError": "Could not read the docs/ folder on the server.",
     "noWorkingDirectory": "The mission has no working directory. Edit the mission and set the project folder.",
     "createError": "Could not create the docs/ folder."
+  },
+  "phases": {
+    "title": "Phases",
+    "description": "Each phase is a project of the mission. Phases run in order: the next one starts only after the previous one is homologated by an external agent and approved by you. A phase's planning items may run in parallel; the tasks of one planning item run in sequence.",
+    "empty": "No phase registered.",
+    "name": "Phase name",
+    "objective": "Objective",
+    "objectiveHint": "What the phase delivers and what it leaves out",
+    "noObjective": "No objective set.",
+    "noPlanning": "No planning item in this phase.",
+    "notSequenced": "Not sequenced",
+    "add": "New phase",
+    "addButton": "Add phase",
+    "save": "Save",
+    "cancel": "Cancel",
+    "edit": "Edit phase",
+    "delete": "Delete phase",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "deleteTitle": "Delete phase?",
+    "deleteBody": "Phase \"{{name}}\" and its project will be removed. Only a phase with no planning items or tasks can be deleted.",
+    "approve": "Approve phase",
+    "return": "Return",
+    "returnTitle": "Return phase?",
+    "returnBody": "Phase \"{{name}}\" goes back to the orchestrator with your reason.",
+    "returnReason": "Reason",
+    "returnedBecause": "Returned: {{reason}}",
+    "evidence": "Evidence",
+    "homologation": "Homologation by {{agent}}: {{verdict}}",
+    "verdict": {
+      "approved": "approved",
+      "rejected": "rejected",
+      "none": "pending"
+    },
+    "status": {
+      "planned": "Planned",
+      "in_progress": "In progress",
+      "homologating": "Homologating",
+      "awaiting_approval": "Awaiting your approval",
+      "approved": "Approved",
+      "returned": "Returned"
+    }
   }
 }

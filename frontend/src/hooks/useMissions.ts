@@ -124,6 +124,50 @@ export const planningViewSchema = z.object({
 });
 export type PlanningView = z.infer<typeof planningViewSchema>;
 
+/** Mission phases (docs/architecture/MISSION_PHASES_PLAN.md): ordered executor
+ * projects; planning items may run in parallel, tasks of one item in sequence. */
+export const PHASE_STATUSES = [
+  "planned", "in_progress", "homologating", "awaiting_approval", "approved", "returned",
+] as const;
+export type PhaseStatus = (typeof PHASE_STATUSES)[number];
+
+export const missionPhaseTaskSchema = z.object({
+  task_id: z.string(),
+  number: z.number().nullable(),
+  title: z.string(),
+  status: z.string(),
+  position: z.number().nullable(),
+  assignee_name: z.string().nullable(),
+  depends_on: z.array(z.number()).default([]),
+});
+
+export const missionPhaseSchema = z.object({
+  phase_id: z.string(),
+  position: z.number(),
+  name: z.string(),
+  objective: z.string().nullable(),
+  phase_status: z.string(),
+  executor_project_id: z.string(),
+  executor_project_name: z.string().nullable(),
+  homologator: agentRef.nullable(),
+  homologation_verdict: z.string().nullable(),
+  homologation_summary: z.string().nullable(),
+  homologation_evidence: z.string().nullable(),
+  homologated_at: z.string().nullable(),
+  decided_by: z.string().nullable(),
+  decided_at: z.string().nullable(),
+  decision_reason: z.string().nullable(),
+  planning_items: z.array(z.object({
+    planning_item_id: z.string(),
+    title: z.string(),
+    position: z.number().nullable(),
+    status: z.string(),
+    sequenced: z.boolean(),
+    tasks: z.array(missionPhaseTaskSchema),
+  })).default([]),
+}).passthrough();
+export type MissionPhase = z.infer<typeof missionPhaseSchema>;
+
 export const missionBoardSchema = z.object({
   mission: z.object({
     project_id: z.string(),
@@ -142,6 +186,7 @@ export const missionBoardSchema = z.object({
     allowed_actions: z.array(z.string()),
     blocked_actions: z.array(blockedAction),
   }),
+  phases: z.array(missionPhaseSchema).optional().default([]),
   tasks: z.array(missionTaskSchema),
   conflicts: z.array(missionConflictSchema),
   environments: z.array(environmentEntrySchema),
@@ -329,6 +374,29 @@ export function useMissionAction(projectId: string | undefined) {
       queryClient.invalidateQueries({ queryKey: ["mission-board", projectId] });
       queryClient.invalidateQueries({ queryKey: ["mission-timeline", projectId] });
       queryClient.invalidateQueries({ queryKey: ["missions"] });
+    },
+  });
+}
+
+/** One phase write (create/update/delete/reorder/approve/return), each to its own guarded route. */
+export interface MissionPhaseRequest {
+  method: "POST" | "PATCH" | "DELETE";
+  path: string;
+  body?: Record<string, unknown>;
+}
+
+export function useMissionPhaseMutation(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ method, path, body }: MissionPhaseRequest) => {
+      const url = `/api/v1/missions/${projectId}${path}`;
+      if (method === "PATCH") return apiClient.patch(url, body);
+      if (method === "DELETE") return apiClient.delete(url);
+      return apiClient.post(url, body);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["mission-board", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["mission-timeline", projectId] });
     },
   });
 }

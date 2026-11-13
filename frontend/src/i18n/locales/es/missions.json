@@ -340,5 +340,47 @@
     "loadError": "No fue posible leer la carpeta docs/ en el servidor.",
     "noWorkingDirectory": "La misión no tiene carpeta de trabajo. Edite la misión e indique la carpeta del proyecto.",
     "createError": "No fue posible crear la carpeta docs/."
+  },
+  "phases": {
+    "title": "Fases",
+    "description": "Cada fase es un proyecto de la misión. Las fases corren en orden: la siguiente solo empieza después de que la anterior sea homologada por un agente externo y aprobada por usted. Las planificaciones de una fase pueden correr en paralelo; las tareas de una planificación corren en secuencia.",
+    "empty": "Ninguna fase registrada.",
+    "name": "Nombre de la fase",
+    "objective": "Objetivo",
+    "objectiveHint": "Qué entrega la fase y qué deja fuera",
+    "noObjective": "Sin objetivo definido.",
+    "noPlanning": "Ninguna planificación en esta fase.",
+    "notSequenced": "Sin secuencia",
+    "add": "Nueva fase",
+    "addButton": "Agregar fase",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "edit": "Editar fase",
+    "delete": "Eliminar fase",
+    "moveUp": "Mover arriba",
+    "moveDown": "Mover abajo",
+    "deleteTitle": "¿Eliminar fase?",
+    "deleteBody": "La fase \"{{name}}\" y su proyecto serán eliminados. Solo se puede eliminar una fase sin planificaciones ni tareas.",
+    "approve": "Aprobar fase",
+    "return": "Devolver",
+    "returnTitle": "¿Devolver fase?",
+    "returnBody": "La fase \"{{name}}\" vuelve al orquestador con su motivo.",
+    "returnReason": "Motivo",
+    "returnedBecause": "Devuelta: {{reason}}",
+    "evidence": "Evidencias",
+    "homologation": "Homologación por {{agent}}: {{verdict}}",
+    "verdict": {
+      "approved": "aprobada",
+      "rejected": "reprobada",
+      "none": "pendiente"
+    },
+    "status": {
+      "planned": "Planificada",
+      "in_progress": "En ejecución",
+      "homologating": "En homologación",
+      "awaiting_approval": "Esperando su aprobación",
+      "approved": "Aprobada",
+      "returned": "Devuelta"
+    }
   }
 }

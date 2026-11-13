@@ -7,6 +7,7 @@ import { MissionAcceptance } from "@/components/missions/MissionAcceptance";
 import { MissionCriteria } from "@/components/missions/MissionCriteria";
 import { MissionDocsCard } from "@/components/missions/MissionDocsCard";
 import { MissionExecutionsBoard } from "@/components/missions/MissionExecutionsBoard";
+import { MissionPhases } from "@/components/missions/MissionPhases";
 import { useMissionExecutionsViewModel } from "@/hooks/useMissionExecutionsViewModel";
 
 function BoardSkeleton() {
@@ -55,6 +56,8 @@ export default function MissionDetailPage() {
     {projectId && board && <MissionCriteria projectId={projectId} tasks={board.tasks} reviewers={reviewers}
       canManage={canManageCriteria} />}
     {board?.mission.state === "awaiting_acceptance" && projectId && <MissionAcceptance projectId={projectId} canAct={admin} />}
+    {projectId && board && <MissionPhases projectId={projectId} phases={board.phases}
+      canEdit={canManageCriteria} canDecide={admin} />}
     <MissionExecutionsBoard vm={vm} />
   </div>;
 }
