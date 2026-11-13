@@ -5,14 +5,14 @@ exist yet; ForgeHub registers a minimal shell and this flag tells the
 orchestrator to complete the registration (blocks draft -> planning).
 
 Revision ID: a3c5e7f9b1d2
-Revises: 1994f24fd6e1
+Revises: 6e29cba08d41
 Create Date: 2026-11-12
 """
 import sqlalchemy as sa
 from alembic import op
 
 revision = "a3c5e7f9b1d2"
-down_revision = "1994f24fd6e1"
+down_revision = '6e29cba08d41'
 branch_labels = None
 depends_on = None
 
