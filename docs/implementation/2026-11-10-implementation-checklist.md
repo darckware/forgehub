@@ -53,6 +53,49 @@ revisão integrada/publicação. T10 e T12 estão parcialmente implementados. A
 missão permanece sem aceite final e sem ativação automática até fechar os
 itens pendentes acima.
 
+### Chaves de ativação (13/11/2026)
+
+Revisão independente de `357e985`: tudo que ainda não foi qualificado fica
+atrás de uma chave **desligada por padrão**. Desligada = exatamente o
+comportamento anterior ao commit, então o merge em `main` e o deploy não mudam
+produção até alguém ligar a chave.
+
+| Chave | Onde | Padrão | O que guarda |
+| --- | --- | --- | --- |
+| `RUNTIME_CONTRACT_ENABLED` | backend (`core/config.py`) | `false` | T8: `resolve_runtime_intent` em `_execute_dispatch`, `reserve_dispatch` e work packages; envio a `/v1/agent-runs/contextual` (SKILL.md injetado, manifesto, `--version`). Desligada: `/v1/agent-runs` puro; `runtime_intent` num work package → 422. |
+| `NATIVE_DELEGATION_ENABLED` | backend | `false` | T9: estratégias `single`/`delegate` do `RuntimeIntent` (422 quando desligada); só `native` existe. |
+| `PUBLISH_PROOF_RECHECK_ENABLED` | backend | `false` | T11: publicação só por `:publish`, aceite humano da missão e reverificação da prova de cada tarefa. Desligada: `PUT/POST status=published` permitido e `:publish` só confere status. |
+| `TASK_BROWSER_ENABLED` | backend | `false` | T12: `/api/v1/workspace-browser/task-context[/control]` → 503. |
+| `FORGEHUB_TASK_BROWSER_ENABLED=1` | host-bridge e MCP (ambiente) | ausente | T12: rotas `/v1/workspace-browser/task-context*` (404 sem ela; Chromium nunca iniciado) e as ferramentas MCP `task_browser`/`get_workspace_browser_capabilities`. |
+| `FORGEHUB_TASK_BROWSER_ALLOWED_HOSTS` | host-bridge | vazio | Hosts (separados por vírgula) liberados da política SSRF. |
+| `MISSION_LEARNING_ENABLED` | backend | `false` | T10: campo `learning` da proposta de skill (422 `MISSION_LEARNING_DISABLED`). |
+| `FORGEHUB_MISSION_LEARNING_ENABLED=1` | MCP (ambiente) | ausente | T10: ferramenta `propose_verified_learning`. |
+
+Também nesta revisão: o pacote de recuperação de contexto
+(`/missions/{id}/tasks/{task}/context`) segue `MISSION_TOOLS_ENABLED`; o
+navegador usa a ação delegável própria `task.browser.execute` (só admin
+concede), não mais `planning.execution.dispatch`; um contrato de runtime
+insatisfazível vira falha notificada (não fila silenciosa); uma proposta de
+skill legada sem `request_hash` volta a ser reproduzida pela chave; work
+package Hermes volta a exigir e enviar a chave ForgeRouter.
+
+Antes de ligar cada chave:
+
+- [ ] `RUNTIME_CONTRACT_ENABLED`: reiniciar o host-bridge com a versão que tem
+  `/v1/agent-runs/contextual` **antes** do backend; skills obrigatórias das
+  tarefas registradas e concedidas aos executores.
+- [ ] `NATIVE_DELEGATION_ENABLED`: qualificar a delegação no Codex CLI em uso.
+- [ ] `PUBLISH_PROOF_RECHECK_ENABLED`: versões em aberto com tarefas `done`
+  antigas (sem execução verificada/revisão independente) deixam de publicar;
+  inventariar antes.
+- [ ] Navegador (as três chaves): Chromium como usuário sem privilégio (hoje
+  roda como root com `--no-sandbox`); política SSRF resolve DNS antes de
+  navegar mas o Chromium resolve de novo e segue redirecionamentos — falta
+  barreira de rede (proxy/egress) contra rebinding e redirect para endereço
+  interno; conceder `task.browser.execute` só ao agente/projeto qualificado.
+- [ ] `MISSION_LEARNING_ENABLED`: fechar o ciclo de publicação/rollback de
+  skill (T10 acima).
+
 Fontes: [plano completo](../superpowers/plans/2026-11-09-mission-messages-maturation.md),
 [matriz de requisitos e continuidade](../reports/2026-11-09-development-continuity.md),
 [histórico dos pedidos](2026-11-10-user-requirements-history.md) e
