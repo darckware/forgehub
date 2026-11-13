@@ -216,7 +216,7 @@
     "editTitle": "Editar misión",
     "description": "Defina el objetivo, el contexto y el orquestador. La misión comienza como borrador.",
     "adminOnly": "Solo los administradores pueden crear o editar misiones.",
-    "required": "Complete nombre, producto/versión y orquestador.",
+    "required": "Complete nombre, producto o servicio y orquestador.",
     "saveError": "No se pudo guardar. Revise los datos e inténtelo de nuevo.",
     "loading": "Cargando datos de la misión…",
     "loadError": "No se pudieron cargar los datos del formulario.",
@@ -225,12 +225,11 @@
     "fixed": "El contexto aprobado está protegido. Registre una solicitud de cambio para modificarlo.",
     "name": "Nombre de la misión",
     "context": "Objetivo y contexto",
-    "version": "Producto y versión",
+    "version": "Producto y servicio",
     "orchestrator": "Orquestador",
     "select": "Seleccione",
     "priority": "Prioridad (1 a 1000)",
     "deadline": "Plazo",
-    "budget": "Límite de presupuesto",
     "directory": "Carpeta de trabajo",
     "reason": "Motivo del cambio o cancelación",
     "draftHint": "Crear el borrador no aprueba el plan ni inicia ejecuciones. Los roles, el contexto y los criterios se validan antes de abrir.",
@@ -248,7 +247,19 @@
     "productsLoadError": "No se pudieron cargar los productos.",
     "versionsLoadError": "No se pudieron cargar las versiones de los productos.",
     "agentsLoadError": "No se pudieron cargar los agentes.",
-    "recordLoadError": "No se pudo cargar esta misión."
+    "recordLoadError": "No se pudo cargar esta misión.",
+    "newProductOption": "+ Nuevo producto o servicio (aún no registrado)",
+    "newProductHint": "ForgeHub registra solo el nombre y el tipo (versión 0.1.0). El orquestador completa el registro y guarda la documentación de la creación en la carpeta docs/ de la carpeta de trabajo; la misión sale de borrador solo después de eso.",
+    "newProductName": "Nombre del nuevo producto o servicio",
+    "newProductKind": "Tipo",
+    "productKind": {
+      "software": "Software",
+      "service": "Servicio",
+      "infrastructure": "Infraestructura",
+      "client_it": "TI de cliente"
+    },
+    "newProductRequired": "Para un nuevo producto o servicio, indique el nombre y la carpeta de trabajo.",
+    "directoryDocsHint": "Obligatoria para un nuevo producto o servicio: la documentación de la creación va en docs/ dentro de esta carpeta."
   },
   "team": {
     "title": "Agentes por función",
@@ -293,7 +304,11 @@
     "tasks": "Tareas ({{count}}): {{tasks}}",
     "saving": "Guardando…",
     "save": "Guardar criterio",
-    "status": { "open": "Abierto", "proven": "Demostrado", "failed": "Fallido" }
+    "status": {
+      "open": "Abierto",
+      "proven": "Demostrado",
+      "failed": "Fallido"
+    }
   },
   "acceptance": {
     "title": "Aceptación de la misión",

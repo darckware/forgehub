@@ -153,6 +153,15 @@ class ProjectMission(Base, TimestampMixin):
     )
     deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     budget_limit: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    # 2026-11-12 (Marcelo: "precisa ter uma forma de informar que é um novo
+    # produto e serviço, para que o agente entenda e faça o cadastro"): the
+    # mission was created with a new product/service that ForgeHub registered
+    # only as a minimal shell (name, kind, version 0.1.0). The orchestrator
+    # completes the registration (POST /missions/{id}/product:complete-registration);
+    # until then the mission cannot leave draft (PRODUCT_REGISTRATION_PENDING).
+    product_registration_pending: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     paused_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     state_changed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)

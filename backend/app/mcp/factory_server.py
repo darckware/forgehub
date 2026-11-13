@@ -722,6 +722,33 @@ async def get_my_mission_role(project_id: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+async def complete_mission_product_registration(
+    project_id: str,
+    description: str,
+    documentation_paths: list[str],
+    name: str | None = None,
+    kind: str | None = None,
+) -> dict[str, Any]:
+    """When get_my_mission_role shows `product_registration_pending: true`,
+    the mission was created for a product/service that did not exist yet:
+    ForgeHub registered only its name and kind. As the orchestrator, write the
+    product's description (what it is, for whom, what it delivers -- from the
+    mission's objective and context), optionally correct its `name` or `kind`
+    (software, service, infrastructure, client_it). First write the product's
+    creation documentation (concept, audience, scope, decisions) as files in
+    the `docs/` folder of the mission's working directory, and pass them in
+    `documentation_paths` relative to it (e.g. ["docs/PRODUTO.md"]): every
+    file must exist there, or nothing is changed. The product becomes
+    `active` and the mission may leave draft. Only while it is pending."""
+    body: dict[str, Any] = {"description": description, "documentation_paths": documentation_paths}
+    if name is not None:
+        body["name"] = name
+    if kind is not None:
+        body["kind"] = kind
+    return await _factory_call("POST", f"/api/v1/missions/{project_id}/product:complete-registration", json=body)
+
+
+@mcp.tool()
 async def list_my_tasks(state: str = "open") -> dict[str, Any]:
     """Your tasks (assigned to you, or that you review) across the missions you
     are an active member of. `state`: open (default: not done/deployed/

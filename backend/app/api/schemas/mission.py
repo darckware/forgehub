@@ -18,10 +18,42 @@ from app.db.models.mission import (
 )
 
 
+class MissionNewProduct(BaseModel):
+    """A product/service that does not exist yet (2026-11-12). ForgeHub
+    registers only this minimal shell (status ``concept``, version 0.1.0
+    ``planned``) so the mission keeps its traceability chain; the
+    orchestrator completes the registration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=255)
+    kind: Literal["software", "service", "infrastructure", "client_it"] = "software"
+    notes: str | None = Field(default=None, max_length=4000)
+
+
+class MissionProductRegistrationIn(BaseModel):
+    """POST /missions/{id}/product:complete-registration -- the orchestrator
+    (or an admin) completes the new product's registration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    description: str = Field(min_length=1, max_length=20000)
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    kind: Literal["software", "service", "infrastructure", "client_it"] | None = None
+    # 2026-11-12 (Marcelo: "adicionar documento na pasta docs (obrigatório na
+    # pasta do projeto) com todas as documentações da criação do produto ou
+    # serviço"): files under <working_directory_path>/docs/, relative to the
+    # working directory (e.g. "docs/PRODUTO.md"); each must exist on the host.
+    documentation_paths: list[str] = Field(min_length=1, max_length=50)
+    expected_row_version: int | None = None
+
+
 class MissionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    product_version_id: uuid.UUID
+    # Exactly one of product_version_id / new_product (a mission only).
+    product_version_id: uuid.UUID | None = None
+    new_product: MissionNewProduct | None = None
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     # M0.2a (§5.1, create_internal_project): the same route also registers a
@@ -97,6 +129,7 @@ class MissionOut(BaseModel):
     current_baseline_id: uuid.UUID | None
     deadline_at: datetime | None
     budget_limit: Decimal | None
+    product_registration_pending: bool = False
     paused_seconds: int
     state_changed_at: datetime
     state_reason: str | None
@@ -106,7 +139,7 @@ class MissionOut(BaseModel):
 
 MISSION_ONLY_CREATE_FIELDS = frozenset({
     "orchestrator_agent_id", "priority", "autonomy_level", "brief_artifact_id", "deadline_at", "budget_limit",
-    "executor_project_ids",
+    "executor_project_ids", "new_product",
 })
 
 
@@ -133,6 +166,7 @@ class InternalProjectOut(BaseModel):
     current_baseline_id: uuid.UUID | None = None
     deadline_at: datetime | None = None
     budget_limit: Decimal | None = None
+    product_registration_pending: bool | None = None
     paused_seconds: int | None = None
     state_changed_at: datetime | None = None
     state_reason: str | None = None
@@ -405,6 +439,11 @@ class MyMissionRoleOut(BaseModel):
     can_review: bool
     responsibilities: str | None = None
     orchestrator: MissionOrchestratorRef | None = None
+    # The mission's product; registration_pending tells the orchestrator it
+    # must complete a new product's registration (complete_mission_product_registration).
+    product_id: uuid.UUID | None = None
+    product_name: str | None = None
+    product_registration_pending: bool | None = None
     my_tasks: list[MyTaskItem] = Field(default_factory=list)
     my_reviews: list[MyReviewItem] = Field(default_factory=list)
 

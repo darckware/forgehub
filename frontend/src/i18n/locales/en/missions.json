@@ -216,7 +216,7 @@
     "editTitle": "Edit mission",
     "description": "Define the objective, context and orchestrator. The mission starts as a draft.",
     "adminOnly": "Only administrators can create or edit missions.",
-    "required": "Enter a name, product/version and orchestrator.",
+    "required": "Enter a name, product or service and orchestrator.",
     "saveError": "Could not save. Check the details and try again.",
     "loading": "Loading mission details…",
     "loadError": "Could not load form data.",
@@ -225,12 +225,11 @@
     "fixed": "Approved context is protected. Submit a change request to modify it.",
     "name": "Mission name",
     "context": "Objective and context",
-    "version": "Product and version",
+    "version": "Product and service",
     "orchestrator": "Orchestrator",
     "select": "Select",
     "priority": "Priority (1 to 1000)",
     "deadline": "Deadline",
-    "budget": "Budget limit",
     "directory": "Working directory",
     "reason": "Reason for change or cancellation",
     "draftHint": "Creating a draft does not approve the plan or start execution. Roles, context and criteria are validated before opening.",
@@ -248,7 +247,19 @@
     "productsLoadError": "Could not load products.",
     "versionsLoadError": "Could not load product versions.",
     "agentsLoadError": "Could not load agents.",
-    "recordLoadError": "Could not load this mission."
+    "recordLoadError": "Could not load this mission.",
+    "newProductOption": "+ New product or service (not registered yet)",
+    "newProductHint": "ForgeHub registers only the name and kind (version 0.1.0). The orchestrator completes the registration and writes the creation documentation in the working directory's docs/ folder; the mission leaves draft only after that.",
+    "newProductName": "New product or service name",
+    "newProductKind": "Kind",
+    "productKind": {
+      "software": "Software",
+      "service": "Service",
+      "infrastructure": "Infrastructure",
+      "client_it": "Client IT"
+    },
+    "newProductRequired": "For a new product or service, enter its name and the working directory.",
+    "directoryDocsHint": "Required for a new product or service: the creation documentation goes in docs/ inside this folder."
   },
   "team": {
     "title": "Agents by role",
@@ -293,7 +304,11 @@
     "tasks": "Tasks ({{count}}): {{tasks}}",
     "saving": "Saving…",
     "save": "Save criterion",
-    "status": { "open": "Open", "proven": "Proven", "failed": "Failed" }
+    "status": {
+      "open": "Open",
+      "proven": "Proven",
+      "failed": "Failed"
+    }
   },
   "acceptance": {
     "title": "Mission acceptance",

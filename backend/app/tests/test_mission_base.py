@@ -566,7 +566,7 @@ async def test_transition_preconditions(world):
 
     response = await _transition(world, project_id, "planning")
     assert response.status_code == 409
-    assert _codes(response) == {"BRIEF_MISSING", "DEADLINE_MISSING", "BUDGET_MISSING"}
+    assert _codes(response) == {"BRIEF_MISSING", "DEADLINE_MISSING"}
 
     async with world.client() as client:
         stale = await client.post(f"/api/v1/missions/{project_id}:transition",
@@ -576,7 +576,7 @@ async def test_transition_preconditions(world):
     await _force(project_id, state="planning", planning_stage="consolidation")
     response = await _transition(world, project_id, "ready")
     assert _codes(response) == {"PLANNING_PIPELINE_UNFINISHED", "NO_CRITERIA", "DEADLINE_MISSING",
-                                "BUDGET_MISSING", "BASELINE_MISSING"}
+                                "BASELINE_MISSING"}
 
     await _force(project_id, state="paused", paused_from_state="active")
     no_reason = await _transition(world, project_id, "active")
@@ -663,7 +663,7 @@ async def test_planning_stage_exit_conditions(world):
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "PLANNING_EXIT_CONDITIONS_UNMET"
     assert _codes(response) == {"PLAN_DRAFT_MISSING", "NO_TASKS", "NO_CRITERIA", "DEADLINE_MISSING",
-                                "BUDGET_MISSING", "RISK_LEVEL_MISSING", "REVIEW_LAYERS_MISSING"}
+                                "RISK_LEVEL_MISSING", "REVIEW_LAYERS_MISSING"}
 
     # The refused attempt is recorded, and the same key replays it.
     async with AsyncSessionLocal() as db:
@@ -921,3 +921,85 @@ async def test_migration_upgrade_downgrade_roundtrip(world):
             "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'ck_projects_project_type'"))
         assert "mission" in check
     assert (await world.create_mission())["state"] == "draft"
+
+
+# ---------------------------------------------------------------------------
+# 2026-11-12: a mission for a new product/service; budget no longer required
+# ---------------------------------------------------------------------------
+async def _product_of(project_id) -> Product:
+    async with AsyncSessionLocal() as db:
+        project = await db.get(Project, uuid.UUID(str(project_id)))
+        version = await db.get(ProductVersion, project.product_version_id)
+        return await db.get(Product, version.product_id)
+
+
+@pytest.mark.asyncio
+async def test_new_product_mission_shell_and_registration(world, tmp_path, bind_evidence_bridge):
+    bind_evidence_bridge(tmp_path)
+    workdir = tmp_path / "novo-servico"
+    (workdir / "docs").mkdir(parents=True)
+    name = f"mission-test-{world.tag}-novo"
+    orchestrator = await world.agent("orch")
+    base = {"name": f"Mission {uuid.uuid4().hex[:6]}", "orchestrator_agent_id": str(orchestrator)}
+    async with world.client() as client:
+        neither = await client.post("/api/v1/missions", json=base)
+        both = await client.post("/api/v1/missions", json={**base, "product_version_id": str(world.version_id),
+                                                            "new_product": {"name": name}})
+        no_dir = await client.post("/api/v1/missions", json={**base, "new_product": {"name": name}})
+    assert neither.json()["detail"]["code"] == "PRODUCT_CHOICE_REQUIRED"
+    assert both.json()["detail"]["code"] == "PRODUCT_CHOICE_REQUIRED"
+    assert no_dir.status_code == 422 and no_dir.json()["detail"]["code"] == "WORKING_DIRECTORY_REQUIRED"
+
+    mission = await world.create_mission(product_version_id=None, orchestrator_agent_id=orchestrator,
+                                         new_product={"name": name, "kind": "service"},
+                                         working_directory_path=str(workdir))
+    project_id = mission["project_id"]
+    product = await _product_of(project_id)
+    try:
+        assert (product.name, product.kind, product.status, product.sellable) == (name, "service", "concept", False)
+        assert mission["product_registration_pending"] is True
+
+        async with world.client() as client:
+            dup = await client.post("/api/v1/missions", json={**base, "new_product": {"name": name.upper()},
+                                                               "working_directory_path": str(workdir)})
+        assert dup.status_code == 409 and dup.json()["detail"]["code"] == "PRODUCT_NAME_EXISTS"
+
+        blocked = await _transition(world, project_id, "planning")
+        assert "PRODUCT_REGISTRATION_PENDING" in _codes(blocked)
+        assert "BUDGET_MISSING" not in _codes(blocked)
+
+        url = f"/api/v1/missions/{project_id}/product:complete-registration"
+        async with world.client() as client:
+            outside = await client.post(url, json={"description": "x", "documentation_paths": ["README.md"]})
+            escape = await client.post(url, json={"description": "x", "documentation_paths": ["docs/../../x.md"]})
+            missing = await client.post(url, json={"description": "x", "documentation_paths": ["docs/PRODUTO.md"]})
+        assert outside.json()["detail"]["code"] == "DOC_PATH_NOT_ALLOWED"
+        assert escape.json()["detail"]["code"] == "DOC_PATH_NOT_ALLOWED"
+        assert missing.status_code == 422 and missing.json()["detail"]["code"] == "DOCUMENTATION_NOT_FOUND"
+        assert (await _product_of(project_id)).status == "concept"
+
+        (workdir / "docs" / "PRODUTO.md").write_text("# Produto\n")
+        async with world.client() as client:
+            done = await client.post(url, json={"description": "Atendimento remoto", "kind": "service",
+                                                "documentation_paths": ["./docs/PRODUTO.md"]})
+            again = await client.post(url, json={"description": "y", "documentation_paths": ["docs/PRODUTO.md"]})
+        assert done.status_code == 200, done.text
+        assert done.json()["product_registration_pending"] is False
+        assert again.json()["detail"]["code"] == "PRODUCT_REGISTRATION_NOT_PENDING"
+        product = await _product_of(project_id)
+        assert (product.status, product.description) == ("active", "Atendimento remoto")
+        after = await _transition(world, project_id, "planning")
+        assert "PRODUCT_REGISTRATION_PENDING" not in _codes(after)
+    finally:
+        await _remove_products(f"SELECT '{product.id}'::uuid")
+
+
+@pytest.mark.asyncio
+async def test_new_product_only_for_missions(world):
+    async with world.client() as client:
+        response = await client.post("/api/v1/missions", json={
+            "name": f"creation-{uuid.uuid4().hex[:6]}", "project_type": "creation",
+            "new_product": {"name": f"mission-test-{world.tag}-x"}, "idempotency_key": uuid.uuid4().hex})
+    assert response.status_code in (422, 503)
+    if response.status_code == 422:
+        assert response.json()["detail"]["code"] == "MISSION_ONLY_FIELDS"

@@ -381,8 +381,6 @@ async def _draft_plan_items(db: AsyncSession, mission: ProjectMission) -> list[d
             unmet.append(_item("CRITERION_WITHOUT_TASK", "Acceptance criterion has no task", code_ref=criterion.code))
     if mission.deadline_at is None:
         unmet.append(_item("DEADLINE_MISSING", "deadline_at is not set"))
-    if mission.budget_limit is None:
-        unmet.append(_item("BUDGET_MISSING", "budget_limit is not set"))
     if mission.risk_level is None:
         unmet.append(_item("RISK_LEVEL_MISSING", "risk_level is not set"))
     if not mission.required_review_layers:
@@ -465,8 +463,9 @@ async def transition_preconditions(
                                "The orchestrator has no active coordinator membership"))
         if mission.deadline_at is None:
             unmet.append(_item("DEADLINE_MISSING", "deadline_at is not set"))
-        if mission.budget_limit is None:
-            unmet.append(_item("BUDGET_MISSING", "budget_limit is not set"))
+        if mission.product_registration_pending:
+            unmet.append(_item("PRODUCT_REGISTRATION_PENDING",
+                               "The mission's new product/service still has to be registered by the orchestrator"))
 
     elif (from_state, to_state) == ("planning", "ready"):
         if mission.planning_stage != "baseline":
@@ -481,8 +480,6 @@ async def transition_preconditions(
                                    code_ref=criterion.code))
         if mission.deadline_at is None:
             unmet.append(_item("DEADLINE_MISSING", "deadline_at is not set"))
-        if mission.budget_limit is None:
-            unmet.append(_item("BUDGET_MISSING", "budget_limit is not set"))
         if not await _current_baseline_valid(db, mission):
             unmet.append(_item("BASELINE_MISSING", "No current baseline of this mission's plan"))
 
