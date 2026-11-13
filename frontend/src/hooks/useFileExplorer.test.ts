@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   baseName,
+  archiveFolderName,
+  isExtractableArchive,
   copyName,
   fileKind,
   formatSize,
@@ -22,6 +24,15 @@ const entry = (name: string, type: "file" | "dir", extra: Partial<ExplorerEntry>
   modified: 0,
   is_symlink: false,
   ...extra,
+});
+
+it("offers extraction only for supported formats and preserves multi-dot names", () => {
+  for (const name of ["docs.ZIP", "project.tar.gz", "a.tgz", "a.tar.xz", "a.tar.bz2"]) {
+    expect(isExtractableArchive(name)).toBe(true);
+  }
+  for (const name of ["a.rar", "a.7z", "a.zip.exe", "file.txt"]) expect(isExtractableArchive(name)).toBe(false);
+  expect(archiveFolderName("product.v0.3.zip")).toBe("product.v0.3");
+  expect(archiveFolderName("product.tar.gz")).toBe("product");
 });
 
 describe("explorer path helpers", () => {

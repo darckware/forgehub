@@ -29,17 +29,20 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
 import posixpath
 import re
 import shlex
 import uuid
+from pathlib import Path
 from dataclasses import dataclass
 from typing import AsyncIterator, Awaitable, Callable
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from explorer_archive_routes import ArchiveRequest
 
 _CONTROL_DIR = os.path.expanduser("~/.cache/forgehub-explorer-ssh")
 _MAX_READABLE_FILE_BYTES = 2 * 1024 * 1024
@@ -566,5 +569,32 @@ def make_remote_fs_router(
         raise_for_exit(target, proc.returncode or 0, err.decode(errors="replace"), "Upload failed")
         entries = parse_entries(out)
         return entries[0] if entries else FsEntry(name=posixpath.basename(path), path=path, type="file")
+
+    async def process_archive(mode, req, target):
+        # Send the exact same standard-library implementation to the selected
+        # server. No archive data or credentials travel through the browser.
+        source = Path(__file__).with_name('explorer_archives.py').read_text()
+        source += '''
+import json, sys
+try:
+    payload = json.loads(sys.argv[1])
+    print(json.dumps(archive_operation(payload['mode'], payload['paths'], payload['destination'])))
+except ArchiveError as exc:
+    print(json.dumps({'error': str(exc), 'status': exc.status}))
+'''
+        out = await run_ok(target, 'exec python3 -c "$1" "$2"', source,
+            json.dumps(dict(mode=mode, paths=req.paths, destination=req.destination)), timeout=180)
+        data = json.loads(out)
+        if 'error' in data:
+            raise HTTPException(data['status'], data['error'])
+        return data
+
+    @router.post('/compress', response_model=FsEntry)
+    async def compress_archive(req: ArchiveRequest, target: SshTarget = Target):
+        return await process_archive('compress', req, target)
+
+    @router.post('/extract', response_model=FsEntry)
+    async def extract_archive(req: ArchiveRequest, target: SshTarget = Target):
+        return await process_archive('extract', req, target)
 
     return router

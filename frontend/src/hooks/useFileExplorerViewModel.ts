@@ -41,6 +41,7 @@ export type ExplorerSortKey = "name" | "modified" | "size" | "type";
 export type ExplorerViewMode = "details" | "icons";
 
 export type ExplorerDialog =
+  | { kind: "archive"; mode: "compress" | "extract"; entries: ExplorerEntry[] }
   | { kind: "newFolder" }
   | { kind: "newFile" }
   | { kind: "rename"; entry: ExplorerEntry }
@@ -306,6 +307,19 @@ export function useFileExplorerViewModel(initialPath: string, onPathChange?: (pa
     return ok;
   }
 
+  async function processArchive(mode: "compress" | "extract", targets: ExplorerEntry[], name: string) {
+    const destination = joinPath(path, mode === "compress" && !name.toLowerCase().endsWith(".zip") ? `${name}.zip` : name);
+    const ok = await run(async () => {
+      await mutations.archive.mutateAsync({ mode, paths: targets.map((entry) => entry.path), destination });
+    });
+    if (ok) {
+      setDialog(null);
+      setSelected(new Set([destination]));
+      anchorRef.current = destination;
+    }
+    return ok;
+  }
+
   async function rename(entry: ExplorerEntry, newName: string) {
     const trimmed = newName.trim();
     if (trimmed === entry.name) {
@@ -536,6 +550,7 @@ export function useFileExplorerViewModel(initialPath: string, onPathChange?: (pa
     closeDialog,
     dismissError,
     createItem,
+    processArchive,
     rename,
     removeEntries,
     copySelection,
