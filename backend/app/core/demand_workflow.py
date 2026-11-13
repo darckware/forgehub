@@ -137,7 +137,12 @@ async def decide_demand(db, demand, payload, *, actor):
     from app.core.dispatch_signal import wake_scheduled_dispatch
     from app.db.models.moodle_approval import MoodleApproval
 
-    if await db.scalar(select(MoodleApproval.id).where(MoodleApproval.message_id == demand.id)):
+    moodle_state = await db.scalar(select(MoodleApproval.state).where(MoodleApproval.message_id == demand.id))
+    # A Moodle message is decided only through its own flow. The one exception
+    # (2026-11-13, Marcelo): archiving once that flow is over -- finished or
+    # rejected -- so a spent approval doesn't sit in Execução forever. A claimed
+    # run is never archived: its outcome is unknown (CLAUDE.md, Moodle bullets).
+    if moodle_state is not None and not (payload.action == "archive" and moodle_state in ("finished", "rejected")):
         raise WorkflowBlocked("Moodle messages require the dedicated approval flow")
 
     investigation = payload.action in ("record_investigation", "confirm_inactive")
