@@ -90,13 +90,15 @@ class TaskBrowserBroker:
         with self.connect() as db:
             db.execute('INSERT OR REPLACE INTO browser(id,pid,port,started) VALUES(1,?,?,?)', (pid, port, time.time()))
 
-    def recover_after_restart(self, port, kill=os.killpg, cmdline=None):
+    def recover_after_restart(self, port, kill=os.killpg, cmdline=None, port_free=None,
+                              wait_seconds=5.0, sleep=time.sleep):
         """Bridge startup: a Chromium left by a previous bridge would make
         every launch refuse (409, unknown listener) forever. Stop the one we
         recorded -- only if that PID is still our task browser on this port --
         and close every open session: its contexts died with it. Recorded
         operations stay as they were (an uncertain one stays uncertain)."""
         read_cmdline = cmdline or _proc_cmdline
+        is_free = port_free or _port_free
         with self.connect() as db:
             row = db.execute('SELECT pid,port FROM browser WHERE id=1').fetchone()
             closed = db.execute('UPDATE sessions SET closed=1 WHERE closed=0').rowcount
@@ -104,11 +106,27 @@ class TaskBrowserBroker:
         terminated = False
         if row and row[0]:
             pid, recorded_port = row
-            command = read_cmdline(pid)
-            if command and recorded_port == port and f"--remote-debugging-port={port}" in command:
+
+            def ours():
+                command = read_cmdline(pid)
+                return bool(command) and recorded_port == port and f"--remote-debugging-port={port}" in command
+
+            if ours():
                 with contextlib.suppress(ProcessLookupError, PermissionError):
                     kill(pid, signal.SIGTERM)  # launched with start_new_session: pgid == pid
                     terminated = True
+                # Return only once the port is free, so the next launch never
+                # meets our own dying listener; SIGKILL the same verified pid.
+                deadline = time.monotonic() + wait_seconds
+                while not is_free(port) and time.monotonic() < deadline:
+                    sleep(0.1)
+                if not is_free(port) and ours():
+                    with contextlib.suppress(ProcessLookupError, PermissionError):
+                        kill(pid, signal.SIGKILL)
+                    for _ in range(20):
+                        if is_free(port):
+                            break
+                        sleep(0.1)
         return {'terminated_pid': row[0] if terminated else None, 'sessions_closed': closed}
 
     def targets(self):
@@ -276,6 +294,14 @@ class TaskBrowserBroker:
     def uncertain():
         return {'status': 'uncertain', 'code': 'UPSTREAM_UNCERTAIN',
                 'message': 'Reconcile this task/run browser state before any repetition; the original command will not run again.'}
+
+
+def _port_free(port):
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+            return False
+    except OSError:
+        return True
 
 
 def _proc_cmdline(pid):

@@ -113,7 +113,11 @@ async def task_browser_command(payload: TaskBrowserCommand,
                                          json={'scope': scope, 'idempotency_key': payload.idempotency_key,
                                                'action': payload.action, 'url': payload.url,
                                                'selector': payload.selector, 'text': payload.text})
-        if response.status_code in {400, 401, 403, 409, 422}:
+        if response.status_code == 404:
+            # The bridge registers these routes only with FORGEHUB_TASK_BROWSER_ENABLED=1:
+            # a 404 means nothing ran, never an uncertain outcome.
+            result = {'status': 'refused', 'code': 'BROWSER_BRIDGE_DISABLED'}
+        elif response.status_code in {400, 401, 403, 409, 422}:
             result = {'status': 'refused', 'code': 'BROWSER_COMMAND_REFUSED'}
         else:
             response.raise_for_status()
@@ -174,7 +178,11 @@ async def task_browser_control(payload: TaskBrowserControl,
                                          json={'scope': scope, 'operator': str(principal.principal_id),
                                                'action': payload.action, 'operation_key': payload.operation_key,
                                                'observation_hash': payload.observation_hash})
-        if response.status_code in {400, 401, 403, 409, 422}:
+        if response.status_code == 404:
+            # The bridge registers these routes only with FORGEHUB_TASK_BROWSER_ENABLED=1:
+            # a 404 means nothing ran, never an uncertain outcome.
+            result = {'status': 'refused', 'code': 'BROWSER_BRIDGE_DISABLED'}
+        elif response.status_code in {400, 401, 403, 409, 422}:
             result = {'status': 'refused', 'code': 'BROWSER_CONTROL_REFUSED'}
         else:
             response.raise_for_status()

@@ -174,3 +174,59 @@ async def test_dispatch_delegation_alone_does_not_open_the_browser(admin_headers
                 await db.execute(delete(AgentDemand).where(AgentDemand.id == demand_id))
                 await db.commit()
         await world.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_bridge_without_the_browser_is_refused_not_uncertain(admin_headers, monkeypatch):
+    """Backend on, bridge off (FORGEHUB_TASK_BROWSER_ENABLED unset): the bridge
+    answers 404, which means nothing ran -- refused, never UPSTREAM_UNCERTAIN."""
+    monkeypatch.setattr(settings, 'TASK_BROWSER_ENABLED', True)
+    world = World(admin_headers)
+    await world.setup()
+    demand_id = None
+    execution_id = None
+    try:
+        project = await world.common_project()
+        agent = await world.agent('browser-bridge-off')
+        headers = await world.agent_token(agent, ['task.browser.execute'], project_id=uuid.UUID(project['id']))
+        task = await _task(uuid.UUID(project['id']), 'Bridge without browser', status='in_progress')
+        run_id = str(uuid.uuid4())
+        async with AsyncSessionLocal() as db:
+            execution = TaskExecution(task_id=task.id, status='running', executor_type='agent')
+            db.add(execution)
+            await db.flush()
+            execution_id = execution.id
+            demand = AgentDemand(from_agent='test-suite', subject='Browser contract', body='Synthetic only',
+                                 target_agent_id=agent, status='read', origin_type='task', origin_id=task.id,
+                                 task_execution_id=execution.id, agent_run_id=run_id, dispatch_status='running')
+            db.add(demand)
+            credential = await db.scalar(select(AgentServiceCredential).where(AgentServiceCredential.agent_id == agent))
+            credential.label = f'dispatch:{run_id}'
+            await db.commit()
+            demand_id, number = demand.id, demand.number
+        original = httpx.AsyncClient
+        monkeypatch.setattr(browser.httpx, 'AsyncClient', lambda **kw: original(
+            **kw, transport=httpx.MockTransport(lambda request: httpx.Response(404, json={'detail': 'Not Found'}))))
+        async with world.client(headers) as client:
+            result = await client.post('/api/v1/workspace-browser/task-context', json={
+                'message_number': number, 'idempotency_key': 'open', 'action': 'open'})
+        assert result.status_code == 200, result.text
+        assert result.json()['status'] == 'refused'
+        assert result.json()['code'] == 'BROWSER_BRIDGE_DISABLED'
+        audit_id = result.json()['audit_id']
+        async with world.client(admin_headers) as client:
+            control = await client.post('/api/v1/workspace-browser/task-context/control', json={
+                'audit_id': audit_id, 'action': 'read', 'reason': 'observe'})
+        assert control.status_code == 200, control.text
+        assert control.json()['status'] == 'refused'
+        assert control.json()['code'] == 'BROWSER_BRIDGE_DISABLED'
+    finally:
+        async with AsyncSessionLocal() as db:
+            if demand_id:
+                await db.execute(delete(AgentDemand).where(AgentDemand.id == demand_id))
+            for entity in ('task_browser', 'task_browser_control'):
+                for event in list((await db.scalars(select(AuditEvent).where(AuditEvent.entity_type == entity))).all()):
+                    if event.payload.get('execution_id') == str(execution_id):
+                        await db.delete(event)
+            await db.commit()
+        await world.cleanup()

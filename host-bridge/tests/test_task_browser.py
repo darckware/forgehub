@@ -284,7 +284,8 @@ def test_restart_stops_recorded_browser_and_closes_sessions(tmp_path):
     killed = []
     result = type(b)(b.path, b.cdp).recover_after_restart(
         9299, kill=lambda pid, sig: killed.append((pid, sig)),
-        cmdline=lambda pid: '/usr/bin/chromium --headless=new --remote-debugging-port=9299')
+        cmdline=lambda pid: '/usr/bin/chromium --headless=new --remote-debugging-port=9299',
+        port_free=lambda port: True)
     assert killed == [(4242, signal.SIGTERM)]
     assert result == {'terminated_pid': 4242, 'sessions_closed': 1}
     with b.connect() as db:
@@ -297,7 +298,8 @@ def test_restart_never_kills_a_reused_pid(tmp_path):
     b.record_browser(4242, 9299)
     killed = []
     result = b.recover_after_restart(9299, kill=lambda pid, sig: killed.append(pid),
-                                     cmdline=lambda pid: '/usr/sbin/sshd -D')
+                                     cmdline=lambda pid: '/usr/sbin/sshd -D', port_free=lambda port: False,
+                                     wait_seconds=0, sleep=lambda s: None)
     assert killed == [] and result['terminated_pid'] is None
 
 
@@ -332,3 +334,33 @@ def test_register_wires_routes_only_when_called(tmp_path):
         'scope': 's', 'idempotency_key': 'k', 'action': 'navigate', 'url': 'http://127.0.0.1/'})
     assert response.status_code == 422 or response.status_code == 403
     assert launched == [True]
+
+
+def test_restart_waits_for_port_then_kills_a_stuck_browser(tmp_path):
+    import signal
+    b, _calls = broker(tmp_path)
+    b.record_browser(4242, 9299)
+    killed, polls = [], []
+
+    def port_free(port):
+        polls.append(port)
+        return signal.SIGKILL in [sig for _, sig in killed]
+
+    result = b.recover_after_restart(
+        9299, kill=lambda pid, sig: killed.append((pid, sig)),
+        cmdline=lambda pid: 'chromium --remote-debugging-port=9299',
+        port_free=port_free, wait_seconds=0.3, sleep=lambda s: None)
+    assert killed == [(4242, signal.SIGTERM), (4242, signal.SIGKILL)]
+    assert result['terminated_pid'] == 4242 and port_free(9299)
+
+
+def test_restart_returns_once_port_is_free_without_sigkill(tmp_path):
+    import signal
+    b, _calls = broker(tmp_path)
+    b.record_browser(4242, 9299)
+    killed, answers = [], iter([False, False, True])
+    b.recover_after_restart(
+        9299, kill=lambda pid, sig: killed.append(sig),
+        cmdline=lambda pid: 'chromium --remote-debugging-port=9299',
+        port_free=lambda port: next(answers, True), sleep=lambda s: None)
+    assert killed == [signal.SIGTERM]
