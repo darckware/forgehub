@@ -419,3 +419,57 @@ async def test_direct_moodle_failure_and_incubation_stay_with_their_own_flow(cli
     finally:
         await db.execute(delete(MoodleApproval).where(MoodleApproval.message_id == failed.id))
         await db.commit()
+
+
+async def test_queue_and_messages_agree_on_every_failed_row(client, consolidation_db, test_suite_agent):
+    """The SQL "decision" view and the Messages link (operator_decision) list the same failed rows."""
+    from app.core.demand_workflow import approval_fingerprint
+    from app.core.message_classification import classify_messages
+    from app.db.models.demand import AgentDemand
+    db, uncertain, _ = consolidation_db
+    label = f"agree-{uuid.uuid4().hex}"
+    uncertain.subject = label + " uncertain"
+
+    def failed(name, **fields):
+        values = dict(from_agent="test-suite", from_agent_id=test_suite_agent, target_agent_id=test_suite_agent,
+            subject=f"{label} {name}", body=name, origin_type="task", working_path="/tmp", dispatch_status="failed",
+            dispatch_attempts=1, agent_run_id=str(uuid.uuid4()), dispatch_error="Agent reported STATUS: PARTIAL")
+        values.update(fields)
+        return AgentDemand(**values)
+
+    rows = {
+        "partial": failed("partial"),
+        "blocked": failed("blocked", dispatch_error="Agent reported STATUS: BLOCKED"),
+        "rejected": failed("rejected", requires_approval=True, approval_status="rejected"),
+        "pending_approval": failed("pending approval", requires_approval=True, approval_status="pending"),
+        "missing_context": failed("missing context", working_path=None),
+        "delivered": failed("delivered"),
+        "archived": failed("archived", status="archived"),
+        "checked": failed("checked"),
+    }
+    db.add_all(rows.values())
+    await db.flush()
+    source = failed("check source", status="archived")
+    db.add(source)
+    await db.flush()
+    rows["failed_check"] = failed("failed check", failure_check_source_id=source.id)
+    db.add_all([rows["failed_check"], failed("open check", dispatch_status=None, agent_run_id=None,
+        dispatch_error=None, failure_check_source_id=rows["checked"].id)])
+    await db.commit()
+    db.add(AuditEvent(entity_type="agent_demand", entity_id=rows["delivered"].id, event_type="message_delivery_verified",
+        actor="test", payload={"content_hash": approval_fingerprint(rows["delivered"])}))
+    await db.commit()
+
+    listed = {row["id"] for row in (await client.get("/api/v1/demands/agent-work",
+        params={"search": label, "view": "decision", "page_size": 100})).json()["items"]}
+    candidates = [uncertain, *rows.values()]
+    labels = await classify_messages(db, candidates)
+    linked = {str(row.id) for row in candidates if labels[row.id]["operator_decision"]}
+    assert listed == linked
+    expected = {uncertain, rows["partial"], rows["blocked"], rows["rejected"], rows["pending_approval"],
+                rows["missing_context"], rows["delivered"], rows["failed_check"]}
+    assert listed == {str(row.id) for row in expected}
+    assert all(labels[row.id]["operator_destination"] == "agent_tasks" for row in expected)
+    assert labels[rows["delivered"].id]["message_labels"] == ["delivery_verified"]
+    assert labels[uncertain.id]["operator_decision"] == "reconciliation"
+    assert labels[rows["failed_check"].id]["operator_decision"] == "correction"
