@@ -432,7 +432,15 @@
     "translator_not_configured": "Traducción no disponible: el agente traductor no tiene clave de ForgeRouter.",
     "translation_failed": "No se pudo traducir ahora. Inténtalo de nuevo.",
     "translation_too_long": "Demasiado texto para traducir de una vez.",
-    "ticket_not_deletable": "Los tickets del portal no se pueden eliminar."
+    "ticket_not_deletable": "Los tickets del portal no se pueden eliminar.",
+    "MAINTENANCE_ALREADY_RECORDED": "Esta tarea ya se registró en este ítem.",
+    "MAINTENANCE_TASK_NOT_FINISHED": "La tarea aún no terminó.",
+    "MAINTENANCE_NOTHING_RAN": "La tarea no ejecutó nada en este ítem.",
+    "MAINTENANCE_TASK_NOT_FOUND": "Esta tarea no hizo mantenimiento para este ítem.",
+    "ITEM_NOT_OPEN": "Solo un ítem abierto puede cerrarse.",
+    "MAINTENANCE_RECORD_UNCERTAIN": "Un intento anterior puede haber llegado a Darckware: revise las horas del ítem en Darckware y use \"Resolver intento\".",
+    "MAINTENANCE_CLIENT_MISMATCH": "Alguna ejecución fue en una máquina que no es de este cliente.",
+    "MAINTENANCE_NOTHING_UNCERTAIN": "Esta tarea no tiene intento pendiente."
   },
   "source": {
     "portal": "Portal del cliente",
@@ -554,5 +562,90 @@
     "rejectTitle": "¿Rechazar este registro?",
     "rejectReason": "Motivo (queda registrado)",
     "approved": "Registro aprobado. Cliente creado."
+  },
+  "maintenance": {
+    "title": "Mantenimiento remoto",
+    "ask": "Pedir mantenimiento al agente",
+    "askHelp_one": "Abre \"Pedir al agente\" con la máquina del cliente y este ítem ya completado.",
+    "askHelp_other": "Abre \"Pedir al agente\" con las {{count}} máquinas del cliente para que elija y este ítem ya completado.",
+    "askBlock": {
+      "noClient": "Ítem sin cliente: no hay máquinas que ofrecer.",
+      "noMachines": "El cliente no tiene máquinas registradas en Acceso Remoto."
+    },
+    "recordedOk": "Registrado en Darckware.",
+    "empty": "No hay mantenimiento remoto registrado para este ítem.",
+    "tasks": "Tareas de los agentes",
+    "task": "Tarea #{{number}}",
+    "dispatch": {
+      "queued": "En cola",
+      "dispatched": "Enviada",
+      "running": "En ejecución",
+      "completed": "Concluida",
+      "failed": "Falló"
+    },
+    "recorded": {
+      "log_time": "Registrado: {{minutes}} min apuntados por {{who}} el {{at}}.",
+      "resolve": "Registrado: {{minutes}} min y cierre por {{who}} el {{at}}."
+    },
+    "review": "Revisar y registrar",
+    "proposed_one": "Propuesta: {{minutes}} min, {{count}} ejecución. No se graba nada sin su confirmación.",
+    "proposed_other": "Propuesta: {{minutes}} min, {{count}} ejecuciones. No se graba nada sin su confirmación.",
+    "nothingRan": "Terminó sin ejecutar nada en este ítem.",
+    "notFinished": "La tarea aún no terminó.",
+    "runs": "Ejecuciones",
+    "verdict": {
+      "succeeded": "Éxito",
+      "failed": "Falló",
+      "running": "En ejecución",
+      "nothing_ran": "Nada ejecutado"
+    },
+    "byAgent": "Agente {{name}} (tarea #{{number}})",
+    "byPerson": "Por {{name}}",
+    "manualNote": "Las ejecuciones hechas por una persona no entran en la propuesta: regístrelas con \"Apuntar horas\".",
+    "recordTitle": "Registrar el mantenimiento de la tarea #{{number}}",
+    "recordHelp": "Revise la nota y los minutos propuestos. Solo después de su confirmación ForgeHub graba en Darckware, una única vez por tarea.",
+    "note": "Nota",
+    "minutes": "Minutos",
+    "minutesHelp": "Propuesto: {{minutes}} min (suma de las ejecuciones, redondeada hacia arriba en bloques de 30 min).",
+    "logTime": "Registrar horas",
+    "logAndResolve": "Registrar y cerrar",
+    "resolveClosed": "El ítem no está abierto: solo se pueden registrar las horas.",
+    "back": "Volver",
+    "confirm": "Confirmar y grabar",
+    "confirmText": {
+      "log_time": "Apuntar {{minutes}} min en este ítem, con la nota de abajo.",
+      "resolve": "Cerrar este ítem con {{minutes}} min apuntados (una sola vez) y la nota de abajo como solución."
+    },
+    "noEmail": "Desde aquí no se envía ningún correo al cliente.",
+    "seconds": "{{s}} s",
+    "errors": {
+      "noteRequired": "Escriba la nota.",
+      "noteTooLong": "La nota supera los 4000 caracteres.",
+      "minutesInvalid": "Indique minutos enteros entre 1 y 1440."
+    },
+    "settledOk": "Intento resuelto.",
+    "confirmedByOperator": "(confirmado manualmente)",
+    "uncertain": "Un intento de registrar {{minutes}} min el {{at}} puede haber llegado a Darckware. Revise las horas del ítem en Darckware antes de registrar de nuevo.",
+    "settle": "Resolver intento",
+    "runsInProgress": "Una ejecución de esta tarea sigue en curso: la propuesta aparece cuando todas terminen.",
+    "clientSees": "El cliente ve este texto en el portal (descripción de las horas y, al cerrar, la solución).",
+    "datedAt": "La entrada de horas queda fechada al final de la última ejecución ({{at}}).",
+    "existing": "Horas ya apuntadas en este ítem · total {{total}}",
+    "existingNone": "Aún no hay horas apuntadas.",
+    "settleTitle": "Intento incierto de la tarea #{{number}}",
+    "settleHelp": "No se sabe si Darckware lo grabó. Revise las horas del ítem en Darckware e indique qué pasó; desde aquí no se graba nada en Darckware.",
+    "attempt": "{{minutes}} min, intentado el {{at}} por {{who}}:",
+    "looksRecorded": "Este ítem tiene una entrada con el mismo texto: verifique si es esta.",
+    "notFound": "Ninguna entrada de este ítem tiene el mismo texto; revise en Darckware de todos modos.",
+    "settleChoice": "¿Qué pasó?",
+    "outcome": {
+      "recorded": "Se registró",
+      "discard": "Descartar intento"
+    },
+    "outcomeHelp": {
+      "recorded": "Las horas están en Darckware: la tarea queda registrada y no puede registrarse de nuevo.",
+      "discard": "Las horas no están en Darckware: el intento se descarta y se permite un nuevo registro."
+    },
+    "settleReason": "Qué revisó (obligatorio)"
   }
 }

@@ -1,0 +1,22 @@
+--- a/compose.yml
++++ b/compose.yml
+@@ -5,7 +5,10 @@
+     command: hbbs -r 100.105.235.114:21117
+     volumes:
+       - ./data:/root
+-    network_mode: host
++    ports:
++      - "100.105.235.114:21115:21115/tcp"
++      - "100.105.235.114:21116:21116/tcp"
++      - "100.105.235.114:21116:21116/udp"
+     depends_on:
+       - hbbr
+     restart: unless-stopped
+@@ -16,5 +19,6 @@
+     command: hbbr
+     volumes:
+       - ./data:/root
+-    network_mode: host
++    ports:
++      - "100.105.235.114:21117:21117/tcp"
+     restart: unless-stopped

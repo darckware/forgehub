@@ -58,6 +58,7 @@
   "noRoutines": "No hay rutinas registradas.",
   "routineEditor": "Editar rutina",
   "routineTitle": "Rutina",
+  "createdBy": "Creada por {{author}}",
   "kind": "Tipo",
   "cronSchedule": "Cron",
   "cronHint": "Cinco campos: minuto hora día mes día de semana",

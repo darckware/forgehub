@@ -432,7 +432,15 @@
     "translator_not_configured": "Translation unavailable: the translator agent has no ForgeRouter key.",
     "translation_failed": "Could not translate right now. Try again.",
     "translation_too_long": "Too much text to translate at once.",
-    "ticket_not_deletable": "Portal tickets can't be deleted."
+    "ticket_not_deletable": "Portal tickets can't be deleted.",
+    "MAINTENANCE_ALREADY_RECORDED": "This task was already recorded on this item.",
+    "MAINTENANCE_TASK_NOT_FINISHED": "The task hasn't finished yet.",
+    "MAINTENANCE_NOTHING_RAN": "The task ran nothing for this item.",
+    "MAINTENANCE_TASK_NOT_FOUND": "This task did no maintenance for this item.",
+    "ITEM_NOT_OPEN": "Only an open item can be resolved.",
+    "MAINTENANCE_RECORD_UNCERTAIN": "A previous attempt may have reached Darckware: check the item's hours in Darckware and use \"Settle attempt\".",
+    "MAINTENANCE_CLIENT_MISMATCH": "A run was on a machine that isn't this client's.",
+    "MAINTENANCE_NOTHING_UNCERTAIN": "This task has no pending attempt."
   },
   "source": {
     "portal": "Client portal",
@@ -554,5 +562,90 @@
     "rejectTitle": "Reject this registration?",
     "rejectReason": "Reason (kept on record)",
     "approved": "Registration approved. Client created."
+  },
+  "maintenance": {
+    "title": "Remote maintenance",
+    "ask": "Ask an agent for maintenance",
+    "askHelp_one": "Opens \"Ask an agent\" with the client's machine and this item already filled in.",
+    "askHelp_other": "Opens \"Ask an agent\" with the client's {{count}} machines for you to pick and this item already filled in.",
+    "askBlock": {
+      "noClient": "Item without a client: there are no machines to offer.",
+      "noMachines": "The client has no machine registered in Remote Access."
+    },
+    "recordedOk": "Recorded in Darckware.",
+    "empty": "No remote maintenance recorded for this item.",
+    "tasks": "Agent tasks",
+    "task": "Task #{{number}}",
+    "dispatch": {
+      "queued": "Queued",
+      "dispatched": "Sent",
+      "running": "Running",
+      "completed": "Completed",
+      "failed": "Failed"
+    },
+    "recorded": {
+      "log_time": "Recorded: {{minutes}} min logged by {{who}} on {{at}}.",
+      "resolve": "Recorded: {{minutes}} min and resolved by {{who}} on {{at}}."
+    },
+    "review": "Review and record",
+    "proposed_one": "Proposal: {{minutes}} min, {{count}} run. Nothing is written without your confirmation.",
+    "proposed_other": "Proposal: {{minutes}} min, {{count}} runs. Nothing is written without your confirmation.",
+    "nothingRan": "Finished without running anything for this item.",
+    "notFinished": "The task hasn't finished yet.",
+    "runs": "Runs",
+    "verdict": {
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "running": "Running",
+      "nothing_ran": "Nothing ran"
+    },
+    "byAgent": "Agent {{name}} (task #{{number}})",
+    "byPerson": "By {{name}}",
+    "manualNote": "Runs started by a person are not part of the proposal: record them with \"Log hours\".",
+    "recordTitle": "Record task #{{number}}'s maintenance",
+    "recordHelp": "Review the proposed note and minutes. Only after you confirm does ForgeHub write to Darckware, once per task.",
+    "note": "Note",
+    "minutes": "Minutes",
+    "minutesHelp": "Proposed: {{minutes}} min (sum of the runs, rounded up to 30-minute blocks).",
+    "logTime": "Log hours",
+    "logAndResolve": "Log and resolve",
+    "resolveClosed": "The item isn't open: only the hours can be logged.",
+    "back": "Back",
+    "confirm": "Confirm and write",
+    "confirmText": {
+      "log_time": "Log {{minutes}} min on this item, with the note below.",
+      "resolve": "Resolve this item with {{minutes}} min logged (only once) and the note below as the solution."
+    },
+    "noEmail": "No e-mail is sent to the client from here.",
+    "seconds": "{{s}} s",
+    "errors": {
+      "noteRequired": "Write the note.",
+      "noteTooLong": "The note is over 4000 characters.",
+      "minutesInvalid": "Enter whole minutes between 1 and 1440."
+    },
+    "settledOk": "Attempt settled.",
+    "confirmedByOperator": "(confirmed manually)",
+    "uncertain": "An attempt to record {{minutes}} min on {{at}} may have reached Darckware. Check the item's hours in Darckware before recording again.",
+    "settle": "Settle attempt",
+    "runsInProgress": "A run of this task is still going: the proposal appears once every run is over.",
+    "clientSees": "The client sees this text in the portal (the hours' description and, when resolving, the solution).",
+    "datedAt": "The time entry is dated at the last run's end ({{at}}).",
+    "existing": "Hours already logged on this item · total {{total}}",
+    "existingNone": "No hours logged yet.",
+    "settleTitle": "Uncertain attempt of task #{{number}}",
+    "settleHelp": "It's unknown whether Darckware wrote it. Check the item's hours in Darckware and say what happened; nothing is written to Darckware from here.",
+    "attempt": "{{minutes}} min, tried on {{at}} by {{who}}:",
+    "looksRecorded": "This item has an entry with the same text: check whether it is this one.",
+    "notFound": "No entry on this item has the same text; check in Darckware anyway.",
+    "settleChoice": "What happened?",
+    "outcome": {
+      "recorded": "It was recorded",
+      "discard": "Discard attempt"
+    },
+    "outcomeHelp": {
+      "recorded": "The hours are in Darckware: the task is recorded and can't be recorded again.",
+      "discard": "The hours aren't in Darckware: the attempt is discarded and a new record is allowed."
+    },
+    "settleReason": "What you checked (required)"
   }
 }

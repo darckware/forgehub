@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "applications": [
+    {
+      "name": "forgehub",
+      "owner": "hephaestus",
+      "compose": "/root/project/forgehub/docker-compose.yml",
+      "containers": [
+        "forgehub-backend",
+        "forgehub-frontend",
+        "forgehub_postgres"
+      ],
+      "postgres": [
+        "forgehub_postgres"
+      ],
+      "endpoints": [
+        {
+          "url": "http://127.0.0.1:8000/health",
+          "expected": [
+            200
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:4173/",
+          "expected": [
+            200
+          ]
+        }
+      ]
+    },
+    {
+      "name": "forgerouter",
+      "owner": "hephaestus",
+      "compose": "/root/project/forgerouter/docker-compose.yml",
+      "containers": [
+        "forgerouter",
+        "forgerouter_postgres"
+      ],
+      "postgres": [
+        "forgerouter_postgres"
+      ],
+      "endpoints": [
+        {
+          "url": "http://127.0.0.1:2100/health",
+          "expected": [
+            200
+          ]
+        }
+      ]
+    },
+    {
+      "name": "hindsight",
+      "owner": "mnemosyne",
+      "compose": "/root/memory/hindsight/docker-compose.yml",
+      "containers": [
+        "hindsight",
+        "hindsight_postgres"
+      ],
+      "postgres": [
+        "hindsight_postgres"
+      ],
+      "endpoints": [
+        {
+          "url": "http://127.0.0.1:8888/health",
+          "expected": [
+            200
+          ]
+        }
+      ]
+    },
+    {
+      "name": "forgevault",
+      "owner": "hephaestus",
+      "compose": "/root/project/forgevault/docker-compose.yml",
+      "containers": [
+        "forgevault-api-1",
+        "forgevault-web-1",
+        "forgevault-postgres-1",
+        "forgevault-redis-1"
+      ],
+      "postgres": [
+        "forgevault-postgres-1"
+      ],
+      "endpoints": [
+        {
+          "url": "http://127.0.0.1:8080/",
+          "expected": [
+            200
+          ]
+        }
+      ]
+    },
+    {
+      "name": "darckware",
+      "owner": "hephaestus",
+      "compose": "/root/project/darckware/docker-compose.yml",
+      "containers": [
+        "darckware-backend",
+        "darckware-frontend",
+        "darckware-postgres"
+      ],
+      "postgres": [
+        "darckware-postgres"
+      ],
+      "endpoints": [
+        {
+          "url": "http://127.0.0.1:8020/health",
+          "expected": [
+            200
+          ]
+        },
+        {
+          "url": "https://darckware.net/",
+          "expected": [
+            200,
+            301,
+            302
+          ]
+        }
+      ]
+    },
+    {
+      "name": "coreti",
+      "owner": "hephaestus",
+      "compose": "/root/project/coreti/docker-compose.yml",
+      "containers": [
+        "coreti_web",
+        "coreti_api",
+        "coreti_nginx",
+        "coreti_postgres"
+      ],
+      "postgres": [
+        "coreti_postgres"
+      ],
+      "endpoints": [
+        {
+          "url": "https://coreti.darckware.net/",
+          "expected": [
+            200,
+            301,
+            302,
+            401,
+            403
+          ]
+        }
+      ]
+    },
+    {
+      "name": "saedas",
+      "owner": "hephaestus",
+      "compose": "/root/project/saedas/docker-compose.yml",
+      "containers": [
+        "saedas_web",
+        "saedas_api",
+        "saedas_postgres",
+        "saedas_redis"
+      ],
+      "postgres": [
+        "saedas_postgres"
+      ],
+      "endpoints": [
+        {
+          "url": "http://127.0.0.1:3200/",
+          "expected": [
+            200,
+            301,
+            302,
+            401,
+            403
+          ]
+        }
+      ]
+    },
+    {
+      "name": "filenest",
+      "owner": "hephaestus",
+      "compose": "/root/project/filenest/compose.yml",
+      "containers": [
+        "filenest-web-1",
+        "filenest-api-1",
+        "filenest-db-1"
+      ],
+      "postgres": [
+        "filenest-db-1"
+      ],
+      "endpoints": [
+        {
+          "url": "http://127.0.0.1:8096/",
+          "expected": [
+            200,
+            301,
+            302,
+            401,
+            403
+          ]
+        }
+      ]
+    }
+  ]
+}

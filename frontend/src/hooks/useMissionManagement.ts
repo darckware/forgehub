@@ -4,7 +4,7 @@ import i18n from "@/i18n";
 export interface MissionRecord {
   project_id: string; name: string; description: string | null; working_directory_path: string | null;
   product_version_id: string; orchestrator_agent_id: string; priority: number; deadline_at: string | null;
-  budget_limit: string | number | null; state: string; planning_stage: string | null; current_baseline_id: string | null; row_version: number;
+  budget_limit: string | number | null; product_registration_pending?: boolean; state: string; planning_stage: string | null; current_baseline_id: string | null; row_version: number;
 }
 export function useMissionRecord(id: string | undefined) {
   return useQuery({ queryKey: ["mission-record", id], queryFn: () => apiClient.get<MissionRecord>(`/api/v1/missions/${id}`), enabled: Boolean(id) });

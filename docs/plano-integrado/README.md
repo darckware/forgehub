@@ -2,6 +2,7 @@
 
 **Data:** 2026-10-24
 **Status:** consolidação e preparação da Onda 1 autorizadas por Marcelo em 27/10/2026; implementação sujeita aos pré-requisitos por tarefa. Revisão cruzada desta versão registrada em `revisao/VALIDACAO-2026-10-27.md`.
+**Alinhamento em 06/11/2026:** Marcelo escolheu o FileNest (`/root/project/filenest`) como projeto real de validação da integração e pediu checklist de contexto e planejamento. O [checklist da missão FileNest](13-checklist-missao-filenest.md) reúne contexto, recorte proposto, dependências e provas; a baseline de execução continua sendo registrada no fluxo governado.
 **Pedidos do Marcelo (24/10):**
 - "integrar a missão com operação 24x7 e software factory, para gerenciar as tarefas e registro das implementações e da documentação"
 - "o projeto criado não precisa ter um cliente associado, podendo ser um projeto interno"
@@ -40,6 +41,7 @@
 | [09 — Lacunas e decisões](09-lacunas-e-decisoes.md) | Lacunas encontradas nas revisões, riscos abertos e as decisões com os padrões adotados |
 | [10 — Área de teste e identidade](10-area-de-teste-e-identidade.md) | Ambiente de teste isolado da produção e o ForgeVault como identidade única dos agentes em todos os sistemas (Fases T e F) |
 | [12 — Primeira onda](12-primeira-onda.md) | Pacotes executáveis da Onda 1, responsáveis, verificadores, dependências, provas e limites de autorização |
+| [13 — Checklist da missão FileNest](13-checklist-missao-filenest.md) | Projeto real de validação escolhido em 06/11; contexto, alinhamento do escopo, papéis, ambiente, sequência e critérios de aceite |
 | [11 — Navegador dos agentes](11-navegador-dos-agentes.md) | Sessões de navegador isoladas por agente e tarefa, modo teste (área de teste) e modo internet (coleta de dados, redes sociais), credenciais pelo ForgeVault, publicação com aprovação (Fase N) |
 | [Modelos](modelos/) | [Termo de abertura](modelos/TERMO-DE-ABERTURA.md) (todo projeto novo), [Crítica de entrega](modelos/CRITICA-DE-ENTREGA.md) e [Dossiê de validação](modelos/DOSSIE-DE-VALIDACAO.md) (Missão) |
 | [Consolidado da revisão](revisao/CONSOLIDADO.md) | Os pareceres históricos agrupados e as oito propostas; tratamento atual em 09 e validação da consolidação em revisao/VALIDACAO-2026-10-27.md |

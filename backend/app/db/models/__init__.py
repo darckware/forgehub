@@ -58,6 +58,7 @@ from app.db.models.deploy import DeployInstallation, DeployGroup, DeploySyncIgno
 from app.db.models.profile import Profile, ProfilePermission, ProfileActionPermission  # noqa: F401
 from app.db.models.user import User  # noqa: F401
 from app.db.models.server import HostGroup, HostGroupMember, Server  # noqa: F401
+from app.db.models.machine_status import MachineStatusObservation  # noqa: F401
 from app.db.models.host_execution import HostExecution, HostExecutionResult  # noqa: F401
 from app.db.models.host_script import (  # noqa: F401
     HostSchedule,
@@ -162,3 +163,5 @@ from app.db.models.user_session import UserSession  # noqa: F401
 
 from app.db.models.maintenance_proposal import MaintenanceProposal  # noqa: F401
 from app.db.models.message_triage import MessageAnalysisRun, MessageTriageResult, MessageAnalysisItem  # noqa: F401
+
+from app.db.models.worker_observation import WorkerObservation  # noqa: F401

@@ -446,7 +446,10 @@ async def test_agent_request_creates_one_task_per_authorized_agent(client, machi
 
     rows, _ = machines
     tag = uuid.uuid4().hex[:8]
+    item_id, client_id = str(uuid.uuid4()), str(uuid.uuid4())
     async with AsyncSessionLocal() as db:
+        linux = await db.get(Server, rows["linux"].id)
+        linux.darckware_client_id = uuid.UUID(client_id)
         grantor = User(username=f"grantor2-{tag}", hashed_password=hash_password("x"), is_admin=True)
         # A runtime that reaches run_maintenance_script (Phase 2a: a script
         # delegation counts only when the agent can call the tool).
@@ -484,9 +487,17 @@ async def test_agent_request_creates_one_task_per_authorized_agent(client, machi
 
     base = {"server_ids": [str(rows["linux"].id)], "instruction": "Reiniciar o spooler travado",
             "scripts": [{"script_id": str(ids.change), "parameter_values": {"SERVICE": "spooler"}}],
-            "darckware_item_kind": "ticket", "darckware_item_id": "T-9"}
+            "darckware_item_kind": "ticket", "darckware_item_id": item_id}
+    item_client = {"id": client_id}
+
+    async def fake_load_item(kind, item_uuid):
+        assert (kind, str(item_uuid)) == ("ticket", item_id)
+        return {"client_account_id": item_client["id"]}
+
+    from app.api.routes import client_ops as client_ops_routes
     try:
-        with patch.object(server_routes, "get_readiness", fake_readiness), patch.object(demand_routes, "create_demand_and_notify", fake_create):
+        with patch.object(server_routes, "get_readiness", fake_readiness), patch.object(demand_routes, "create_demand_and_notify", fake_create), \
+                patch.object(client_ops_routes, "_load_item", fake_load_item):
             r = await client.post("/api/v1/host-executions/agent-requests", json={**base, "agent_ids": [str(ids.none)]})
             assert r.status_code == 422 and f"none-{tag}" in r.json()["detail"]
             r = await client.post("/api/v1/host-executions/agent-requests", json={**base, "agent_ids": [str(ids.low)]})
@@ -496,6 +507,11 @@ async def test_agent_request_creates_one_task_per_authorized_agent(client, machi
             assert r.status_code == 409
             secret = {**base, "scripts": [{"script_id": str(ids.change), "parameter_values": {"SERVICE": "x", "PASS": "s3cr3t"}}]}
             assert (await client.post("/api/v1/host-executions/agent-requests", json={**secret, "agent_ids": [str(ids.mid)]})).status_code == 422
+            # The item belongs to another client than the machine: refused (Fase 3).
+            item_client["id"] = str(uuid.uuid4())
+            r = await client.post("/api/v1/host-executions/agent-requests", json={**base, "agent_ids": [str(ids.mid)]})
+            assert r.status_code == 422 and r.json()["detail"]["code"] == "MAINTENANCE_CLIENT_MISMATCH"
+            item_client["id"] = client_id
             assert sent == []
 
             r = await client.post("/api/v1/host-executions/agent-requests", json={**base, "agent_ids": [str(ids.mid)]})
@@ -515,8 +531,9 @@ async def test_agent_request_creates_one_task_per_authorized_agent(client, machi
             spec = (await db.execute(select(AuditEvent).where(AuditEvent.entity_type == "agent_maintenance_request",
                                                               AuditEvent.entity_id == stored.id))).scalar_one()
             assert spec.payload["server_ids"] == [str(rows["linux"].id)] and spec.payload["script_ids"] == [str(ids.change)]
+            assert (spec.payload["darckware_item_kind"], spec.payload["darckware_item_id"]) == ("ticket", item_id)
         assert str(rows["linux"].id) in task.body and str(ids.change) in task.body and "SERVICE=spooler" in task.body
-        assert 'darckware_ticket_id="T-9"' in task.body
+        assert f'darckware_ticket_id="{item_id}"' in task.body
         assert "list_maintenance_scripts" in sent[1].body and len(sent) == 3
         history = (await client.get(f"/api/v1/servers/{rows['linux'].id}/maintenance")).json()
         assert any(h["title"].startswith(f"Tarefa pedida ao agente mid-{tag}") for h in history)

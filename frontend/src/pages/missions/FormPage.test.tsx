@@ -34,11 +34,35 @@ it("creates a draft mission from a full page and selected real records", async (
   open();
   await screen.findByRole("option", { name: /FileNest.*0.4.0/ });
   fireEvent.change(screen.getByLabelText("Nome da missão"), { target: { value: "Validar FileNest" } });
-  fireEvent.change(screen.getByLabelText("Produto e versão"), { target: { value: "v" } });
+  fireEvent.change(screen.getByLabelText("Produto e serviço"), { target: { value: "v" } });
   fireEvent.change(screen.getByLabelText("Orquestrador"), { target: { value: "a" } });
   fireEvent.click(screen.getByRole("button", { name: "Criar missão" }));
-  await waitFor(() => expect(post).toHaveBeenCalledWith("/api/v1/missions", expect.objectContaining({ name: "Validar FileNest", product_version_id: "v", orchestrator_agent_id: "a", project_type: "mission", autonomy_level: "N0" })));
+  expect(post).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText(/Pasta de trabalho/), { target: { value: "/root/project/filenest" } });
+  fireEvent.click(screen.getByRole("button", { name: "Criar missão" }));
+  await waitFor(() => expect(post).toHaveBeenCalledWith("/api/v1/missions", expect.objectContaining({ working_directory_path: "/root/project/filenest", name: "Validar FileNest", product_version_id: "v", orchestrator_agent_id: "a", project_type: "mission", autonomy_level: "N0" })));
   expect(await screen.findByText("Missão criada")).toBeInTheDocument();
+});
+it("creates a mission for a new product or service, requiring its working directory", async () => {
+  const post = vi.spyOn(apiClient, "post").mockResolvedValue({ project_id: "created" });
+  open();
+  await screen.findByRole("option", { name: /FileNest.*0.4.0/ });
+  expect(screen.queryByText("Limite de orçamento")).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Nome da missão"), { target: { value: "Suporte remoto" } });
+  fireEvent.click(screen.getByLabelText("Novo produto ou serviço (ainda não cadastrado)"));
+  fireEvent.change(screen.getByLabelText("Nome do novo produto ou serviço"), { target: { value: "Suporte Remoto" } });
+  fireEvent.change(screen.getByLabelText("Tipo"), { target: { value: "service" } });
+  fireEvent.change(screen.getByLabelText("Orquestrador"), { target: { value: "a" } });
+  fireEvent.click(screen.getByRole("button", { name: "Criar missão" }));
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  expect(post).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText(/Pasta de trabalho/), { target: { value: "/root/project/suporte" } });
+  fireEvent.click(screen.getByRole("button", { name: "Criar missão" }));
+  await waitFor(() => expect(post).toHaveBeenCalledWith("/api/v1/missions", expect.objectContaining({
+    new_product: { name: "Suporte Remoto", kind: "service" }, working_directory_path: "/root/project/suporte" })));
+  const body = post.mock.calls[0][1] as Record<string, unknown>;
+  expect(body).not.toHaveProperty("product_version_id");
+  expect(body).not.toHaveProperty("budget_limit");
 });
 it("configures an agent's role and responsibilities through the governed membership command", async () => {
   const originalGet = vi.mocked(apiClient.get).getMockImplementation()!;

@@ -91,6 +91,14 @@ class ServerOut(BaseModel):
     tailnet_node_id: str | None = None
     tailnet_name: str | None = None
     group_ids: list[uuid.UUID] = Field(default_factory=list)
+    # Read-only hint, list route only: other machines that already share this
+    # row's key (same public key, ForgeVault secret or key file) -- rows from
+    # before rule 3 (one key per machine, 2026-11-12). Names only, never keys.
+    duplicate_key_with: list[str] = Field(default_factory=list)
+    # Read-only hint, list route only: the key is in ForgeVault but its public
+    # half is missing or unreadable, so rule 3 can't compare it with other
+    # machines until it is filled in (POST /{id}/public-key:fill).
+    key_public_unknown: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -112,7 +120,17 @@ class ServerKeyStoreRequest(BaseModel):
     recovered from a backup by hand)."""
 
     private_key: str = Field(min_length=1)
+    # Needed only when the private key can't be read here (encrypted with a
+    # passphrase ForgeHub doesn't have, or an unknown format): the public half
+    # is what proves this key isn't already another machine's (rule 3).
     public_key: str | None = None
+
+
+class PublicKeyFillOut(BaseModel):
+    """Outcome of filling a machine's public key from its ForgeVault key."""
+
+    server_id: uuid.UUID
+    public_key: str
 
 
 class ServerKeyVaultResult(BaseModel):
@@ -370,6 +388,9 @@ class HostReadinessEntry(BaseModel):
     # The linked tailnet device's own 100.x address -- lets the UI suggest it
     # when the registered address is a LAN IP the VPS can't reach.
     tailscale_ipv4: str | None = None
+    # When the machine status monitor first saw the current status (None until
+    # it has, or when its last observation differs from the status shown).
+    status_since: datetime | None = None
 
 
 class HostReadinessResult(BaseModel):

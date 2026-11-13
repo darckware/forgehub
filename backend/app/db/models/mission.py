@@ -75,6 +75,14 @@ REVIEW_LAYERS = (
 
 CRITERION_STATUSES = ("open", "proven", "failed")
 
+# Mission phases (docs/architecture/MISSION_PHASES_PLAN.md, 2026-11-12): each
+# executor-project link is one ordered phase that ends in an external
+# homologation and Marcelo's approval.
+PHASE_STATUSES = (
+    "planned", "in_progress", "homologating", "awaiting_approval", "approved", "returned",
+)
+HOMOLOGATION_VERDICTS = ("approved", "rejected")
+
 # Cycle spec §4 plus `advance_planning` (M0.0 records every planning stage
 # change here, §3.1; the cycle's own actions arrive with M0.8).
 MISSION_DECISION_ACTIONS = (
@@ -153,6 +161,15 @@ class ProjectMission(Base, TimestampMixin):
     )
     deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     budget_limit: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    # 2026-11-12 (Marcelo: "precisa ter uma forma de informar que é um novo
+    # produto e serviço, para que o agente entenda e faça o cadastro"): the
+    # mission was created with a new product/service that ForgeHub registered
+    # only as a minimal shell (name, kind, version 0.1.0). The orchestrator
+    # completes the registration (POST /missions/{id}/product:complete-registration);
+    # until then the mission cannot leave draft (PRODUCT_REGISTRATION_PENDING).
+    product_registration_pending: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     paused_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     state_changed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
@@ -181,15 +198,41 @@ class ProjectMission(Base, TimestampMixin):
 
 class MissionProjectLink(Base, TimestampMixin):
     """Coordinator mission -> executor project (D-3). An executor project may
-    serve several missions; a mission is never an executor (no nesting in M0)."""
+    serve several missions; a mission is never an executor (no nesting in M0).
+
+    Since 2026-11-12 a link created through ``POST /missions/{id}/phases``
+    is a **phase** of the mission (``is_phase``, MISSION_PHASES_PLAN.md):
+    ``position`` orders them (1-based, unique per mission, deferrable so a
+    reorder can swap), phases run strictly in order and each ends in a
+    homologation by an external, independent agent and then Marcelo's
+    approval (``phase_status``). Executor links that existed before (and any
+    link not created as a phase) stay plain links: ``is_phase`` false,
+    ``position``/``name`` NULL, never read by the phase rules or the plan
+    hash, so an already-baselined mission hashes exactly as before."""
 
     __tablename__ = "mission_project_links"
     __table_args__ = (
         UniqueConstraint(
             "mission_project_id", "executor_project_id", name="uq_mission_project_links_pair"
         ),
+        UniqueConstraint(
+            "mission_project_id", "position", name="uq_mission_project_links_position",
+            deferrable=True, initially="DEFERRED",
+        ),
         CheckConstraint(
             "mission_project_id <> executor_project_id", name="ck_mission_project_links_distinct"
+        ),
+        CheckConstraint("position >= 1", name="ck_mission_project_links_position"),
+        CheckConstraint(
+            "NOT is_phase OR (position IS NOT NULL AND name IS NOT NULL)",
+            name="ck_mission_project_links_phase_fields",
+        ),
+        CheckConstraint(
+            f"phase_status IN {_in(PHASE_STATUSES)}", name="ck_mission_project_links_phase_status"
+        ),
+        CheckConstraint(
+            f"homologation_verdict IS NULL OR homologation_verdict IN {_in(HOMOLOGATION_VERDICTS)}",
+            name="ck_mission_project_links_homologation_verdict",
         ),
     )
 
@@ -201,6 +244,30 @@ class MissionProjectLink(Base, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("company.projects.id", ondelete="RESTRICT"), nullable=False
     )
     linked_by: Mapped[str] = mapped_column(String(150), nullable=False)
+    is_phase: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # What the phase delivers and what it leaves out.
+    objective: Mapped[str | None] = mapped_column(Text, nullable=True)
+    phase_status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="planned", server_default="planned"
+    )
+    homologator_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agents.id", name="fk_mission_project_links_homologator_agent_id"),
+        nullable=True,
+    )
+    # The Messages task sent to the homologator.
+    homologation_demand_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agent_demands.id", ondelete="SET NULL",
+                                       name="fk_mission_project_links_homologation_demand_id"), nullable=True
+    )
+    homologation_verdict: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    homologation_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    homologation_evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    homologated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decided_by: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class MissionAcceptanceCriterion(Base, TimestampMixin):

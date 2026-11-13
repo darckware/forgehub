@@ -75,6 +75,7 @@ async def _ensure_admin_user():
     Same shared-username convention as test_pipeline.py's fixture; only
     deletes the row afterwards if this fixture is the one that created it,
     in case another concurrently-running test module owns it instead."""
+    promoted = False
     async with AsyncSessionLocal() as session:
         user = (await session.execute(select(User).where(User.username == "test-suite"))).scalar_one_or_none()
         created = user is None
@@ -84,7 +85,19 @@ async def _ensure_admin_user():
                 is_active=True, is_admin=True,
             ))
             await session.commit()
+        elif not user.is_admin:
+            # conftest's suite_token_users (2026-11-05) creates "test-suite" first,
+            # without admin; promote it for this module and put it back afterwards.
+            user.is_admin = True
+            await session.commit()
+            promoted = True
     yield
+    if promoted:
+        async with AsyncSessionLocal() as session:
+            user = (await session.execute(select(User).where(User.username == "test-suite"))).scalar_one_or_none()
+            if user:
+                user.is_admin = False
+                await session.commit()
     if created:
         async with AsyncSessionLocal() as session:
             user = (await session.execute(select(User).where(User.username == "test-suite"))).scalar_one_or_none()

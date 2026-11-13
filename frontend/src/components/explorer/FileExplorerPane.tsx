@@ -50,6 +50,7 @@ import {
   fileKind,
   formatSize,
   isTextLike,
+  isExtractableArchive,
   parentPath,
   pathSegments,
   type ExplorerEntry,
@@ -491,6 +492,8 @@ function FileExplorerPaneContent({
                   { label: menu.entry.type === "dir" ? t("actions.open") : isTextLike(menu.entry.name) ? t("actions.edit") : t("actions.open"), icon: <FolderOpen className="h-3.5 w-3.5" />, onClick: () => openEntry(menu.entry!), hidden: vm.selectedEntries.length > 1 },
                   { label: t("actions.openLocation"), icon: <Folder className="h-3.5 w-3.5" />, onClick: () => vm.navigate(parentPath(menu.entry!.path) ?? "/"), hidden: !vm.searching },
                   { label: vm.selectedEntries.length > 1 ? t("actions.downloadZip", { count: vm.selectedEntries.length }) : t("actions.download"), icon: <Download className="h-3.5 w-3.5" />, onClick: () => void vm.download() },
+                  { label: t("actions.compress"), icon: <FileArchive className="h-3.5 w-3.5" />, onClick: () => vm.setDialog({ kind: "archive", mode: "compress", entries: vm.selectedEntries }), disabled: vm.operation.status === "working" },
+                  { label: t("actions.extract"), icon: <FolderOpen className="h-3.5 w-3.5" />, onClick: () => vm.setDialog({ kind: "archive", mode: "extract", entries: vm.selectedEntries }), hidden: vm.selectedEntries.length !== 1 || menu.entry.type !== "file" || !isExtractableArchive(menu.entry.name), disabled: vm.operation.status === "working" },
                   "divider",
                   { label: t("actions.cut"), icon: <Scissors className="h-3.5 w-3.5" />, shortcut: "Ctrl+X", onClick: vm.cutSelection },
                   { label: t("actions.copy"), icon: <Copy className="h-3.5 w-3.5" />, shortcut: "Ctrl+C", onClick: vm.copySelection },
@@ -836,7 +839,7 @@ function NewMenu({ vm }: { vm: FileExplorerViewModel }) {
 
 type ContextMenuItem =
   | "divider"
-  | { label: string; icon: ReactNode; onClick: () => void; shortcut?: string; hidden?: boolean; destructive?: boolean };
+  | { label: string; icon: ReactNode; onClick: () => void; shortcut?: string; hidden?: boolean; destructive?: boolean; disabled?: boolean };
 
 function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: ContextMenuItem[]; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -848,8 +851,8 @@ function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: Co
     if (!el) return;
     const { innerWidth, innerHeight } = window;
     setPos({
-      left: Math.min(x, innerWidth - el.offsetWidth - 8),
-      top: Math.min(y, innerHeight - el.offsetHeight - 8),
+      left: Math.max(8, Math.min(x, innerWidth - el.offsetWidth - 8)),
+      top: Math.max(8, Math.min(y, innerHeight - el.offsetHeight - 8)),
     });
     const onKey = (e: globalThis.KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -869,7 +872,7 @@ function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: Co
     <div
       ref={ref}
       role="menu"
-      className="fixed z-50 w-56 overflow-hidden rounded-md border border-border bg-card py-1 shadow-lg"
+      className="fixed z-50 max-h-[calc(100dvh-1rem)] w-56 overflow-y-auto rounded-md border border-border bg-card py-1 shadow-lg"
       style={{ left: pos.left, top: pos.top }}
       onContextMenu={(e) => e.preventDefault()}
     >
@@ -883,6 +886,7 @@ function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: Co
             label={item.label}
             shortcut={item.shortcut}
             destructive={item.destructive}
+            disabled={item.disabled}
             onClick={() => {
               onClose();
               item.onClick();
@@ -899,20 +903,23 @@ function MenuItem({
   label,
   shortcut,
   destructive,
+  disabled,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
   shortcut?: string;
   destructive?: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       role="menuitem"
+      disabled={disabled}
       className={cn(
-        "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground",
+        "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50",
         destructive && "text-destructive"
       )}
       onClick={onClick}

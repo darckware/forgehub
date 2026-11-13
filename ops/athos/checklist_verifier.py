@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import argparse
+import ipaddress
 import json
 import os
 import re
@@ -18,7 +19,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from urllib.request import urlopen
 
 FOUNDATION = Path("/root/memory/foundation")
@@ -27,6 +28,9 @@ ATHOS = HERMES / "profiles/athos"
 KB = HERMES / "knowledge_base"
 FORGEHUB = Path("/root/project/forgehub")
 FORGEROUTER = Path("/root/project/forgerouter")
+CATALOG_SOURCE = Path(__file__).resolve().parents[2] / "backend/app/core/audit_catalog.py"
+if not CATALOG_SOURCE.is_file():
+    CATALOG_SOURCE = FORGEHUB / "backend/app/core/audit_catalog.py"
 CORE_PROFILES = ("athos", "aegis", "daedalus", "hephaestus", "atlas", "mnemosyne", "scriba", "themis", "kairos", "lara")
 # Every Hermes profile the gateway serves: the core set plus Maia (Marcelo's personal assistant).
 # Maia has no shared Knowledge Base folder (personal data stays in her private Hindsight bank), so
@@ -349,9 +353,48 @@ def check_backup() -> Result:
 
 
 def check_audit_tables() -> Result:
-    foundation_count = int(psql("SELECT count(*) FROM audit.foundation_checklist WHERE status NOT IN ('retired','disabled');"))
-    forge_count = int(psql("SELECT count(*) FROM company.audit_checks WHERE enabled;", "forgehub", "forgehub_postgres"))
-    return ok(f"Audit persistence ready: Foundation={foundation_count}, ForgeHub={forge_count}") if foundation_count >= 52 and forge_count >= 52 else fail(f"Audit checklist incomplete: Foundation={foundation_count}, ForgeHub={forge_count}")
+    # Parse literals only: importing backend settings would load credentials.
+    values = {}
+    for node in ast.parse(CATALOG_SOURCE.read_text()).body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id in ('_CHECK_ROWS','RETIRED_AUDIT_CHECKS'):
+                    values[target.id] = ast.literal_eval(node.value)
+    expected_states = {row[0]:row[5] for row in values['_CHECK_ROWS']}
+    expected = set(expected_states)
+    retired = set(values['RETIRED_AUDIT_CHECKS'])
+    if not expected or expected & retired:
+        return fail("Canonical audit metadata is invalid")
+    foundation = json.loads(psql("SELECT coalesce(json_agg(json_build_object('name',substring(item_description FROM '(ECO-[0-9]{3})'),'status',status)), '[]'::json) FROM audit.foundation_checklist WHERE item_description ~ 'ECO-[0-9]{3}'", 'foundation', 'hindsight_postgres'))
+    company = json.loads(psql("SELECT coalesce(json_agg(json_build_object('name',name,'enabled',enabled)), '[]'::json) FROM company.audit_checks WHERE name ~ '^ECO-[0-9]{3}$'", 'forgehub', 'forgehub_postgres'))
+    bad = []
+    for name, rows in (('Foundation',foundation),('ForgeHub',company)):
+        if not isinstance(rows,list) or any(not isinstance(row,dict) or not isinstance(row.get('name'),str) for row in rows):
+            bad.append(f"{name}: malformed inventory")
+            continue
+        active = [row['name'] for row in rows if row['name'] not in retired]
+        missing = sorted(expected-set(active))
+        extra = sorted(set(active)-expected)
+        if missing:
+            bad.append(f"{name}: missing {','.join(missing)}")
+        if extra:
+            bad.append(f"{name}: unknown {','.join(extra)}")
+        if len(active) != len(set(active)):
+            bad.append(f"{name}: duplicate controls")
+        for row in rows:
+            key = row['name']
+            if key not in expected and key not in retired:
+                continue
+            required_enabled = expected_states.get(key,False)
+            if name == 'ForgeHub':
+                matches = type(row.get('enabled')) is bool and row['enabled'] is required_enabled
+            else:
+                state = row.get('status')
+                matches = (state in ('ok','fail','pending','active','new','unverified') if required_enabled
+                           else state in ('disabled','retired'))
+            if not matches:
+                bad.append(f"{name}/{key}: activation mismatch")
+    return fail('; '.join(bad)) if bad else ok(f"Foundation and ForgeHub contain all {len(expected)} canonical checks; retired history preserved")
 
 
 def check_kb_obsolete() -> Result:
@@ -566,15 +609,69 @@ def check_cli_voice_runtime() -> Result:
     return ok(output) if result.returncode == 0 else fail(output)
 
 
-# Catalogue v2 additions. These controls read state and never repair it.
-APPLICATIONS = ("forgehub", "forgerouter", "hindsight", "forgevault", "darckware", "coreti")
-APPLICATION_POSTGRES = ("forgehub_postgres", "hindsight_postgres", "forgerouter_postgres", "forgevault-postgres-1", "darckware-postgres", "coreti_postgres", "saedas_postgres")
+# One versioned production inventory. Profile installations use the release
+# manifest in ForgeHub; source/test imports use their neighboring manifest.
+TARGET_MANIFEST = Path(__file__).with_name("audit_targets.json")
+if not TARGET_MANIFEST.is_file():
+    TARGET_MANIFEST = FORGEHUB / "ops/athos/audit_targets.json"
+
+# Coverage is fail-closed for the known production application set. New targets
+# may be added, but removing a known system cannot silently make it unaudited.
+REQUIRED_APPLICATIONS = frozenset({
+    'forgehub', 'forgerouter', 'hindsight', 'forgevault',
+    'darckware', 'coreti', 'saedas', 'filenest',
+})
+
+
+def validate_target_manifest(data: dict) -> list[dict]:
+    if not isinstance(data, dict) or set(data) != {'schema_version','applications'} or data['schema_version'] != 1:
+        raise ValueError("Unsupported application manifest")
+    targets = data['applications']
+    if not isinstance(targets, list) or not targets:
+        raise ValueError("Application inventory is empty")
+    names, containers = set(), set()
+    for target in targets:
+        if not isinstance(target, dict) or set(target) != {'name','owner','compose','containers','postgres','endpoints'}:
+            raise ValueError("Incomplete application target")
+        if any(not isinstance(target[key], str) or not target[key] for key in ('name','owner','compose')):
+            raise ValueError("Target identity or owner missing")
+        compose = Path(target['compose'])
+        if target['name'] in names or not compose.is_absolute() or '..' in compose.parts or 'test-env' in compose.parts:
+            raise ValueError("Duplicate or non-production application target")
+        names.add(target['name'])
+        for key in ('containers','postgres','endpoints'):
+            if not isinstance(target[key], list) or not target[key]:
+                raise ValueError("Target coverage is incomplete")
+        for name in target['containers']:
+            if not isinstance(name, str) or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]*', name) or name in containers or re.search(r'(^|[_-])(test|homologation|homolog)([_-]|$)',name):
+                raise ValueError("Duplicate, invalid or test container in production inventory")
+            containers.add(name)
+        if any(name not in target['containers'] for name in target['postgres']):
+            raise ValueError("PostgreSQL target must be covered as a container")
+        for endpoint in target['endpoints']:
+            if not isinstance(endpoint, dict) or set(endpoint) != {'url','expected'}:
+                raise ValueError("Invalid endpoint definition")
+            url = urlsplit(endpoint['url'])
+            if url.scheme not in ('http','https') or not url.hostname or url.username is not None or url.password is not None or url.query or url.fragment:
+                raise ValueError("Endpoint must be an unauthenticated URL without credentials")
+            if not isinstance(endpoint['expected'], list) or not endpoint['expected'] or any(type(code) is not int or not 100<=code<=599 for code in endpoint['expected']):
+                raise ValueError("Invalid HTTP status contract")
+    missing = REQUIRED_APPLICATIONS - names
+    if missing:
+        raise ValueError(f"Required application coverage is missing: {', '.join(sorted(missing))}")
+    return targets
+
+
+def application_targets() -> list[dict]:
+    return validate_target_manifest(json.loads(TARGET_MANIFEST.read_text()))
+
+
+def application_postgres() -> tuple[str, ...]:
+    return tuple(name for target in application_targets() for name in target['postgres'])
 
 
 def _compose_path(app: str) -> Path:
-    if app == "hindsight":
-        return Path("/root/memory/hindsight/docker-compose.yml")
-    return Path(f"/root/project/{app}/docker-compose.yml")
+    return Path(next(target['compose'] for target in application_targets() if target['name'] == app))
 
 
 def _healthy_containers(names: tuple[str, ...]) -> Result:
@@ -625,7 +722,7 @@ def check_restart_policy() -> Result:
         state = run(["docker", "inspect", name, "--format", "{{.HostConfig.RestartPolicy.Name}}"])
         if state.returncode or state.stdout.strip() not in ("always", "unless-stopped"):
             bad.append(f"{name}: runtime={state.stdout.strip() or 'unknown'}")
-    for app in APPLICATIONS:
+    for app in (target['name'] for target in application_targets()):
         compose = _compose_path(app)
         if not compose.is_file():
             bad.append(f"{app}: missing compose")
@@ -661,7 +758,7 @@ def check_postgres_dumps() -> Result:
     rows = [json.loads(line) for line in raw.splitlines() if line.strip()]
     bad = []
     now = datetime.now(timezone.utc)
-    for container in APPLICATION_POSTGRES:
+    for container in application_postgres():
         targets = [row for row in rows if row['container'] == container and row['enabled']]
         if not targets:
             bad.append(f"{container}: no enabled backup target")
@@ -675,7 +772,7 @@ def check_postgres_dumps() -> Result:
             if row.get('status') != 'ok' or not row.get('snapshot_id') or age is None or not 0 <= age <= 8:
                 bad.append(f"{container}/{row['name']}: latest backup={row.get('status')}, snapshot={row.get('snapshot_id') or 'missing'}, age_days={age}")
     return fail("PostgreSQL backup gaps: " + "; ".join(bad)) if bad else ok(
-        f"{len(APPLICATION_POSTGRES)} PostgreSQL containers have recent successful dump/snapshot runs; restore verification is separate"
+        f"{len(application_postgres())} PostgreSQL containers have recent successful dump/snapshot runs; restore verification is separate"
     )
 
 
@@ -684,32 +781,142 @@ def _bridge_8910_restricted() -> bool:
     """0.0.0.0:8910 (host-bridge) is accepted only while UFW restricts it to lo / foundation_network
     (Marcelo, 2026-10-12: containers reach the bridge via host.docker.internal; loopback-only broke
     Messages from 2026-10-10 to 2026-10-12)."""
-    r = run(["/usr/sbin/ufw", "status"])
-    if r.returncode or "Status: active" not in r.stdout:
+    # UFW invokes sysctl via PATH for verbose status. Keep this read-only probe
+    # usable in external runtimes whose PATH omits sbin.
+    r = run(["/usr/bin/env", f"PATH={os.environ.get('PATH', '')}:/usr/sbin:/sbin",
+             "LC_ALL=C", "/usr/sbin/ufw", "status", "verbose"])
+    if (r.returncode or "Status: active" not in r.stdout
+            or not re.search(r"Default: (?:deny|reject) \(incoming\)", r.stdout)):
         return False
-    rules = [line for line in r.stdout.splitlines() if line.split() and line.split()[0].startswith("8910")]
-    return bool(rules) and all(("on lo" in line) or ("127.0.0.1" in line) or ("172.19.0.0/16" in line) for line in rules)
+    restricted_allow = False
+    for line in r.stdout.splitlines():
+        # Comments are not evidence of source restrictions.
+        columns = re.split(r"\s{2,}", line.split("#", 1)[0].strip())
+        if len(columns) != 3:
+            continue
+        target, action, source = columns
+        if action != "ALLOW IN":
+            continue
+        port = target.split()[0].split("/", 1)[0]
+        if target.split()[0].endswith("/udp"):
+            continue  # The exception is for a TCP listener.
+        # Ranges, all-port rules and unknown application profiles may also
+        # admit 8910. Fail closed for a profile we cannot resolve here.
+        covers_bridge = not re.fullmatch(r"[0-9:,]+", port)
+        if not covers_bridge:
+            for entry in port.split(","):
+                bounds = entry.split(":")
+                covers_bridge |= int(bounds[0]) <= 8910 <= int(bounds[-1])
+        if not covers_bridge:
+            continue
+        if not (re.search(r"\bon lo$", target)
+                or source in ("127.0.0.1", "172.19.0.0/16")):
+            return False
+        restricted_allow = True
+    return restricted_allow
+
+
+TAILSCALE_NETWORKS = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115c:a1e0::/48"))
+
+
+def _approved_tailnet_listener(address: str, line: str) -> bool:
+    """Infrastructure exceptions require socket owners, never just a port."""
+    port = address.rsplit(":", 1)[-1]
+    owners = set(re.findall(r'\("([^"]+)",pid=\d+,fd=\d+\)', line))
+    if owners == {"tailscaled"}:
+        return True  # Peer API TCP port is dynamically assigned by Tailscale.
+    if port == "22" and owners and owners <= {"sshd", "systemd"}:
+        return True  # OpenSSH may share its activation socket with systemd.
+    if port in ("21115", "21116", "21117") and owners == {"docker-proxy"}:
+        return True  # RustDesk bridge publications, exclusively on this node's IP.
+    return port in ("3000", "8020") and owners == {"docker-proxy"}
+
+
+def _listener_findings(ss_output: str, bridge_restricted: bool) -> list[str]:
+    """Classify `ss -ltnpH` rows; return one diagnostic per unauthorized TCP listener."""
+    findings = []
+    for line in ss_output.splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        address = parts[3]
+        owners = re.findall(r'\("([^"]+)",pid=(\d+)', line)
+        processes = ",".join(f"{name}[{pid}]" for name, pid in owners) or "unknown"
+        host, _, port = address.rpartition(":")
+        host = host.split("%", 1)[0].strip("[]")
+        label = f"tcp {address} process={processes}"
+        try:
+            # Normalize mapped addresses before applying any address classification.
+            ip = ipaddress.ip_address("0.0.0.0" if host == "*" else host)
+            native_ipv4 = isinstance(ip, ipaddress.IPv4Address)
+            if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+                ip = ip.ipv4_mapped
+            port_number = int(port)
+        except ValueError:
+            findings.append(f"{label}: unparseable listener")
+            continue
+        if ip.is_unspecified:
+            # This exception is for the exact IPv4 bind, never IPv6/mapped aliases.
+            if address == "0.0.0.0:8910" and bridge_restricted:
+                continue
+            findings.append(f"{label}: wildcard bind, no authorized baseline")
+            continue
+        if ip.is_loopback:
+            continue
+        if any(ip in network for network in TAILSCALE_NETWORKS):
+            if native_ipv4 and str(ip) == "100.105.235.114" and _approved_tailnet_listener(f"{ip}:{port_number}", line):
+                continue
+            findings.append(f"{label}: Tailscale bind, no authorized baseline for address/owner")
+            continue
+        if ip.is_global:
+            findings.append(f"{label}: public address bind, no authorized baseline")
+    return findings
+
 
 def check_public_interfaces() -> Result:
-    sockets = run(["ss", "-ltnH"])
+    sockets = run(["ss", "-ltnpH"])
     if sockets.returncode:
         return fail(sockets.stderr.strip())
-    bad = []
-    for line in sockets.stdout.splitlines():
-        parts = line.split()
-        address = parts[3] if len(parts) > 3 else ""
-        if address.startswith(("0.0.0.0:", "[::]:", "*:")):
-            if address == "0.0.0.0:8910" and _bridge_8910_restricted():
-                continue
-            bad.append(address)
-        if address.startswith("100.105.235.114:") and address.rsplit(":", 1)[-1] not in ("3000", "8020"):
-            bad.append(address)
-    for domain in ("forgehub.darckware.net", "forgevault.darckware.net"):
+    bad = _listener_findings(sockets.stdout, _bridge_8910_restricted())
+    for domain in ("forgehub.darckware.net", "forgevault.darckware.net", "darckware.net"):
         for suffix in ("/docs", "/redoc", "/openapi.json"):
             probe = _url_status(f"https://{domain}{suffix}", expected=(401, 403, 404))
             if not probe.ok:
                 bad.append(probe.notes)
-    return fail("Public interface drift: " + "; ".join(bad[:20])) if bad else ok("Only approved loopback/Tailscale listeners; public API docs closed")
+    addresses = []
+    for raw in run(["hostname", "-I"]).stdout.split():
+        try:
+            addresses.append(ipaddress.ip_address(raw))
+        except ValueError:
+            continue
+    tailscale = [str(a) for a in addresses if any(a in n for n in TAILSCALE_NETWORKS)]
+    public = [str(a) for a in addresses if a.is_global and str(a) not in tailscale]
+    def context_value(value: str) -> str:
+        return value if len(value) <= 250 else value[:247] + "..."
+
+    context = (
+        f"host={context_value(run(['hostname', '-f']).stdout.strip() or 'unknown')} "
+        f"public={context_value(','.join(public) or 'none')} "
+        f"tailscale={context_value(','.join(tailscale) or 'none')}; "
+        "evidence: local `ss -ltnpH` (TCP only) + HTTPS probes"
+    )
+    reachability = "external reachability NOT verified (local listener presence only; UFW evaluated only for 8910; nft not evaluated)"
+    if bad:
+        # Reserve metadata first; fail() must never cut a finding or the disclaimer.
+        prefix = f"Public interface drift ({len(bad)}) [{context}]. {reachability}: "
+        suffix_budget = len(f"; {len(bad)} findings omitted")
+        details = []
+        used = len(prefix) + suffix_budget
+        for finding in bad[:20]:
+            needed = len(finding) + (2 if details else 0)
+            if used + needed > 4000:
+                break
+            details.append(finding)
+            used += needed
+        omitted = len(bad) - len(details)
+        suffix = f"; {omitted} findings omitted" if omitted else ""
+        return fail(prefix + "; ".join(details) + suffix)
+    return ok(f"Only authorized loopback/Tailscale TCP listeners; public API docs closed [{context}]. {reachability}")
 
 
 def check_cloudflare_vault_boundary() -> Result:
@@ -755,29 +962,92 @@ def check_remote_access() -> Result:
     return fail(f"Inactive remote access services: {bad}") if bad else ok("Headscale and Tailscale services plus RustDesk relay containers active")
 
 
+# Metadata only: these queries never read profile configuration or credential values.
+MESSAGES_QUEUE_SLA_MINUTES = 15
+MESSAGES_FEEDBACK_SLA_MINUTES = 15
+ACTIVITY_DELIVERY_SLA_MINUTES = 5
+
+
+def _metadata_counts(query: str, fields: tuple[str, ...]) -> dict[str, int]:
+    data = json.loads(psql(query, "forgehub", "forgehub_postgres"))
+    if not isinstance(data, dict) or any(type(data.get(field)) is not int or data[field] < 0 for field in fields):
+        raise ValueError("Missing or invalid aggregate metadata")
+    return data
+
+
 def check_outbound_hooks() -> Result:
-    bad = []
-    for profile in HERMES_PROFILES:
-        path = HERMES / "profiles" / profile / "config.yaml"
-        content = path.read_text(errors="replace") if path.is_file() else ""
-        if "/api/v1/agent-activity/events" not in content or "outbound:" not in content:
-            bad.append(profile)
-    return fail(f"Missing outbound Agent Activity hooks: {bad}") if bad else ok("Every active Hermes profile has outbound Agent Activity hook configuration")
+    # Only the signed webhook receiver writes these metadata events. An idle
+    # profile proves neither a broken hook nor a working hook; report it as idle.
+    query = f"""
+        WITH active AS (
+            SELECT id FROM company.agents
+            WHERE is_active AND status='active' AND runtime_type='hermes'
+        ), executed AS (
+            SELECT d.target_agent_id, d.dispatched_at
+            FROM company.agent_demands d JOIN active a ON a.id=d.target_agent_id
+            WHERE d.dispatched_at BETWEEN now()-interval '24 hours'
+                AND now()-interval '{ACTIVITY_DELIVERY_SLA_MINUTES} minutes'
+              AND d.dispatch_status IN ('dispatched','running','completed','failed')
+        ), missing AS (
+            SELECT d.target_agent_id FROM executed d WHERE NOT EXISTS (
+                SELECT 1 FROM company.agent_activity_events e
+                WHERE e.agent_id=d.target_agent_id AND e.runtime='hermes'
+                  AND e.kind IN ('turn_started','session_started')
+                  AND e.created_at BETWEEN d.dispatched_at-interval '15 seconds'
+                      AND d.dispatched_at+interval '{ACTIVITY_DELIVERY_SLA_MINUTES} minutes'
+            )
+        )
+        SELECT json_build_object(
+            'active_profiles', (SELECT count(*) FROM active),
+            'recently_executed', (SELECT count(DISTINCT target_agent_id) FROM executed),
+            'missing_delivery', (SELECT count(DISTINCT target_agent_id) FROM missing))
+    """
+    try:
+        data = _metadata_counts(query, ('active_profiles','recently_executed','missing_delivery'))
+        if not data['active_profiles'] or not 0 <= data['missing_delivery'] <= data['recently_executed'] <= data['active_profiles']:
+            return fail("Activity delivery inventory unavailable or inconsistent")
+    except (ValueError, KeyError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        return fail(f"Activity delivery metadata unavailable ({type(exc).__name__})")
+    notes = (f"Authenticated Activity deliveries: active={data['active_profiles']}, "
+             f"executed={data['recently_executed']}, missing_delivery={data['missing_delivery']}, "
+             f"idle={data['active_profiles']-data['recently_executed']} (no recent Messages run; other channels unverified)")
+    return fail(notes) if data['missing_delivery'] else ok(notes)
 
 
 def check_messages_health() -> Result:
-    query = ("SELECT count(*) FILTER (WHERE dispatch_status='failed'), count(*), "
-             "count(*) FILTER (WHERE dispatch_status IN ('dispatched','running') "
-             "AND dispatch_deadline_at < now()) FROM company.agent_demands "
-             "WHERE created_at >= now() - interval '7 days' AND dispatch_status IS NOT NULL")
+    # The seven-day limit applies to the historical rate only. Outstanding
+    # dispatch/deadline/feedback obligations are never excluded by creation age.
+    # A checked queue may legitimately wait on dependencies, capacity or quota;
+    # the dispatcher records executor_wait_checked_at without editing content.
+    query = f"""
+        SELECT json_build_object(
+          'total', count(*) FILTER (WHERE created_at>=now()-interval '7 days' AND dispatch_status IS NOT NULL),
+          'failed', count(*) FILTER (WHERE created_at>=now()-interval '7 days' AND dispatch_status='failed'),
+          'overdue', count(*) FILTER (WHERE dispatch_status IN ('dispatched','running') AND dispatch_deadline_at<now()),
+          'missing_deadlines', count(*) FILTER (WHERE dispatch_status IN ('dispatched','running') AND dispatch_deadline_at IS NULL),
+          'queued_due', count(*) FILTER (WHERE origin_type='task' AND status<>'archived' AND consolidated_into_id IS NULL
+              AND dispatch_status IS NULL AND agent_run_id IS NULL AND target_agent_id IS NOT NULL AND scheduled_at<=now()),
+          'unchecked_due', count(*) FILTER (WHERE origin_type='task' AND status<>'archived' AND consolidated_into_id IS NULL
+              AND dispatch_status IS NULL AND agent_run_id IS NULL AND target_agent_id IS NOT NULL
+              AND scheduled_at<now()-interval '{MESSAGES_QUEUE_SLA_MINUTES} minutes'
+              AND (executor_wait_checked_at IS NULL OR executor_wait_checked_at<now()-interval '{MESSAGES_QUEUE_SLA_MINUTES} minutes')),
+          'feedback_overdue', count(*) FILTER (WHERE status<>'archived' AND consolidated_into_id IS NULL
+              AND dispatch_status IN ('completed','failed') AND feedback_sent_at IS NULL
+              AND updated_at<now()-interval '{MESSAGES_FEEDBACK_SLA_MINUTES} minutes'
+              AND (channel IS DISTINCT FROM 'agent' OR (dispatch_status='failed' AND from_agent_id IS NOT NULL)))
+        ) FROM company.agent_demands
+    """
+    fields = ('total','failed','overdue','missing_deadlines','queued_due','unchecked_due','feedback_overdue')
     try:
-        failed, total, overdue = (int(value) for value in psql(query, "forgehub", "forgehub_postgres").split("|"))
-    except Exception as exc:
-        return fail(f"Messages metrics unavailable: {exc}")
-    ratio = failed / total if total else 0
-    if ratio > .20 or overdue:
-        return fail(f"Messages failure ratio {ratio:.1%} ({failed}/{total}); overdue dispatches={overdue}")
-    return ok(f"Messages failure ratio {ratio:.1%} ({failed}/{total}); no overdue dispatches")
+        data = _metadata_counts(query, fields)
+        if data['failed'] > data['total'] or data['unchecked_due'] > data['queued_due']:
+            return fail("Messages aggregate metadata unavailable: inconsistent counts")
+    except (ValueError, KeyError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        return fail(f"Messages aggregate metadata unavailable ({type(exc).__name__})")
+    ratio = data['failed']/data['total'] if data['total'] else 0
+    notes = (f"Messages failure ratio {ratio:.1%} ({data['failed']}/{data['total']}); "
+             + ', '.join(f"{field}={data[field]}" for field in fields[2:]))
+    return fail(notes) if ratio > .20 or any(data[field] for field in ('overdue','missing_deadlines','unchecked_due','feedback_overdue')) else ok(notes)
 
 
 def check_external_runtimes() -> Result:
@@ -818,35 +1088,29 @@ def check_offsite_backup() -> Result:
 
 
 def check_containers_v2() -> Result:
-    names = (
-        "forgehub-backend", "forgehub-frontend", "forgerouter", "hindsight",
-        *APPLICATION_POSTGRES, "forgevault-web-1", "forgevault-api-1",
-        "forgevault-redis-1", "darckware-frontend", "darckware-backend",
-        "coreti_web", "coreti_api", "coreti_nginx",
-    )
-    return _healthy_containers(names)
+    return _healthy_containers(tuple(name for target in application_targets() for name in target['containers']))
 
 
 def check_endpoints_v2() -> Result:
-    baseline = check_endpoints()
-    extra = [
-        _url_status("http://127.0.0.1:8080/", expected=(200,)),
-        _url_status("https://darckware.net/", expected=(200, 301, 302)),
-        _url_status("http://127.0.0.1:8020/health"),
-        _url_status("https://coreti.darckware.net/", expected=(200, 301, 302, 401, 403)),
-    ]
-    bad = [part.notes for part in [baseline, *extra] if not part.ok]
-    return fail("; ".join(bad)) if bad else ok("All six ecosystem application endpoints respond")
+    baseline = check_endpoints()  # Preserve the existing JSON health contract.
+    results = [baseline]
+    targets = application_targets()
+    for target in targets:
+        for endpoint in target['endpoints']:
+            results.append(_url_status(endpoint['url'], expected=tuple(endpoint['expected'])))
+    bad = [part.notes for part in results if not part.ok]
+    return fail('; '.join(bad)) if bad else ok(f"All {len(targets)} registered production application endpoints respond")
 
 
 def check_postgres_v2() -> Result:
-    bad = [name for name in APPLICATION_POSTGRES if run(["docker", "exec", name, "pg_isready", "-q"]).returncode]
-    return fail(f"PostgreSQL not ready: {bad}") if bad else ok("Six application PostgreSQL instances accept connections")
+    names = application_postgres()
+    bad = [name for name in names if run(["docker", "exec", name, "pg_isready", "-q"]).returncode]
+    return fail(f"PostgreSQL not ready: {bad}") if bad else ok(f"{len(names)} registered application PostgreSQL instances accept connections")
 
 
 def check_compose_v2() -> Result:
     bad = []
-    for app in APPLICATIONS:
+    for app in (target['name'] for target in application_targets()):
         compose = _compose_path(app)
         if not compose.is_file():
             bad.append(f"{app}: missing compose")
@@ -854,12 +1118,12 @@ def check_compose_v2() -> Result:
         result = run(["docker", "compose", "-f", str(compose), "config", "--quiet"], timeout=25)
         if result.returncode:
             bad.append(f"{app}: {result.stderr.strip()[:200]}")
-    return fail("; ".join(bad)) if bad else ok("All six application Compose files validate")
+    return fail("; ".join(bad)) if bad else ok(f"All {len(application_targets())} application Compose files validate")
 
 
 def check_secret_modes_v2() -> Result:
     paths = [ATHOS / "config.yaml"] + [
-        path for app in APPLICATIONS
+        path for app in (target['name'] for target in application_targets())
         for path in _compose_path(app).parent.glob(".env*")
         if path.name == ".env" or path.name.startswith(".env.local")
     ]
@@ -897,6 +1161,26 @@ def check_forgevault_ssh_key_reads() -> Result:
     result = run(["python3", str(ATHOS / "scripts/forgevault_ssh_key_audit.py")], timeout=50)
     output = (result.stdout + result.stderr).strip()
     return ok(output) if result.returncode == 0 else fail(output or "NOT VERIFIED: no output from the audit")
+
+
+def check_module_health(name: str) -> Result:
+    # Release source first; deployed profile scripts may load the helper next
+    # to themselves. No dependency on an accidentally installed older profile.
+    import importlib.util
+    candidates = (Path(__file__).resolve().with_name('module_health.py'),
+                  FORGEHUB / 'ops/athos/module_health.py')
+    try:
+        source = next(path for path in candidates if path.is_file())
+        spec = importlib.util.spec_from_file_location('athos_module_health', source)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        check = module.CHECKS[name]
+        counts = _metadata_counts(check.query, check.fields)
+        healthy, notes = check.evaluate(counts)
+        return ok(notes) if healthy else fail(notes)
+    except Exception:
+        return fail('NOT VERIFIED: module aggregate metadata unavailable')
 
 
 CHECKS = {
@@ -959,6 +1243,12 @@ CHECKS = {
     "ECO-058": check_offsite_backup,
     "ECO-059": check_shared_skills_locked,
     "ECO-060": check_forgevault_ssh_key_reads,
+    "ECO-061": lambda: check_module_health("workers"),
+    "ECO-062": lambda: check_module_health("mission"),
+    "ECO-063": lambda: check_module_health("factory"),
+    "ECO-064": lambda: check_module_health("remote"),
+    "ECO-065": lambda: check_module_health("sessions"),
+    "ECO-066": lambda: check_module_health("routines"),
 }
 
 

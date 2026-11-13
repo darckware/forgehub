@@ -193,6 +193,8 @@ sub-conversion, ticked off independently.
 - [ ] `frontend/src/components/ProjectsForgeRouterCard.tsx` (409 lines)
 - [x] `frontend/src/pages/client-demands/index.tsx` — born converted 2026-10-04:
   `useClientDemandsViewModel.ts` (filters, selection, action dialog with optional queued e-mail).
+  2026-11-12: its "Manutenção remota" section (`RemoteMaintenanceSection.tsx`) was born on
+  `useWorkItemMaintenanceViewModel.ts` (ask panel, proposal edit → confirm → record).
 - [x] `frontend/src/pages/client-emails/index.tsx` — born converted 2026-10-04:
   `useClientEmailApprovalViewModel.ts` (approve exact version/hash, edit → new version, reject, cancel).
 - [x] `frontend/src/pages/client-accounts/index.tsx` — born converted 2026-10-04:

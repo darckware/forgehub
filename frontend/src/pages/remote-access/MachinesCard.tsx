@@ -76,9 +76,15 @@ function ReadinessBadge({ entry, t }: { entry: HostReadinessEntry | undefined; t
   const online = status !== "offline" && status !== "disabled" && status !== "unknown";
   const ssh = hasSsh(entry);
   const rustdesk = Boolean(entry?.rustdesk_id);
+  const since = entry?.status_since
+    ? t("status.since", {
+        time: new Date(entry.status_since).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }),
+      })
+    : null;
+  const tooltip = [entry?.detail, since].filter(Boolean).join(" · ") || undefined;
   return (
     <span className="inline-flex items-center gap-1.5">
-      <Badge variant="outline" title={entry?.detail ?? undefined} className={`whitespace-nowrap ${STATUS_BADGE[status]}`}>
+      <Badge variant="outline" title={tooltip} className={`whitespace-nowrap ${STATUS_BADGE[status]}`}>
         {t(`status.${statusKey(entry)}`)}
       </Badge>
       {entry?.readiness === "busy" && (

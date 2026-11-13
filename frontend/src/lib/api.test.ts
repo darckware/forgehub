@@ -95,3 +95,19 @@ describe("authenticated file downloads", () => {
     expect(result.filename).toBe("package.zip");
   });
 });
+
+describe("apiErrorText", () => {
+  it("shows the backend's message as is, for string and {code, message} details", async () => {
+    const { apiErrorText } = await import("./apiErrorText");
+    expect(apiErrorText(new ApiError("failed with status 422", 422, { detail: "Not a key" }))).toBe("Not a key");
+    expect(
+      apiErrorText(
+        new ApiError("failed with status 409", 409, {
+          detail: { code: "SSH_KEY_IN_USE", message: "Esta chave já é da máquina pc-01." },
+        }),
+      ),
+    ).toBe("Esta chave já é da máquina pc-01.");
+    expect(apiErrorText(new ApiError("failed with status 500", 500, undefined))).toBe("failed with status 500");
+    expect(apiErrorText(new Error("network"))).toBe("network");
+  });
+});

@@ -149,7 +149,9 @@
       "risk_too_low": "a permissão de scripts dele não cobre o risco dos scripts escolhidos.",
       "scripts_need_delegation": "só tem comandos livres; os scripts escolhidos pedem permissão de scripts.",
       "not_covering": "nenhuma permissão dele cobre todas as máquinas escolhidas."
-    }
+    },
+    "machinesHelp": "Escolha as máquinas do cliente que precisam de manutenção.",
+    "pickMachine": "Escolha ao menos uma máquina para ver os agentes."
   },
   "categories": {
     "title": "Classificações",
@@ -214,7 +216,8 @@
       "sshMissing": "Sem SSH do ForgeHub",
       "rustdeskOk": "RustDesk {{id}}",
       "rustdeskMissing": "Sem RustDesk registrado"
-    }
+    },
+    "since": "Desde {{time}}"
   },
   "readiness": {
     "ready": "Pronta",
@@ -827,6 +830,10 @@
         "restore": "Restaurar no host",
         "removeCopy": "Remover cópia",
         "pastePlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----\n…cole uma chave que este host não possui…",
+        "publicKeyPlaceholder": "…opcional: a chave pública (.pub), necessária se a privada tiver senha…",
+        "publicUnknown": "A chave está no ForgeVault, mas a parte pública não está registrada: não dá para conferir se ela é de outra máquina.",
+        "fillPublic": "Preencher a chave pública",
+        "sharedWith": "Esta chave também está em: {{names}}. Cada máquina deve ter a sua própria chave; use \"Configurar acesso\" para dar a esta máquina uma nova chave.",
         "storePasted": "Guardar chave colada",
         "removeTitle": "Remover a chave armazenada?",
         "removeDescription": "A cópia criptografada da chave de {{name}} será excluída do ForgeHub. O arquivo no host permanece; se desaparecer, não haverá cópia para restaurar."

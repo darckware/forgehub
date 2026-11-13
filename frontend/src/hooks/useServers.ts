@@ -31,6 +31,13 @@ export interface Server {
   /** The SSH key lives in ForgeVault; the terminal asks the backend for the
    * command (it points at the bridge's in-memory agent, no key file). */
   ssh_key_in_vault?: boolean;
+  /** List only: other machines already sharing this row's key (public key,
+   * ForgeVault secret or key file) -- rows from before rule 3 (one key per
+   * machine). Names only. */
+  duplicate_key_with?: string[];
+  /** List only: the key is in ForgeVault but its public half is missing or
+   * unreadable, so rule 3 can't compare it with other machines. */
+  key_public_unknown?: boolean;
   /** ForgeHub-side access switch. False parks the server: no status probe, no
    * terminal -- while the key, the vaulted copy and the server itself are all
    * left exactly as they were. */
@@ -276,8 +283,20 @@ export interface ServerKeyVaultResult {
 /** Stores a pasted private key directly in ForgeVault. */
 export function useStoreServerKey() {
   const qc = useQueryClient();
-  return useMutation<ServerKeyVaultResult, Error, { id: string; private_key: string }>({
-    mutationFn: ({ id, private_key }) => apiClient.put(`/api/v1/servers/${id}/key`, { private_key }),
+  return useMutation<ServerKeyVaultResult, Error, { id: string; private_key: string; public_key?: string | null }>({
+    mutationFn: ({ id, private_key, public_key }) =>
+      apiClient.put(`/api/v1/servers/${id}/key`, { private_key, public_key: public_key || null }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: SERVERS_KEY }),
+  });
+}
+
+/** Fills the public half of a machine's ForgeVault key from the bridge's
+ * in-memory agent (public keys only). 409 SSH_KEY_IN_USE when that key is
+ * already another machine's; nothing is written then. */
+export function useFillServerPublicKey() {
+  const qc = useQueryClient();
+  return useMutation<{ server_id: string; public_key: string }, Error, string>({
+    mutationFn: (id) => apiClient.post(`/api/v1/servers/${id}/public-key:fill`),
     onSuccess: () => qc.invalidateQueries({ queryKey: SERVERS_KEY }),
   });
 }

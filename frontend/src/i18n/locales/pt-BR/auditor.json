@@ -44,7 +44,8 @@
       "error": "Erro",
       "timeout": "Tempo esgotado",
       "never": "Nunca executado",
-      "disabled": "Desativado"
+      "disabled": "Desativado",
+      "stale": "Evidência expirada"
     },
     "monitor": {
       "healthy": "Agendador saudável",
@@ -94,6 +95,10 @@
       "athosRemediation": "Correção do Athos",
       "verification": "Verificação após correção",
       "manual": "Manual"
-    }
+    },
+    "stale": "Evidência expirada",
+    "recordedResult": "Resultado registrado: {{result}}",
+    "expiresAt": "Evidência válida até: {{date}}",
+    "lastCompleteCronRun": "Última auditoria agendada completa"
   }
 }

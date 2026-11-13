@@ -18,6 +18,7 @@ Endpoints:
   POST   /api/v1/servers/{id}/services:scan – probe common ports (never writes)
   PUT    /api/v1/servers/{id}/key          – vault a pasted private key
   DELETE /api/v1/servers/{id}/key          – drop the vaulted copy
+  POST   /api/v1/servers/{id}/public-key:fill – record the vault key's public half (rule 3)
 """
 import asyncio
 import csv
@@ -25,8 +26,10 @@ import io
 import ipaddress
 import logging
 import re
+import shlex
 import socket
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -52,6 +55,7 @@ from app.api.schemas.server import (
     HostReadinessResult,
     LoginPasswordOut,
     MaintenanceEntry,
+    PublicKeyFillOut,
     RotationOut,
     RotationRequest,
     ServerCheckResult,
@@ -79,9 +83,10 @@ from app.api.routes.host_execution import busy_server_ids, launch_execution
 from app.core.host_exec_runner import call_bridge_exec_as
 from app.db.base import AsyncSessionLocal
 from app.api.routes.vpn import fetch_tailnet_status
+from app.api.schemas.vpn import VpnStatus
 from app.core.config import settings
 from app.core.deps import get_current_admin, require_perm
-from app.core.forgevault import machine_secret_name, vault_reveal, vault_store
+from app.core.forgevault import fresh_machine_secret_name, vault_reveal, vault_store
 from app.core.host_enrollment import (
     LOGIN as ENROLL_LOGIN,
     EnrollmentError,
@@ -92,8 +97,21 @@ from app.core.host_enrollment import (
 from app.core.host_preparation import PreparationError, preparation_script
 from app.core.tailscale_api import AUTH_KEY_TTL_SECONDS, create_auth_key, load_api_key
 from app.core.secrets import decrypt_secret, encrypt_secret
+from app.core.ssh_key_uniqueness import (
+    CODE_PUBLIC_INVALID,
+    CODE_PUBLIC_MISMATCH,
+    CODE_PUBLIC_REQUIRED,
+    assert_key_unique,
+    derive_public_key,
+    duplicate_keys_by_server,
+    key_in_use_error,
+    find_key_owner,
+    public_key_blob,
+    public_key_unknown,
+)
 from app.db.base import get_db
 from app.db.models.governance import AuditEvent
+from app.db.models.machine_status import MachineStatusObservation
 from app.db.models.server import HostGroup, HostGroupMember, Server, ServerService
 from app.db.models.user import User
 
@@ -255,10 +273,13 @@ async def _set_server_groups(
 async def list_servers(db: AsyncSession = Depends(get_db)):
     servers = list((await db.execute(select(Server).order_by(Server.name))).scalars().all())
     groups = await _group_ids_by_server(db, [s.id for s in servers])
+    duplicates = duplicate_keys_by_server(servers)
     out = []
     for server in servers:
         item = ServerOut.model_validate(server)
         item.group_ids = groups.get(server.id, [])
+        item.duplicate_key_with = duplicates.get(server.id, [])
+        item.key_public_unknown = public_key_unknown(server)
         out.append(item)
     return out
 
@@ -440,11 +461,11 @@ async def enroll_station(
     if payload.group_ids:
         await _set_server_groups(db, server.id, payload.group_ids)
 
-    server.ssh_key_ref, server.public_key = await _generate_vault_key(server)
+    server.ssh_key_ref, server.public_key = await _new_machine_key(db, server)
 
     password = generate_password()
     server.login_password_ref = await vault_store(
-        machine_secret_name(server, "LOGIN"), password,
+        fresh_machine_secret_name(server, "LOGIN"), password,
         f"Senha da conta {ENROLL_LOGIN} em {server.name} ({server.darckware_client_name or 'sem cliente'})",
     )
     auth_key = await create_auth_key(api_key, payload.tag, f"forgehub {name}")
@@ -537,6 +558,24 @@ async def _probe_many_via_bridge(servers: list[Server]) -> dict[str, str] | None
         return None
 
 
+# pt-BR for every detail `classify_readiness`/`classify_status` can return --
+# a closed set, kept beside the classifiers so a new string is translated in
+# the same change (test_machine_status_monitor checks the table covers them).
+# Used by the machine status monitor's notifications.
+READINESS_DETAIL_PT = {
+    "Access is turned off in ForgeHub": "acesso desligado no ForgeHub",
+    "No login set for this machine yet": "nenhum login cadastrado para esta máquina",
+    "Waiting for the station to join the tailnet": "aguardando a estação entrar na tailnet",
+    "Offline in the tailnet": "offline na tailnet",
+    "Answers SSH, but ForgeHub's login is not installed yet": "responde SSH, mas o login do ForgeHub não está instalado",
+    "Online in the tailnet, but SSH is not enabled": "online na tailnet, mas o SSH não está habilitado",
+    "SSH port unreachable": "porta SSH inacessível",
+    "Could not probe SSH": "não foi possível sondar o SSH",
+    "SSH ok, RustDesk not installed": "SSH ok, RustDesk não instalado",
+    "RustDesk only, ForgeHub has no SSH access yet": "só RustDesk, o ForgeHub ainda não tem acesso SSH",
+}
+
+
 def classify_readiness(
     server: Server,
     *,
@@ -624,27 +663,51 @@ def classify_access_path(
     return path, best[1], best[2]
 
 
-@router.get("/readiness", response_model=HostReadinessResult)
-async def get_readiness(
-    refresh: bool = False,
-    db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_perm("servers", "view")),
-):
-    """Whether each machine can take a command right now. Open to the
-    "servers" module, not just admins (2026-10-17): Remote Access › Machines
-    replaced the Servers page, and this is the read side of what `/{id}/check`
-    already lets that module do -- the admin-only parts stay behind their own
-    routes.
+@dataclass
+class MachineReadiness:
+    """One machine's readiness, before the "busy" overlay. Shared by
+    `GET /readiness` and the machine status monitor
+    (core/machine_status_monitor.py), so both read a machine the same way."""
 
-    The tailnet is read on every call; the SSH probe is cached for 5 minutes
-    (`refresh=true` forces it) and only runs for machines that could answer
-    (enabled, with a login, not offline in the tailnet). "busy" arrives with phase 4 (command
-    executions) -- a machine with a command queued or running."""
+    server: Server
+    readiness: str
+    detail: str | None
+    status: str
+    status_detail: str | None
+    tailnet_online: bool | None
+    ssh: str | None
+
+
+@dataclass
+class ReadinessSnapshot:
+    machines: list[MachineReadiness]
+    tailnet: VpnStatus
+    tailnet_available: bool
+    accept_routes: bool | None
+    routers: list[tuple[str, str | None, list[str]]]
+    ssh_checked_at: datetime | None
+    # True when machines needed a fresh SSH probe and the bridge didn't answer:
+    # their "unknown" is the bridge's, not theirs.
+    ssh_probe_failed: bool
+
+
+async def compute_readiness(
+    db: AsyncSession, *, refresh: bool = False, release_transaction: bool = False
+) -> ReadinessSnapshot:
+    """Reads the tailnet on every call and the SSH probe through the 5-minute
+    cache (`refresh=True` forces it). The probe only runs for machines that
+    could answer (enabled, with a login, not offline in the tailnet).
+
+    `release_transaction=True` ends the read transaction before the network
+    calls (the session doesn't expire on commit, so the rows stay readable):
+    the machine status monitor writes afterwards and must not hold a
+    transaction open across the tailnet read and the SSH probe."""
     servers = list((await db.execute(select(Server).order_by(Server.name))).scalars().all())
+    if release_transaction:
+        await db.commit()
     tailnet = await fetch_tailnet_status()
     tailnet_available = tailnet.server.state != "unavailable"
     online_by_node = {p.id: p.online for p in tailnet.peers}
-    tailscale_ip_by_node = {p.id: p.tailscale_ipv4 for p in tailnet.peers}
     routers = [(p.id, p.name or p.hostname, p.subnet_routes) for p in tailnet.peers if p.subnet_routes]
     accept_routes = tailnet.server.posture.accept_routes if tailnet.server.posture else None
 
@@ -658,6 +721,7 @@ async def get_readiness(
         for s in servers
         if s.access_enabled and s.remote_user and s.ip_address and tailnet_online(s) is not False
     ]
+    ssh_probe_failed = False
     async with _ssh_probe_lock:
         now = datetime.now(timezone.utc)
         cached_at = _ssh_probe_cache["at"]
@@ -675,43 +739,101 @@ async def get_readiness(
                     _ssh_probe_cache["at"] = now
                 cached.update(fresh)
                 _ssh_probe_cache["statuses"] = cached
+            else:
+                ssh_probe_failed = True
         ssh_checked_at = _ssh_probe_cache["at"]
 
-    busy = await busy_server_ids(db)
-    entries = []
+    machines = []
     for server in servers:
         online = tailnet_online(server)
         ssh = cached.get(str(server.id))
         readiness, detail = classify_readiness(
             server, tailnet_available=tailnet_available, tailnet_online=online, ssh=ssh
         )
-        status, status_detail = classify_status(server, readiness)
-        detail = detail or status_detail
+        status_, status_detail = classify_status(server, readiness)
+        machines.append(
+            MachineReadiness(
+                server=server, readiness=readiness, detail=detail, status=status_,
+                status_detail=status_detail, tailnet_online=online, ssh=ssh,
+            )
+        )
+    return ReadinessSnapshot(
+        machines=machines,
+        tailnet=tailnet,
+        tailnet_available=tailnet_available,
+        accept_routes=accept_routes,
+        routers=routers,
+        ssh_checked_at=ssh_checked_at,  # type: ignore[arg-type]
+        ssh_probe_failed=ssh_probe_failed,
+    )
+
+
+@router.get("/readiness", response_model=HostReadinessResult)
+async def get_readiness(
+    refresh: bool = False,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_perm("servers", "view")),
+):
+    """Whether each machine can take a command right now. Open to the
+    "servers" module, not just admins (2026-10-17): Remote Access › Machines
+    replaced the Servers page, and this is the read side of what `/{id}/check`
+    already lets that module do -- the admin-only parts stay behind their own
+    routes.
+
+    The computation is `compute_readiness` (shared with the machine status
+    monitor); this route adds the "busy" overlay (a machine with a command
+    queued or running) and the access path."""
+    snap = await compute_readiness(db, refresh=refresh)
+    tailscale_ip_by_node = {p.id: p.tailscale_ipv4 for p in snap.tailnet.peers}
+    # "Since" comes from the monitor's last observation, and only when it saw
+    # the status shown now (it runs every 15 min, so it can lag behind).
+    observed = {
+        row.server_id: (row.status, row.since)
+        for row in (
+            await db.execute(
+                select(
+                    MachineStatusObservation.server_id,
+                    MachineStatusObservation.status,
+                    MachineStatusObservation.since,
+                )
+            )
+        ).all()
+    }
+    busy = await busy_server_ids(db)
+    entries = []
+    for m in snap.machines:
+        server = m.server
+        readiness, detail = m.readiness, m.detail or m.status_detail
         if server.id in busy and readiness != "disabled":
             readiness, detail = "busy", "Running a command"
         path, via_id, via_name = classify_access_path(
-            server, tailnet_available=tailnet_available, accept_routes=accept_routes, routers=routers
+            server, tailnet_available=snap.tailnet_available, accept_routes=snap.accept_routes, routers=snap.routers
         )
         entries.append(
             HostReadinessEntry(
                 server_id=server.id,
                 readiness=readiness,
-                status=status,
+                status=m.status,
                 rustdesk_id=server.rustdesk_id or None,
-                tailnet_online=online,
-                ssh=ssh,
+                tailnet_online=m.tailnet_online,
+                ssh=m.ssh,
                 detail=detail,
                 access_path=path,
                 access_via_node_id=via_id,
                 access_via_name=via_name,
                 tailscale_ipv4=tailscale_ip_by_node.get(server.tailnet_node_id) if server.tailnet_node_id else None,
+                status_since=(
+                    observed[server.id][1]
+                    if server.id in observed and observed[server.id][0] == m.status
+                    else None
+                ),
             )
         )
     return HostReadinessResult(
         entries=entries,
         checked_at=datetime.now(timezone.utc),
-        tailnet_available=tailnet_available,
-        ssh_checked_at=ssh_checked_at,  # type: ignore[arg-type]
+        tailnet_available=snap.tailnet_available,
+        ssh_checked_at=snap.ssh_checked_at,  # type: ignore[arg-type]
     )
 
 
@@ -974,7 +1096,7 @@ async def install_server_key(
         raise HTTPException(status_code=404, detail="Server not found")
     remote_user = (payload.remote_user or server.remote_user).strip()
     admin_user = payload.admin_user.strip() if payload.admin_user else None
-    new_ref, public_key = await _generate_vault_key(server, unique=bool(server.ssh_key_ref))
+    new_ref, public_key = await _new_machine_key(db, server)
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -1062,12 +1184,12 @@ def _bridge_detail(resp: httpx.Response) -> str:
         return resp.text[:300]
 
 
-async def _generate_vault_key(server: Server, *, unique: bool = False) -> tuple[str, str]:
-    """Create a key in bridge tmpfs and persist it only in ForgeVault."""
-    name = machine_secret_name(server, "SSH_KEY")
-    if unique:
-        suffix = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S") + "_" + uuid.uuid4().hex[:8].upper()
-        name = f"{name[:120 - len(suffix) - 1]}_{suffix}"
+async def _generate_vault_key(server: Server) -> tuple[str, str]:
+    """Create a key in bridge tmpfs and persist it only in ForgeVault, always
+    under a fresh secret name (core/forgevault.py's `fresh_machine_secret_name`):
+    the bridge upserts by name, and a name computed from this row could be
+    another machine's secret (renamed, or moved to another client)."""
+    name = fresh_machine_secret_name(server, "SSH_KEY")
     comment = f"forgehub@{re.sub(r'[^A-Za-z0-9.-]', '-', server.name)}"
     resp = await _bridge_post("/v1/servers/generate-key", {
         "secret_name": name,
@@ -1080,6 +1202,35 @@ async def _generate_vault_key(server: Server, *, unique: bool = False) -> tuple[
     key_ref, public_key = data.get("ssh_key_ref"), data.get("public_key", "")
     if not key_ref or not _PUB_RE.match(public_key):
         raise HTTPException(status_code=502, detail="ForgeVault key generation returned invalid metadata")
+    return key_ref, public_key
+
+
+async def _record_unused_secret(server_id: uuid.UUID, key_ref: str, refusal: HTTPException) -> None:
+    """A key was generated/stored in ForgeVault and then refused (rule 3): the
+    secret is left unused there. Recorded in its own session -- so it commits
+    without committing anything the refused request had pending -- with the
+    secret id, never the key, so it can be found and cleaned up."""
+    detail = refusal.detail if isinstance(refusal.detail, dict) else {}
+    async with AsyncSessionLocal() as session:
+        session.add(AuditEvent(
+            entity_type="server", entity_id=server_id, event_type="ssh_key_secret_unused", actor="forgehub",
+            payload={"secret_ref": key_ref, "reason": detail.get("code"), "other_machine": detail.get("other_machine")},
+        ))
+        await session.commit()
+
+
+async def _new_machine_key(db: AsyncSession, server: Server) -> tuple[str, str]:
+    """A fresh ForgeVault key for this machine, checked against every other
+    machine before the caller touches the row. Unique by construction; the
+    check is the safety net for a vault/bridge bug handing back a key or a
+    secret id another machine already has (409 SSH_KEY_IN_USE). A refused
+    secret is recorded (`ssh_key_secret_unused`) for cleanup."""
+    key_ref, public_key = await _generate_vault_key(server)
+    try:
+        await assert_key_unique(db, server.id, public_key=public_key, key_ref=key_ref)
+    except HTTPException as exc:
+        await _record_unused_secret(server.id, key_ref, exc)
+        raise
     return key_ref, public_key
 
 
@@ -1253,37 +1404,97 @@ async def _run_as(server: Server, script: str, *, key_path: str | None = None, k
     )
 
 
+def _apply_may_have_happened(outcome: dict) -> bool:
+    """Whether a failed run might still have changed the machine. "auth" and
+    the bridge's own "connection" (ssh never logged in) and "command" (the one
+    command ran and exited non-zero) mean it did not; a timeout, or losing the
+    bridge mid-request (the run may have gone through), means it may have."""
+    failure = outcome.get("failure")
+    if failure == "timeout":
+        return True
+    return failure == "connection" and str(outcome.get("stderr") or "").startswith("Host bridge unreachable")
+
+
+async def _rotation_failed(
+    db: AsyncSession, server: Server, log: list[str], step_outcome: dict, *,
+    step: str, outcome: str, new_ref: str, previous_ref: str | None, machine_may_hold_new: bool,
+) -> dict:
+    """Every failed password rotation ends here. The new password is in its own
+    fresh secret, so its id must never be lost: it goes in the audit event
+    (`login_password_rotation_failed`, id only, never the value) whatever
+    happened. When the machine may hold the new password, the row points at
+    the new secret -- the safest single answer, since the old one is then
+    possibly wrong and the new one possibly right -- and both ids stay in the
+    audit, so either can be tried by hand."""
+    if machine_may_hold_new:
+        server.login_password_ref = new_ref
+        server.login_password_encrypted = None
+        log.append("   ATENÇÃO: a máquina pode estar com a NOVA senha; o cadastro passou a apontar para o segredo novo "
+                   f"({new_ref}). O segredo anterior ({previous_ref or 'nenhum'}) continua no ForgeVault.")
+    else:
+        log.append(f"   a máquina continua com a senha anterior; o cadastro segue no segredo anterior. "
+                   f"O segredo novo ({new_ref}) ficou sem uso no ForgeVault.")
+    db.add(AuditEvent(
+        entity_type="server", entity_id=server.id, event_type="login_password_rotation_failed", actor="forgehub",
+        payload={"login": server.remote_user, "secret_ref": new_ref, "previous_secret_ref": previous_ref,
+                 "step": step, "outcome": outcome, "failure": step_outcome.get("failure"),
+                 "row_secret": "new" if machine_may_hold_new else "previous"},
+    ))
+    await db.commit()
+    return _fail(log, step_outcome)
+
+
 async def _rotate_password(db: AsyncSession, server: Server) -> dict:
     log: list[str] = []
     login = server.remote_user
-    name = machine_secret_name(server, "LOGIN")
-    old = await vault_reveal(server.login_password_ref) if server.login_password_ref else None
+    # A fresh secret (core/forgevault.py): the previous one is never rotated in
+    # place -- its name might even be another machine's. So a failure never
+    # writes back; instead _rotation_failed records the new secret's id and,
+    # when the machine may already hold the new password, points the row at it.
+    previous_ref = server.login_password_ref
+    old = await vault_reveal(previous_ref) if previous_ref else None
     new = generate_password()
-    ref = await vault_store(name, new, f"Senha da conta {login} em {server.name} ({server.darckware_client_name or 'sem cliente'})")
+    ref = await vault_store(fresh_machine_secret_name(server, "LOGIN"), new,
+                            f"Senha da conta {login} em {server.name} ({server.darckware_client_name or 'sem cliente'})")
     log.append("== 1/3 Nova senha gravada na ForgeVault: ok")
     applied = await _run_as(server, _set_password_script(server.os_family or "linux", login, new))
     if applied.get("failure"):
-        log.append("== 2/3 Aplicar na máquina: FALHOU")
-        if old:
-            await vault_store(name, old, "Senha anterior restaurada (rotação falhou)")
-            log.append("   a senha anterior voltou a ser a atual na ForgeVault")
-        return _fail(log, applied)
+        uncertain = _apply_may_have_happened(applied)
+        log.append("== 2/3 Aplicar na máquina: FALHOU" + (" (resultado incerto: pode ter sido aplicada)" if uncertain else ""))
+        return await _rotation_failed(
+            db, server, log, applied, step="apply", outcome="uncertain" if uncertain else "not_applied",
+            new_ref=ref, previous_ref=previous_ref, machine_may_hold_new=uncertain,
+        )
     log.append("== 2/3 Aplicar na máquina: ok")
     if server.os_family == "windows":
         check = await _run_as(server, "whoami", password=new)
         if check.get("failure"):
             log.append("== 3/3 Login com a nova senha: FALHOU")
-            if old:
-                await _run_as(server, _set_password_script("windows", login, old))
-                await vault_store(name, old, "Senha anterior restaurada (rotação falhou)")
-                log.append("   senha anterior reaplicada e restaurada na ForgeVault")
-            return _fail(log, check)
+            if not old:
+                log.append("   não havia senha anterior para reaplicar")
+                return await _rotation_failed(
+                    db, server, log, check, step="verify", outcome="no_previous",
+                    new_ref=ref, previous_ref=previous_ref, machine_may_hold_new=True,
+                )
+            revert = await _run_as(server, _set_password_script("windows", login, old))
+            if revert.get("failure"):
+                log.append("   reaplicar a senha anterior: FALHOU")
+                return await _rotation_failed(
+                    db, server, log, check, step="verify", outcome="revert_failed",
+                    new_ref=ref, previous_ref=previous_ref, machine_may_hold_new=True,
+                )
+            log.append("   senha anterior reaplicada: ok")
+            return await _rotation_failed(
+                db, server, log, check, step="verify", outcome="reverted",
+                new_ref=ref, previous_ref=previous_ref, machine_may_hold_new=False,
+            )
         log.append("== 3/3 Login com a nova senha: ok")
     else:
         log.append("== 3/3 Login com a nova senha: não verificado no Linux (login por senha costuma estar desligado)")
     server.login_password_ref = ref
     server.login_password_encrypted = None
-    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="login_password_rotated", actor="forgehub", payload={"login": login}))
+    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="login_password_rotated", actor="forgehub",
+                      payload={"login": login, "secret_ref": ref, "previous_secret_ref": previous_ref}))
     await db.commit()
     return {"exit_code": 0, "failure": None, "stdout": "\n".join(log), "stderr": "", "duration_ms": applied.get("duration_ms")}
 
@@ -1291,9 +1502,10 @@ async def _rotate_password(db: AsyncSession, server: Server) -> dict:
 async def _rotate_key(db: AsyncSession, server: Server) -> dict:
     log: list[str] = []
     try:
-        new_ref, new_pub = await _generate_vault_key(server, unique=True)
+        new_ref, new_pub = await _new_machine_key(db, server)
     except HTTPException as exc:
-        return _fail(["== 1/4 Gerar a nova chave no ForgeVault: FALHOU"], {"stderr": str(exc.detail)})
+        detail = exc.detail.get("message") if isinstance(exc.detail, dict) else exc.detail
+        return _fail(["== 1/4 Gerar a nova chave no ForgeVault: FALHOU"], {"stderr": str(detail)})
     if not _PUB_RE.match(new_pub):
         return _fail(["== 1/4 Gerar a nova chave: chave pública inválida"], {})
     log.append("== 1/4 Nova chave gerada: ok")
@@ -1392,22 +1604,23 @@ async def prepare_host(
 
     key_created = not bool(server.ssh_key_ref and server.public_key)
     if key_created:
-        server.ssh_key_ref, server.public_key = await _generate_vault_key(server, unique=bool(server.ssh_key_ref))
+        server.ssh_key_ref, server.public_key = await _new_machine_key(db, server)
         server.ssh_key_path = None
         server.private_key_encrypted = None
     elif server.ssh_key_path:
         # Existing legacy row: create a fresh ForgeVault key; the user can
         # rerun enrollment/preparation on the station with this public key.
-        server.ssh_key_ref, server.public_key = await _generate_vault_key(server, unique=True)
+        server.ssh_key_ref, server.public_key = await _new_machine_key(db, server)
         server.ssh_key_path = None
         server.private_key_encrypted = None
     password = generate_password()
+    previous_login_ref = server.login_password_ref
     try:
         script, language = preparation_script(server.os_family, STATION_LOGIN, server.public_key or "", password)
     except PreparationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     server.login_password_ref = await vault_store(
-        machine_secret_name(server, "LOGIN"), password,
+        fresh_machine_secret_name(server, "LOGIN"), password,
         f"Senha da conta {STATION_LOGIN} em {server.name} ({server.darckware_client_name or 'sem cliente'})",
     )
     server.login_password_encrypted = None
@@ -1416,7 +1629,8 @@ async def prepare_host(
     db.add(AuditEvent(
         entity_type="server", entity_id=server.id, event_type="preparation_started", actor=admin.username,
         payload={"mode": payload.mode, "os_family": server.os_family, "admin_user": admin_user or None,
-                 "disable_admin": payload.disable_admin, "key_created": key_created},
+                 "disable_admin": payload.disable_admin, "key_created": key_created,
+                 "previous_login_ref": previous_login_ref},
     ))
 
     if payload.mode == "copy":
@@ -1539,8 +1753,21 @@ async def store_server_key(
     _admin: User = Depends(get_current_admin),
 ):
     """Vaults a pasted private key, for a server whose file ForgeHub cannot
-    read from this host. Validated only by shape here — whether it is the key
-    the server accepts is answered by the status probe, not by this route."""
+    read from this host. Whether it is the key the server accepts is answered
+    by the status probe, not by this route.
+
+    Rule 3 (one key per machine): the key's public half -- derived here, or
+    sent alongside when the private key can't be read (encrypted, unknown
+    format) -- must not already belong to another machine (409
+    SSH_KEY_IN_USE), checked before anything reaches ForgeVault. The public
+    half is recorded on the row, so later checks see it too.
+
+    An encrypted private key (passphrase not on the row) is checked by the
+    public key the admin supplies with it, which is trusted as given: it
+    can't be matched against the private half here. Deliberate -- the route is
+    admin-only, and refusing every encrypted key would leave such machines
+    with no way in; a wrong .pub only weakens this one check, and the key
+    still has to log in for the machine to read as ready."""
     server = await db.get(Server, server_id)
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
@@ -1548,13 +1775,104 @@ async def store_server_key(
     if "PRIVATE KEY" not in material:
         raise HTTPException(status_code=422, detail="Payload does not look like an SSH private key")
 
-    server.ssh_key_ref = await vault_store(machine_secret_name(server, "SSH_KEY"), material,
-                                           f"Chave SSH privada do ForgeHub para {server.name}", "SshPrivateKey")
+    given_public = (payload.public_key or "").strip() or None
+    if given_public and not public_key_blob(given_public):
+        raise HTTPException(status_code=422, detail={
+            "code": CODE_PUBLIC_INVALID,
+            "message": "A chave pública informada não é uma linha OpenSSH válida (ex.: ssh-ed25519 AAAA… comentário).",
+        })
+    passphrase = None
+    if server.key_passphrase_encrypted:
+        try:
+            passphrase = decrypt_secret(server.key_passphrase_encrypted)
+        except ValueError:
+            passphrase = None
+    try:
+        derived_public = derive_public_key(material, passphrase)
+    except ValueError:
+        derived_public = None
+    if derived_public and given_public and public_key_blob(derived_public) != public_key_blob(given_public):
+        raise HTTPException(status_code=422, detail={
+            "code": CODE_PUBLIC_MISMATCH,
+            "message": "A chave pública informada não corresponde à chave privada colada.",
+        })
+    public_key = given_public or derived_public
+    if not public_key:
+        raise HTTPException(status_code=422, detail={
+            "code": CODE_PUBLIC_REQUIRED,
+            "message": (
+                "Não foi possível ler esta chave privada (protegida por senha ou formato desconhecido). "
+                "Cole também a chave pública (.pub) para conferir que ela não é de outra máquina."
+            ),
+        })
+    await assert_key_unique(db, server.id, public_key=public_key)
+
+    # Fresh name: never rotates an existing secret, which could be another
+    # machine's (core/forgevault.py). The previous secret, if any, is left
+    # as is and named in the audit so it can be cleaned up.
+    key_ref = await vault_store(fresh_machine_secret_name(server, "SSH_KEY"), material,
+                                f"Chave SSH privada do ForgeHub para {server.name}", "SshPrivateKey")
+    try:
+        await assert_key_unique(db, server.id, key_ref=key_ref)
+    except HTTPException as exc:
+        await _record_unused_secret(server.id, key_ref, exc)
+        raise
+    previous_ref = server.ssh_key_ref
+    server.ssh_key_ref = key_ref
     server.private_key_encrypted = None
-    if payload.public_key:
-        server.public_key = payload.public_key.strip()
+    server.public_key = public_key
+    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="ssh_key_stored", actor=_admin.username,
+                      payload={"secret_ref": key_ref, "previous_secret_ref": previous_ref,
+                               "public_key_source": "supplied" if given_public else "derived"}))
     await db.commit()
     return ServerKeyVaultResult(server_id=server.id, private_key_stored=True)
+
+
+_AGENT_SOCKET_RE = re.compile(r"^/[A-Za-z0-9._/-]+$")
+
+
+@router.post("/{server_id}/public-key:fill", response_model=PublicKeyFillOut)
+async def fill_public_key(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Fills `public_key` for a machine whose key is in ForgeVault but whose
+    public half is missing or unreadable (`key_public_unknown`), so rule 3
+    can compare it. Uses only what the bridge already has: the in-memory
+    agent holding the vault key (`/v1/servers/agent:open`, the terminal's
+    path) and `ssh-add -L` on it, which lists public keys only -- the private
+    key never leaves the bridge. Refused (409 SSH_KEY_IN_USE, nothing
+    written) when that public key is already another machine's."""
+    server = await db.get(Server, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if not server.ssh_key_ref:
+        raise HTTPException(status_code=422, detail="This machine has no key in ForgeVault")
+    resp = await _bridge_post("/v1/servers/agent:open", {"key_ref": server.ssh_key_ref})
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Host bridge error: {_bridge_detail(resp)}")
+    socket_path = str(resp.json().get("socket") or "")
+    if not _AGENT_SOCKET_RE.match(socket_path):
+        raise HTTPException(status_code=502, detail="Host bridge returned an invalid agent socket")
+    listed = await _bridge_post(
+        "/v1/exec", {"command": f"SSH_AUTH_SOCK={shlex.quote(socket_path)} ssh-add -L", "timeout_seconds": 15},
+    )
+    if listed.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Host bridge error: {_bridge_detail(listed)}")
+    body = listed.json()
+    lines = [line.strip() for line in (body.get("stdout") or "").splitlines() if public_key_blob(line)]
+    if body.get("exit_code") != 0 or len(lines) != 1:
+        raise HTTPException(status_code=502, detail="The ForgeVault key's agent did not list exactly one public key")
+    public_key = lines[0]
+    owner = await find_key_owner(db, exclude_id=server.id, public_key=public_key)
+    if owner:
+        raise key_in_use_error(owner)
+    server.public_key = public_key
+    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="public_key_filled", actor=admin.username,
+                      payload={"secret_ref": server.ssh_key_ref}))
+    await db.commit()
+    return PublicKeyFillOut(server_id=server.id, public_key=public_key)
 
 
 @router.delete("/{server_id}/key", response_model=ServerKeyVaultResult)

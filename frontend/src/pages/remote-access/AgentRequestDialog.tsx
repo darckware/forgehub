@@ -18,11 +18,23 @@ import { Select } from "@/components/ui/select";
 import { SidePanel } from "@/components/ui/side-panel";
 import { Textarea } from "@/components/ui/textarea";
 import { useAgentRequestViewModel } from "@/hooks/useAgentRequestViewModel";
+import type { WorkItem } from "@/hooks/useClientOps";
 import type { Server } from "@/hooks/useServers";
 
-export function AgentRequestDialog({ machines, onClose }: { machines: Server[]; onClose: () => void }) {
+export interface AgentRequestDialogProps {
+  machines: Server[];
+  onClose: () => void;
+  /** Let the operator untick machines (at least one stays), e.g. a client's
+   * whole fleet offered from its ticket. */
+  selectableMachines?: boolean;
+  /** The client's ticket/demand the request serves, preselected. */
+  initialItem?: WorkItem | null;
+}
+
+export function AgentRequestDialog({ machines, onClose, selectableMachines = false, initialItem = null }: AgentRequestDialogProps) {
   const { t } = useTranslation("remoteAccess");
-  const vm = useAgentRequestViewModel(machines);
+  // From a ticket the client's fleet starts unticked: the operator picks.
+  const vm = useAgentRequestViewModel(machines, { initialItem, startUnticked: selectableMachines && machines.length > 1 });
   const busy = vm.status === "submitting";
 
   return (
@@ -58,10 +70,27 @@ export function AgentRequestDialog({ machines, onClose }: { machines: Server[]; 
         </div>
       ) : (
         <div className="space-y-4">
-          <p className="text-sm">
-            <span className="text-muted-foreground">{t("askAgent.machines")}: </span>
-            <span className="font-medium">{vm.machines.map((m) => m.name).join(", ")}</span>
-          </p>
+          {selectableMachines && vm.offeredMachines.length > 1 ? (
+            <fieldset className="space-y-1">
+              <legend className="text-sm font-medium">{t("askAgent.machines")}</legend>
+              <p className="text-xs text-muted-foreground">{t("askAgent.machinesHelp")}</p>
+              {vm.offeredMachines.map((m) => {
+                const chosen = vm.isMachineChosen(m.id);
+                return (
+                  <label key={m.id} className="flex cursor-pointer flex-wrap items-center gap-x-2 text-sm">
+                    <input type="checkbox" checked={chosen} onChange={() => vm.toggleMachine(m.id)} />
+                    <span className="break-all">{m.name}</span>
+                    {m.os_family && <span className="text-xs text-muted-foreground">({m.os_family})</span>}
+                  </label>
+                );
+              })}
+            </fieldset>
+          ) : (
+            <p className="text-sm">
+              <span className="text-muted-foreground">{t("askAgent.machines")}: </span>
+              <span className="font-medium">{vm.machines.map((m) => m.name).join(", ")}</span>
+            </p>
+          )}
 
           <div className="space-y-1">
             <Label htmlFor="ask-instruction">{t("askAgent.instruction")}</Label>
@@ -122,8 +151,10 @@ export function AgentRequestDialog({ machines, onClose }: { machines: Server[]; 
 
           <fieldset className="space-y-1">
             <legend className="text-sm font-medium">{t("askAgent.agents")}</legend>
-            {vm.candidates.length === 0 && <p className="text-xs text-amber-600">{t("askAgent.noAgents")}</p>}
-            {vm.candidates.map((c) => {
+            {vm.machines.length === 0 ? (
+              <p className="text-xs text-muted-foreground">{t("askAgent.pickMachine")}</p>
+            ) : vm.candidates.length === 0 && <p className="text-xs text-amber-600">{t("askAgent.noAgents")}</p>}
+            {vm.machines.length > 0 && vm.candidates.map((c) => {
               const ok = c.block === null;
               const can = [
                 c.scriptsCeiling ? t("askAgent.canScripts", { level: t(`authz.risk.${c.scriptsCeiling}`, { defaultValue: c.scriptsCeiling }) }) : null,

@@ -44,7 +44,8 @@
       "error": "Error",
       "timeout": "Tiempo agotado",
       "never": "Nunca ejecutado",
-      "disabled": "Desactivado"
+      "disabled": "Desactivado",
+      "stale": "Evidencia vencida"
     },
     "monitor": {
       "healthy": "Programador saludable",
@@ -94,6 +95,10 @@
       "athosRemediation": "Corrección de Athos",
       "verification": "Verificación posterior",
       "manual": "Manual"
-    }
+    },
+    "stale": "Evidencia vencida",
+    "recordedResult": "Resultado registrado: {{result}}",
+    "expiresAt": "Evidencia válida hasta: {{date}}",
+    "lastCompleteCronRun": "Última auditoría programada completa"
   }
 }

@@ -578,5 +578,23 @@
       "candidate": "Candidato: id {{id}}, {{username}}",
       "rejected": "Fora do lote: {{count}}"
     }
+  },
+  "missionDecisions": {
+    "title": "Decisões de missão",
+    "heading_one": "Decisões de missão ({{count}})",
+    "heading_other": "Decisões de missão ({{count}})",
+    "description": "Planos e fases de missões aguardando sua aprovação.",
+    "kinds": {
+      "plan_approval": "Plano",
+      "phase_approval": "Fase"
+    },
+    "approve": "Aprovar",
+    "reject": "Recusar",
+    "return": "Devolver",
+    "openMission": "Abrir missão",
+    "reasonRequired": "Motivo (obrigatório)",
+    "reasonOptional": "Comentário (opcional)",
+    "loadError": "Não foi possível carregar as decisões de missão.",
+    "retry": "Tentar novamente"
   }
 }

@@ -11,11 +11,24 @@ Secret names follow the plan's convention, one per machine and purpose:
 `WS_<CLIENT>_<MACHINE>_RUSTDESK` (RustDesk permanent password). Every write is
 a new immutable version in the vault, so a rotation never loses the previous
 value's history.
+
+Since 2026-11-12 every machine secret ForgeHub writes goes under a FRESH name,
+`WS_<CLIENT>_<MACHINE>_<SUFFIX>_<PURPOSE>` (`fresh_machine_secret_name`). The
+bridge's upsert rotates whatever secret already has the name, and a machine
+renamed or moved to another client keeps its old name in the vault, so a name
+computed from the row could belong to another machine -- writing under it
+would replace that machine's key or password (rule 3, one key per machine).
+The bridge has no lookup that returns a name's id without its value (only
+`secrets:reveal-by-name`, which reads the secret and would itself be an SSH
+key read for ECO-060), so a fresh name, which upsert can only create, is the
+one write that can never land on someone else's secret. The purpose stays the
+last segment, so `*_SSH_KEY`/`*_LOGIN` still say what a secret is.
 """
 from __future__ import annotations
 
 import re
 import unicodedata
+import uuid
 
 import httpx
 from fastapi import HTTPException
@@ -39,6 +52,18 @@ def machine_secret_name(server, purpose: str) -> str:
     client = _slug(server.darckware_client_name, "SEM_CLIENTE")[:40]
     machine = _slug(server.name, "MAQUINA")[:50]
     return f"WS_{client}_{machine}_{purpose}"[:120]
+
+
+def fresh_machine_secret_name(server, purpose: str) -> str:
+    """WS_<CLIENT>_<MACHINE>_<SUFFIX>_<PURPOSE>: a name no secret has yet
+    (12 random hex digits), at most 120 chars, purpose kept intact at the end.
+    The one name every machine-secret write uses -- see the module docstring."""
+    suffix = uuid.uuid4().hex[:12].upper()
+    tail = f"_{suffix}_{purpose}"
+    client = _slug(server.darckware_client_name, "SEM_CLIENTE")[:40]
+    machine = _slug(server.name, "MAQUINA")[:50]
+    head = f"WS_{client}_{machine}"[: 120 - len(tail)].rstrip("_")
+    return f"{head}{tail}"
 
 
 async def _bridge(path: str, body: dict) -> dict:

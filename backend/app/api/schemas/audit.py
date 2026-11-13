@@ -45,6 +45,7 @@ class AuditRunOut(BaseModel):
 
     id: uuid.UUID
     check_id: uuid.UUID
+    batch_id: uuid.UUID | None = None
     status: str
     exit_code: int | None
     output: str | None
@@ -67,6 +68,8 @@ class AuditCheckOut(AuditCheckBase):
     created_at: datetime
     updated_at: datetime
     last_run: AuditRunOut | None = None
+    evidence_state: Literal["fresh", "stale", "never"] = "never"
+    expires_at: datetime | None = None
 
 
 class AthosAuditMonitorOut(BaseModel):
@@ -92,6 +95,8 @@ class AuditStatusOut(BaseModel):
     ok: int
     fail: int
     never_ran: int
+    stale: int = 0
+    last_complete_cron_run_at: datetime | None = None
     last_run_at: datetime | None = None
     athos_monitor: AthosAuditMonitorOut | None = None
 

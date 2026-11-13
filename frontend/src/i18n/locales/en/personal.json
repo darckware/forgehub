@@ -578,5 +578,23 @@
       "candidate": "Candidate: id {{id}}, {{username}}",
       "rejected": "Left out: {{count}}"
     }
+  },
+  "missionDecisions": {
+    "title": "Mission decisions",
+    "heading_one": "Mission decisions ({{count}})",
+    "heading_other": "Mission decisions ({{count}})",
+    "description": "Mission plans and phases waiting for your approval.",
+    "kinds": {
+      "plan_approval": "Plan",
+      "phase_approval": "Phase"
+    },
+    "approve": "Approve",
+    "reject": "Reject",
+    "return": "Return",
+    "openMission": "Open mission",
+    "reasonRequired": "Reason (required)",
+    "reasonOptional": "Comment (optional)",
+    "loadError": "Could not load mission decisions.",
+    "retry": "Try again"
   }
 }

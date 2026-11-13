@@ -5333,6 +5333,8 @@ async def _agent_socket_for(key_ref: str) -> str:
     return await _agent_cache.socket_for(key_ref)
 
 
+from explorer_archive_routes import make_archive_router
+app.include_router(make_archive_router(_check_token))
 app.include_router(make_remote_fs_router(_check_token, _resolve_key_path, _agent_socket_for))
 app.include_router(make_transfer_router(_check_token, _resolve_key_path, _agent_socket_for))
 # See host_exec.py (Remote Access phase 4: one script on one machine).

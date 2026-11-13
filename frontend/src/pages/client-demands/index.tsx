@@ -49,6 +49,7 @@ import {
 } from "@/hooks/useClientDemandsViewModel";
 import { cn } from "@/lib/utils";
 import { NewWorkItemDialog } from "./NewWorkItemDialog";
+import { RemoteMaintenanceSection } from "./RemoteMaintenanceSection";
 import { ClientOpsStatusBanner, stageVariant } from "./shared";
 
 export default function ClientDemandsPage() {
@@ -411,6 +412,8 @@ function WorkItemDetailPane({ vm, language }: { vm: ClientDemandsViewModel; lang
               )}
             </section>
           )}
+
+          <RemoteMaintenanceSection detail={detail} />
 
           <WorkItemTimeline detail={detail} />
         </>

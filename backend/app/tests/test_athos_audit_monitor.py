@@ -7,7 +7,7 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.api.routes import audit as audit_routes
 from app.api.routes.foundation import CronJobOut, CronStoreErrorOut
@@ -88,10 +88,15 @@ async def client():
 async def test_status_separates_scheduler_from_check_result(client, monkeypatch):
     check = AuditCheck(name=f"test-athos-monitor-{uuid.uuid4().hex}", command="false",
                        agent_profile="athos", enabled=True, timeout_seconds=5)
+    run_ids = []
     async with AsyncSessionLocal() as db:
         db.add(check)
         await db.flush()
-        db.add(AuditCheckRun(check_id=check.id, status="fail", requested_by="cron"))
+        completed_at = datetime.now(timezone.utc)
+        for check_id in (await db.scalars(select(AuditCheck.id).where(AuditCheck.enabled.is_(True)))).all():
+            run = AuditCheckRun(id=uuid.uuid4(), check_id=check_id, status="fail" if check_id == check.id else "ok", requested_by="cron", created_at=completed_at)
+            db.add(run)
+            run_ids.append(run.id)
         await db.commit()
     monkeypatch.setattr(audit_routes.foundation, "_list_cron_jobs", lambda: [job()])
     monkeypatch.setattr(audit_routes.foundation, "_cron_store_errors", lambda: [])
@@ -103,5 +108,6 @@ async def test_status_separates_scheduler_from_check_result(client, monkeypatch)
         assert body["athos_monitor"]["state"] == "healthy"
     finally:
         async with AsyncSessionLocal() as db:
+            await db.execute(delete(AuditCheckRun).where(AuditCheckRun.id.in_(run_ids)))
             await db.execute(delete(AuditCheck).where(AuditCheck.id == check.id))
             await db.commit()

@@ -149,7 +149,9 @@
       "risk_too_low": "its scripts permission doesn't cover the chosen scripts' risk.",
       "scripts_need_delegation": "it only has free commands; the chosen scripts need a scripts permission.",
       "not_covering": "none of its permissions covers every chosen machine."
-    }
+    },
+    "machinesHelp": "Pick the client's machines that need maintenance.",
+    "pickMachine": "Pick at least one machine to see the agents."
   },
   "categories": {
     "title": "Classifications",
@@ -214,7 +216,8 @@
       "sshMissing": "No ForgeHub SSH",
       "rustdeskOk": "RustDesk {{id}}",
       "rustdeskMissing": "No RustDesk on record"
-    }
+    },
+    "since": "Since {{time}}"
   },
   "readiness": {
     "ready": "Ready",
@@ -827,6 +830,10 @@
         "restore": "Restore to host",
         "removeCopy": "Remove copy",
         "pastePlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----\n…paste a key this host doesn't have…",
+        "publicKeyPlaceholder": "…optional: the public key (.pub), needed if the private key has a passphrase…",
+        "publicUnknown": "The key is in ForgeVault but its public half isn't on record, so ForgeHub can't check it isn't another machine's.",
+        "fillPublic": "Fill in the public key",
+        "sharedWith": "This key is also on: {{names}}. Each machine must have its own key; use \"Configure access\" to give this machine a new key.",
         "storePasted": "Store pasted key",
         "removeTitle": "Remove the stored key?",
         "removeDescription": "ForgeHub's encrypted copy of {{name}}'s key will be deleted. The file on the host remains; if it is ever lost, there will be no copy to restore."

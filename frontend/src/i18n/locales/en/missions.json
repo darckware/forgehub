@@ -216,7 +216,7 @@
     "editTitle": "Edit mission",
     "description": "Define the objective, context and orchestrator. The mission starts as a draft.",
     "adminOnly": "Only administrators can create or edit missions.",
-    "required": "Enter a name, product/version and orchestrator.",
+    "required": "Enter a name, product or service and orchestrator.",
     "saveError": "Could not save. Check the details and try again.",
     "loading": "Loading mission details…",
     "loadError": "Could not load form data.",
@@ -225,12 +225,11 @@
     "fixed": "Approved context is protected. Submit a change request to modify it.",
     "name": "Mission name",
     "context": "Objective and context",
-    "version": "Product and version",
+    "version": "Product and service",
     "orchestrator": "Orchestrator",
     "select": "Select",
     "priority": "Priority (1 to 1000)",
     "deadline": "Deadline",
-    "budget": "Budget limit",
     "directory": "Working directory",
     "reason": "Reason for change or cancellation",
     "draftHint": "Creating a draft does not approve the plan or start execution. Roles, context and criteria are validated before opening.",
@@ -248,7 +247,21 @@
     "productsLoadError": "Could not load products.",
     "versionsLoadError": "Could not load product versions.",
     "agentsLoadError": "Could not load agents.",
-    "recordLoadError": "Could not load this mission."
+    "recordLoadError": "Could not load this mission.",
+    "newProductHint": "ForgeHub registers only the name and kind (version 0.1.0). The orchestrator completes the registration from your context and the documents in docs/.",
+    "newProductName": "New product or service name",
+    "newProductKind": "Kind",
+    "productKind": {
+      "software": "Software",
+      "service": "Service",
+      "infrastructure": "Infrastructure",
+      "client_it": "Client IT"
+    },
+    "newProductRequired": "Enter the new product or service name.",
+    "directoryDocsHint": "Put in docs/ inside this folder the documents the agents must study. The mission leaves draft only with docs/ filled.",
+    "newProductCheckbox": "New product or service (not registered yet)",
+    "newProductSelected": "New product or service, entered below",
+    "directoryRequired": "Enter the project's working directory."
   },
   "team": {
     "title": "Agents by role",
@@ -293,7 +306,11 @@
     "tasks": "Tasks ({{count}}): {{tasks}}",
     "saving": "Saving…",
     "save": "Save criterion",
-    "status": { "open": "Open", "proven": "Proven", "failed": "Failed" }
+    "status": {
+      "open": "Open",
+      "proven": "Proven",
+      "failed": "Failed"
+    }
   },
   "acceptance": {
     "title": "Mission acceptance",
@@ -306,5 +323,64 @@
     "reason": "Reason for acceptance or requested changes",
     "approve": "Accept mission",
     "return": "Request changes"
+  },
+  "detail": {
+    "productPendingTitle": "Product registration pending",
+    "productPendingBody": "The orchestrator must complete the product or service registration from the mission's context and the documents in docs/."
+  },
+  "docs": {
+    "title": "Documents for the agents",
+    "description": "What the agents study before registering the product and launching tasks. The mission leaves draft only with at least one file here.",
+    "openExplorer": "Open in Explorer",
+    "explorerTitle": "Explorer",
+    "close": "Close",
+    "loading": "Reading the folder…",
+    "missing": "The docs/ folder doesn't exist yet. Open the Explorer to create it and upload the documents.",
+    "empty": "The docs/ folder is empty.",
+    "loadError": "Could not read the docs/ folder on the server.",
+    "noWorkingDirectory": "The mission has no working directory. Edit the mission and set the project folder.",
+    "createError": "Could not create the docs/ folder."
+  },
+  "phases": {
+    "title": "Phases",
+    "description": "Each phase is a project of the mission. Phases run in order: the next one starts only after the previous one is homologated by an external agent and approved by you. A phase's planning items may run in parallel; the tasks of one planning item run in sequence.",
+    "empty": "No phase registered.",
+    "name": "Phase name",
+    "objective": "Objective",
+    "objectiveHint": "What the phase delivers and what it leaves out",
+    "noObjective": "No objective set.",
+    "noPlanning": "No planning item in this phase.",
+    "notSequenced": "Not sequenced",
+    "add": "New phase",
+    "addButton": "Add phase",
+    "save": "Save",
+    "cancel": "Cancel",
+    "edit": "Edit phase",
+    "delete": "Delete phase",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "deleteTitle": "Delete phase?",
+    "deleteBody": "Phase \"{{name}}\" and its project will be removed. Only a phase with no planning items or tasks can be deleted.",
+    "approve": "Approve phase",
+    "return": "Return",
+    "returnTitle": "Return phase?",
+    "returnBody": "Phase \"{{name}}\" goes back to the orchestrator with your reason.",
+    "returnReason": "Reason",
+    "returnedBecause": "Returned: {{reason}}",
+    "evidence": "Evidence",
+    "homologation": "Homologation by {{agent}}: {{verdict}}",
+    "verdict": {
+      "approved": "approved",
+      "rejected": "rejected",
+      "none": "pending"
+    },
+    "status": {
+      "planned": "Planned",
+      "in_progress": "In progress",
+      "homologating": "Homologating",
+      "awaiting_approval": "Awaiting your approval",
+      "approved": "Approved",
+      "returned": "Returned"
+    }
   }
 }

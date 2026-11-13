@@ -216,7 +216,7 @@
     "editTitle": "Editar misión",
     "description": "Defina el objetivo, el contexto y el orquestador. La misión comienza como borrador.",
     "adminOnly": "Solo los administradores pueden crear o editar misiones.",
-    "required": "Complete nombre, producto/versión y orquestador.",
+    "required": "Complete nombre, producto o servicio y orquestador.",
     "saveError": "No se pudo guardar. Revise los datos e inténtelo de nuevo.",
     "loading": "Cargando datos de la misión…",
     "loadError": "No se pudieron cargar los datos del formulario.",
@@ -225,12 +225,11 @@
     "fixed": "El contexto aprobado está protegido. Registre una solicitud de cambio para modificarlo.",
     "name": "Nombre de la misión",
     "context": "Objetivo y contexto",
-    "version": "Producto y versión",
+    "version": "Producto y servicio",
     "orchestrator": "Orquestador",
     "select": "Seleccione",
     "priority": "Prioridad (1 a 1000)",
     "deadline": "Plazo",
-    "budget": "Límite de presupuesto",
     "directory": "Carpeta de trabajo",
     "reason": "Motivo del cambio o cancelación",
     "draftHint": "Crear el borrador no aprueba el plan ni inicia ejecuciones. Los roles, el contexto y los criterios se validan antes de abrir.",
@@ -248,7 +247,21 @@
     "productsLoadError": "No se pudieron cargar los productos.",
     "versionsLoadError": "No se pudieron cargar las versiones de los productos.",
     "agentsLoadError": "No se pudieron cargar los agentes.",
-    "recordLoadError": "No se pudo cargar esta misión."
+    "recordLoadError": "No se pudo cargar esta misión.",
+    "newProductHint": "ForgeHub registra solo el nombre y el tipo (versión 0.1.0). El orquestador completa el registro a partir de su contexto y de los documentos en docs/.",
+    "newProductName": "Nombre del nuevo producto o servicio",
+    "newProductKind": "Tipo",
+    "productKind": {
+      "software": "Software",
+      "service": "Servicio",
+      "infrastructure": "Infraestructura",
+      "client_it": "TI de cliente"
+    },
+    "newProductRequired": "Indique el nombre del nuevo producto o servicio.",
+    "directoryDocsHint": "Ponga en docs/ dentro de esta carpeta los documentos que los agentes deben estudiar. La misión sale de borrador solo con docs/ completa.",
+    "newProductCheckbox": "Nuevo producto o servicio (aún no registrado)",
+    "newProductSelected": "Nuevo producto o servicio, indicado abajo",
+    "directoryRequired": "Indique la carpeta de trabajo del proyecto."
   },
   "team": {
     "title": "Agentes por función",
@@ -293,7 +306,11 @@
     "tasks": "Tareas ({{count}}): {{tasks}}",
     "saving": "Guardando…",
     "save": "Guardar criterio",
-    "status": { "open": "Abierto", "proven": "Demostrado", "failed": "Fallido" }
+    "status": {
+      "open": "Abierto",
+      "proven": "Demostrado",
+      "failed": "Fallido"
+    }
   },
   "acceptance": {
     "title": "Aceptación de la misión",
@@ -306,5 +323,64 @@
     "reason": "Motivo de aceptación o devolución",
     "approve": "Aceptar misión",
     "return": "Solicitar correcciones"
+  },
+  "detail": {
+    "productPendingTitle": "Registro del producto pendiente",
+    "productPendingBody": "El orquestador debe completar el registro del producto o servicio a partir del contexto de la misión y de los documentos en docs/."
+  },
+  "docs": {
+    "title": "Documentos para los agentes",
+    "description": "Lo que los agentes estudian antes de registrar el producto y lanzar las tareas. La misión sale de borrador solo con al menos un archivo aquí.",
+    "openExplorer": "Abrir en el Explorador",
+    "explorerTitle": "Explorador",
+    "close": "Cerrar",
+    "loading": "Leyendo la carpeta…",
+    "missing": "La carpeta docs/ aún no existe. Abra el Explorador para crearla y subir los documentos.",
+    "empty": "La carpeta docs/ está vacía.",
+    "loadError": "No fue posible leer la carpeta docs/ en el servidor.",
+    "noWorkingDirectory": "La misión no tiene carpeta de trabajo. Edite la misión e indique la carpeta del proyecto.",
+    "createError": "No fue posible crear la carpeta docs/."
+  },
+  "phases": {
+    "title": "Fases",
+    "description": "Cada fase es un proyecto de la misión. Las fases corren en orden: la siguiente solo empieza después de que la anterior sea homologada por un agente externo y aprobada por usted. Las planificaciones de una fase pueden correr en paralelo; las tareas de una planificación corren en secuencia.",
+    "empty": "Ninguna fase registrada.",
+    "name": "Nombre de la fase",
+    "objective": "Objetivo",
+    "objectiveHint": "Qué entrega la fase y qué deja fuera",
+    "noObjective": "Sin objetivo definido.",
+    "noPlanning": "Ninguna planificación en esta fase.",
+    "notSequenced": "Sin secuencia",
+    "add": "Nueva fase",
+    "addButton": "Agregar fase",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "edit": "Editar fase",
+    "delete": "Eliminar fase",
+    "moveUp": "Mover arriba",
+    "moveDown": "Mover abajo",
+    "deleteTitle": "¿Eliminar fase?",
+    "deleteBody": "La fase \"{{name}}\" y su proyecto serán eliminados. Solo se puede eliminar una fase sin planificaciones ni tareas.",
+    "approve": "Aprobar fase",
+    "return": "Devolver",
+    "returnTitle": "¿Devolver fase?",
+    "returnBody": "La fase \"{{name}}\" vuelve al orquestador con su motivo.",
+    "returnReason": "Motivo",
+    "returnedBecause": "Devuelta: {{reason}}",
+    "evidence": "Evidencias",
+    "homologation": "Homologación por {{agent}}: {{verdict}}",
+    "verdict": {
+      "approved": "aprobada",
+      "rejected": "reprobada",
+      "none": "pendiente"
+    },
+    "status": {
+      "planned": "Planificada",
+      "in_progress": "En ejecución",
+      "homologating": "En homologación",
+      "awaiting_approval": "Esperando su aprobación",
+      "approved": "Aprobada",
+      "returned": "Devuelta"
+    }
   }
 }

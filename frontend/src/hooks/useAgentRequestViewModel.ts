@@ -13,6 +13,15 @@ import { useWorkItems, type WorkItem } from "@/hooks/useClientOps";
 import { scriptFits, useHostScripts, useScriptCategories, type HostScript } from "@/hooks/useHostScripts";
 import type { Server } from "@/hooks/useServers";
 
+/** The backend's own reason when it gave one (string detail, or a coded
+ * `{code, message}` such as MAINTENANCE_CLIENT_MISMATCH), else the raw error. */
+function requestErrorText(error: Error): string {
+  const detail = (error as { body?: { detail?: unknown } }).body?.detail;
+  if (typeof detail === "string" && detail) return detail;
+  if (detail && typeof detail === "object" && "message" in detail && typeof detail.message === "string") return detail.message;
+  return error.message;
+}
+
 export interface ChosenScript {
   script: HostScript;
   values: Record<string, string>;
@@ -72,7 +81,13 @@ export function commandsCover(agent: DirectAgent | undefined, machines: Server[]
  * idle -> submitting -> done | error. */
 export interface AgentRequestViewModel {
   status: "idle" | "submitting" | "done" | "error";
+  /** The machines the request goes to (the offered ones minus any unticked). */
   machines: Server[];
+  /** Every machine the panel was opened with. */
+  offeredMachines: Server[];
+  isMachineChosen: (id: string) => boolean;
+  /** Tick/untick an offered machine. Submitting needs at least one. */
+  toggleMachine: (id: string) => void;
   candidates: AgentRequestCandidate[];
   chosenAgents: Set<string>;
   toggleAgent: (id: string) => void;
@@ -93,7 +108,17 @@ export interface AgentRequestViewModel {
   error: string | null;
 }
 
-export function useAgentRequestViewModel(machines: Server[]): AgentRequestViewModel {
+export interface AgentRequestOptions {
+  /** Opened from a client's ticket/demand (Clientes › Demandas, Fase 3):
+   * that item is preselected, even when it isn't in the open-items list. */
+  initialItem?: WorkItem | null;
+  /** Start with no machine ticked (a client's whole fleet offered from its
+   * ticket: the operator picks, at least one). Default: all offered ticked. */
+  startUnticked?: boolean;
+}
+
+export function useAgentRequestViewModel(offered: Server[], options: AgentRequestOptions = {}): AgentRequestViewModel {
+  const { initialItem, startUnticked = false } = options;
   const { authorized } = useAuthorizedAgents();
   const directAgents = useDirectAgents();
   const { data: hostGroups } = useHostGroups();
@@ -103,12 +128,17 @@ export function useAgentRequestViewModel(machines: Server[]): AgentRequestViewMo
   const [chosenAgents, setChosenAgents] = useState<Set<string>>(new Set());
   const [instruction, setInstruction] = useState("");
   const [scripts, setScripts] = useState<ChosenScript[]>([]);
-  const [itemKey, setItemKey] = useState("");
+  const [itemKey, setItemKey] = useState(initialItem ? `${initialItem.kind}:${initialItem.id}` : "");
+  const [excluded, setExcluded] = useState<Set<string>>(() => new Set(startUnticked ? offered.map((m) => m.id) : []));
+  const machines = useMemo(() => offered.filter((m) => !excluded.has(m.id)), [offered, excluded]);
 
-  const clientIds = new Set(machines.map((m) => m.darckware_client_id ?? ""));
+  // The client comes from every offered machine, so unticking one never drops the item list.
+  const clientIds = new Set(offered.map((m) => m.darckware_client_id ?? ""));
   const clientId = clientIds.size === 1 ? [...clientIds][0] : "";
   const workItems = useWorkItems({ client_account_id: clientId, stage: "open" }, Boolean(clientId));
-  const clientItems = clientId ? workItems.data?.items ?? [] : [];
+  const openItems = clientId ? workItems.data?.items ?? [] : [];
+  const clientItems = initialItem && !openItems.some((i) => i.kind === initialItem.kind && i.id === initialItem.id)
+    ? [initialItem, ...openItems] : openItems;
 
   const scriptGroups = useMemo(() => {
     const labels = new Map((categories.data ?? []).map((c) => [c.id, c.label]));
@@ -163,6 +193,14 @@ export function useAgentRequestViewModel(machines: Server[]): AgentRequestViewMo
   return {
     status,
     machines,
+    offeredMachines: offered,
+    isMachineChosen: (id) => !excluded.has(id),
+    toggleMachine: (id) => setExcluded((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    }),
     candidates,
     chosenAgents,
     toggleAgent: (id) => setChosenAgents((cur) => {
@@ -201,6 +239,6 @@ export function useAgentRequestViewModel(machines: Server[]): AgentRequestViewMo
       });
     },
     result: request.data ?? null,
-    error: request.error?.message ?? null,
+    error: request.error ? requestErrorText(request.error) : null,
   };
 }

@@ -240,6 +240,25 @@ class LogTimeIn(BaseModel):
     service_type: Literal["remoto", "presencial"] = "remoto"
 
 
+class MaintenanceRecordIn(BaseModel):
+    """Remote maintenance confirmed on an item (Fase 3, 2026-11-12): the note and
+    minutes the operator kept or edited from the proposal. `log_time` records the
+    hours; `resolve` resolves the item, which records them itself (once)."""
+
+    mode: Literal["log_time", "resolve"] = "log_time"
+    note: str = Field(..., min_length=1, max_length=4000)
+    minutes: int = Field(..., ge=1, le=24 * 60)
+    service_type: Literal["remoto", "presencial"] = "remoto"
+
+
+class MaintenanceSettleIn(BaseModel):
+    """Settle a recording attempt whose outcome is unknown, after checking the
+    item's hours in Darckware: `recorded` (it is there) or `discard` (it isn't)."""
+
+    outcome: Literal["recorded", "discard"]
+    reason: str = Field(..., min_length=5, max_length=1000)
+
+
 class MonthlyReportIn(BaseModel):
     """`reference`: any day inside the cycle to report (default: yesterday)."""
 

@@ -33,6 +33,7 @@ from app.api.schemas.demand import DemandSubmitIn
 from app.api.routes import foundation
 from app.api.routes.demand import create_demand_and_notify
 from app.core.athos_audit_monitor import inspect_athos_audit_job
+from app.core.audit_freshness import evidence_freshness
 from app.core.audit_remediation import (
     referenced_files,
     remediation_problems,
@@ -92,6 +93,7 @@ async def _execute_command(
         output=output or None,
         duration_ms=round((time.monotonic() - started) * 1000),
         requested_by=requested_by,
+        created_at=datetime.now(timezone.utc),
     )
 
 
@@ -189,6 +191,7 @@ async def _delegate_remediation_to_athos(
         output=reply[:_OUTPUT_LIMIT],
         duration_ms=round((time.monotonic() - started) * 1000),
         requested_by="athos-remediation",
+        created_at=datetime.now(timezone.utc),
     )
 
 
@@ -237,6 +240,11 @@ async def _run_enabled_checks(db: AsyncSession, requested_by: str) -> list[Audit
             return await _execute_check(check, requested_by)
 
     runs = await asyncio.gather(*(_one(c) for c in checks))
+    # Batch identity must never re-date evidence collected before another
+    # concurrent verification. Each command retains its own completion time.
+    batch_id = uuid.uuid4()
+    for run in runs:
+        run.batch_id = batch_id
     dispatch_needed = False
     for check, run in zip(checks, runs, strict=True):
         db.add(run)
@@ -254,9 +262,28 @@ async def _run_enabled_checks(db: AsyncSession, requested_by: str) -> list[Audit
 _RECOVERY_MARKER = "[Auditor recovery]"
 
 
+async def _latest_verification(db: AsyncSession, check_id: uuid.UUID) -> AuditCheckRun | None:
+    return (await db.execute(
+        select(AuditCheckRun)
+        .where(AuditCheckRun.check_id == check_id, AuditCheckRun.requested_by != "athos-remediation")
+        .order_by(AuditCheckRun.created_at.desc(), AuditCheckRun.id.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+
 async def _sync_check_incident(db: AsyncSession, check: AuditCheck, run: AuditCheckRun) -> bool:
     """Keep one owner Task per uninterrupted failure, including concurrent triggers."""
-    await db.execute(select(AuditCheck.id).where(AuditCheck.id == check.id).with_for_update())
+    # Persist the run UUID before referencing it in durable recovery evidence.
+    await db.flush()
+    # NO KEY UPDATE serializes incident decisions without conflicting with
+    # the FK key-share locks held by concurrent evidence inserts.
+    await db.execute(select(AuditCheck.id).where(AuditCheck.id == check.id).with_for_update(key_share=True))
+    # A verification can finish earlier but reach this mutex later. Re-read
+    # after acquiring it (READ COMMITTED) so an old verdict cannot reverse a
+    # newer incident decision. Use the same total order as current evidence.
+    newest = await _latest_verification(db, check.id)
+    if newest is None or newest.id != run.id:
+        return False
     prefix = f"[Auditor:{check.id}]"
     demand = (await db.execute(
         select(AgentDemand)
@@ -353,8 +380,9 @@ async def _latest_runs_by_check(db: AsyncSession) -> dict[uuid.UUID, AuditCheckR
     """Newest run per check (Postgres DISTINCT ON)."""
     result = await db.execute(
         select(AuditCheckRun)
+        .where(AuditCheckRun.requested_by != "athos-remediation")
         .distinct(AuditCheckRun.check_id)
-        .order_by(AuditCheckRun.check_id, AuditCheckRun.created_at.desc())
+        .order_by(AuditCheckRun.check_id, AuditCheckRun.created_at.desc(), AuditCheckRun.id.desc())
     )
     return {run.check_id: run for run in result.scalars().all()}
 
@@ -362,6 +390,9 @@ async def _latest_runs_by_check(db: AsyncSession) -> dict[uuid.UUID, AuditCheckR
 def _check_out(check: AuditCheck, last_run: AuditCheckRun | None) -> AuditCheckOut:
     out = AuditCheckOut.model_validate(check)
     out.last_run = AuditRunOut.model_validate(last_run) if last_run else None
+    out.evidence_state, out.expires_at = evidence_freshness(
+        last_run.created_at if last_run else None, datetime.now(timezone.utc)
+    )
     return out
 
 
@@ -456,14 +487,7 @@ async def remediate_check(
             status_code=status.HTTP_409_CONFLICT,
             detail={"message": f"Remediation for {check.name} cannot be delegated", "problems": problems},
         )
-    previous_run = (
-        await db.execute(
-            select(AuditCheckRun)
-            .where(AuditCheckRun.check_id == check.id)
-            .order_by(AuditCheckRun.created_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    previous_run = await _latest_verification(db, check.id)
     repair = await _delegate_remediation_to_athos(check, previous_run)
     db.add(repair)
     await db.flush()
@@ -471,8 +495,12 @@ async def remediate_check(
     db.add(verification)
     await db.flush()
 
+    dispatch_needed = await _sync_check_incident(db, check, verification)
     inbox_demand_id = None
-    if verification.status != "ok":
+    # _sync retains the incident mutex until commit. A delayed failure may
+    # remain in history but cannot escalate after a newer verification.
+    newest = await _latest_verification(db, check.id)
+    if verification.status != "ok" and newest is not None and newest.id == verification.id:
         demand = await create_demand_and_notify(
             db,
             DemandSubmitIn(
@@ -484,6 +512,10 @@ async def remediate_check(
         inbox_demand_id = demand.id
     else:
         await db.commit()
+    if dispatch_needed:
+        from app.core.dispatch_signal import wake_scheduled_dispatch
+
+        wake_scheduled_dispatch()
     await db.refresh(repair)
     await db.refresh(verification)
     return AuditRemediationOut(
@@ -521,7 +553,7 @@ async def list_runs(
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
 ) -> list[AuditRunOut]:
-    query = select(AuditCheckRun).order_by(AuditCheckRun.created_at.desc()).limit(min(limit, 200))
+    query = select(AuditCheckRun).order_by(AuditCheckRun.created_at.desc(), AuditCheckRun.id.desc()).limit(min(limit, 200))
     if check_id is not None:
         query = query.where(AuditCheckRun.check_id == check_id)
     result = await db.execute(query)
@@ -534,22 +566,45 @@ async def audit_status(db: AsyncSession = Depends(get_db)) -> AuditStatusOut:
     checks = (await db.execute(select(AuditCheck))).scalars().all()
     latest = await _latest_runs_by_check(db)
     enabled = [c for c in checks if c.enabled]
-    ok = sum(1 for c in enabled if latest.get(c.id) and latest[c.id].status == "ok")
-    fail = sum(1 for c in enabled if latest.get(c.id) and latest[c.id].status != "ok")
+    now = datetime.now(timezone.utc)
+    states = {c.id: evidence_freshness(latest[c.id].created_at if c.id in latest else None, now)[0] for c in enabled}
+    ok = sum(1 for c in enabled if states[c.id] == "fresh" and latest[c.id].status == "ok")
+    fail = sum(1 for c in enabled if states[c.id] == "fresh" and latest[c.id].status != "ok")
+    stale = sum(1 for state in states.values() if state == "stale")
     never = sum(1 for c in enabled if c.id not in latest)
     last_at = (
         await db.execute(select(func.max(AuditCheckRun.created_at)))
     ).scalar_one_or_none()
-    last_cron_run_at = (
-        await db.execute(
-            select(func.max(AuditCheckRun.created_at)).where(AuditCheckRun.requested_by == "cron")
+    # A recent single cron result is not proof that the checklist completed.
+    # Require every currently enabled control in the same atomic batch.
+    complete_at = None
+    if enabled:
+        scope = (
+            AuditCheckRun.requested_by == "cron",
+            AuditCheckRun.check_id.in_([c.id for c in enabled]),
         )
-    ).scalar_one_or_none()
+        completed_at = func.max(AuditCheckRun.created_at)
+        complete_batch = (
+            select(completed_at.label("completed_at"))
+            .where(*scope, AuditCheckRun.batch_id.is_not(None))
+            .group_by(AuditCheckRun.batch_id)
+            .having(func.count(func.distinct(AuditCheckRun.check_id)) == len(enabled), completed_at <= now)
+        )
+        # Before batch_id existed, one transaction supplied the same now()
+        # to every run in an atomic full batch. Preserve only that proof.
+        legacy_batch = (
+            select(AuditCheckRun.created_at.label("completed_at"))
+            .where(*scope, AuditCheckRun.batch_id.is_(None), AuditCheckRun.created_at <= now)
+            .group_by(AuditCheckRun.created_at)
+            .having(func.count(func.distinct(AuditCheckRun.check_id)) == len(enabled))
+        )
+        candidates = complete_batch.union_all(legacy_batch).subquery()
+        complete_at = (await db.execute(select(func.max(candidates.c.completed_at)))).scalar_one_or_none()
     monitor = inspect_athos_audit_job(
         foundation._list_cron_jobs(),
         foundation._cron_store_errors(),
-        last_cron_run_at,
-        datetime.now(timezone.utc),
+        complete_at,
+        now,
     )
     return AuditStatusOut(
         total=len(checks),
@@ -557,6 +612,8 @@ async def audit_status(db: AsyncSession = Depends(get_db)) -> AuditStatusOut:
         ok=ok,
         fail=fail,
         never_ran=never,
+        stale=stale,
+        last_complete_cron_run_at=complete_at,
         last_run_at=last_at,
         athos_monitor=monitor,
     )

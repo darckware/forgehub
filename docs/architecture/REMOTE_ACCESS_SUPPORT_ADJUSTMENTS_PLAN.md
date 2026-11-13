@@ -11,8 +11,8 @@ suporte e planejar os ajustes. **Os formulários não devem abrir em modal, e si
 |---|---|
 | 1 — Formulários à direita | **Homologada em 2026-11-11** (566 testes, build, Chrome 1440/390 no backend de teste). **Publicada em 2026-11-11** com a fase 2 (`5c3e5ad`) |
 | 2 — Autorização única + reorganização da tela | **Homologada em 2026-11-11**: backend e frontend revisados; Chrome 1440/390 com concessão real na base de teste (somente leitura → comandos 1 h com confirmação de máquina sensível → remoção). Corrigido um defeito anterior: a concessão de scripts pela tela falhava com 422 desde 2026-11-08. Scripts Windows conferidos no PowerShell 7.4 (sintaxe e validação); falta rodá-los numa estação real (Marcelo). **Publicada em 2026-11-11** (`7f8199c`, imagens `fh-7f8199c`, release `remote-access-7f8199c`, sem migração), com o journal do cron bloqueado (aprovado por Marcelo) |
-| 3 — Ciclo com o chamado da Darckware | Planejada |
-| 4 — Alerta de máquina | Planejada |
+| 3 — Ciclo com o chamado da Darckware | **Publicada em 2026-11-12** (`173c8a0`, imagens `fh-173c8a0`, release `ticket-loop-173c8a0`, sem migração). Revisão independente sem bloqueio (5 correções aplicadas); 2282 testes no backend, Chrome 1440/390 |
+| 4 — Alerta de máquina | **Publicada em 2026-11-12** (`80825e2`, imagens `fh-80825e2`, release `machine-alerts-80825e2`, migração `1994f24fd6e1` ensaiada numa cópia do backup antes). Revisão independente sem bloqueio (3 correções aplicadas); 2306 testes no backend. Primeira leitura em produção: 22 máquinas, um único resumo |
 | 5 — Documentação | Feita em 2026-11-11: Foundation sincronizada, skill `remote-access` 1.1.0, CLAUDE.md; a regra não mudou |
 
 ## Documentos de acesso remoto
@@ -240,6 +240,37 @@ erro. O
    ao cliente continua passando pela aprovação da Darckware.
 3. **Testes:** a proposta não grava nada; a confirmação grava uma vez (idempotente por tarefa).
 
+Progresso (2026-11-12, branch `feat/remote-access-ticket-loop`, sem migração):
+
+- [x] Botão "Pedir manutenção ao agente" no detalhe (Clientes › Demandas › "Manutenção remota"):
+      abre o painel do "Pedir ao agente" com as máquinas do cliente (`servers.darckware_client_id`),
+      desmarcáveis (ao menos uma fica), e o item pré-selecionado. Desligado, com o motivo, sem
+      cliente ou sem máquina cadastrada.
+- [x] O "Pedir ao agente" grava o item no `AuditEvent agent_maintenance_request`; toda execução
+      de agente nessa tarefa (`launch_execution`: script, `run_remote_command`, proposta aprovada
+      -- que roda numa tarefa nova e herda o item da tarefa de origem) herda o item; outro item
+      dá 422 `DARCKWARE_ITEM_MISMATCH`. Transferência de arquivo não grava execução: fora.
+- [x] `GET /client-ops/work-items/{kind}/{id}/maintenance`: execuções e tarefas do item; por tarefa
+      terminada e não registrada, nota + minutos propostos (soma das durações das execuções,
+      arredondada para cima em blocos de 30 min, mínimo 30). Não grava nada.
+- [x] `POST .../maintenance/{demand_id}:record` (`log_time` ou `resolve`): só após a confirmação.
+      `resolve` passa pelo mesmo `_resolve` da rota `:resolve`, que já aponta as horas (uma vez).
+      Idempotência: `AuditEvent maintenance_recorded` (payload `agent_demand_id`) na mesma
+      transação do audit da ação, só depois de a Darckware aceitar, sob advisory lock da tarefa;
+      a segunda vez é 409 `MAINTENANCE_ALREADY_RECORDED`. Nenhum e-mail sai daqui.
+- [x] Execuções feitas por uma pessoa aparecem na lista mas não entram na proposta: registram-se
+      pelo "Apontar horas" de sempre.
+- [x] Revisão (mesmo dia): resultado ambíguo nunca aponta duas vezes -- a tentativa
+      (`maintenance_recording`) é gravada e commitada antes de qualquer escrita na Darckware;
+      recusa explícita antes de escrever a descarta sozinha; timeout, 5xx ou falha depois da
+      entrada de horas a deixa aberta (409 `MAINTENANCE_RECORD_UNCERTAIN`) até um admin dizer, com
+      motivo, "foi registrado" ou "descartar tentativa" (`:settle`, auditado). A nota proposta é
+      para o cliente (sem número de tarefa, agente, comando ou id). `:record` exige todas as
+      execuções contadas em máquinas do cliente do item (409 `MAINTENANCE_CLIENT_MISMATCH`) e
+      todas encerradas; o "Pedir ao agente" recusa (422) item de outro cliente. Do chamado, o
+      painel abre sem máquina marcada. Execução em que nada rodou não conta; execuções
+      sobrepostas contam pela união dos intervalos; "repetir nas que falharam" herda o item.
+
 ## Fase 4 — Alerta de máquina (lacuna 10)
 
 - Um loop de 15 min reaproveita a prontidão com o cache de 5 min da sondagem (sem rajada de login
@@ -248,6 +279,23 @@ erro. O
   quando a máquina volta.
 - Fonte não lida resulta em `unknown`, nunca em alerta falso de "offline". O loop não roda sob
   `ENVIRONMENT=test`, que já desliga todos os loops.
+
+Progresso (2026-11-12, worktree `remote-access-machine-alerts`, sem merge nem deploy):
+
+- [x] `compute_readiness` extraído de `GET /servers/readiness` (mesma tabela de decisão e mesmo
+      cache de 5 min); `core/machine_status_monitor.py` + `_machine_status_poll_loop` (15 min).
+- [x] Tabela `machine_status_observations` (migração `1994f24fd6e1`, ON DELETE CASCADE): primeira
+      leitura é linha de base silenciosa, com um único resumo por dia na primeira passada.
+- [x] Alerta ao sair de `complete` ou cair em offline/não preparada/desconhecido; "voltou" ao
+      retornar; `event_key` com o instante da transição (offline → volta → offline avisa duas vezes).
+- [x] Fonte ilegível (tailnet ou ponte da sondagem SSH): nenhuma transição gravada, um aviso
+      "monitoramento indisponível" por dia.
+- [x] "Desde <hora>" no tooltip do estado na tabela de Máquinas (`status_since`).
+- [x] Revisão: degradação só após duas passadas seguidas; proteção de massa (≥ 5 máquinas ou mais
+      da metade: um resumo só, e as voltas agrupadas); tailnet legível só com a VPS `online`;
+      "Motivo:" em pt-BR; leitura sem transação aberta e trava só para gravar; máquina excluída no
+      meio da passada é ignorada.
+- [ ] Publicação (deploy próprio; a ponte não foi tocada).
 
 ## Fase 5 — Documentação
 

@@ -37,6 +37,14 @@ PID = "11111111-1111-4111-8111-111111111111"
     ("POST", f"/api/v1/tasks/{PID}/dispatch"),
     ("POST", f"/api/v1/tasks/{PID}/executions/{PID}:report"),
     ("PATCH", f"/api/v1/orchestration/reviews/{PID}"),
+    # 2026-11-13: request_marcelo_approval and the agent Operação 24x7 routes.
+    ("POST", f"/api/v1/missions/{PID}/approval-requests"),
+    ("GET", "/api/v1/operations/agent/routines"),
+    ("POST", "/api/v1/operations/agent/routines"),
+    ("PATCH", f"/api/v1/operations/agent/routines/{PID}"),
+    ("DELETE", f"/api/v1/operations/agent/routines/{PID}"),
+    ("POST", f"/api/v1/operations/agent/routines/{PID}:run-now"),
+    ("GET", "/api/v1/operations/agent/runs"),
     # Pre-existing agt_ surface, unchanged.
     ("GET", "/api/v1/projects"),
     ("GET", f"/api/v1/tasks/{PID}"),
@@ -81,6 +89,10 @@ def test_agent_reaches_mission_paths(method, path):
     ("PATCH", "/api/v1/orchestration/reviews/"),
     ("PATCH", f"/api/v1/orchestration/reviews/{PID}/x"),
     ("POST", f"/api/v1/orchestration/tasks/{PID}/dispatch"),
+    # The admin Operação 24x7 routes stay human.
+    ("POST", "/api/v1/operations/routines"),
+    ("PATCH", f"/api/v1/operations/routines/{PID}"),
+    ("POST", "/api/v1/operations/agent-changes"),
 ])
 def test_agent_does_not_reach_other_paths(method, path):
     assert not is_agent_command_path(method, path)

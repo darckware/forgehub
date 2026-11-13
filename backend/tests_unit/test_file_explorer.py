@@ -34,3 +34,22 @@ def test_every_route_requires_an_admin():
     for route in file_explorer.router.routes:
         deps = {d.call for d in route.dependant.dependencies}
         assert get_current_admin in deps, route.path
+
+
+@pytest.mark.parametrize('operation', ['compress', 'extract'])
+async def test_archives_preserve_target_and_audit_after_success(monkeypatch, operation):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from app.api.schemas.file_explorer import ExplorerArchiveRequest
+    target = file_explorer.ExplorerTarget()
+    bridge = AsyncMock(return_value={'path': '/data/output'})
+    audit = AsyncMock()
+    monkeypatch.setattr(file_explorer, '_bridge', bridge)
+    monkeypatch.setattr(file_explorer, '_audit', audit)
+    payload = ExplorerArchiveRequest(paths=['/data/a'], destination='/data/output')
+    user = SimpleNamespace(username='test')
+    await file_explorer._archive(operation, payload, target, user)
+    bridge.assert_awaited_once_with(target, 'POST', operation, timeout=180,
+        json={'paths': ['/data/a'], 'destination': '/data/output'})
+    assert audit.await_args.args[0] is target
+    assert audit.await_args.args[3] is user

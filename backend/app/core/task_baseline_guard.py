@@ -74,6 +74,15 @@ async def assert_task_baseline_current(db, task: ProjectTask) -> None:
             "MISSION_NOT_ACTIVE", f"The mission is {mission.state}; only an active or verifying mission dispatches",
             task, **mission_ref,
         )
+    # Mission phases (MISSION_PHASES_PLAN.md): phase N waits for every
+    # earlier phase to be approved; a phase under homologation, awaiting
+    # Marcelo or approved takes no new dispatch of its own tasks.
+    from app.core.mission_phases import phase_dispatch_refusal
+
+    refusal = await phase_dispatch_refusal(db, task, mission)
+    if refusal is not None:
+        code, message = refusal.pop("code"), refusal.pop("message")
+        raise TaskBaselineBlocked(code, message, task, **refusal, **mission_ref)
     await assert_task_baseline_matches(db, task, mission)
 
 

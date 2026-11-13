@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { apiErrorText } from "@/lib/apiErrorText";
 import { useHostReadiness, usePrepareHost, type HostPreparation } from "@/hooks/useHostInventory";
 import { serverFormSchema, useServers, type Server } from "@/hooks/useServers";
 
@@ -126,6 +127,6 @@ export function usePreparationViewModel(
       );
     },
     result: prepare.data ?? null,
-    error: prepare.error?.message ?? null,
+    error: prepare.error ? apiErrorText(prepare.error) : null,
   };
 }

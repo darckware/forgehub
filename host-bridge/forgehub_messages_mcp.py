@@ -162,6 +162,14 @@ def _format_message(demand: dict[str, Any], *, body: str = "none") -> str:
         f"  Status: {demand.get('status') or '?'}"
         f" | dispatch: {demand.get('dispatch_status') or 'not dispatched'}"
     )
+    # Approval is not part of the body (the body is what gets hashed), so the
+    # header says whether this is runnable work at all.
+    if demand.get("requires_approval") and demand.get("approval_status") != "approved":
+        if demand.get("approval_status") == "rejected":
+            reason = f" (motivo: {demand['decision_reason']})" if demand.get("decision_reason") else ""
+            lines.append(f"  Approval: RECUSADA por Marcelo{reason} — não execute")
+        else:
+            lines.append("  Approval: AGUARDANDO AUTORIZAÇÃO de Marcelo — não execute")
     if demand.get("task_execution_at"):
         lines.append(f"  Executed: {demand['task_execution_at']}")
     if demand.get("scheduled_at"):
