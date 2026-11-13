@@ -98,3 +98,44 @@ async def test_a_changed_message_is_not_decided_blindly(client, proposal):
     item = {**proposal["item"], "message_updated_at": "2020-01-01T00:00:00+00:00"}
     response = await client.post(f"{URL}/reject", headers=_as(proposal["username"]), json={"items": [item]})
     assert response.status_code == 409
+
+
+async def _set_state(message_id, state, outcome=None):
+    async with AsyncSessionLocal() as db:
+        link = await db.scalar(select(MoodleApproval).where(MoodleApproval.message_id == message_id))
+        link.state, link.outcome = state, outcome
+        demand = await db.get(AgentDemand, message_id)
+        demand.dispatch_status, demand.approval_status = "failed", "approved"
+        await db.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state,outcome", [("finished", "completed"), ("finished", "failed"), ("rejected", None)])
+async def test_spent_moodle_message_can_be_archived(client, proposal, state, outcome):
+    """2026-11-13: once its own flow is over, a Moodle message can leave Execução."""
+    await _set_state(proposal["message_id"], state, outcome)
+    response = await client.post(f"/api/v1/demands/{proposal['message_id']}/decision",
+                                 headers=_as(proposal["username"]), json={"action": "archive", "reason": "encerrada"})
+    assert response.status_code == 200, response.text
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(AgentDemand, proposal["message_id"])).status == "archived"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["pending", "approved", "claimed"])
+async def test_live_moodle_message_is_not_archived(client, proposal, state):
+    await _set_state(proposal["message_id"], state)
+    response = await client.post(f"/api/v1/demands/{proposal['message_id']}/decision",
+                                 headers=_as(proposal["username"]), json={"action": "archive"})
+    assert response.status_code == 409, response.text
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(AgentDemand, proposal["message_id"])).status != "archived"
+
+
+@pytest.mark.asyncio
+async def test_spent_moodle_message_still_refuses_other_decisions(client, proposal):
+    await _set_state(proposal["message_id"], "finished", "failed")
+    response = await client.post(f"/api/v1/demands/{proposal['message_id']}/decision",
+                                 headers=_as(proposal["username"]), json={"action": "authorize_retry",
+                                 "reason": "de novo", "evidence_ref": "x"})
+    assert response.status_code == 409, response.text
