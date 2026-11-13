@@ -33,7 +33,10 @@ from app.db.models.profile import SENSITIVE_ACTIONS
 # 2026-11-13: an agent (the orchestrator) programs Operação 24x7 through
 # /operations/agent/routines; like machine maintenance, only an admin grants it.
 ROUTINES_MANAGE_ACTION = "operations.routines.manage"
-DELEGABLE_ACTIONS = (*SENSITIVE_ACTIONS, REMOTE_EXECUTE_ACTION, ROUTINES_MANAGE_ACTION)
+# 2026-11-13: the isolated task browser (TASK_BROWSER_ENABLED) has its own
+# action instead of borrowing planning.execution.dispatch; admin-granted only.
+TASK_BROWSER_ACTION = "task.browser.execute"
+DELEGABLE_ACTIONS = (*SENSITIVE_ACTIONS, REMOTE_EXECUTE_ACTION, ROUTINES_MANAGE_ACTION, TASK_BROWSER_ACTION)
 
 router = APIRouter(prefix="/api/v1/governed", tags=["governed-approval"])
 logger = logging.getLogger(__name__)
@@ -153,6 +156,8 @@ async def grant_delegation(
         raise HTTPException(403, "Only a human admin grants machine maintenance")
     if ROUTINES_MANAGE_ACTION in payload.allowed_actions and not principal.is_admin:
         raise HTTPException(403, "Only a human admin grants Operação 24x7 management")
+    if TASK_BROWSER_ACTION in payload.allowed_actions and not principal.is_admin:
+        raise HTTPException(403, "Only a human admin grants task browser execution")
     for action in payload.allowed_actions:
         await authorize_action(db, principal, action, product_id=payload.product_id, project_id=payload.project_id)
     agent = await db.get(Agent, payload.grantee_agent_id)

@@ -25,7 +25,7 @@ def test_browser_revalidates_task_run_executor_and_current_grant(monkeypatch):
     monkeypatch.setattr(mod, 'authorize_action', authority)
     got = asyncio.run(mod.browser_authority(db, principal, 42))
     assert got[0] == demand
-    assert authority.await_args.args[2] == 'planning.execution.dispatch'
+    assert authority.await_args.args[2] == 'task.browser.execute'
     principal.credential_label = 'dispatch:previous-run'
     with pytest.raises(HTTPException):
         asyncio.run(mod.browser_authority(db, principal, 42))
@@ -95,3 +95,19 @@ def test_operator_control_requires_human_admin():
     with pytest.raises(HTTPException) as error:
         asyncio.run(mod.task_browser_control(payload, principal, None))
     assert error.value.status_code == 403
+
+
+def test_browser_action_is_its_own_delegable_action():
+    from app.api.routes.governed_approval import DELEGABLE_ACTIONS, TASK_BROWSER_ACTION
+    assert mod.TASK_BROWSER_ACTION == TASK_BROWSER_ACTION == 'task.browser.execute'
+    assert TASK_BROWSER_ACTION in DELEGABLE_ACTIONS
+
+
+def test_router_refuses_when_switched_off(monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, 'TASK_BROWSER_ENABLED', False)
+    with pytest.raises(HTTPException) as refused:
+        mod.require_task_browser()
+    assert refused.value.status_code == 503
+    monkeypatch.setattr(settings, 'TASK_BROWSER_ENABLED', True)
+    mod.require_task_browser()

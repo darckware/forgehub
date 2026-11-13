@@ -4,30 +4,112 @@ No shared profile, arbitrary JavaScript or credential handoff.
 A pending record after process death is uncertainty, never permission to retry.
 """
 import asyncio
+import contextlib
 import hashlib
+import ipaddress
 import json
+import os
+import signal
+import socket
 import sqlite3
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import HTTPException
+
+ALLOWED_HOSTS_ENV = "FORGEHUB_TASK_BROWSER_ALLOWED_HOSTS"
+
+
+def allowed_hosts_from_env() -> frozenset[str]:
+    raw = os.environ.get(ALLOWED_HOSTS_ENV, "")
+    return frozenset(h.strip().lower().rstrip(".") for h in raw.split(",") if h.strip())
+
+
+def _refused_address(address: str) -> bool:
+    ip = ipaddress.ip_address(address.split("%", 1)[0])
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    # is_global is False for loopback, RFC 1918, CGNAT 100.64.0.0/10,
+    # link-local (169.254.0.0/16 incl. 169.254.169.254, fe80::/10), ULA
+    # fc00::/7, unspecified, reserved and documentation ranges.
+    return not ip.is_global or ip.is_multicast
+
+
+def check_navigation_url(url, allowed_hosts=frozenset(), resolve=socket.getaddrinfo) -> None:
+    """SSRF policy for task navigation: HTTP(S) only, no embedded credentials,
+    and every address the host resolves to must be public -- unless the host
+    is listed in FORGEHUB_TASK_BROWSER_ALLOWED_HOSTS. An unresolvable host is
+    refused (fail closed). Chromium resolves again and follows redirects on
+    its own, so this is a first barrier, not a network sandbox."""
+    try:
+        parts = urlsplit(url or "")
+        host = (parts.hostname or "").lower().rstrip(".")
+        parts.port  # noqa: B018 -- raises ValueError on an invalid port
+    except ValueError:
+        raise HTTPException(422, "Invalid navigation URL") from None
+    if parts.scheme.lower() not in {"http", "https"} or not host or parts.username or parts.password:
+        raise HTTPException(422, "Navigation requires an HTTP(S) URL without embedded credentials")
+    if host in allowed_hosts:
+        return
+    try:
+        addresses = [ipaddress.ip_address(host).compressed]
+    except ValueError:
+        try:
+            addresses = sorted({info[4][0] for info in resolve(host, None)})
+        except (OSError, UnicodeError):
+            raise HTTPException(422, "Navigation host cannot be resolved") from None
+    if not addresses or any(_refused_address(a) for a in addresses):
+        raise HTTPException(403, "Navigation to a private, loopback, link-local or reserved address is refused")
 
 READ_EXPRESSION = "JSON.stringify({url:location.href,title:document.title,text:document.body?.innerText?.slice(0,30000)||''})"
 
 
 class TaskBrowserBroker:
-    def __init__(self, path, cdp):
+    def __init__(self, path, cdp, allowed_hosts=None, resolve=None):
         self.path = Path(path)
         self.cdp = cdp
         self.lock = asyncio.Lock()
+        self.allowed_hosts = allowed_hosts_from_env() if allowed_hosts is None else frozenset(allowed_hosts)
+        self.resolve = resolve or socket.getaddrinfo
 
+    @contextlib.contextmanager
     def connect(self):
+        """One transaction (committed, or rolled back on error) and always closed."""
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        db = sqlite3.connect(self.path)
-        self.path.chmod(0o600)
-        db.execute("CREATE TABLE IF NOT EXISTS sessions(scope TEXT PRIMARY KEY, context TEXT, target TEXT, expires REAL, closed INTEGER DEFAULT 0, fenced INTEGER DEFAULT 0, owner TEXT DEFAULT 'agent', fenced_key TEXT, observation_hash TEXT)")
-        db.execute('CREATE TABLE IF NOT EXISTS operations(scope TEXT, key TEXT, fingerprint TEXT, result TEXT, PRIMARY KEY(scope,key))')
-        return db
+        with contextlib.closing(sqlite3.connect(self.path)) as db:
+            self.path.chmod(0o600)
+            with db:
+                db.execute("CREATE TABLE IF NOT EXISTS sessions(scope TEXT PRIMARY KEY, context TEXT, target TEXT, expires REAL, closed INTEGER DEFAULT 0, fenced INTEGER DEFAULT 0, owner TEXT DEFAULT 'agent', fenced_key TEXT, observation_hash TEXT)")
+                db.execute('CREATE TABLE IF NOT EXISTS operations(scope TEXT, key TEXT, fingerprint TEXT, result TEXT, PRIMARY KEY(scope,key))')
+                db.execute('CREATE TABLE IF NOT EXISTS browser(id INTEGER PRIMARY KEY CHECK (id = 1), pid INTEGER, port INTEGER, started REAL)')
+                yield db
+
+    def record_browser(self, pid, port):
+        """Remember the Chromium this bridge launched, so a later bridge can stop it."""
+        with self.connect() as db:
+            db.execute('INSERT OR REPLACE INTO browser(id,pid,port,started) VALUES(1,?,?,?)', (pid, port, time.time()))
+
+    def recover_after_restart(self, port, kill=os.killpg, cmdline=None):
+        """Bridge startup: a Chromium left by a previous bridge would make
+        every launch refuse (409, unknown listener) forever. Stop the one we
+        recorded -- only if that PID is still our task browser on this port --
+        and close every open session: its contexts died with it. Recorded
+        operations stay as they were (an uncertain one stays uncertain)."""
+        read_cmdline = cmdline or _proc_cmdline
+        with self.connect() as db:
+            row = db.execute('SELECT pid,port FROM browser WHERE id=1').fetchone()
+            closed = db.execute('UPDATE sessions SET closed=1 WHERE closed=0').rowcount
+            db.execute('DELETE FROM browser WHERE id=1')
+        terminated = False
+        if row and row[0]:
+            pid, recorded_port = row
+            command = read_cmdline(pid)
+            if command and recorded_port == port and f"--remote-debugging-port={port}" in command:
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    kill(pid, signal.SIGTERM)  # launched with start_new_session: pgid == pid
+                    terminated = True
+        return {'terminated_pid': row[0] if terminated else None, 'sessions_closed': closed}
 
     def targets(self):
         with self.connect() as db:
@@ -36,8 +118,11 @@ class TaskBrowserBroker:
     async def act(self, scope, key, action, url=None, selector=None, text=None):
         if action not in {'open', 'read', 'navigate', 'close', 'fill', 'click', 'submit'}:
             raise HTTPException(422, 'Unsupported browser operation')
-        if action == 'navigate' and (not url or not url.lower().startswith(('https://', 'http://'))):
-            raise HTTPException(422, 'HTTP(S) URL required')
+        if action == 'navigate':
+            # Before anything is recorded: a refused URL is never an operation.
+            await asyncio.to_thread(check_navigation_url, url, self.allowed_hosts, self.resolve)
+        elif url is not None:
+            raise HTTPException(422, 'Only navigation accepts a URL')
         if action in {'fill', 'click', 'submit'} and (not selector or len(selector) > 1000):
             raise HTTPException(422, 'A bounded CSS selector is required')
         if action == 'fill' and (text is None or len(text) > 10000):
@@ -193,8 +278,17 @@ class TaskBrowserBroker:
                 'message': 'Reconcile this task/run browser state before any repetition; the original command will not run again.'}
 
 
-def register_task_browser(app, check_token, launch, cdp, path):
-    """Wire bridge-authenticated operations; backend owns task/run authority."""
+def _proc_cmdline(pid):
+    try:
+        return Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
+    except OSError:
+        return ""
+
+
+def register_task_browser(app, check_token, launch, cdp, path, port=None):
+    """Wire bridge-authenticated operations; backend owns task/run authority.
+    Called only when FORGEHUB_TASK_BROWSER_ENABLED=1 (app.py); otherwise the
+    routes do not exist (404) and no Chromium is ever started."""
     from fastapi import Header
     from pydantic import BaseModel, Field
     from typing import Literal
@@ -234,6 +328,8 @@ def register_task_browser(app, check_token, launch, cdp, path):
     @app.on_event('startup')
     async def start_cleanup():
         nonlocal cleanup_task
+        if port is not None:
+            broker.recover_after_restart(port)
         async def clean():
             while True:
                 await asyncio.sleep(30)

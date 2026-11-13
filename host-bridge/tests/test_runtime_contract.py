@@ -164,3 +164,37 @@ def test_zero_exit_does_not_complete_delegation_without_native_child_proof(monke
     assert run['status']=='stale'
     assert run['delegation']['status']=='uncertain'
     assert run['delegation']['accepted'] is False
+
+
+def test_contract_refusal_after_credential_write_removes_the_credential(monkeypatch, tmp_path):
+    import asyncio
+    import os
+    import tempfile
+    import app
+    from fastapi import HTTPException
+    from runtime_contract import RuntimeContractError
+    monkeypatch.setattr(app, 'BRIDGE_TOKEN', 'test-token')
+    monkeypatch.setattr(app, '_agent_runs', {})
+    monkeypatch.setattr(app, 'resolve_runtime_executable', lambda *a, **kw: '/bin/codex')
+    monkeypatch.setattr(app, 'runtime_version', lambda *a: 'codex-cli 0.167.0')
+    written = []
+    real_mkstemp = tempfile.mkstemp
+
+    def mkstemp(**kw):
+        fd, path = real_mkstemp(dir=tmp_path, **kw)
+        written.append(path)
+        return fd, path
+
+    monkeypatch.setattr(app.tempfile, 'mkstemp', mkstemp)
+
+    def refuse(*args, **kwargs):
+        raise RuntimeContractError('late contract refusal')
+
+    monkeypatch.setattr(app, '_agent_run_command', refuse)
+    req = app.AgentRunRequest(run_id='00000000-0000-0000-0000-000000000009', runtime_type='codex',
+                              project_path=str(tmp_path), prompt='Task', runtime_intent={},
+                              agent_service_token='agt_synthetic')
+    with pytest.raises(HTTPException) as refused:
+        asyncio.run(app.start_agent_run(req, 'test-token'))
+    assert refused.value.status_code == 400
+    assert written and not any(os.path.exists(path) for path in written)

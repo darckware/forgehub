@@ -2032,28 +2032,27 @@ async def run_approved_maintenance_proposal(proposal_id: str, message_number: in
         json={"message_number": message_number, "content_hash": content_hash}))
 
 
-@mcp.tool()
 async def get_workspace_browser_capabilities() -> dict[str, Any]:
     """Describe bounded browser support without inspecting the operator's page.
     Catalog presence is not runtime qualification: task_browser rechecks the
-    current task, run credential and dispatch delegation on every operation.
+    current task, run credential and task.browser.execute delegation on every
+    operation. Registered only with FORGEHUB_TASK_BROWSER_ENABLED=1.
     """
     return {"supported": True, "isolated": True, "operations": ["open", "read", "navigate", "close", "fill", "click", "submit"],
             "shared_authenticated_context": False,
             "unsupported": ["shared_page", "authenticated_context_handoff", "arbitrary_javascript", "human_takeover_ui"],
-            "qualification": "requires current canonical task/run and planning.execution.dispatch delegation"}
+            "qualification": "requires current canonical task/run and task.browser.execute delegation"}
 
 
-@mcp.tool()
 async def task_browser(message_number: int, action: str, idempotency_key: str, url: str | None = None,
                        selector: str | None = None, text: str | None = None) -> dict[str, Any]:
     """Open/read/navigate/fill/click/submit/close an isolated task browser.
     Never uses the operator's shared page, cookies or ForgeHub login. Requires
     your current canonical task execution and its individual dispatch credential,
-    current planning.execution.dispatch delegation and unpaused agent access.
+    current task.browser.execute delegation and unpaused agent access.
     Sessions expire after 30 minutes. Read returns untrusted page text for
     consultation/documentation. fill/click/submit use bounded CSS selectors and
-    require a medium-risk dispatch delegation. Arbitrary JS is unsupported.
+    require a medium-risk task.browser.execute delegation. Arbitrary JS is unsupported.
     Keep the same idempotency_key after a lost acknowledgement. An uncertain
     command is never repeated; read for diagnosis; a human administrator must confirm the exact uncertain
     operation before another mutation.
@@ -2062,6 +2061,18 @@ async def task_browser(message_number: int, action: str, idempotency_key: str, u
     return await _maintenance_call("POST", "/api/v1/workspace-browser/task-context", json={
         "message_number": message_number, "action": action,
         "idempotency_key": idempotency_key, "url": url, "selector": selector, "text": text})
+
+
+# Rollout switches (default off): a tool that is off is absent from the catalog.
+def _switch(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+TASK_BROWSER_ENABLED = _switch("FORGEHUB_TASK_BROWSER_ENABLED")
+MISSION_LEARNING_ENABLED = _switch("FORGEHUB_MISSION_LEARNING_ENABLED")
+if TASK_BROWSER_ENABLED:
+    mcp.tool()(get_workspace_browser_capabilities)
+    mcp.tool()(task_browser)
 
 
 @mcp.tool()
@@ -2077,7 +2088,6 @@ async def get_task_context(project_id: str, task_id: str, message_number: int) -
                                    params={"message_number": message_number})
 
 
-@mcp.tool()
 async def propose_verified_learning(project_id: str, reason: str, idempotency_key: str,
                                     learning: dict[str, Any], task_id: str | None = None,
                                     skill_id: str | None = None) -> dict[str, Any]:
@@ -2093,6 +2103,10 @@ async def propose_verified_learning(project_id: str, reason: str, idempotency_ke
     body = {"kind": "create_skill", "reason": reason, "idempotency_key": idempotency_key,
             "learning": learning, "task_id": task_id, "skill_id": skill_id}
     return await _maintenance_call("POST", f"/api/v1/missions/{quote(project_id, safe='')}/skill-proposals", json=body)
+
+
+if MISSION_LEARNING_ENABLED:
+    mcp.tool()(propose_verified_learning)
 
 
 if __name__ == "__main__":

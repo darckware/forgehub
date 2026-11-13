@@ -51,6 +51,9 @@ def _load_messages_server():
 messages = _load_messages_server()
 mcp = messages.mcp
 # Canonical browser tools use the same individual file credential as maintenance.
+# They (and propose_verified_learning) are in the shared catalog only when the
+# Messages module registered them: FORGEHUB_TASK_BROWSER_ENABLED /
+# FORGEHUB_MISSION_LEARNING_ENABLED, both off by default.
 get_workspace_browser_capabilities = messages.get_workspace_browser_capabilities
 task_browser = messages.task_browser
 get_task_context = messages.get_task_context

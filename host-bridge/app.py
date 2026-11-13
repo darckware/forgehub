@@ -887,7 +887,7 @@ def _allocate_test_browser_port() -> int:
     raise HTTPException(status_code=503, detail="No free port available for an isolated test browser")
 
 
-def _launch_test_browser(test_run_id: str, port: int) -> subprocess.Popen:
+def _launch_test_browser(test_run_id: str, port: int, *, allow_remote_origins: bool = True) -> subprocess.Popen:
     binary = Path(WORKSPACE_BROWSER_BINARY)
     if not binary.is_file():
         raise HTTPException(status_code=503, detail=f"Chromium binary not found: {binary}")
@@ -897,7 +897,10 @@ def _launch_test_browser(test_run_id: str, port: int) -> subprocess.Popen:
         [
             str(binary), "--headless=new", "--no-sandbox", "--disable-dev-shm-usage",
             "--disable-gpu", "--no-first-run", "--no-default-browser-check",
-            "--remote-allow-origins=*", "--remote-debugging-address=127.0.0.1",
+            # The task browser's CDP client sends no Origin header, so it needs
+            # no origin allowance; the test-run browser keeps its old flags.
+            *(["--remote-allow-origins=*"] if allow_remote_origins else []),
+            "--remote-debugging-address=127.0.0.1",
             f"--remote-debugging-port={port}",
             f"--user-data-dir={profile_dir}", "--window-size=1440,900",
             "about:blank",
@@ -938,7 +941,10 @@ async def _launch_task_browser():
                     raise HTTPException(409, "Task browser listener already exists; operator reconciliation required")
             except OSError:
                 pass
-            _task_browser_process = _launch_test_browser("governed-task-browser", _TASK_BROWSER_PORT)
+            _task_browser_process = _launch_test_browser(
+                "governed-task-browser", _TASK_BROWSER_PORT, allow_remote_origins=False)
+            # Recorded so the next bridge start can stop it (recover_after_restart).
+            _task_browser_broker.record_browser(_task_browser_process.pid, _TASK_BROWSER_PORT)
             await _test_browser_target(_TASK_BROWSER_PORT)
 
 
@@ -958,11 +964,17 @@ async def _task_context_cdp(target_id, method, params=None):
     return await _test_browser_cdp(ws_url, method, params)
 
 
-from task_browser import register_task_browser
-_task_browser_broker = register_task_browser(
-    app, _check_token, _launch_task_browser, _task_context_cdp,
-    Path(os.environ.get("FORGEHUB_TASK_BROWSER_STATE", "/root/.forgehub/browser/task-contexts.sqlite")),
-)
+# Off by default: without FORGEHUB_TASK_BROWSER_ENABLED=1 the task-context
+# routes are never registered (404) and no Chromium is ever launched for them.
+TASK_BROWSER_ENABLED = os.environ.get("FORGEHUB_TASK_BROWSER_ENABLED", "").strip() == "1"
+_task_browser_broker = None
+if TASK_BROWSER_ENABLED:
+    from task_browser import register_task_browser
+    _task_browser_broker = register_task_browser(
+        app, _check_token, _launch_task_browser, _task_context_cdp,
+        Path(os.environ.get("FORGEHUB_TASK_BROWSER_STATE", "/root/.forgehub/browser/task-contexts.sqlite")),
+        port=_TASK_BROWSER_PORT,
+    )
 
 
 async def _test_browser_cdp(ws_url: str, method: str, params: dict | None = None) -> dict:
@@ -1751,6 +1763,8 @@ async def start_agent_run(
                 command = command[:separator] + native_args + command[separator:]
             env.update(native_env)
     except RuntimeContractError as exc:
+        if credential_path:
+            Path(credential_path).unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail={"code": "RUNTIME_CONTRACT_REFUSED", "message": str(exc)}) from exc
     except (ValueError, RuntimeError, HTTPException) as exc:
         if credential_path:

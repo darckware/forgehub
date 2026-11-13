@@ -22,6 +22,7 @@ def load_server(kind):
 
 @pytest.mark.parametrize('kind', ['messages', 'factory'])
 def test_browser_capability_exposes_only_isolated_context(kind, monkeypatch):
+    monkeypatch.setenv('FORGEHUB_TASK_BROWSER_ENABLED', '1')
     module = load_server(kind)
 
     def forbidden(*args, **kwargs):
@@ -71,7 +72,18 @@ def test_lost_remote_ack_is_uncertain_and_never_retried(kind, failure, tmp_path,
 
 
 @pytest.mark.parametrize('kind', ['messages', 'factory'])
-def test_recovery_and_verified_learning_visible_in_each_catalog(kind):
+def test_recovery_and_verified_learning_visible_in_each_catalog(kind, monkeypatch):
+    monkeypatch.setenv('FORGEHUB_MISSION_LEARNING_ENABLED', '1')
     module = load_server(kind)
     names = {tool.name for tool in asyncio.run(module.mcp.list_tools())}
     assert {'get_task_context', 'propose_verified_learning'} <= names
+
+
+@pytest.mark.parametrize('kind', ['messages', 'factory'])
+def test_switched_off_tools_are_absent_from_each_catalog(kind, monkeypatch):
+    monkeypatch.delenv('FORGEHUB_TASK_BROWSER_ENABLED', raising=False)
+    monkeypatch.delenv('FORGEHUB_MISSION_LEARNING_ENABLED', raising=False)
+    module = load_server(kind)
+    names = {tool.name for tool in asyncio.run(module.mcp.list_tools())}
+    assert not {'task_browser', 'get_workspace_browser_capabilities', 'propose_verified_learning'} & names
+    assert 'get_task_context' in names

@@ -20,7 +20,17 @@ from app.db.models.demand import AgentDemand
 from app.db.models.governance import AuditEvent
 from app.db.models.task import TaskAssignment, TaskExecution
 
-router = APIRouter()
+TASK_BROWSER_ACTION = "task.browser.execute"  # mirrored in governed_approval.DELEGABLE_ACTIONS
+
+
+def require_task_browser() -> None:
+    """Off (TASK_BROWSER_ENABLED=false, the default) = 503, nothing read or written."""
+    if not settings.TASK_BROWSER_ENABLED:
+        raise HTTPException(503, detail={"code": "TASK_BROWSER_DISABLED",
+                                         "message": "Task browser is disabled (TASK_BROWSER_ENABLED=false)"})
+
+
+router = APIRouter(dependencies=[Depends(require_task_browser)])
 
 
 class TaskBrowserCommand(BaseModel):
@@ -74,7 +84,7 @@ async def browser_authority(db, principal, message_number, action='read'):
     if task.status in {'done', 'deployed', 'cancelled', 'blocked'}:
         raise HTTPException(403, 'Task no longer permits browser execution')
     project_id = await _resolve_task_project_id(db, task)
-    source, delegation = await authorize_action(db, principal, 'planning.execution.dispatch', project_id=project_id,
+    source, delegation = await authorize_action(db, principal, TASK_BROWSER_ACTION, project_id=project_id,
                                                 action_risk='medium' if action in {'fill', 'click', 'submit'} else 'low')
     if delegation and delegation.revoked_at is not None:
         raise HTTPException(403, 'Browser execution delegation was revoked')
