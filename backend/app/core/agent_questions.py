@@ -249,11 +249,6 @@ async def record_answer(
     Identical repeated answers recover the existing task; conflicting answers
     or cancelled questions remain blocked. Caller checks relay/operator authority.
     """
-    # Local import: demand.py's routes module imports a lot; keep this
-    # module importable from main.py's loops without pulling it in early.
-    from app.api.routes.demand import create_demand_and_notify
-    from app.api.schemas.demand import DemandSubmitIn
-
     from app.core.dispatch_targets import DISPATCH_ADMISSION_LOCK
     # Keep the same lock order as canonical dispatch/attempt allocation.
     await db.execute(select(func.pg_advisory_xact_lock(DISPATCH_ADMISSION_LOCK)))
@@ -274,6 +269,60 @@ async def record_answer(
     question.answered_via = via
     question.answered_by = by
     question.status = "answered"
+    return await _continue_asker(db, question, subject=f"[Resposta] Pergunta #{question.number}",
+        message=compose_answer_message(question), by=by, now=now, dispatch_at=dispatch_at,
+        notice=f"Pergunta #{question.number} respondida", event_key=f"agent-question-answered:{question.id}")
+
+
+def compose_cancellation_message(question: AgentQuestion, reason: str) -> str:
+    return "\n".join([
+        f"O Marcelo arquivou a sua pergunta #{question.number} sem responder.",
+        "",
+        "## Pergunta",
+        question.question.strip(),
+        "",
+        "## Motivo",
+        reason.strip(),
+        "",
+        "Nenhuma resposta virá: siga sem ela se for possível, ou encerre reportando STATUS: BLOCKED.",
+    ])
+
+
+async def record_cancellation(db: AsyncSession, question: AgentQuestion, reason: str, *, by: str) -> AgentDemand:
+    """Close a pending question without an answer and tell the asker, in one commit.
+
+    Same continuation path as an answer (a Messages task to the asker with
+    reply_to_id = the blocked message, the same attempt handling), so the
+    blocked work never resumes silently: the agent reads why no answer is
+    coming. Anything but a pending question is a 409.
+    """
+    from app.core.dispatch_targets import DISPATCH_ADMISSION_LOCK
+    from app.db.models.governance import AuditEvent
+
+    await db.execute(select(func.pg_advisory_xact_lock(DISPATCH_ADMISSION_LOCK)))
+    question = await db.scalar(select(AgentQuestion).where(AgentQuestion.id == question.id)
+        .with_for_update().execution_options(populate_existing=True))
+    if question is None:
+        raise HTTPException(404, "Question not found")
+    if question.status != "pending":
+        raise HTTPException(409, f"Question #{question.number} is already {question.status}")
+    question.status = "cancelled"
+    db.add(AuditEvent(entity_type="agent_question", entity_id=question.id, event_type="question_cancelled",
+        actor=by, payload={"reason": reason.strip(), "number": question.number,
+                           "origin_demand_id": str(question.origin_demand_id) if question.origin_demand_id else None}))
+    return await _continue_asker(db, question, subject=f"[Pergunta #{question.number} cancelada]",
+        message=compose_cancellation_message(question, reason), by=by, now=datetime.now(timezone.utc),
+        notice=f"Pergunta #{question.number} arquivada sem resposta", event_key=f"agent-question-cancelled:{question.id}")
+
+
+async def _continue_asker(db: AsyncSession, question: AgentQuestion, *, subject: str, message: str, by: str,
+                          now: datetime, notice: str, event_key: str, dispatch_at: datetime | None = None) -> AgentDemand:
+    """Caller has locked the question and set its outcome. Creates the asker's
+    continuation task, wires it to the blocked task's attempt, commits."""
+    # Local import: demand.py's routes module imports a lot; keep this
+    # module importable from main.py's loops without pulling it in early.
+    from app.api.routes.demand import create_demand_and_notify
+    from app.api.schemas.demand import DemandSubmitIn
 
     asker = await db.get(Agent, question.agent_id)
     sender = (await db.get(Agent, question.relay_agent_id) if question.relay_agent_id else None) or asker
@@ -283,8 +332,8 @@ async def record_answer(
             from_agent=sender.profile_slug or sender.name,
             from_agent_id=sender.id,
             target_agent_id=asker.id,
-            subject=f"[Resposta] Pergunta #{question.number}"[:255],
-            body=compose_answer_message(question),
+            subject=subject[:255],
+            body=message,
             origin_type="task",
             scheduled_at=dispatch_at or now,
         ),
@@ -328,7 +377,7 @@ async def record_answer(
                 from app.db.models.governance import AuditEvent
                 demand.status = "archived"
                 demand.scheduled_at = None
-                demand.decision_reason = "Resposta preservada no histórico; a tarefa de origem já foi encerrada."
+                demand.decision_reason = "Retorno preservado no histórico; a tarefa de origem já foi encerrada."
                 db.add(AuditEvent(entity_type="agent_demand", entity_id=demand.id,
                     event_type="question_answer_recorded_for_closed_task", actor=by,
                     payload={"question_id": str(question.id), "task_id": str(task.id),
@@ -337,7 +386,7 @@ async def record_answer(
                 # Keep the reviewed attempt and its reviewer identity. Only
                 # the run carrying the review's remaining work changes.
                 review.runtime_session_ref = str(demand.id)
-                demand.body = source.body + "\n\n" + compose_answer_message(question)
+                demand.body = source.body + "\n\n" + message
                 from app.db.models.governance import AuditEvent
                 db.add(AuditEvent(entity_type="project_task", entity_id=task.id, event_type="review_continuation_created",
                     actor=by, payload={"review_id": str(review.id), "demand_id": str(demand.id),
@@ -354,9 +403,9 @@ async def record_answer(
         Notification(
             source="system",
             severity="info",
-            title=f"Pergunta #{question.number} respondida",
+            title=notice,
             message=f"{asker.name}: {question.question[:200]}",
-            event_key=f"agent-question-answered:{question.id}",
+            event_key=event_key,
             occurred_at=now,
         )
     )

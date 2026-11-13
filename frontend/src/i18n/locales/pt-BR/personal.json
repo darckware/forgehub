@@ -420,8 +420,8 @@
       "incubation": "Incubações",
       "approvalsCount": "Aprovações ({{count}})",
       "answersCount": "Respostas ({{count}})",
-      "moodleInDecision_one": "Mais {{count}} aprovação Moodle aguarda sua decisão.",
-      "moodleInDecision_other": "Mais {{count}} aprovações Moodle aguardam sua decisão.",
+      "moodleInDecision_one": "{{count}} aprovação Moodle também aguarda sua decisão (fora desta lista).",
+      "moodleInDecision_other": "{{count}} aprovações Moodle também aguardam sua decisão (fora desta lista).",
       "openApprovals": "Abrir Aprovações"
     },
     "tabDescriptions": {
@@ -440,7 +440,8 @@
       "label": "Arquivar",
       "button": "Arquivar pergunta #{{number}}",
       "title": "Arquivar pergunta #{{number}}?",
-      "hint": "A pergunta é encerrada sem resposta e fica no histórico. O agente não é avisado. A tarefa que ela bloqueava deixa de esperar por ela e segue as regras normais da fila (aprovação, dependências e agenda); se a tarefa precisava mesmo da resposta, ela pode falhar ou o agente pode perguntar de novo."
+      "hint": "A pergunta é encerrada sem resposta e fica no histórico. O agente recebe uma tarefa no Messages com o motivo, avisando que nenhuma resposta virá: ele segue sem ela, se puder, ou encerra o trabalho bloqueado reportando STATUS: BLOCKED.",
+      "reason": "Motivo (vai para o agente)"
     },
     "groupDescriptions": {
       "tasks": "Autorize trabalhos, acompanhe a execução e revise os resultados dos agentes.",

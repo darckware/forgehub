@@ -224,7 +224,8 @@ export function useOperationsViewModel(tab: OperationsTab) {
     onSuccess: () => invalidate(operationsKeys.questions),
   });
   const cancelQuestion = useMutation({
-    mutationFn: (id: string) => apiClient.post<AgentQuestion>(`${BASE}/questions/${id}:cancel`),
+    // The reason goes to the asking agent, who is told no answer will come.
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => apiClient.post<AgentQuestion>(`${BASE}/questions/${id}:cancel`, { reason }),
     onSuccess: () => invalidate(operationsKeys.questions),
   });
   const publishPolicy = useMutation({

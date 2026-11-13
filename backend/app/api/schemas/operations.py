@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.routine_schedule import validate_schedule
 
@@ -190,6 +190,18 @@ class QuestionAskIn(BaseModel):
 
 class QuestionAnswerIn(BaseModel):
     answer: str = Field(min_length=1, max_length=8000)
+
+
+class QuestionCancelIn(BaseModel):
+    # Sent to the asking agent: it must know why no answer is coming.
+    reason: str = Field(min_length=3, max_length=4000)
+
+    @field_validator("reason")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if len(value.strip()) < 3:
+            raise ValueError("reason must have at least 3 characters")
+        return value.strip()
 
 
 class QuestionRelayAnswerIn(QuestionAnswerIn):

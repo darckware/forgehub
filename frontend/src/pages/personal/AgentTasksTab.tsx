@@ -99,7 +99,7 @@ export function AgentTasksTab() {
     {approvalsEmpty && <p className="text-sm text-muted-foreground">{t("agentTasks.approvalSections.empty")}</p>}
     {listTab && <div className="flex flex-wrap gap-2">
       <Select aria-label={t("agentTasks.view")} value={vm.view} onChange={e => vm.setView(e.target.value)} className="w-full sm:w-56">
-        {vm.views.map(view => <option key={view} value={view}>{t(`agentTasks.views.${view}`)}{(view === "decision" ? vm.decisionCount : vm.counts[view]) !== undefined ? ` (${view === "decision" ? vm.decisionCount : vm.counts[view]})` : ""}</option>)}
+        {vm.views.map(view => <option key={view} value={view}>{t(`agentTasks.views.${view}`)}{vm.counts[view] !== undefined ? ` (${vm.counts[view]})` : ""}</option>)}
       </Select>
       <Select aria-label={t("agentTasks.context")} value={vm.context} onChange={e => vm.setContext(e.target.value)} className="w-full sm:w-56">
         <option value="all">{t("agentTasks.allContexts")}</option>
@@ -248,8 +248,10 @@ export function AgentTasksTab() {
       title={t("agentTasks.archiveQuestion.title", { number: vm.archiving?.number ?? "" })}
       description={vm.archiving?.question}
       confirmLabel={t("agentTasks.archiveQuestion.label")} loading={vm.archivingQuestion} error={vm.archiveQuestionError ?? undefined}
-      onCancel={vm.cancelArchiveQuestion} onConfirm={vm.confirmArchiveQuestion}>
+      confirmDisabled={!vm.archiveReasonValid} onCancel={vm.cancelArchiveQuestion} onConfirm={vm.confirmArchiveQuestion}>
       <p className="text-sm">{t("agentTasks.archiveQuestion.hint")}</p>
+      <label className="mt-3 block space-y-1 text-sm">{t("agentTasks.archiveQuestion.reason")}
+        <Textarea className="resize-none max-md:text-base" maxLength={4000} value={vm.archiveReason} onChange={e => vm.setArchiveReason(e.target.value)} /></label>
     </ConfirmDialog>
   </div>;
 }

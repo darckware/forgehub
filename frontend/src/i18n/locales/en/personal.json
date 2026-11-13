@@ -420,8 +420,8 @@
       "incubation": "Incubations",
       "approvalsCount": "Approvals ({{count}})",
       "answersCount": "Answers ({{count}})",
-      "moodleInDecision_one": "{{count}} more Moodle approval awaits your decision.",
-      "moodleInDecision_other": "{{count}} more Moodle approvals await your decision.",
+      "moodleInDecision_one": "{{count}} Moodle approval also awaits your decision (not in this list).",
+      "moodleInDecision_other": "{{count}} Moodle approvals also await your decision (not in this list).",
       "openApprovals": "Open Approvals"
     },
     "tabDescriptions": {
@@ -440,7 +440,8 @@
       "label": "Archive",
       "button": "Archive question #{{number}}",
       "title": "Archive question #{{number}}?",
-      "hint": "The question is closed without an answer and kept in history. The agent is not notified. The task it blocked stops waiting for it and follows the normal queue rules (approval, dependencies, schedule); if the task really needed the answer, it may fail or the agent may ask again."
+      "hint": "The question is closed without an answer and kept in history. The agent gets a Messages task with the reason, saying no answer will come: it carries on without it if it can, or ends the blocked work reporting STATUS: BLOCKED.",
+      "reason": "Reason (sent to the agent)"
     },
     "groupDescriptions": {
       "tasks": "Authorize work, follow execution and review agent results.",

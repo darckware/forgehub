@@ -420,8 +420,8 @@
       "incubation": "Incubaciones",
       "approvalsCount": "Aprobaciones ({{count}})",
       "answersCount": "Respuestas ({{count}})",
-      "moodleInDecision_one": "{{count}} aprobación Moodle más espera tu decisión.",
-      "moodleInDecision_other": "{{count}} aprobaciones Moodle más esperan tu decisión.",
+      "moodleInDecision_one": "{{count}} aprobación Moodle también espera tu decisión (fuera de esta lista).",
+      "moodleInDecision_other": "{{count}} aprobaciones Moodle también esperan tu decisión (fuera de esta lista).",
       "openApprovals": "Abrir Aprobaciones"
     },
     "tabDescriptions": {
@@ -440,7 +440,8 @@
       "label": "Archivar",
       "button": "Archivar pregunta #{{number}}",
       "title": "¿Archivar la pregunta #{{number}}?",
-      "hint": "La pregunta se cierra sin respuesta y queda en el historial. El agente no recibe aviso. La tarea que bloqueaba deja de esperarla y sigue las reglas normales de la cola (aprobación, dependencias y agenda); si la tarea realmente necesitaba la respuesta, puede fallar o el agente puede volver a preguntar."
+      "hint": "La pregunta se cierra sin respuesta y queda en el historial. El agente recibe una tarea en Messages con el motivo, avisando que no llegará respuesta: sigue sin ella si puede, o termina el trabajo bloqueado reportando STATUS: BLOCKED.",
+      "reason": "Motivo (se envía al agente)"
     },
     "groupDescriptions": {
       "tasks": "Autorice trabajos, siga la ejecución y revise los resultados de los agentes.",

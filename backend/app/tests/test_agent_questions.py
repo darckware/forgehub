@@ -24,6 +24,7 @@ from app.core.deps import get_current_admin
 from app.db.base import AsyncSessionLocal
 from app.db.models.agent import Agent
 from app.db.models.demand import AgentDemand
+from app.db.models.governance import AuditEvent
 from app.db.models.notification import Notification
 from app.db.models.operations import AgentQuestion
 
@@ -72,7 +73,10 @@ async def agents():
     ids = [asker.id, relay.id]
     async with AsyncSessionLocal() as db:
         questions = (await db.execute(select(AgentQuestion).where(AgentQuestion.agent_id.in_(ids)))).scalars().all()
-        keys = [k for q in questions for k in (f"agent-question:{q.id}", f"agent-question-answered:{q.id}")]
+        keys = [k for q in questions for k in (f"agent-question:{q.id}", f"agent-question-answered:{q.id}",
+                                               f"agent-question-cancelled:{q.id}")]
+        await db.execute(delete(AuditEvent).where(AuditEvent.entity_type == "agent_question",
+                                                  AuditEvent.entity_id.in_([q.id for q in questions])))
         await db.execute(delete(AgentQuestion).where(AgentQuestion.agent_id.in_(ids)))
         await db.execute(delete(Notification).where(Notification.event_key.in_(keys)))
         await db.execute(
@@ -237,9 +241,47 @@ async def test_screen_answer_and_cancel(client, agents, never_due):
     assert answered.status_code == 200
     assert answered.json()["answered_via"] == "screen" and answered.json()["answered_by"] == "tester"
 
-    cancelled = await client.post(f"/api/v1/operations/questions/{second['id']}:cancel")
+    cancelled = await client.post(f"/api/v1/operations/questions/{second['id']}:cancel", json={"reason": "Já resolvido."})
     assert cancelled.json()["status"] == "cancelled"
     assert (await client.post(f"/api/v1/operations/questions/{second['id']}:answer", json={"answer": "x"})).status_code == 409
 
     listed = await client.get("/api/v1/operations/agent-questions", params={"agent": asker.profile_slug})
     assert {item["status"] for item in listed.json()} == {"answered", "cancelled"}
+
+
+async def test_cancel_requires_a_reason_audits_and_tells_the_asker(client, agents, never_due):
+    """Arquivar on Respostas: the agent is told no answer will come, in the same commit."""
+    asker, relay = agents
+    async with AsyncSessionLocal() as db:
+        blocked = AgentDemand(from_agent=asker.profile_slug, from_agent_id=asker.id, target_agent_id=asker.id,
+            subject="Blocked work", body="needs an answer", origin_type="task", working_path="/tmp")
+        db.add(blocked)
+        await db.commit()
+        blocked_id, blocked_number = blocked.id, blocked.number
+    q = await _ask(client, asker, blocking=True, origin_message_number=blocked_number)
+    url = f"/api/v1/operations/questions/{q['id']}:cancel"
+    assert (await client.post(url)).status_code == 422
+    assert (await client.post(url, json={"reason": "  "})).status_code == 422
+    response = await client.post(url, json={"reason": "O perfil já foi arquivado por outra via."})
+    assert response.status_code == 200, response.text
+    cancelled = response.json()
+    assert cancelled["status"] == "cancelled"
+
+    async with AsyncSessionLocal() as db:
+        event = (await db.execute(select(AuditEvent).where(AuditEvent.entity_type == "agent_question",
+            AuditEvent.entity_id == uuid.UUID(q["id"])))).scalar_one()
+        assert event.event_type == "question_cancelled" and event.actor == "tester"
+        assert event.payload == {"reason": "O perfil já foi arquivado por outra via.", "number": q["number"],
+                                 "origin_demand_id": str(blocked_id)}
+        task = await db.get(AgentDemand, uuid.UUID(cancelled["reply_demand_id"]))
+        assert task.subject == f"[Pergunta #{q['number']} cancelada]"
+        assert task.reply_to_id == blocked_id
+        assert task.target_agent_id == asker.id and task.from_agent_id == relay.id
+        assert "O perfil já foi arquivado por outra via." in task.body
+        assert "Nenhuma resposta virá" in task.body and "STATUS: BLOCKED" in task.body
+        assert task.origin_type == "task"
+
+    assert (await client.post(url, json={"reason": "de novo"})).status_code == 409
+    answered = await _ask(client, asker)
+    assert (await client.post(f"/api/v1/operations/questions/{answered['id']}:answer", json={"answer": "Sim."})).status_code == 200
+    assert (await client.post(f"/api/v1/operations/questions/{answered['id']}:cancel", json={"reason": "tarde"})).status_code == 409

@@ -109,7 +109,7 @@
   "history": "Historial de versiones",
   "restoreReason": "Restaurar versión {{version}}",
   "confirmCancelQuestionTitle": "¿Cancelar pregunta?",
-  "confirmCancelQuestionDescription": "El agente no recibirá una respuesta a esta pregunta.",
+  "confirmCancelQuestionDescription": "El agente recibe una tarea con el motivo, avisando que no llegará respuesta.", "cancelQuestionReason": "Motivo (se envía al agente)",
   "confirmAnswer": "Confirmar envío",
   "weekPreview": "Próximos 7 días",
   "evolutionChanges": "Cambios",

@@ -185,7 +185,9 @@ describe("operator deliberation", () => {
     // Aprovações = queue 3 + Moodle 2 + project_task approvals 1 (missions: not admin).
     await waitFor(() => expect(within(strip).getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Tarefas", "Incubações", "Aprovações (6)", "Respostas (1)"]));
     expect(within(strip).getByRole("tab", { name: "Tarefas" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("option", { name: "Sua decisão (6)" })).toBeInTheDocument();
+    // "Sua decisão" counts what that view lists; Moodle is only noted (it lives in Aprovações).
+    expect(screen.getByRole("option", { name: "Sua decisão (4)" })).toBeInTheDocument();
+    expect(screen.getByText("2 aprovações Moodle também aguardam sua decisão (fora desta lista).")).toBeInTheDocument();
     expect(screen.queryByText("Which format?")).not.toBeInTheDocument();
     expect(mocks.demands).toHaveBeenCalledWith({ group: "tasks", view: "approvals_queue", page: 1, page_size: 1 }, true);
 
@@ -223,9 +225,14 @@ describe("operator deliberation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Arquivar pergunta #7" }));
     expect(mocks.cancelQuestion).not.toHaveBeenCalled();
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText(/encerrada sem resposta/)).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Arquivar" }));
-    expect(mocks.cancelQuestion).toHaveBeenCalledWith("question-7", expect.anything());
+    expect(within(dialog).getByText(/nenhuma resposta virá/)).toBeInTheDocument();
+    const confirm = within(dialog).getByRole("button", { name: "Arquivar" });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(within(dialog).getByRole("textbox", { name: /Motivo/ }), { target: { value: "  ok " } });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(within(dialog).getByRole("textbox", { name: /Motivo/ }), { target: { value: "  Já resolvido por outra via. " } });
+    fireEvent.click(confirm);
+    expect(mocks.cancelQuestion).toHaveBeenCalledWith({ id: "question-7", reason: "Já resolvido por outra via." }, expect.anything());
   });
 
   it("opens a question link on Respostas with that card focused", () => {

@@ -93,6 +93,7 @@ export function useAgentTasksViewModel() {
   const approvals = useGovernedApprovalRequests("pending"), decideApproval = useDecideGovernedApproval();
   const operations = useOperationsViewModel("questions");
   const [archiving, setArchiving] = useState<{ id: string; number: number; question: string } | null>(null);
+  const [archiveReason, setArchiveReason] = useState("");
   const questions = (operations.questions.data ?? []).filter(question => question.status === "pending" && question.blocking);
   const [selectedId, setSelectedId] = useState<string | null>(null), [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [confirmation, setConfirmation] = useState<{ item: AgentWorkItem; action: WorkAction } | null>(null);
@@ -151,13 +152,13 @@ export function useAgentTasksViewModel() {
   return {
     tab, setTab, group, views, promotedTask,
     approvalsCount, answersCount: questions.length, queueCount, taskApprovals, missionPending,
-    archiving, askArchiveQuestion: (item: { id: string; number: number; question: string }) => { cancelQuestion.reset(); setArchiving(item); },
+    archiving, askArchiveQuestion: (item: { id: string; number: number; question: string }) => { cancelQuestion.reset(); setArchiveReason(""); setArchiving(item); },
+    archiveReason, setArchiveReason, archiveReasonValid: archiveReason.trim().length >= 3,
     cancelArchiveQuestion: () => { if (!cancelQuestion.isPending) setArchiving(null); },
-    confirmArchiveQuestion: () => { if (archiving) cancelQuestion.mutate(archiving.id, { onSuccess: () => { setArchiving(null); void invalidate(); } }); },
+    confirmArchiveQuestion: () => { if (archiving && archiveReason.trim().length >= 3) cancelQuestion.mutate({ id: archiving.id, reason: archiveReason.trim() }, { onSuccess: () => { setArchiving(null); void invalidate(); } }); },
     archivingQuestion: cancelQuestion.isPending, archiveQuestionError: failureText(cancelQuestion.error),
     moodlePending,
-    /** "Sua decisão": the queue's own count plus, for tasks, the pending Moodle approvals. */
-    decisionCount: counts.decision === undefined ? undefined : counts.decision + (group === "tasks" ? moodlePending ?? 0 : 0),
+
     analysis, query, items, filtered: items, view, search, context, agent, from, to, page, total: query.data?.total ?? 0, counts,
     agents: agents.data ?? [], selected, setSelectedId, contextName, agentName, state: (item: AgentWorkItem) => item.status === "archived" ? "archived" : item.operator_state ?? workState(item), setComposing, notice,
     questions, questionsError: operations.questions.isError, questionsLoading: operations.questions.isLoading, answerQuestion: operations.answerQuestion,

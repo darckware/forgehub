@@ -37,6 +37,7 @@ from app.api.schemas.operations import (
     AgentRoutineUpdate,
     AgentOperationsSummary,
     QuestionAnswerIn,
+    QuestionCancelIn,
     QuestionAskIn,
     QuestionOut,
     QuestionRelayAnswerIn,
@@ -1423,13 +1424,14 @@ async def answer_question(
 @router.post("/questions/{question_id}:cancel", response_model=QuestionOut)
 async def cancel_question(
     question_id: uuid.UUID,
+    payload: QuestionCancelIn,
     db: AsyncSession = Depends(get_db),
-    _admin=Depends(get_current_admin),
+    admin=Depends(get_current_admin),
 ) -> QuestionOut:
-    """Withdraw a question that no longer needs an answer. Kept, never deleted."""
-    question = await _question_or_404(db, question_id, lock=True)
-    _assert_pending(question)
-    question.status = "cancelled"
-    await db.commit()
+    """Withdraw a question without an answer. Kept, never deleted; audited, and
+    the asking agent gets a Messages task saying no answer will come."""
+    question = await _question_or_404(db, question_id)
+    by = getattr(admin, "full_name", None) or getattr(admin, "username", None) or "marcelo"
+    await agent_questions.record_cancellation(db, question, payload.reason, by=by)
     await db.refresh(question)
     return await _question_out(db, question)
