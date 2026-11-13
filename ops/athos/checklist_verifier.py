@@ -1136,13 +1136,62 @@ def check_secret_modes_v2() -> Result:
     return fail("Secret file permissions: " + "; ".join(bad)) if bad else ok("All application env and Athos config files are owner-only")
 
 
+# ECO-039 Docker byte limits, approved by Marcelo on 2026-11-13. Decimal bytes, the units
+# `docker system df` prints. Unused images = Docker's Images "Reclaimable" figure (no
+# container, running or stopped, uses them) minus the protected images the weekly prune
+# never removes (recent release tags, tagged in the last 7 days, ForgeHub test env) --
+# measured by prune_unused_docker_images.measure(), so check and cleanup agree.
+DOCKER_BUILD_CACHE_LIMIT_BYTES = 15 * 10**9
+DOCKER_UNUSED_IMAGE_LIMIT_BYTES = 10 * 10**9
+# Release source first; the weekly cleanup runs the installed profile copy.
+DOCKER_IMAGE_PRUNE_SCRIPT = next(
+    (path for path in (Path(__file__).resolve().with_name("prune_unused_docker_images.py"),
+                       ATHOS / "scripts/prune_unused_docker_images.py") if path.is_file()),
+    ATHOS / "scripts/prune_unused_docker_images.py")
+
+
+def _docker_image_prune_module(path: Path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("athos_docker_image_prune", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def check_disk_cleanup_v2() -> Result:
     baseline = check_disk_cleanup()
     if not baseline.ok:
         return baseline
-    # The maximum cache size is provisional until governance sets an exact
-    # byte limit. Fail closed rather than call a descriptive 'bounded' rule green.
-    return fail("Docker image/build-cache byte threshold has not been approved")
+    # The weekly cleanup must carry both bounding steps; the check never prunes itself.
+    cleanup = (ATHOS / "scripts/create_trash_cleanup_task.sh").read_text(errors="replace")
+    prune_text = DOCKER_IMAGE_PRUNE_SCRIPT.read_text(errors="replace") if DOCKER_IMAGE_PRUNE_SCRIPT.is_file() else ""
+    missing = []
+    if DOCKER_IMAGE_PRUNE_SCRIPT.name not in cleanup:
+        missing.append("weekly cleanup lacks the unused-image prune step")
+    if not os.access(DOCKER_IMAGE_PRUNE_SCRIPT, os.X_OK) or "UNUSED_IMAGE_LIMIT_BYTES = 10 * 10**9" not in prune_text:
+        missing.append(f"{DOCKER_IMAGE_PRUNE_SCRIPT.name} missing, not executable or not at the 10 GB limit")
+    # Its docker calls are argument lists: no prune, volume or force argument may appear.
+    if re.search(r'"(prune|volume|--force|-f|-a|--all)"', prune_text):
+        missing.append(f"{DOCKER_IMAGE_PRUNE_SCRIPT.name} contains a forbidden prune/force/volume argument")
+    if missing:
+        return fail("Docker cleanup incomplete: " + "; ".join(missing))
+    try:
+        prune = _docker_image_prune_module(DOCKER_IMAGE_PRUNE_SCRIPT)
+        df = run(["docker", "system", "df", "--format", "{{json .}}"], timeout=90)
+        if df.returncode:
+            return fail(f"NOT VERIFIED: docker system df failed: {df.stderr.strip()[:200]}")
+        rows = {row.get("Type"): row for row in map(json.loads, df.stdout.splitlines())}
+        build_cache = prune.parse_size(rows["Build Cache"]["Size"])
+        images = prune.measure()
+    except (KeyError, ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        return fail(f"NOT VERIFIED: Docker usage unreadable ({type(exc).__name__}: {str(exc)[:200]})")
+    notes = (f"Docker build cache {build_cache/1e9:.2f}GB (limit {DOCKER_BUILD_CACHE_LIMIT_BYTES/1e9:.0f}GB); "
+             f"unused images {images['unused']/1e9:.2f}GB (limit {DOCKER_UNUSED_IMAGE_LIMIT_BYTES/1e9:.0f}GB; "
+             f"reclaimable {images['reclaimable']/1e9:.2f}GB minus {len(images['protected'])} protected images "
+             f"{images['protected_bytes']/1e9:.2f}GB); weekly cleanup has builder prune + unused-image prune")
+    over = build_cache > DOCKER_BUILD_CACHE_LIMIT_BYTES or images["unused"] > DOCKER_UNUSED_IMAGE_LIMIT_BYTES
+    return fail("Over approved limit: " + notes) if over else ok(notes)
 
 
 
