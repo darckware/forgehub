@@ -3,9 +3,6 @@
 Seeds the Maia's WhatsApp row from personal_assistant_settings.instructions (the column stays, no
 longer written). The profile files ATENDIMENTO_<CANAL>.md are written by the backend on save, not here.
 """
-import hashlib
-import uuid
-
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
@@ -30,22 +27,21 @@ def upgrade():
         sa.UniqueConstraint('agent_slug', 'channel', name='uq_agent_service_rules_agent_channel'),
         sa.CheckConstraint("channel IN ('whatsapp','site','email')", name='ck_agent_service_rules_channel'),
         schema='company')
-    bind = op.get_bind()
-    bind.execute(sa.text('''INSERT INTO company.audit_checks
+    # Plain SQL only, so `alembic upgrade --sql` (the release's offline preview) renders it too.
+    op.execute(sa.text('''INSERT INTO company.audit_checks
         (id,name,description,category,command,agent_profile,enabled,timeout_seconds,frequency)
         VALUES (gen_random_uuid(),'ECO-070',:description,'knowledge',:command,'mnemosyne',true,55,'daily')
-        ON CONFLICT (name) DO UPDATE SET enabled = true, updated_at = now()'''), dict(
+        ON CONFLICT (name) DO UPDATE SET enabled = true, updated_at = now()''').bindparams(
             description='One SOUL per agent in its home; service-rule files ATENDIMENTO_<CANAL>.md match ForgeHub; no legacy rule copies',
             command='python3 /root/.hermes/profiles/athos/scripts/checklist_verifier.py --check ECO-070'))
-    current = bind.execute(sa.text(
-        "SELECT instructions FROM company.personal_assistant_settings ORDER BY created_at LIMIT 1")).scalar()
-    text = (current or '').replace('\r\n', '\n').strip()
-    if text:
-        text += '\n'
-        bind.execute(sa.text(
-            "INSERT INTO company.agent_service_rules (id, agent_slug, channel, content, content_hash, updated_by) "
-            "VALUES (:id, 'maia', 'whatsapp', :content, :hash, 'migration:personal_assistant_settings')"),
-            dict(id=uuid.uuid4(), content=text, hash=hashlib.sha256(text.encode('utf-8')).hexdigest()))
+    # Same normalization as core/service_rules.normalize: CRLF -> LF, trimmed, one trailing newline.
+    op.execute("""
+        INSERT INTO company.agent_service_rules (id, agent_slug, channel, content, content_hash, updated_by)
+        SELECT gen_random_uuid(), 'maia', 'whatsapp', t.content,
+               encode(sha256(convert_to(t.content, 'UTF8')), 'hex'), 'migration:personal_assistant_settings'
+        FROM (SELECT btrim(replace(instructions, E'\\r\\n', E'\\n'), E' \\t\\n\\r\\f\\v') || E'\\n' AS content
+              FROM company.personal_assistant_settings ORDER BY created_at LIMIT 1) t
+        WHERE t.content <> E'\\n'""")
 
 
 def downgrade():
