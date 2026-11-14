@@ -4384,12 +4384,16 @@ LAUNCHER_COMMANDS = {"hermes --tui", "claude", "codex", "agy", "pi", "opencode"}
 # fixed option names are allowed and values are limited to word/comma/dot/
 # dash chars -- no spaces or shell metacharacters -- so this still can't be
 # turned into anything but an ssh invocation (in particular, dangerous
-# options like ProxyCommand/LocalCommand are not in the whitelist).
+# options like ProxyCommand/LocalCommand are not in the whitelist).  The
+# ForgeVault-backed flow additionally uses an absolute IdentityAgent socket
+# path (for example `/dev/shm/fh-agent-…/agent.sock`), which is intentionally
+# constrained to path-safe characters below.
 SSH_LAUNCHER_RE = re.compile(
     r"^ssh"
     r"(?: -o (?:PubkeyAuthentication|PasswordAuthentication|BatchMode|"
     r"PreferredAuthentications|StrictHostKeyChecking|ConnectTimeout|"
-    r"NumberOfPasswordPrompts)=[\w,.-]+)*"
+    r"NumberOfPasswordPrompts)=[\w,.-]+|"
+    r" -o IdentityAgent=/[\w./-]+)*"
     r"(?: -i [\w./_-]+)?(?: -p \d{1,5})? [\w.-]+@[\w.:-]+$"
 )
 
