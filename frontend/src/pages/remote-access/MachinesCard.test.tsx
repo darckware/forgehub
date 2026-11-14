@@ -39,7 +39,7 @@ const base = {
 const MACHINES = [
   { ...base, id: "m1", name: "GAT-ADM-PC01", remote_user: "darckware", kind: "workstation", os_family: "windows",
     darckware_client_id: "c1", darckware_client_name: "Gatling", group_ids: ["g1"], tailnet_node_id: "nPC1",
-    rustdesk_id: "217385777" },
+    rustdesk_id: "217385777", ssh_key_in_vault: true, login_password_in_vault: true, access_verified_at: "2026-11-13T18:00:00Z" },
   { ...base, id: "s1", name: "srv-sup", ip_address: "172.15.2.9", remote_user: "aegis", kind: "server", os_family: "linux",
     darckware_client_id: null, darckware_client_name: null, tailnet_node_id: "nSUP" },
   { ...base, id: "s2", name: "srv-ad03", ip_address: "172.15.1.3", remote_user: "aegis", kind: "server", os_family: null,
@@ -141,14 +141,14 @@ describe("MachinesCard", () => {
     expect(within(screen.getByRole("region", { name: "Sem caminho" })).getByText("srv-old")).toBeInTheDocument();
   });
 
-  it("offers the terminal when ready and one Configure access otherwise", async () => {
+  it("offers the terminal and the shared configuration workflow", async () => {
     renderCard();
     await screen.findByText("srv-ad03");
     expect(screen.getByRole("button", { name: "Abrir terminal SSH em srv-sup" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Configurar acesso a GAT-ADM-PC01" })).not.toBeInTheDocument();
-    // A server: the key install dialog.
+    // A server: the same darckware preparation panel.
     fireEvent.click(screen.getByRole("button", { name: "Configurar acesso a srv-ad03" }));
-    expect(await screen.findByText(/Instalar chave SSH — srv-ad03/)).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Configurar acesso da máquina" })).toBeInTheDocument();
   });
 
   it("no longer offers moving key files to ForgeVault", async () => {
@@ -186,7 +186,7 @@ describe("MachinesCard", () => {
     renderCard();
     await screen.findByText("srv-ad03");
     expect(screen.getAllByText("Sem RustDesk").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Não preparada").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Reconfiguração necessária").length).toBeGreaterThan(0);
     expect(screen.queryByText("Online sem acesso")).not.toBeInTheDocument();
     expect(screen.getAllByLabelText("Sem RustDesk registrado").length).toBeGreaterThan(0);
   });
@@ -236,7 +236,7 @@ describe("MachinesCard", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     const menu = screen.getByRole("menu", { name: "Ações" });
     expect(within(menu).getAllByRole("menuitem").map((i) => i.textContent)).toEqual([
-      "Preparar estação", "Rotacionar senha", "Rotacionar chave SSH", "Detectar sistemas operacionais",
+      "Configurar acesso da máquina", "Rotacionar senha", "Rotacionar chave SSH", "Detectar sistemas operacionais",
       "Instalador Darckware Remoto", "Instalar Tailscale", "Instalar RustDesk", "Obter ID do RustDesk",
       "Liberar RustDesk no firewall", "Trocar senha do RustDesk",
     ]);
@@ -263,7 +263,7 @@ describe("MachinesCard", () => {
     expect(run.mock.lastCall?.[1]).toBeUndefined();
   });
 
-  it("Ações: a machine's row menu runs the action with that machine; preparing only for a workstation, rotation only when Ready with a key", async () => {
+  it("Ações: a machine's row menu runs the action with that machine; preparation includes servers, rotation only when Ready with a key", async () => {
     const run = vi.fn();
     const machines = MACHINES.map((m) => (m.id === "s1" ? { ...m, ssh_key_path: "/root/.ssh/id_srv" } : m)) as Server[];
     renderCard({ run, detectOsPending: false }, machines);
@@ -271,7 +271,7 @@ describe("MachinesCard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Ações em srv-sup" }));
     let menu = screen.getByRole("menu", { name: "Ações em srv-sup" });
-    expect(within(menu).queryByRole("menuitem", { name: "Preparar estação" })).not.toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "Configurar acesso da máquina" })).toBeInTheDocument();
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Rotacionar senha" }));
     expect(run).toHaveBeenCalledWith("rotate_login_password", expect.objectContaining({ id: "s1" }));
 
@@ -279,7 +279,7 @@ describe("MachinesCard", () => {
     menu = screen.getByRole("menu", { name: "Ações em GAT-ADM-PC01" });
     expect(within(menu).queryByRole("menuitem", { name: "Rotacionar senha" })).not.toBeInTheDocument(); // no key on record
     expect(within(menu).queryByRole("menuitem", { name: "Detectar sistemas operacionais" })).not.toBeInTheDocument();
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Preparar estação" }));
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Configurar acesso da máquina" }));
     expect(run).toHaveBeenLastCalledWith("prepare", expect.objectContaining({ id: "m1" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Ações em GAT-ADM-PC01" }));
@@ -305,4 +305,27 @@ describe("MachinesCard", () => {
     expect(screen.queryByRole("button", { name: "Ações" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Ações em/ })).not.toBeInTheDocument();
   });
+
+  it("opens the shared preparation panel for a Ready server using a legacy SSH login", async () => {
+    renderCard();
+    const button = await screen.findByRole("button", { name: "Reconfigurar acesso a srv-sup" });
+    expect(screen.getAllByText("Login antigo: aegis · reconfigurar para darckware").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Pedir ao agente uma tarefa em srv-sup" })).not.toBeInTheDocument();
+    fireEvent.click(button);
+    await screen.findByRole("dialog", { name: "Configurar acesso da máquina" });
+    expect(screen.getByLabelText("Máquina")).toHaveValue("s1");
+    expect(screen.getByRole("radio", { name: "Conta cadastrada: aegis" })).toBeInTheDocument();
+  });
+
+
+  it("requires explicit login verification before offering an agent task", async () => {
+    const unverified = MACHINES.map((machine) => ({ ...machine, access_verified_at: null }));
+    renderCard(undefined, unverified);
+    await screen.findByText("srv-ad03");
+    expect(screen.queryByRole("button", { name: "Pedir ao agente uma tarefa em GAT-ADM-PC01" })).not.toBeInTheDocument();
+    const row = screen.getByText("GAT-ADM-PC01").closest("tr")!;
+    expect(within(row).getAllByText("Reconfiguração necessária").length).toBeGreaterThan(0);
+    expect(within(row).getByRole("button", { name: "Abrir terminal SSH em GAT-ADM-PC01" })).toBeInTheDocument();
+  });
+
 });

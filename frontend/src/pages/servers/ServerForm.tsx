@@ -297,7 +297,7 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
     defaultValues: {
       name: initial?.name ?? "",
       ip_address: initial?.ip_address ?? "",
-      remote_user: initial?.remote_user ?? "",
+      remote_user: initial?.remote_user ?? "darckware",
       ssh_port: initial?.ssh_port ?? 22,
       environment: (initial?.environment as "vps" | "semed" | "client") ?? "semed",
       description: initial?.description ?? "",
@@ -402,7 +402,7 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label>{t("form.remoteUser")}</Label>
-          <Input {...register("remote_user")} placeholder="aegis" />
+          <Input {...register("remote_user")} placeholder="darckware" />
           {errors.remote_user && <p className="text-[11px] text-destructive">{errors.remote_user.message}</p>}
         </div>
         <div className="space-y-1">

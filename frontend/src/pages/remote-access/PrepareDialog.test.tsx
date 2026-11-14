@@ -9,13 +9,13 @@ import { PrepareDialog } from "./PrepareDialog";
 vi.mock("@/lib/api", () => ({ apiClient: { get: vi.fn(), post: vi.fn(), put: vi.fn() } }));
 
 const machine = (id: string, name: string, os: string, admin: string | null = null, kind = "workstation") => ({
-  id, name, os_family: os, kind, admin_user: admin, darckware_client_name: "Gatling", group_ids: [],
+  id, name, os_family: os, kind, admin_user: admin, remote_user: admin, darckware_client_name: "Gatling", group_ids: [],
 });
 
-function renderDialog() {
+function renderDialog(customMachines?: unknown[], initialServerId?: string) {
   vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
     if (url === "/api/v1/servers") {
-      return [machine("w1", "gat-adm-pc01", "windows", "administrador"), machine("w2", "desk", "windows"),
+      return customMachines ?? [machine("w1", "gat-adm-pc01", "windows", "administrador"), machine("w2", "desk", "windows"),
         { ...machine("s1", "gat-srv-01", "windows", null, "server"), ssh_port: 2222 }] as never;
     }
     if (url.startsWith("/api/v1/servers/readiness")) {
@@ -26,7 +26,7 @@ function renderDialog() {
   });
   const onExecution = vi.fn();
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={qc}><PrepareDialog onClose={vi.fn()} onExecution={onExecution} /></QueryClientProvider>);
+  render(<QueryClientProvider client={qc}><PrepareDialog onClose={vi.fn()} onExecution={onExecution} initialServerId={initialServerId} /></QueryClientProvider>);
   return onExecution;
 }
 
@@ -40,17 +40,16 @@ describe("PrepareDialog", () => {
     vi.mocked(apiClient.post).mockResolvedValue({ execution_id: "e1", script: null } as never);
     const onExecution = renderDialog();
     await screen.findByRole("option", { name: /gat-adm-pc01/ });
-    expect(screen.queryByRole("option", { name: /desk/ })).not.toBeInTheDocument(); // already Ready
+    expect(screen.getByRole("option", { name: /desk/ })).toBeInTheDocument(); // Ready machines can be reconfigured
     fireEvent.change(screen.getByLabelText("Máquina"), { target: { value: "w1" } });
     expect(screen.getByLabelText("Porta SSH")).toHaveValue(22);
     fireEvent.change(screen.getByLabelText("Porta SSH"), { target: { value: "2200" } });
     fireEvent.change(screen.getByLabelText("Senha do administrador"), { target: { value: "S3nha!" } });
     fireEvent.click(screen.getByRole("button", { name: "Preparar agora" }));
     await vi.waitFor(() => expect(onExecution).toHaveBeenCalledWith("e1"));
-    expect(apiClient.put).toHaveBeenCalledWith("/api/v1/servers/w1", { ssh_port: 2200 });
-    expect(vi.mocked(apiClient.put).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(apiClient.post).mock.invocationCallOrder[0]);
+    expect(apiClient.put).not.toHaveBeenCalled(); // port is staged with the credentials
     expect(apiClient.post).toHaveBeenCalledWith("/api/v1/servers/w1/preparation", {
-      mode: "ssh", admin_user: "administrador", admin_password: "S3nha!", disable_admin: true,
+      mode: "ssh", admin_user: "administrador", admin_password: "S3nha!", disable_admin: true, ssh_port: 2200,
     });
   });
 
@@ -74,7 +73,7 @@ describe("PrepareDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Preparar agora" }));
     await vi.waitFor(() => expect(onExecution).toHaveBeenCalledWith("e2"));
     expect(apiClient.post).toHaveBeenCalledWith("/api/v1/servers/s1/preparation", {
-      mode: "ssh", admin_user: "suporte", admin_password: "X1!", disable_admin: false,
+      mode: "ssh", admin_user: "suporte", admin_password: "X1!", disable_admin: false, ssh_port: 2222,
     });
   });
 
@@ -90,8 +89,8 @@ describe("PrepareDialog", () => {
     expect(apiClient.put).not.toHaveBeenCalled();
   });
 
-  it("rejects invalid ports and stops preparation if saving the port fails", async () => {
-    vi.mocked(apiClient.put).mockRejectedValueOnce(new Error("Port save failed"));
+  it("rejects invalid ports and preserves input when preparation fails", async () => {
+    vi.mocked(apiClient.post).mockRejectedValueOnce(new Error("Preparation failed"));
     renderDialog();
     await screen.findByRole("option", { name: /gat-adm-pc01/ });
     fireEvent.change(screen.getByLabelText("Máquina"), { target: { value: "w1" } });
@@ -103,8 +102,60 @@ describe("PrepareDialog", () => {
     }
     fireEvent.change(screen.getByLabelText("Porta SSH"), { target: { value: "2222" } });
     fireEvent.click(screen.getByRole("button", { name: "Preparar agora" }));
-    expect(await screen.findByText("Port save failed")).toBeInTheDocument();
-    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(await screen.findByText("Preparation failed")).toBeInTheDocument();
+    expect(apiClient.put).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Porta SSH")).toHaveValue(2222);
   });
+
+  it("reconfigures existing darckware with only this machine's vaulted password and never locks itself", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ execution_id: "reconfigured", script: null } as never);
+    const existing = { ...machine("own", "server-own", "linux", "aegis", "server"), remote_user: "darckware", login_password_stored: true, login_password_in_vault: true, access_verified_at: "2026-11-13T18:00:00Z" };
+    const onExecution = renderDialog([existing], "own");
+    await screen.findByRole("option", { name: /server-own/ });
+    expect(screen.getByRole("radio", { name: "Conta cadastrada: darckware" })).toHaveAttribute("aria-checked", "true");
+    const lock = screen.getByRole("checkbox", { name: /Bloquear a conta/ });
+    expect(lock).toBeDisabled();
+    expect(lock).not.toBeChecked();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Usar a senha darckware desta máquina/ }));
+    expect(screen.queryByLabelText("Senha do administrador")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Preparar agora" }));
+    await vi.waitFor(() => expect(onExecution).toHaveBeenCalledWith("reconfigured"));
+    expect(apiClient.post).toHaveBeenCalledWith("/api/v1/servers/own/preparation", {
+      mode: "ssh", admin_user: "darckware", admin_password: null, disable_admin: false, use_stored_password: true, ssh_port: 22,
+    });
+    expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining("login-password"));
+  });
+
+  it("does not offer the stored password for a legacy login", async () => {
+    renderDialog([{ ...machine("old", "server-old", "linux", "aegis", "server"), login_password_stored: true }], "old");
+    await screen.findByRole("option", { name: /server-old/ });
+    expect(screen.queryByRole("checkbox", { name: /Usar a senha darckware/ })).not.toBeInTheDocument();
+  });
+
+  it("retains pending validation after failure and validates staged access after a reload", async () => {
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ ok: false, detail: "Login verification failed" } as never)
+      .mockResolvedValueOnce({ ok: true } as never);
+    renderDialog([{ ...machine("pending", "server-pending", "linux", "aegis", "server"), preparation_pending: true }], "pending");
+    await screen.findByRole("option", { name: /server-pending/ });
+    fireEvent.click(screen.getByRole("button", { name: "Validar acesso" }));
+    expect(await screen.findByText("Login verification failed")).toBeInTheDocument();
+    expect(screen.getByText(/Há uma configuração pendente/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Validar acesso" }));
+    expect(await screen.findByText(/Acesso darckware validado/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Validar acesso" })).not.toBeInTheDocument();
+    expect(apiClient.post).toHaveBeenLastCalledWith("/api/v1/servers/pending/preparation/validate");
+  });
+
+
+  it("recovers the existing pending script without generating another preparation", async () => {
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ script: "staged-existing-script", language: "sh" } as never);
+    renderDialog([{ ...machine("pending", "server-pending", "linux", "aegis", "server"), preparation_pending: true }], "pending");
+    await screen.findByRole("option", { name: /server-pending/ });
+    expect(screen.queryByRole("button", { name: "Preparar agora" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Recuperar instruções pendentes" }));
+    expect(await screen.findByText("staged-existing-script")).toBeInTheDocument();
+    expect(apiClient.post).toHaveBeenCalledExactlyOnceWith("/api/v1/servers/pending/preparation/pending");
+    expect(screen.getByRole("button", { name: "Validar acesso" })).toBeInTheDocument();
+  });
+
 });

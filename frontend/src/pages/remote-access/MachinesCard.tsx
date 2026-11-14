@@ -56,11 +56,11 @@ import {
   type ReadinessFilter,
 } from "@/hooks/useMachinesViewModel";
 import { buildSshCommand, resolveSshCommand, type Server } from "@/hooks/useServers";
-import { ImportCsvModal, InstallKeyModal } from "@/pages/servers/ServerDialogs";
+import { ImportCsvModal } from "@/pages/servers/ServerDialogs";
 import { ServerForm } from "@/pages/servers/ServerForm";
 import { ServerServicesPanel } from "@/pages/servers/ServerServicesPanel";
 import { serverHome } from "@/pages/workspace/workspaceState";
-import { STATUS_BADGE, hasSsh, statusKey } from "./machineStatus";
+import { hasManagedMachineAccess, STATUS_BADGE, hasSsh, statusKey } from "./machineStatus";
 import { PrepareDialog } from "./PrepareDialog";
 import { AgentRequestDialog } from "./AgentRequestDialog";
 import { MaintenanceDialog } from "./MaintenanceDialog";
@@ -71,8 +71,9 @@ type T = (key: string, options?: Record<string, unknown>) => string;
 
 /** The color says what can be done with the machine; the two icons say which
  * channel works (SSH for scripts, RustDesk for the technician). */
-function ReadinessBadge({ entry, t }: { entry: HostReadinessEntry | undefined; t: T }) {
+function ReadinessBadge({ entry, machine, t }: { entry: HostReadinessEntry | undefined; machine?: Server; t: T }) {
   const status = entry?.status ?? "unknown";
+  const configurationLabel = machine?.preparation_pending ? "prepare.pending" : machine && !hasManagedMachineAccess(machine) ? "prepare.needsReconfiguration" : null;
   const online = status !== "offline" && status !== "disabled" && status !== "unknown";
   const ssh = hasSsh(entry);
   const rustdesk = Boolean(entry?.rustdesk_id);
@@ -84,8 +85,8 @@ function ReadinessBadge({ entry, t }: { entry: HostReadinessEntry | undefined; t
   const tooltip = [entry?.detail, since].filter(Boolean).join(" · ") || undefined;
   return (
     <span className="inline-flex items-center gap-1.5">
-      <Badge variant="outline" title={tooltip} className={`whitespace-nowrap ${STATUS_BADGE[status]}`}>
-        {t(`status.${statusKey(entry)}`)}
+      <Badge variant="outline" title={tooltip} className={`whitespace-nowrap ${configurationLabel ? STATUS_BADGE.not_prepared : STATUS_BADGE[status]}`}>
+        {t(configurationLabel ?? `status.${statusKey(entry)}`)}
       </Badge>
       {entry?.readiness === "busy" && (
         <Loader2 className="h-3.5 w-3.5 text-sky-500 motion-safe:animate-spin" aria-label={t("readiness.busy")} />
@@ -216,7 +217,7 @@ export function MachinesCard({ quickActions }: { quickActions?: QuickActions } =
   // One machine: preparing is for a workstation, rotating needs what the
   // rotation panel accepts (Ready, with a key on record).
   const rowItems = (machine: Server, ready: boolean): ActionMenuItem[] => [
-    ...(machine.kind === "workstation"
+    ...((machine.os_family === "linux" || machine.os_family === "windows")
       ? [{ key: "prepare", label: t("quick.prepare"), icon: <Wrench className="h-3.5 w-3.5" />, onSelect: () => quickActions?.run("prepare", machine) }]
       : []),
     ...(ready && machine.ssh_key_path
@@ -235,15 +236,20 @@ export function MachinesCard({ quickActions }: { quickActions?: QuickActions } =
     return (
       <Fragment key={machine.id}>
         <TableRow className={machine.access_enabled ? "" : "opacity-60"}>
-          <TableCell>
+          <TableCell className="md:min-w-[180px]">
             <p className="font-medium">{machine.name}</p>
+            {machine.preparation_pending ? (
+              <p className="mt-1 text-xs text-amber-500">{t("prepare.pending")}</p>
+            ) : machine.remote_user !== "darckware" ? (
+              <p className="mt-1 text-xs text-amber-500">{t("prepare.legacyLogin", { user: machine.remote_user || "—" })}</p>
+            ) : null}
             <p className="font-mono text-xs text-muted-foreground">{machine.ip_address || "—"}</p>
             {lanAddressWithTailscale && (
               <p className="font-mono text-xs text-muted-foreground" title={t("machines.tailscaleIpHint")}>
                 Tailscale {lanAddressWithTailscale}
               </p>
             )}
-            <div className="mt-1 md:hidden"><ReadinessBadge entry={readiness} t={t} /></div>
+            <div className="mt-1 md:hidden"><ReadinessBadge entry={readiness} machine={machine} t={t} /></div>
             {machine.rustdesk_id && <div className="mt-1 md:hidden"><RustDeskId id={machine.rustdesk_id} t={t} /></div>}
             {routes.length > 0 && (
               <Badge variant="secondary" className="mt-1 gap-1 whitespace-nowrap font-mono text-[10px]">
@@ -263,7 +269,7 @@ export function MachinesCard({ quickActions }: { quickActions?: QuickActions } =
           </TableCell>
           <TableCell className="font-mono text-xs max-md:hidden">{machine.remote_user || "—"}</TableCell>
           <TableCell className="max-md:hidden"><RustDeskId id={machine.rustdesk_id} t={t} /></TableCell>
-          <TableCell className="max-md:hidden"><ReadinessBadge entry={readiness} t={t} /></TableCell>
+          <TableCell className="max-md:hidden"><ReadinessBadge entry={readiness} machine={machine} t={t} /></TableCell>
           <TableCell className="whitespace-nowrap text-right">
             <div className="flex justify-end gap-0.5">
               {machine.access_enabled && ready && (
@@ -271,8 +277,8 @@ export function MachinesCard({ quickActions }: { quickActions?: QuickActions } =
                   <SquareTerminal className="h-4 w-4" aria-hidden="true" />
                 </IconButton>
               )}
-              {vm.isAdmin && machine.access_enabled && !ready && (
-                <IconButton label={t("machines.actions.configure", { name: machine.name })} onClick={() => vm.configure(machine)} className="text-amber-500">
+              {vm.isAdmin && machine.access_enabled && (
+                <IconButton label={t(ready || machine.preparation_pending ? "machines.actions.reconfigure" : "machines.actions.configure", { name: machine.name })} onClick={() => vm.configure(machine)} className="text-amber-500">
                   <Wrench className="h-4 w-4" aria-hidden="true" />
                 </IconButton>
               )}
@@ -297,7 +303,7 @@ export function MachinesCard({ quickActions }: { quickActions?: QuickActions } =
                   <KeyRound className="h-4 w-4" aria-hidden="true" />
                 </IconButton>
               )}
-              {vm.isAdmin && machine.access_enabled && ready && (
+              {vm.isAdmin && machine.access_enabled && ready && hasManagedMachineAccess(machine) && (
                 <IconButton label={t("askAgent.forMachine", { name: machine.name })} onClick={() => setAskingFor(machine)} className="text-sky-600">
                   <Bot className="h-4 w-4" aria-hidden="true" />
                 </IconButton>
@@ -416,7 +422,7 @@ export function MachinesCard({ quickActions }: { quickActions?: QuickActions } =
         )}
 
         {vm.groupDraft && (
-          <form
+          <form noValidate
             className="grid grid-cols-1 gap-2 rounded-md border border-border p-3 sm:grid-cols-[minmax(0,1fr)_220px_auto]"
             onSubmit={(e) => {
               e.preventDefault();
@@ -636,9 +642,6 @@ export function MachinesCard({ quickActions }: { quickActions?: QuickActions } =
 
       {vm.form !== null && <ServerForm initial={vm.form === "new" ? null : vm.form} onClose={vm.closeForm} />}
       {vm.importingCsv && <ImportCsvModal onClose={() => vm.setImportingCsv(false)} />}
-      {vm.installing && (
-        <InstallKeyModal server={vm.installing} onClose={vm.closeInstall} onInstalled={vm.probeNow} />
-      )}
       {vm.preparing && (
         <PrepareDialog
           initialServerId={vm.preparing.id}

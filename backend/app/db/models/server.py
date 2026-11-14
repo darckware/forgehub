@@ -6,10 +6,12 @@ this is an infrastructure registry, not part of the product/version/project
 traceability chain covered by SPEC.md's core invariant.
 """
 import uuid
+from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -141,6 +143,21 @@ class Server(Base, TimestampMixin):
     # bridge loads it into a per-run ssh-agent, never a file); ssh_key_path
     # stays for the interactive terminal/Explorer until they move too.
     ssh_key_ref: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Set only after the active Vault key was tested as the exact machine login.
+    # Legacy enrollment and metadata edits must not authorize agent runs.
+    access_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Candidate credentials survive an uncertain bootstrap; active access is
+    # replaced only after an exact darckware identity check with this key.
+    pending_ssh_key_ref: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    pending_public_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pending_login_password_ref: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    pending_ssh_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    preparation_validation_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    @property
+    def preparation_pending(self) -> bool:
+        return bool(self.pending_ssh_key_ref)
+
     rustdesk_password_ref: Mapped[str | None] = mapped_column(String(36), nullable=True)
     rustdesk_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     rustdesk_password_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -159,6 +176,10 @@ class Server(Base, TimestampMixin):
     @property
     def rustdesk_password_stored(self) -> bool:
         return bool(self.rustdesk_password_ref or self.rustdesk_password_encrypted)
+
+    @property
+    def login_password_in_vault(self) -> bool:
+        return bool(self.login_password_ref)
 
     @property
     def login_password_stored(self) -> bool:
