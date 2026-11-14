@@ -45,6 +45,12 @@ docs/
 │   ├── BUSINESS_RULES.md
 │   ├── TECHNOLOGY.md
 │   └── DB_README.md
+├── business_rules/                 ← catálogo rastreável de regras de negócio vigentes
+│   ├── README.md                   ← índice, status e regra de manutenção
+│   └── 01…07-*.md                 ← regras por domínio, ligadas a código e testes
+├── releases/                       ← controle de versão e notas do próprio ForgeHub
+│   ├── README.md                   ← política do histórico e fluxo de atualização
+│   └── CHANGELOG.md                ← notas por versão (não substitui evidência de deploy)
 ├── specs/                         ← visão original de produto (baseline)
 │   ├── PRD.md
 │   └── SPEC.md
@@ -132,6 +138,7 @@ Regra: documento de direção pode exigir uma mudança, mas não prova que ela j
 | `reference/DATA_MODEL.md` | dicionário do banco atualmente implementado | estado atual |
 | `reference/BUSINESS_RULES.md` | regras aplicadas atualmente e inconsistências conhecidas | estado atual |
 | `reference/TECHNOLOGY.md` | stack implementada | estado atual |
+| `releases/README.md` e `releases/CHANGELOG.md` | política e histórico de versões do próprio ForgeHub | registro documental; a tela/API está em proposta até implementação |
 | `architecture/AGENT_CLI_DEVELOPMENT_PROTOCOL.md` | pacote e conduta de execução | transição atual → alvo |
 | `guides/PROJECT_DELIVERY_GUIDE.md` | jornada operacional desejada | misto; confirmar disponibilidade |
 | `guides/MESSAGES_TELEGRAM_OPERATIONS.md` | operação e recuperação de Messages, Telegram e gateways | estado atual verificado |
