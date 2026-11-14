@@ -117,7 +117,8 @@ SELECT json_build_object('enabled',(SELECT count(*) FROM company.agent_routines 
  AND r.mission_project_id IS NULL),
  'failed_audit',count(*) FILTER (WHERE r.enabled AND r.kind='audit' AND x.status IN ('failed','missed')
  AND x.occurrence_at>=now()-interval '7 days' AND NOT EXISTS (SELECT 1 FROM company.agent_routine_runs y
- WHERE y.retry_of_run_id=x.id AND y.status='completed')))
+ WHERE y.routine_id=x.routine_id AND y.status='completed'
+ AND (y.retry_of_run_id=x.id OR y.occurrence_at>x.occurrence_at))))
 FROM company.agent_routine_runs x JOIN company.agent_routines r ON r.id=x.routine_id
 """
 

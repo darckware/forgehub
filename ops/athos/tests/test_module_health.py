@@ -75,5 +75,12 @@ def test_routine_health_fails_on_lost_audit_runs_not_rescued_by_a_retry():
     query = m.ROUTINE_QUERY
     clause = query[query.index("'failed_audit'"):]
     assert "r.kind='audit'" in clause and "x.status IN ('failed','missed')" in clause
-    assert "y.retry_of_run_id=x.id AND y.status='completed'" in clause
+    assert "y.status='completed'" in clause and "y.retry_of_run_id=x.id" in clause
     assert 'failed_audit' in m.CHECKS['routines'].violations
+
+
+def test_failed_audit_clears_once_a_later_run_of_the_same_routine_completes():
+    """A failed daily batch stops counting once the next day's batch completes (review, 2026-11-13)."""
+    clause = m.ROUTINE_QUERY[m.ROUTINE_QUERY.index("'failed_audit'"):]
+    assert "y.routine_id=x.routine_id" in clause
+    assert "y.occurrence_at>x.occurrence_at" in clause and "y.retry_of_run_id=x.id" in clause
