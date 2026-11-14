@@ -62,3 +62,29 @@ def test_idle_profiles_are_explicit_and_no_config_or_credentials_are_read(monkey
 def test_no_activity_inventory_is_not_a_success(monkeypatch):
     monkeypatch.setattr(v, 'psql', lambda *args: json.dumps({'active_profiles': 0, 'recently_executed': 0, 'missing_delivery': 0}))
     assert not v.check_outbound_hooks().ok
+
+
+def _hindsight(monkeypatch, facts):
+    def fake(url, *a, **k):
+        term = url.split('q=', 1)[1].split('&', 1)[0]
+        from urllib.parse import unquote_plus
+        hits = [f for f in facts if unquote_plus(term) in f['text']]
+        return {'items': hits, 'total': len(hits)}
+    monkeypatch.setattr(v, 'http_json', fake)
+
+
+def test_eco027_ignores_facts_that_describe_the_retirement(monkeypatch):
+    _hindsight(monkeypatch, [
+        {'fact_type': 'world', 'text': 'O sistema migrou de `/root/.hermes/workspaces` para profiles/*/workspace.'},
+        {'fact_type': 'world', 'text': 'A auditoria falhou no ECO-027 por `/root/.hermes/workspaces`.'},
+        {'fact_type': 'experience', 'text': 'Evidência em /root/.hermes/workspaces/hephaestus/x.md'},
+    ])
+    assert v.check_hindsight_obsolete().ok
+
+
+def test_eco027_still_fails_on_a_current_assertion(monkeypatch):
+    _hindsight(monkeypatch, [
+        {'fact_type': 'world', 'text': 'Os workspaces dos agentes ficam em /root/.hermes/workspaces.'},
+    ])
+    result = v.check_hindsight_obsolete()
+    assert not result.ok and '/root/.hermes/workspaces:1' in result.notes

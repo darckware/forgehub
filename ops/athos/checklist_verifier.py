@@ -404,6 +404,15 @@ def check_kb_obsolete() -> Result:
     return fail("Obsolete active KB references: " + " | ".join(active_hits[:10])) if active_hits else ok("No obsolete provider-rotation/vault references outside explicit historical provenance")
 
 
+_RETIREMENT_MARKERS = ("obsolet", "legad", "legacy", "migrou", "migrad", "migrated", "retired",
+                       "aposentad", "descontinuad", "eco-027")
+
+
+def _describes_retirement(item: dict) -> bool:
+    text = str(item.get('text') or item.get('content') or '').lower()
+    return any(marker in text for marker in _RETIREMENT_MARKERS)
+
+
 def check_hindsight_obsolete() -> Result:
     bad = []
     for term in ("hermes-provider-rotation", "nvidia fallback", "/root/.hermes/workspaces", "/root/memory/knowledge_base/vault"):
@@ -418,7 +427,11 @@ def check_hindsight_obsolete() -> Result:
             # Experiences record what happened, including retired paths and
             # their removal. They are provenance, not assertions of current
             # configuration; do not invalidate history to silence the audit.
-            current += sum(item.get('fact_type') != 'experience' for item in items)
+            # A fact that names the term only to say it is obsolete/migrated, or that records an
+            # ECO-027 run, is not an assertion of current configuration either (2026-11-13: the
+            # record of each fix kept this check red forever).
+            current += sum(item.get('fact_type') != 'experience' and not _describes_retirement(item)
+                           for item in items)
             offset += len(items)
             if offset >= total:
                 break
