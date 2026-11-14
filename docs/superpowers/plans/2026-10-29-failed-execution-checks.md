@@ -1,6 +1,6 @@
 # Failed execution checks implementation plan
 
-**Goal:** Preserve failed execution evidence, create one linked diagnostic task, then archive the original attempt atomically.
+**Goal (updated 2026-11-14):** Preserve the failed source's status and execution evidence while atomically creating one linked diagnostic task. Diagnostic creation or completion must not archive the original attempt.
 **Approved design:** Marcelo approved a chain: original request → attempt → check → correction → conclusion. A check failure must stay blocked rather than generate another check.
 **Architecture:** Add a server-owned unique source FK on Messages checks. A locked original and child creation share a transaction. Use the existing dispatch worker, sender ownership and working directory; checks diagnose and route corrections within the original authorization. Keep uncertain runner outcomes blocked for reconciliation. No additional scheduler/process or approval is introduced for ordinary work.
 **Files:** model/schema + Alembic migration; `core/demand_failure_check.py`; demand finalization/known-start failures/completion reconciliation; Messages context links + locale/schema; regression tests.
@@ -11,7 +11,7 @@
 - Preserve existing approval requirements. Do not reuse a prior approval hash for new content. Diagnostic tasks may not replay the failed work or send externally on their own.
 - Checks have a structured server-owned source link; no subject-based loop detection.
 - No checks for archived/consolidated work, unconfirmed run outcomes, or failed checks.
-- Create the child before archive; rollback must undo both. Unique source prevents duplicates across workers/restarts.
+- Create the child and annotate the source atomically; rollback must undo both. Leave the source status and failed-run evidence intact. Unique source prevents duplicates across workers/restarts.
 - Reconcile existing non-archived known failures through the current completion pass, never by migration or automatic retry.
 
 ## Tasks

@@ -127,11 +127,17 @@ async def test_changed_diagnostic_source_invalidates_an_obsolete_decision(triage
 @pytest.mark.parametrize("report",["DONE","PARTIAL"])
 async def test_completed_diagnostic_archival_preserves_unresolved_original(triage_db,report):
     from app.core import message_triage
+    from app.core.demand_failure_check import ensure_failure_check
     db,agent,run_ids=triage_db
-    source=await message(db,agent,dispatch_status="failed",dispatch_error="Original problem persists")
+    source=await message(db,agent,status="read",dispatch_status="failed",dispatch_error="Original problem persists",
+        agent_run_id=str(uuid.uuid4()),dispatch_attempts=1,dispatch_result="Original partial evidence")
     source_id=source.id
-    child=await message(db,agent,failure_check_source_id=source_id,dispatch_status="completed",
-        dispatch_result=f"Diagnostic report only.\nSTATUS: {report} | evidence: recorded report")
+    source_run_id=source.agent_run_id
+    child=await ensure_failure_check(db,source_id)
+    assert source.status=="read" and source.dispatch_status=="failed"
+    child.dispatch_status="completed"
+    child.dispatch_result=f"Diagnostic report only.\nSTATUS: {report} | evidence: recorded report"
+    await db.commit()
     child_id=child.id
     chosen=await message_triage.deterministic_analysis(db,child)
     if report=="PARTIAL":
@@ -143,15 +149,34 @@ async def test_completed_diagnostic_archival_preserves_unresolved_original(triag
     current=await db.get(AgentDemand,child_id,populate_existing=True)
     original=await db.get(AgentDemand,source_id,populate_existing=True)
     assert current.status=="archived" and current.dispatch_status=="completed"
-    assert original.status!="archived" and original.dispatch_status=="failed"
+    assert original.status=="read" and original.dispatch_status=="failed"
+    assert original.agent_run_id==source_run_id and original.dispatch_attempts==1
+    assert original.dispatch_error=="Original problem persists"
+    assert original.dispatch_result=="Original partial evidence"
+    assert await message_triage.verified_delivery(db,original) is None
+    # Re-analyzing the original after its diagnostic is DONE cannot resolve it.
+    assert await message_triage.deterministic_analysis(db,original) is None
+    from app.core.message_triage_context import context_stamp, source_stamp
+    stamp=source_stamp(original)
+    context,versions=await context_stamp(db,original)
+    suggestion=chosen.model_copy(update={"message_id":source_id})
+    assert await message_triage._apply(db,prepared[0],prepared[1],source_id,stamp,context,versions,suggestion)
+    from app.db.models.message_triage import MessageTriageResult
+    result=await db.get(MessageTriageResult,source_id)
+    assert result is not None and result.operator_state=="waiting"
+    assert result.proposed_action=="none" and result.applied_action is None
+    original=await db.get(AgentDemand,source_id,populate_existing=True)
+    assert original.status=="read" and original.dispatch_status=="failed"
     assert await message_triage.verified_delivery(db,original) is None
 
 
 async def test_verified_delivery_leaves_active_inbox_without_rewriting_attempt(triage_db):
     from app.core import message_triage
+    from app.core.demand_failure_check import ensure_failure_check
     db,agent,run_ids=triage_db
     row=await message(db,agent,dispatch_status="failed",dispatch_error="Old failure",dispatch_result="Old report")
     row_id=row.id
+    assert await ensure_failure_check(db,row_id) is not None
     db.add(AuditEvent(entity_type="agent_demand",entity_id=row_id,event_type="message_delivery_verified",
         actor="operator",payload={"content_hash":approval_fingerprint(row),"evidence_ref":"git:1234567"}))
     await db.commit()
@@ -278,6 +303,9 @@ async def prepared_application(db, agent, run_ids, row, related=()):
     run_ids.append(run.id)
     claim = await message_triage._claim_job(db)
     assert claim is not None and claim[0] == run.id
+    # Source annotations can expire server-generated fields such as updated_at.
+    # Load them asynchronously before the synchronous fingerprint reads them.
+    await db.refresh(row)
     stamp = source_stamp(row)
     context, versions = await context_stamp(db, row, related)
     row_id = row.id

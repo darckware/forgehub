@@ -73,10 +73,11 @@ async def failure_check_eligible(db: AsyncSession, source: AgentDemand) -> bool:
 
 
 async def ensure_failure_check(db: AsyncSession, source_id: UUID) -> AgentDemand | None:
-    """Caller commits. Lock, child insert and archive share one transaction.
+    """Caller commits. Lock, child insert and source annotation are atomic.
 
     Never retries original work or drops a runner identity. A failed diagnostic
     task cannot generate another diagnostic task. Unknown outcomes stay blocked.
+    Creating a diagnostic does not resolve or archive the failed source.
     """
     source = await db.scalar(select(AgentDemand).where(AgentDemand.id == source_id).with_for_update())
     if source is None or source.failure_check_source_id is not None:
@@ -159,7 +160,6 @@ async def ensure_failure_check(db: AsyncSession, source_id: UUID) -> AgentDemand
     )
     db.add(check)
     await db.flush()
-    source.status = "archived"
     source.decision_reason = f"Tentativa preservada; acompanhamento pela checagem #{check.number}."
     record_transition(db, source, "failure_check_created", extra={"check_id": str(check.id), "check_number": check.number})
     record_transition(db, check, "failure_check_opened", extra={"source_id": str(source.id), "source_run_id": source.agent_run_id})

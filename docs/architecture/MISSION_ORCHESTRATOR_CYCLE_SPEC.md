@@ -117,8 +117,9 @@ tasks (the 2026-10-28 case: Porthus stopped at 00:15 with "resets 3:30am" → M0
 03:35 automatically, not on someone's memory). When the time passes, an event triggers a cycle (§2.2).
 
 **Messages' automatic failure check does not apply to mission tasks (Marcelo, 2026-11-03: "Orquestrador
-decide").** `core/demand_failure_check.py`'s `ensure_failure_check` archives every failed Task attempt
-and opens a follow-up "checagem" (diagnosis, or a continuation scheduled after a provider reset). For a
+decide").** `core/demand_failure_check.py`'s `ensure_failure_check` preserves the failed Task attempt
+and opens a follow-up "checagem" (diagnosis, or a continuation scheduled after a provider reset).
+Creating or completing the diagnosis does not archive or complete the original attempt. For a
 task under a mission (`task_missions` non-empty) it now does nothing: the cycle above decides what follows
 (schedule after quota, reprocess infrastructure, reassign, ask Marcelo) and records it in
 `mission_decisions`. With both active, the check read as "already queued" (`wait/scheduled`) and the

@@ -42,7 +42,7 @@ the inherited default directory does not infer a project from the message body.
 | `demand.py:_in_flight_dispatch_filter`, `_dispatch_slots`, `_agents_already_running` | Count active/reserved/uncertain attempts for global and per-agent capacity. |
 | `demand.py:run_dispatch_completion_pass`, `get_dispatch_status`, `_finalize_dispatch` | Poll, lock, recheck run identity and record terminal outcomes. |
 | `demand.py:run_dispatch_timeout_pass` | Preserve uncertainty when a deadline expires. |
-| `backend/app/core/demand_failure_check.py` | Atomically link one diagnostic task to a known failure, preserve context, then archive the failed message; schedule recognized quota resets. |
+| `backend/app/core/demand_failure_check.py` | Atomically link one diagnostic task to a known failure while preserving the failed source's status and evidence; schedule recognized quota resets. |
 | `backend/app/core/demand_workflow.py:requires_reconciliation`, `decide_demand`, `record_transition` | Govern investigation, exact-run confirmation, retry authorization and audit history. |
 | `demand.py:list_pending_for_agent` | Acknowledge mail; archive completed informational returns with audit while retaining runnable Tasks. |
 | `backend/app/core/feedback.py:deliver_feedback`, `run_feedback_pass` | Deliver eligible outcomes with refreshed eligibility under a lock; suppress historical communications. |
@@ -74,6 +74,12 @@ or consolidated demands create no new replies, channel narration, failure notifi
 feedback during terminal reconciliation. Feedback rechecks eligibility after locking to avoid racing
 with archive/consolidation. No blanket purge or clearing of run IDs is a recovery mechanism.
 
+Creating or acknowledging a diagnostic does not archive its failed source. Completing the diagnostic
+with `STATUS: DONE` may archive the diagnostic itself, but does not establish delivery of the original
+work. The source keeps its presentation status, `dispatch_status=failed`, run ID, error and output.
+Manual operator archive and independently verified business delivery remain valid resolution paths;
+completed-mail retention is unchanged. Existing archived failures are not automatically restored.
+
 ## Completion report (2026-10-24)
 
 A clean process exit is not completed work. The runner input ends with the contract in
@@ -99,7 +105,7 @@ after predecessor acceptance. `test_factory_mcp.py` covers omitted-recipient sel
 self-scheduling. `test_task.py` covers dependency gates and task-status scheduling wake-up.
 Other focused suites cover dispatch reservations, feedback and workflow authorization.
 
-Current failure-check regression coverage includes atomic archive/handoff, rollback, concurrent
+Current failure-check regression coverage includes atomic linking without source archival, rollback, concurrent
 finalizers, uniqueness, pending-inbox authorization, source blocking questions, preservation of future
 reset schedules during approval, attachment/message deletion protection, and starvation prevention.
 The failure-check release was validated against the isolated test database; historical full-suite

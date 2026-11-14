@@ -1,4 +1,4 @@
-"""A failed attempt hands its context to one diagnostic task before archive."""
+"""A failed attempt stays visible while one linked diagnostic carries its context."""
 import uuid
 
 import pytest
@@ -32,9 +32,14 @@ async def world():
         await db.commit()
 
 
-async def test_failure_creates_one_check_with_context_then_archives(world):
+@pytest.mark.parametrize("source_status", ["new", "read"])
+async def test_failure_creates_one_check_preserving_source_status_and_evidence(world, source_status):
     from app.core.demand_failure_check import ensure_failure_check
     async with AsyncSessionLocal() as db:
+        source = await db.get(AgentDemand, world)
+        source.status = source_status
+        run_id = source.agent_run_id
+        await db.flush()
         check = await ensure_failure_check(db, world)
         await db.commit()
         assert check.failure_check_source_id == world
@@ -47,25 +52,55 @@ async def test_failure_creates_one_check_with_context_then_archives(world):
         for text in ("PRÓPRIA checagem", "STATUS: DONE", "STATUS: BLOCKED", "STATUS: PARTIAL", "ORIGEM: CONCLUIDA | PARCIAL | BLOQUEADA"):
             assert text in check.body
         source = await db.get(AgentDemand, world)
-        assert source.status == "archived"
-        assert source.agent_run_id in check.body
+        assert source.status == source_status
+        assert source.dispatch_status == "failed"
+        assert source.agent_run_id == run_id
+        assert run_id in check.body
+        assert source.dispatch_error == "The agent run ended as 'failed'."
         assert source.dispatch_result == "Partial evidence"
+        assert source.dispatch_attempts == 1
         first_id = check.id
         again = await ensure_failure_check(db, world)
         assert again.id == first_id
         await db.commit()
     async with AsyncSessionLocal() as db:
         assert len((await db.scalars(select(AgentDemand).where(AgentDemand.failure_check_source_id == world))).all()) == 1
+        source = await db.get(AgentDemand, world)
+        assert source.status == source_status and source.dispatch_status == "failed"
+        assert source.agent_run_id == run_id
 
 
-async def test_check_and_archive_rollback_together(world):
+async def test_check_link_and_source_annotation_rollback_together(world):
     from app.core.demand_failure_check import ensure_failure_check
     async with AsyncSessionLocal() as db:
         await ensure_failure_check(db, world)
         await db.rollback()
     async with AsyncSessionLocal() as db:
-        assert (await db.get(AgentDemand, world)).status == "read"
+        source = await db.get(AgentDemand, world)
+        assert source.status == "read" and source.dispatch_status == "failed"
+        assert source.decision_reason is None
         assert await db.scalar(select(AgentDemand.id).where(AgentDemand.failure_check_source_id == world)) is None
+
+
+@pytest.mark.parametrize("has_check", [False, True])
+async def test_historical_archived_failure_is_not_restored_or_given_new_check(world, has_check):
+    from app.core.demand_failure_check import ensure_failure_check
+    async with AsyncSessionLocal() as db:
+        check = await ensure_failure_check(db, world) if has_check else None
+        check_id = check.id if check else None
+        source = await db.get(AgentDemand, world)
+        source.status = "archived"
+        source.decision_reason = "Historical archive"
+        run_id = source.agent_run_id
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        existing = await ensure_failure_check(db, world)
+        assert (existing.id if existing else None) == check_id
+        await db.commit()
+        source = await db.get(AgentDemand, world)
+        assert source.status == "archived" and source.dispatch_status == "failed"
+        assert source.decision_reason == "Historical archive"
+        assert source.agent_run_id == run_id
 
 
 async def test_unknown_outcome_is_not_archived_or_retried(world):
@@ -181,6 +216,13 @@ async def test_pending_endpoint_holds_check_until_approval(world):
         response = await client.get("/api/v1/demands/pending", params={"agent": "test-check-owner"}, headers={"X-Bridge-Token": settings.CHAT_BRIDGE_TOKEN})
         assert response.status_code == 200, response.text
         assert [item["id"] for item in response.json()] == [str(check_id)]
+    async with AsyncSessionLocal() as db:
+        source = await db.get(AgentDemand, world)
+        check = await db.get(AgentDemand, check_id)
+        assert check.agent_processed_at is not None
+        assert check.failure_check_source_id == world
+        assert source.status == "read" and source.dispatch_status == "failed"
+        assert source.dispatch_result == "Partial evidence" and source.agent_run_id
 
 
 async def test_uncertain_failures_do_not_starve_known_failure(world):
@@ -213,7 +255,7 @@ async def test_concurrent_finalizers_create_only_one_check(world):
     assert first == second
 
 
-async def test_failed_run_finalizer_archives_after_linked_check(world):
+async def test_failed_run_finalizer_keeps_source_failed_after_linked_check(world):
     from app.api.routes.demand import _finalize_dispatch
     async with AsyncSessionLocal() as db:
         source = await db.get(AgentDemand, world)
@@ -223,12 +265,21 @@ async def test_failed_run_finalizer_archives_after_linked_check(world):
         await _finalize_dispatch(db, world, {"status": "failed", "error": "Actual CLI error"}, expected_run_id=run_id)
         await db.commit()
         source = await db.get(AgentDemand, world)
-        assert source.status == "archived"
+        assert source.status == "read" and source.dispatch_status == "failed"
+        assert source.agent_run_id == run_id
+        assert source.dispatch_attempts == 1
+        assert "Actual CLI error" in source.dispatch_result
+        result = source.dispatch_result
+        executed_at = source.task_execution_at
         check = await db.scalar(select(AgentDemand).where(AgentDemand.failure_check_source_id == world))
         assert "Actual CLI error" in check.body
         await _finalize_dispatch(db, world, {"status": "failed", "error": "Actual CLI error"}, expected_run_id=run_id)
         await db.commit()
         assert len((await db.scalars(select(AgentDemand.id).where(AgentDemand.failure_check_source_id == world))).all()) == 1
+        await db.refresh(source)
+        assert source.status == "read" and source.dispatch_status == "failed"
+        assert source.agent_run_id == run_id
+        assert source.dispatch_result == result and source.task_execution_at == executed_at
 
 
 async def test_linked_evidence_cannot_be_deleted_via_api(world, auth_headers):

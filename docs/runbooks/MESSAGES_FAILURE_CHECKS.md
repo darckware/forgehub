@@ -17,6 +17,7 @@ The current develop chain is `e4b8c1d7a9f3` → `f2c7a4e9b1d3` (merged M0.0 miss
 
 ## Recovery
 
+- Creating, acknowledging or completing a diagnostic never archives its failed source. A diagnostic `STATUS: DONE` confirms only the report; the original remains failed until corrected or independently verified. Manual operator archive remains available, and retention still applies only to completed mail. This behavior change requires no data migration and does not restore previously archived records.
 - Keep exact run IDs, evidence and attachment rows/files. A runner 404, network timeout or stale state never proves that a process has stopped.
 - Failed checks remain blocked for intervention; they do not recursively generate checks. Use existing investigation/approval controls and confirm the exact runner identity before any uncertain retry.
 - Source/current approval, blocking questions, Moodle permissions, dependencies and capacity remain gates. An approval must not advance a scheduled reset.
