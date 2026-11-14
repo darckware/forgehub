@@ -30,17 +30,18 @@ records are not automatically reopened.
 - Chrome/CDP using only local synthetic fixtures, **390px and 1440px**: Messages
   row/detail, sender Athos versus executor Aramis/Porthus/Dartan, personal waiting
   table, known reset/timezone and unknown reset, no document overflow or writes:
-  **passed**. Script `/tmp/forgehub_quota_browser.py`; screenshots under
-  `/tmp/forgehub-quota-browser/`.
+  **passed** on the feature UI before integration. Script
+  `/tmp/forgehub_quota_browser.py`; screenshots under `/tmp/forgehub-quota-browser/`.
 - Premium static audit: **58 findings**, identical to the root-checkout baseline;
   **zero new findings**. Existing unrelated findings were not changed.
 
 ## Backend verification and database boundaries
 
-Supervisor final homologation:
+Final integration homologation on the current `main` plus this feature:
 
-- In `backend`, `ENVIRONMENT=test /root/project/forgehub/backend/.venv/bin/pytest -q --tb=short app/tests/test_agent_failover.py app/tests/test_message_classification.py app/tests/test_executor_wait_recovery.py app/tests/test_demand_workflow.py app/tests/test_mission_cycle.py`: **90 passed in 48.41s**.
-- Ruff on all changed Python modules/tests and the new module/migration: **passed**.
+- In `backend`, `ENVIRONMENT=test .venv/bin/pytest -q --tb=short app/tests/test_agent_failover.py app/tests/test_message_classification.py app/tests/test_executor_wait_recovery.py app/tests/test_demand_workflow.py app/tests/test_mission_cycle.py`: **90 passed in 47.85s** against the isolated database.
+- The five targeted frontend suites: **76 passed**; `npm run build`: **passed**, including locale parity and TypeScript. Existing large-chunk/dynamic-import warnings remain.
+- Ruff on changed Python modules/tests and both quota migration files: **passed**.
 - `git diff --check`: **passed**.
 - The first supervisor run found one regression: query-count budget became 11
   instead of at most 10. The query was combined with the existing agent batch
@@ -55,15 +56,19 @@ downgrade were performed.
 
 The isolated database already carried concurrent revision `c3e5a7b9d1f2` from
 `foundation-memory-audit`. Tests install this feature's additive schema under the
-exclusive lock and leave that Alembic revision unchanged. This does not establish
-merged migration-chain compatibility with the concurrent branch.
+exclusive lock and leave that Alembic revision unchanged. For the current release
+chain (`e5a7c9d1f3b4`), integration adds the no-op merge revision
+`49707c727f82`, joining it with `d3f6a8b2c901`.
 
-`ENVIRONMENT=test alembic heads`: sole head `d3f6a8b2c901` on this branch.
-`ENVIRONMENT=test alembic upgrade b8e2c4a6d1f9:d3f6a8b2c901 --sql`:
-**passed**, SQL generated without connecting to production. Downgrade refuses
+`ENVIRONMENT=test alembic heads`: sole integrated head `49707c727f82`.
+`ENVIRONMENT=test alembic upgrade e5a7c9d1f3b4:head --sql`: **passed**; SQL
+includes the quota schema change and merge revision, generated without connecting
+to any database. The production migration has not been executed. Downgrade refuses
 live quota waits to preserve run evidence.
 
 ## Publication
 
-Implementation is isolated in `fix/quota-wait-indicator`; merge, push, production
-migration and deploy require approval of the reviewed final content.
+The integration candidate is `release/quota-wait-indicator`, based on current
+`main` at `370ac7e`, with quota implementation `ba575a1` and migration merge
+`49707c727f82`. Push, production migration and deploy await approval of this
+reviewed integrated content.
