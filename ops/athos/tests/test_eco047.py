@@ -45,6 +45,7 @@ def socket(address, *owners):
     ('100.105.235.114:37770', ('tailscaled',)),
     ('100.105.235.114:49123', ('tailscaled',)),
     ('100.105.235.114%tailscale0:37770', ('tailscaled',)),
+    ('[fd7a:115c:a1e0::2501:ebce]%tailscale0:63157', ('tailscaled',)),
     *[(f'100.105.235.114:{port}', ('docker-proxy',)) for port in (3000, 8020, 21115, 21116, 21117)],
     ('0.0.0.0:8910', ('python',)),
 ])
@@ -117,7 +118,9 @@ def test_unrelated_or_deny_rules_do_not_invalidate_bridge(monkeypatch, rule):
     ('100.105.235.114:3000', ('python',)),
     ('100.105.235.114:8020', ()),
     ('invalid:21116', ('docker-proxy',)),
-    ('[fd7a:115c:a1e0::2501:ebce]%tailscale0:63157', ('tailscaled',)),
+    ('[fd7a:115c:a1e0::2501:ebce]:63157', ('python',)),
+    ('[fd7a:115c:a1e0::2501:ebce]:22', ('sshd',)),
+    ('[fd7a:115c:a1e0::1]:63157', ('tailscaled',)),
     ('100.105.235.115:22', ('sshd',)),
     ('[fd7a:115c:a1e0::1]:22', ('sshd',)),
     ('[::ffff:100.105.235.114]:49123', ('tailscaled',)),
@@ -132,7 +135,9 @@ def test_merge_preserves_live_listener_rejections(monkeypatch, address, owners):
 
 
 def test_scoped_ipv6_has_a_baseline_finding_instead_of_a_parse_error(monkeypatch):
-    host(monkeypatch, socket('[fd7a:115c:a1e0::2501:ebce]%tailscale0:63157', 'tailscaled'))
+    # The node's own IPv6 peer API port is authorized (Marcelo, 2026-11-13); another owner on it
+    # is a finding, and the scoped address still parses.
+    host(monkeypatch, socket('[fd7a:115c:a1e0::2501:ebce]%tailscale0:63157', 'python'))
     result = v.check_public_interfaces()
     assert not result.ok
     assert 'Tailscale bind, no authorized baseline' in result.notes

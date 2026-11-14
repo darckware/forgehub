@@ -866,6 +866,11 @@ def _listener_findings(ss_output: str, bridge_restricted: bool) -> list[str]:
         if any(ip in network for network in TAILSCALE_NETWORKS):
             if native_ipv4 and str(ip) == "100.105.235.114" and _approved_tailnet_listener(f"{ip}:{port_number}", line):
                 continue
+            # Tailscale's own peer API also binds this node's tailnet IPv6 on a port it picks at
+            # start-up (Marcelo, 2026-11-13). Only tailscaled, only this node's exact IPv6.
+            if (str(ip) == "fd7a:115c:a1e0::2501:ebce"
+                    and set(re.findall(r'\("([^"]+)",pid=\d+,fd=\d+\)', line)) == {"tailscaled"}):
+                continue
             findings.append(f"{label}: Tailscale bind, no authorized baseline for address/owner")
             continue
         if ip.is_global:

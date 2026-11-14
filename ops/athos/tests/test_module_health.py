@@ -54,3 +54,12 @@ def test_installed_verifier_routes_module_checks_without_exposing_failures(monke
     result = v.CHECKS['ECO-065']()
     assert not result.ok
     assert 'sensitive' not in result.notes
+
+
+def test_routine_evidence_counts_only_enabled_routines_in_the_last_week():
+    """2026-11-13: history of disabled routines and runs older than the weekly audit window no
+    longer keeps ECO-066 red forever; the records themselves are never rewritten."""
+    query = m.ROUTINE_QUERY
+    clause = query[query.index("'missing_evidence'"):]
+    assert "r.enabled" in clause
+    assert "x.occurrence_at>=now()-interval '7 days'" in clause
