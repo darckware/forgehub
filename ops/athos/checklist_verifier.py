@@ -404,13 +404,20 @@ def check_kb_obsolete() -> Result:
     return fail("Obsolete active KB references: " + " | ".join(active_hits[:10])) if active_hits else ok("No obsolete provider-rotation/vault references outside explicit historical provenance")
 
 
-_RETIREMENT_MARKERS = ("obsolet", "legad", "legacy", "migrou", "migrad", "migrated", "retired",
-                       "aposentad", "descontinuad", "eco-027")
+_RETIRED_WORDS = r"(?:obsolet\w*|legad\w*|legacy|aposentad\w*|descontinuad\w*|retired|deprecated)"
 
 
-def _describes_retirement(item: dict) -> bool:
+def _describes_retirement(item: dict, term: str) -> bool:
+    """True only when the sentence ties a retirement word to the term itself: "migrou de <term>",
+    "referência obsoleta <term>", "<term> (legado)". A bare word elsewhere never counts."""
     text = str(item.get('text') or item.get('content') or '').lower()
-    return any(marker in text for marker in _RETIREMENT_MARKERS)
+    t = r"[`'\"]?" + re.escape(term.lower()) + r"[`'\"]?"
+    patterns = (
+        rf"migr\w*\s+(?:de|from)\s+{t}",
+        rf"{_RETIRED_WORDS}\s+{t}",
+        rf"{t}\s*[(,:-]?\s*(?:é\s+|is\s+|está\s+)?{_RETIRED_WORDS}",
+    )
+    return any(re.search(p, text) for p in patterns)
 
 
 def check_hindsight_obsolete() -> Result:
@@ -427,10 +434,10 @@ def check_hindsight_obsolete() -> Result:
             # Experiences record what happened, including retired paths and
             # their removal. They are provenance, not assertions of current
             # configuration; do not invalidate history to silence the audit.
-            # A fact that names the term only to say it is obsolete/migrated, or that records an
-            # ECO-027 run, is not an assertion of current configuration either (2026-11-13: the
-            # record of each fix kept this check red forever).
-            current += sum(item.get('fact_type') != 'experience' and not _describes_retirement(item)
+            # A fact that names the term only to say it is obsolete or migrated is not an
+            # assertion of current configuration either (2026-11-13: the record of each fix
+            # kept this check red forever).
+            current += sum(item.get('fact_type') != 'experience' and not _describes_retirement(item, term)
                            for item in items)
             offset += len(items)
             if offset >= total:

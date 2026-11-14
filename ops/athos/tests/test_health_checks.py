@@ -76,7 +76,7 @@ def _hindsight(monkeypatch, facts):
 def test_eco027_ignores_facts_that_describe_the_retirement(monkeypatch):
     _hindsight(monkeypatch, [
         {'fact_type': 'world', 'text': 'O sistema migrou de `/root/.hermes/workspaces` para profiles/*/workspace.'},
-        {'fact_type': 'world', 'text': 'A auditoria falhou no ECO-027 por `/root/.hermes/workspaces`.'},
+        {'fact_type': 'world', 'text': 'O Hindsight continha dois fatos com a referência obsoleta `/root/.hermes/workspaces`.'},
         {'fact_type': 'experience', 'text': 'Evidência em /root/.hermes/workspaces/hephaestus/x.md'},
     ])
     assert v.check_hindsight_obsolete().ok
@@ -88,3 +88,13 @@ def test_eco027_still_fails_on_a_current_assertion(monkeypatch):
     ])
     result = v.check_hindsight_obsolete()
     assert not result.ok and '/root/.hermes/workspaces:1' in result.notes
+
+
+@pytest.mark.parametrize('text', [
+    'não é legado: use /root/.hermes/workspaces',
+    'Legacy-free layout: agents use /root/.hermes/workspaces',
+    'ECO-027 ok; workspaces are in /root/.hermes/workspaces',
+])
+def test_eco027_bare_words_do_not_hide_a_current_assertion(monkeypatch, text):
+    _hindsight(monkeypatch, [{'fact_type': 'world', 'text': text}])
+    assert not v.check_hindsight_obsolete().ok
