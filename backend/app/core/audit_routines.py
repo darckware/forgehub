@@ -17,7 +17,12 @@ Lifecycle of an audit run:
   failed     the batch could not run, or it was interrupted (a running run
              older than its deadline: the backend restarted mid-batch)
 
-Batches run one at a time (``_BATCH_LOCK``), so a Sunday that is also the
+Every failed or missed audit run raises a warning Notification; a monthly or
+quarterly one gets one retry an hour later (``retry_of_run_id``), because
+its evidence would otherwise stay stale for a whole period.
+
+Batches run one at a time (``audit_batch_lock``, also taken by the manual
+"run checklist"), so a Sunday that is also the
 1st of a quarter runs daily, weekly, monthly and quarterly in sequence
 rather than four batches against the bridge at once.
 
@@ -125,9 +130,20 @@ def new_audit_run(routine: AgentRoutine, occurrence_at: datetime) -> AgentRoutin
 
 _BATCH_LOCKS: dict[int, asyncio.Lock] = {}
 _BACKGROUND: set[asyncio.Task] = set()
+# Runs that already have a background task waiting for the lock, so the
+# 60-second pass doesn't queue a second task for the same run.
+_STARTED: set[uuid.UUID] = set()
+# Monthly and quarterly evidence is valid for 32/93 days: a lost occurrence
+# would leave the tier stale for a whole period, so it gets one retry.
+RETRIED_FREQUENCIES = ("monthly", "quarterly")
+RETRY_DELAY = timedelta(hours=1)
+# Failed/missed runs older than this are not swept again (notified once).
+_SWEEP_WINDOW = timedelta(days=7)
 
 
-def _batch_lock() -> asyncio.Lock:
+def audit_batch_lock() -> asyncio.Lock:
+    """One Auditor batch at a time in this process: routine tiers and the
+    manual "run checklist" (audit.py) all take it."""
     loop = asyncio.get_running_loop()
     return _BATCH_LOCKS.setdefault(id(loop), asyncio.Lock())
 
@@ -143,16 +159,19 @@ async def _claim(db: AsyncSession, run_id: uuid.UUID) -> bool:
 
 
 async def execute_audit_run(db: AsyncSession, run_id: uuid.UUID) -> AgentRoutineRun | None:
-    """Claim one scheduled audit run and run its tier's batch to the end.
-    Returns None when another pass already claimed it."""
+    """Wait for the batch lock, then claim one scheduled audit run and run its
+    tier's batch to the end. The run turns "running" only once the lock is
+    held, so a tier waiting behind another is never mistaken for an
+    interrupted batch. Returns None when another pass already claimed it."""
     from app.api.routes.audit import run_audit_batch
 
-    if not await _claim(db, run_id):
-        return None
-    run = await db.get(AgentRoutineRun, run_id)
-    routine = await db.get(AgentRoutine, run.routine_id)
-    frequency, batch_id = routine.audit_frequency, run.audit_batch_id
-    async with _batch_lock():
+    async with audit_batch_lock():
+        if not await _claim(db, run_id):
+            return None
+        run = await db.get(AgentRoutineRun, run_id)
+        await db.refresh(run)
+        routine = await db.get(AgentRoutine, run.routine_id)
+        frequency, batch_id = routine.audit_frequency, run.audit_batch_id
         started = datetime.now(timezone.utc)
         expected = (
             await db.execute(
@@ -194,7 +213,9 @@ async def execute_audit_run(db: AsyncSession, run_id: uuid.UUID) -> AgentRoutine
 
 async def fail_interrupted_audit_runs(db: AsyncSession, now: datetime | None = None) -> int:
     """A running audit run past its deadline lost its batch (the backend
-    restarted mid-run): record it as failed instead of leaving it open."""
+    restarted mid-run): record it as failed instead of leaving it open. The
+    deadline counts from when the run was claimed (``updated_at``), which
+    happens only after the batch lock was acquired."""
     now = now or datetime.now(timezone.utc)
     rows = (
         await db.execute(
@@ -205,6 +226,8 @@ async def fail_interrupted_audit_runs(db: AsyncSession, now: datetime | None = N
     ).all()
     failed = 0
     for run, deadline in rows:
+        if run.id in _STARTED:
+            continue  # its batch is still running in this process
         if now - max(run.occurrence_at, run.updated_at) > timedelta(minutes=deadline):
             run.status, run.finished_at, run.evidence_received = "failed", now, False
             run.detail = "Lote do Auditor interrompido antes de terminar (backend reiniciado?)"
@@ -212,6 +235,62 @@ async def fail_interrupted_audit_runs(db: AsyncSession, now: datetime | None = N
     if failed:
         await db.commit()
     return failed
+
+
+async def handle_lost_audit_runs(db: AsyncSession, now: datetime | None = None) -> dict:
+    """Every failed or missed audit run raises one warning Notification
+    (deduplicated by event_key). A monthly or quarterly one that is not
+    itself a retry also gets one retry occurrence ``RETRY_DELAY`` later."""
+    from app.db.models.notification import Notification
+
+    now = now or datetime.now(timezone.utc)
+    rows = (
+        await db.execute(
+            select(AgentRoutineRun, AgentRoutine)
+            .join(AgentRoutine, AgentRoutine.id == AgentRoutineRun.routine_id)
+            .where(
+                AgentRoutine.kind == "audit",
+                AgentRoutineRun.status.in_(("failed", "missed")),
+                AgentRoutineRun.occurrence_at >= now - _SWEEP_WINDOW,
+            )
+        )
+    ).all()
+    retried = {
+        retry_of
+        for retry_of in (
+            await db.execute(select(AgentRoutineRun.retry_of_run_id).where(AgentRoutineRun.retry_of_run_id.is_not(None)))
+        ).scalars()
+    }
+    notified = retries = 0
+    for run, routine in rows:
+        event_key = f"audit-routine-run:{run.id}"
+        if (await db.execute(select(Notification.id).where(Notification.event_key == event_key))).first() is None:
+            will_retry = (
+                routine.enabled and routine.audit_frequency in RETRIED_FREQUENCIES
+                and run.retry_of_run_id is None and run.id not in retried
+            )
+            db.add(Notification(
+                source="system", severity="warning",
+                title=f"Auditoria {routine.audit_frequency} não concluída: {run.status}"[:255],
+                message=(
+                    f"{routine.title}, ocorrência {run.occurrence_at:%Y-%m-%d %H:%M} UTC: {run.detail or run.status}. "
+                    + ("Uma nova tentativa foi agendada para daqui a 1 hora."
+                       if will_retry else "Execute a faixa no Auditor ou em Operação 24x7 → Executar agora.")
+                )[:4000],
+                event_key=event_key, occurred_at=now,
+            ))
+            notified += 1
+        if (routine.enabled and routine.audit_frequency in RETRIED_FREQUENCIES
+                and run.retry_of_run_id is None and run.id not in retried):
+            retry = new_audit_run(routine, now + RETRY_DELAY)
+            retry.retry_of_run_id = run.id
+            retry.detail = f"Nova tentativa da ocorrência de {run.occurrence_at:%Y-%m-%d %H:%M} UTC"
+            db.add(retry)
+            retried.add(run.id)
+            retries += 1
+    if notified or retries:
+        await db.commit()
+    return {"notified": notified, "retries": retries}
 
 
 async def _run_in_own_session(run_id: uuid.UUID) -> None:
@@ -222,11 +301,17 @@ async def _run_in_own_session(run_id: uuid.UUID) -> None:
             await execute_audit_run(db, run_id)
     except Exception:
         logger.exception("Audit routine run %s crashed", run_id)
+    finally:
+        _STARTED.discard(run_id)
 
 
-def start_audit_run(run_id: uuid.UUID) -> asyncio.Task:
+def start_audit_run(run_id: uuid.UUID) -> asyncio.Task | None:
     """Run the batch in the background (a batch can take minutes; the
-    routine loop and the run-now request must not wait for it)."""
+    routine loop and the run-now request must not wait for it). None when
+    this run already has a task."""
+    if run_id in _STARTED:
+        return None
+    _STARTED.add(run_id)
     task = asyncio.create_task(_run_in_own_session(run_id))
     _BACKGROUND.add(task)
     task.add_done_callback(_BACKGROUND.discard)
@@ -239,26 +324,34 @@ async def drain_audit_runs() -> None:
         await asyncio.gather(*list(_BACKGROUND), return_exceptions=True)
 
 
-async def run_audit_routine_pass(db: AsyncSession, *, background: bool = True) -> int:
-    """Start every scheduled audit run and close interrupted ones. Returns
-    how many runs were started."""
-    await fail_interrupted_audit_runs(db)
+async def run_audit_routine_pass(db: AsyncSession, *, background: bool = True, now: datetime | None = None) -> int:
+    """Close interrupted runs, notify and retry lost ones, then start every
+    due scheduled audit run (a retry waits for its own time). Returns how
+    many runs were started."""
+    now = now or datetime.now(timezone.utc)
+    await fail_interrupted_audit_runs(db, now)
+    await handle_lost_audit_runs(db, now)
     run_ids = list(
         (
             await db.execute(
                 select(AgentRoutineRun.id)
                 .join(AgentRoutine, AgentRoutine.id == AgentRoutineRun.routine_id)
-                .where(AgentRoutine.kind == "audit", AgentRoutineRun.status == "scheduled")
+                .where(
+                    AgentRoutine.kind == "audit",
+                    AgentRoutineRun.status == "scheduled",
+                    AgentRoutineRun.occurrence_at <= now,
+                )
                 .order_by(AgentRoutineRun.occurrence_at)
             )
         ).scalars()
     )
+    started = 0
     for run_id in run_ids:
         if background:
-            start_audit_run(run_id)
-        else:
-            await execute_audit_run(db, run_id)
-    return len(run_ids)
+            started += start_audit_run(run_id) is not None
+        elif await execute_audit_run(db, run_id) is not None:
+            started += 1
+    return started
 
 
 async def _main() -> None:

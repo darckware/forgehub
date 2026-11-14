@@ -807,6 +807,8 @@ def _new_routine(
 ) -> AgentRoutine:
     routine = AgentRoutine(**payload.model_dump(exclude={"idempotency_key"}), created_by=actor[:150],
                            updated_by=actor[:150], created_by_agent_id=creator_agent_id)
+    if routine.enabled:
+        routine.enabled_at = datetime.now(timezone.utc)
     db.add(routine)
     return routine
 
@@ -841,6 +843,8 @@ def _apply_routine_changes(routine: AgentRoutine, changes: dict, actor: str) -> 
         # Re-arm from now: re-enabling or rescheduling must not replay (or
         # record as missed) every occurrence of the old schedule.
         routine.last_occurrence_at = datetime.now(timezone.utc)
+    if routine.enabled and not was_enabled:
+        routine.enabled_at = datetime.now(timezone.utc)
 
 
 async def _run_routine_now(db: AsyncSession, routine: AgentRoutine, *, commit: bool = True) -> RoutineRunOut:

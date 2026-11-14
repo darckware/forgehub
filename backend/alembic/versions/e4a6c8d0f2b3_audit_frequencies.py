@@ -11,6 +11,10 @@ routines, one per tier, each running its tier's checks as one Auditor batch.
 - ``agent_routines.kind`` gains "audit", with ``audit_frequency`` (set exactly
   when kind = 'audit', unique per tier) and ``agent_routine_runs.audit_batch_id``
   (the batch that is the occurrence's evidence).
+- ``agent_routine_runs.retry_of_run_id``: the one retry a failed or missed
+  monthly/quarterly audit occurrence gets (unique: at most one per run).
+- ``agent_routines.enabled_at``: when the routine was last enabled, so ECO-023
+  can give a newly enabled tier one period of grace before requiring a run.
 
 The four routines themselves are *not* created here: they belong to the Athos
 agent row, which is data, not schema. ``python -m app.core.audit_routines``
@@ -97,11 +101,31 @@ def upgrade() -> None:
     op.create_index(
         "ix_company_agent_routine_runs_audit_batch_id", "agent_routine_runs", ["audit_batch_id"], schema=SCHEMA
     )
+    op.add_column(
+        "agent_routine_runs",
+        sa.Column("retry_of_run_id", postgresql.UUID(as_uuid=True), nullable=True),
+        schema=SCHEMA,
+    )
+    op.create_foreign_key(
+        "fk_agent_routine_runs_retry_of_run_id", "agent_routine_runs", "agent_routine_runs",
+        ["retry_of_run_id"], ["id"], source_schema=SCHEMA, referent_schema=SCHEMA, ondelete="SET NULL",
+    )
+    op.create_index(
+        "uq_agent_routine_runs_retry_of_run_id", "agent_routine_runs", ["retry_of_run_id"], unique=True,
+        schema=SCHEMA,
+    )
+    op.add_column("agent_routines", sa.Column("enabled_at", sa.DateTime(timezone=True), nullable=True),
+                  schema=SCHEMA)
 
 
 def downgrade() -> None:
     # Audit routines (and their runs, by cascade) cannot exist without the kind.
     op.execute("DELETE FROM company.agent_routines WHERE kind = 'audit'")
+    op.drop_column("agent_routines", "enabled_at", schema=SCHEMA)
+    op.drop_index("uq_agent_routine_runs_retry_of_run_id", "agent_routine_runs", schema=SCHEMA)
+    op.drop_constraint("fk_agent_routine_runs_retry_of_run_id", "agent_routine_runs", schema=SCHEMA,
+                       type_="foreignkey")
+    op.drop_column("agent_routine_runs", "retry_of_run_id", schema=SCHEMA)
     op.drop_index("ix_company_agent_routine_runs_audit_batch_id", "agent_routine_runs", schema=SCHEMA)
     op.drop_column("agent_routine_runs", "audit_batch_id", schema=SCHEMA)
     op.drop_index("uq_agent_routines_audit_frequency", "agent_routines", schema=SCHEMA)

@@ -359,3 +359,112 @@ def test_monitor_reports_the_cron_as_replaced_once_routines_run():
     still_on = job.model_copy(update={"enabled": True, "state": "scheduled", "status": "active", "health": "ok"})
     both = inspect_athos_audit_job([still_on], [], None, now, replaced_by_routines=True)
     assert both.state == "degraded" and "still enabled" in both.issues[0]
+
+
+# ---------------------------------------------------------------- review fixes
+
+
+async def _cleanup_notifications(run_ids) -> None:
+    from app.db.models.notification import Notification
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(Notification).where(
+            Notification.event_key.in_([f"audit-routine-run:{run_id}" for run_id in run_ids])))
+        await db.commit()
+
+
+async def test_lost_quarterly_run_is_notified_and_retried_once(owner):
+    from app.db.models.notification import Notification
+
+    routine = await _tier_routine(owner)  # quarterly
+    now = datetime.now(UTC)
+    async with AsyncSessionLocal() as db:
+        lost = audit_routines.new_audit_run(routine, now - timedelta(hours=2))
+        lost.status, lost.detail = "failed", "Lote do Auditor interrompido"
+        db.add(lost)
+        await db.commit()
+    try:
+        async with AsyncSessionLocal() as db:
+            assert await audit_routines.handle_lost_audit_runs(db, now) == {"notified": 1, "retries": 1}
+        async with AsyncSessionLocal() as db:
+            # A second sweep neither notifies again nor retries again.
+            assert await audit_routines.handle_lost_audit_runs(db, now) == {"notified": 0, "retries": 0}
+            note = (await db.execute(select(Notification).where(
+                Notification.event_key == f"audit-routine-run:{lost.id}"))).scalar_one()
+        assert note.severity == "warning" and "nova tentativa" in note.message.lower()
+        runs = await _runs(routine.id)
+        [retry] = [run for run in runs if run.retry_of_run_id == lost.id]
+        assert retry.status == "scheduled" and retry.occurrence_at == now + audit_routines.RETRY_DELAY
+        async with AsyncSessionLocal() as db:
+            # Not due yet: the pass leaves it for its own time.
+            assert await audit_routines.run_audit_routine_pass(db, background=False, now=now) == 0
+            # The retry failing too is notified but never retried again.
+            row = await db.get(AgentRoutineRun, retry.id)
+            row.status = "failed"
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            assert await audit_routines.handle_lost_audit_runs(db, now + timedelta(hours=2)) == {
+                "notified": 1, "retries": 0}
+    finally:
+        await _cleanup_notifications([run.id for run in await _runs(routine.id)])
+
+
+async def test_lost_daily_run_is_notified_without_retry(owner):
+    routine = await _tier_routine(owner, "daily")
+    now = datetime.now(UTC)
+    async with AsyncSessionLocal() as db:
+        lost = audit_routines.new_audit_run(routine, now - timedelta(hours=3))
+        lost.status = "missed"
+        db.add(lost)
+        await db.commit()
+    try:
+        async with AsyncSessionLocal() as db:
+            assert await audit_routines.handle_lost_audit_runs(db, now) == {"notified": 1, "retries": 0}
+        assert [run.id for run in await _runs(routine.id)] == [lost.id]
+    finally:
+        await _cleanup_notifications([lost.id])
+
+
+async def test_manual_run_is_refused_while_a_batch_holds_the_lock():
+    app = FastAPI()
+    app.include_router(audit_routes.router)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        async with audit_routines.audit_batch_lock():
+            response = await client.post("/api/v1/audit/run?frequency=daily")
+    assert response.status_code == 409
+
+
+async def test_a_tier_waiting_for_the_lock_stays_scheduled_and_is_not_failed(owner, tier_check, fake_checks):
+    import asyncio
+
+    routine = await _tier_routine(owner)
+    async with AsyncSessionLocal() as db:
+        run = audit_routines.new_audit_run(routine, datetime.now(UTC) - timedelta(days=1))
+        db.add(run)
+        await db.commit()
+    lock = audit_routines.audit_batch_lock()
+    await lock.acquire()
+    try:
+        task = audit_routines.start_audit_run(run.id)
+        assert audit_routines.start_audit_run(run.id) is None  # one task per run
+        await asyncio.sleep(0.2)
+        async with AsyncSessionLocal() as db:
+            assert await audit_routines.fail_interrupted_audit_runs(db) == 0
+        assert (await _runs(routine.id))[0].status == "scheduled"
+    finally:
+        lock.release()
+    await task
+    assert (await _runs(routine.id))[0].status == "completed"
+
+
+async def test_enabling_a_routine_records_when(owner):
+    routine = await _tier_routine(owner, enabled=False)
+    app = FastAPI()
+    app.include_router(ops.router)
+    app.dependency_overrides[get_current_admin] = lambda: type("Admin", (), {"username": "tester"})()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.patch(f"/api/v1/operations/routines/{routine.id}", json={"enabled": True})
+    assert response.status_code == 200
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AgentRoutine, routine.id)
+    assert row.enabled_at is not None and datetime.now(UTC) - row.enabled_at < timedelta(minutes=1)

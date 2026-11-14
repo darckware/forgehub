@@ -101,6 +101,9 @@ class AgentRoutine(Base, TimestampMixin):
     # most one routine per tier (partial unique index in the migration).
     audit_frequency: Mapped[str | None] = mapped_column(String(20), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # When the routine was last turned on (2026-11-13; NULL before then).
+    # ECO-023 gives a newly enabled audit tier one period of grace from it.
+    enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     deadline_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
     # Generator cursor: the latest occurrence already materialized (or
@@ -162,11 +165,20 @@ class AgentRoutineRun(Base, TimestampMixin):
     # Audit routines: the audit_check_runs.batch_id this occurrence produced
     # (assigned before the batch starts, so an interrupted batch stays traceable).
     audit_batch_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    # The failed/missed monthly or quarterly audit run this run retries
+    # (unique: one retry per occurrence; a retry is never retried).
+    retry_of_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("company.agent_routine_runs.id", ondelete="SET NULL",
+                   name="fk_agent_routine_runs_retry_of_run_id"),
+        nullable=True,
+    )
 
     routine: Mapped[AgentRoutine] = relationship(back_populates="runs")
 
     __table_args__ = (
         UniqueConstraint("routine_id", "occurrence_at", name="uq_agent_routine_runs_occurrence"),
+        Index("uq_agent_routine_runs_retry_of_run_id", "retry_of_run_id", unique=True),
         CheckConstraint(f"status IN {ROUTINE_RUN_STATUSES!r}", name="ck_agent_routine_runs_status"),
     )
 

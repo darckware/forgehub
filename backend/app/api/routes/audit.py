@@ -38,6 +38,7 @@ from app.api.routes import foundation
 from app.api.routes.demand import create_demand_and_notify
 from app.core.athos_audit_monitor import inspect_athos_audit_job
 from app.core.audit_freshness import evidence_freshness
+from app.core.audit_routines import audit_batch_lock
 from app.core.audit_remediation import (
     referenced_files,
     remediation_problems,
@@ -581,7 +582,15 @@ async def run_all(frequency: str | None = None, db: AsyncSession = Depends(get_d
     """Execute every enabled check ("solicitar checagem"), or only one tier's
     with ``?frequency=``: dispatches them (bounded concurrency) and records
     one run per check, all in one batch."""
-    runs = await _run_enabled_checks(db, "manual", frequency=_frequency_or_422(frequency))
+    frequency = _frequency_or_422(frequency)
+    lock = audit_batch_lock()
+    if lock.locked():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An Auditor batch is already running; try again when it finishes",
+        )
+    async with lock:
+        runs = await _run_enabled_checks(db, "manual", frequency=frequency)
     return AuditRunAllOut(runs=[AuditRunOut.model_validate(r) for r in runs])
 
 
@@ -595,7 +604,10 @@ async def run_internal(
     _PUBLIC_API_PATHS, so it must validate the shared bridge token itself."""
     if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid bridge token")
-    runs = await _run_enabled_checks(db, "cron", frequency=_frequency_or_422(frequency))
+    frequency = _frequency_or_422(frequency)
+    # The legacy cron waits for a routine batch instead of failing its job.
+    async with audit_batch_lock():
+        runs = await _run_enabled_checks(db, "cron", frequency=frequency)
     return AuditRunAllOut(runs=[AuditRunOut.model_validate(r) for r in runs])
 
 
