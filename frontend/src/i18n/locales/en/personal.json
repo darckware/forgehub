@@ -478,16 +478,63 @@
     "analyzedAt": "Analyzed at",
     "analysis": {
       "start": "Analyze and route",
-      "scope": "Analyzes all pending work for the selected agent and context, including other pages. Search and dates do not limit the analysis.",
+      "scope": "Analyzes everything pending in Agent tasks: tasks and incubations for the selected agent and context (including other pages) and every pending question. Search and dates don't limit the analysis.",
       "loading": "Checking previous analysis…",
       "unavailable": "Analysis is unavailable. Refresh its status before trying again. Decisions remain available.",
       "failed": "Analysis could not finish. You can try again.",
       "ready": "Ready to analyze pending work in this scope.",
       "queued": "Analysis queued · {{processed}} of {{total}} checked",
       "running": "Analyzing · {{processed}} of {{total}} checked · {{applied}} routed",
-      "completed": "Analysis completed · {{processed}} of {{total}} checked · {{applied}} routed"
+      "completed": "Analysis completed · {{processed}} of {{total}} checked · {{applied}} routed",
+      "scopeAnswers": "On this tab: classifies each pending question as \"needs an answer\" or \"suggested to archive\", with the reason. Nothing is archived without your confirmation. Tasks and incubations are analyzed too.",
+      "questions_one": "{{total}} question analyzed · {{archive}} suggested to archive",
+      "questions_other": "{{total}} questions analyzed · {{archive}} suggested to archive",
+      "questionsRunning": "Analyzing questions…",
+      "questionsFailed": "Question analysis unavailable"
     },
-    "instructorContext": "Instructor context"
+    "instructorContext": "Instructor context",
+    "questionBulk": {
+      "selectAll": "Select all",
+      "selectItem": "Select question #{{number}}",
+      "selected_one": "{{count}} selected",
+      "selected_other": "{{count}} selected",
+      "archive": "Archive selected ({{count}})",
+      "clear": "Clear selection",
+      "selectSuggested": "Select suggested to archive ({{count}})",
+      "filterLabel": "Filter questions",
+      "filterEmpty": "No question in this filter.",
+      "filter": {
+        "all": "All",
+        "archive": "Suggested to archive",
+        "answer": "Need an answer"
+      },
+      "recommendation": {
+        "archive": "Suggested to archive",
+        "answer": "Needs an answer"
+      },
+      "title_one": "Archive {{count}} question?",
+      "title_other": "Archive {{count}} questions?",
+      "hint_one": "The question is closed without an answer and kept in history. The agent gets a Messages task with the reason below (1 agent run).",
+      "hint_other": "Each question is closed without an answer and kept in history. Each agent is told separately: {{count}} Messages tasks will be created, one per question, i.e. {{count}} agent runs with the reason below.",
+      "resultTitle": "{{cancelled}} of {{total}} archived",
+      "result": {
+        "cancelled": "archived",
+        "already_closed": "was already closed",
+        "not_found": "not found",
+        "error": "could not be archived"
+      },
+      "reasonLabel": "Reason (sent to each agent)",
+      "reasonCode": {
+        "agent_inactive": "The asking agent is inactive or retired.",
+        "origin_archived": "The originating task was archived.",
+        "origin_consolidated": "The originating task was consolidated into another.",
+        "origin_completed": "The originating task is already completed.",
+        "origin_cancelled": "The originating task was dropped or rejected.",
+        "stale": "Not blocking and idle for more than {{days}} days, with no activity on its origin.",
+        "blocking": "Blocks the agent's work: needs an answer.",
+        "open": "May still help the agent: answer it or archive it with a reason."
+      }
+    }
   },
   "location": {
     "title": "Current location",

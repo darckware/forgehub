@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,7 +8,7 @@ import { apiClient } from "@/lib/api";
 import type { Demand } from "@/hooks/useDemands";
 import { AgentTasksTab } from "./AgentTasksTab";
 
-const mocks = vi.hoisted(() => ({ demands: vi.fn(), post: vi.fn(), approvals: vi.fn(), questions: vi.fn(), answerQuestion: vi.fn(), cancelQuestion: vi.fn() }));
+const mocks = vi.hoisted(() => ({ demands: vi.fn(), post: vi.fn(), approvals: vi.fn(), questions: vi.fn(), answerQuestion: vi.fn(), cancelQuestion: vi.fn(), questionAnalysis: vi.fn(), bulkCancel: vi.fn(), refetchAnalysis: vi.fn() }));
 vi.mock("@/hooks/useDemands", async importOriginal => ({ ...await importOriginal<object>(), useAgentWork: mocks.demands }));
 vi.mock("@/hooks/useAgent", () => ({ useAgents: () => ({ data: [] }), useStreamTelegramImprovePrompt: () => vi.fn() }));
 vi.mock("@/hooks/useProject", () => ({ useProjects: () => ({ data: [] }) }));
@@ -17,7 +17,7 @@ vi.mock("@/hooks/useGovernance", () => ({
   useGovernedApprovalRequests: mocks.approvals,
   useDecideGovernedApproval: () => ({ reset: vi.fn() }),
 }));
-vi.mock("@/hooks/useOperationsViewModel", () => ({ usePendingQuestions: () => mocks.questions(), useOperationsViewModel: () => ({ questions: mocks.questions(), answerQuestion: { reset: vi.fn(), mutate: mocks.answerQuestion }, cancelQuestion: { reset: vi.fn(), mutate: mocks.cancelQuestion, isPending: false, error: null } }) }));
+vi.mock("@/hooks/useOperationsViewModel", () => ({ useQuestionAnalysis: (enabled: boolean) => mocks.questionAnalysis(enabled), useBulkCancelQuestions: () => ({ mutate: mocks.bulkCancel, isPending: false, error: null, reset: vi.fn() }), usePendingQuestions: () => mocks.questions(), useOperationsViewModel: () => ({ questions: mocks.questions(), answerQuestion: { reset: vi.fn(), mutate: mocks.answerQuestion }, cancelQuestion: { reset: vi.fn(), mutate: mocks.cancelQuestion, isPending: false, error: null } }) }));
 vi.mock("@/components/Markdown", () => ({ Markdown: ({ content }: { content: string }) => <div>{content}</div> }));
 
 function item(overrides: Partial<Demand> = {}): Demand {
@@ -43,6 +43,8 @@ function open(entry = "/personal?tab=agent-work") {
 beforeEach(async () => {
   await i18n.changeLanguage("pt-BR");
   mocks.approvals.mockReturnValue({ data: [] }); mocks.questions.mockReturnValue({ data: [] });
+  mocks.bulkCancel.mockReset(); mocks.refetchAnalysis.mockReset();
+  mocks.questionAnalysis.mockImplementation((enabled: boolean) => ({ data: undefined, isFetching: false, isError: false, refetch: mocks.refetchAnalysis, enabled }));
   mocks.demands.mockReturnValue({ data: { items: [item()], total: 1, page: 1, page_size: 25, counts: {}, contexts: [] }, isLoading: false, isError: false });
   mocks.post.mockReset(); mocks.post.mockResolvedValue({});
   vi.spyOn(apiClient, "post").mockImplementation(mocks.post);
@@ -344,5 +346,74 @@ describe("operator deliberation", () => {
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Arquivar selecionadas" }));
     await screen.findByText(/Execution active/);
     expect(mocks.post).toHaveBeenCalledWith("/api/v1/demands/agent-work/bulk", expect.objectContaining({ action: "archive", items: [{ id: "work-1", updated_at: "2026-10-20T00:00:00Z" }] }));
+  });
+});
+
+describe("Respostas: one analysis for everything, selection and bulk archive (2026-11-14)", () => {
+  const rows = [
+    { ...questionRow("question-51", "Ainda preciso disso?"), blocking: false },
+    { ...questionRow("question-52", "Qual destino uso?"), blocking: true },
+    { ...questionRow("question-53", "Posso seguir?"), blocking: false },
+  ];
+  const analysis = { analyzed_at: "2026-11-14T00:00:00Z", stale_days: 14, total: 3, archive: 2, answer: 1, items: [
+    { question_id: "question-51", number: 51, recommendation: "archive", reason_code: "stale", reason: "", days_idle: 40 },
+    { question_id: "question-52", number: 52, recommendation: "answer", reason_code: "blocking", reason: "", days_idle: 1 },
+    { question_id: "question-53", number: 53, recommendation: "archive", reason_code: "origin_completed", reason: "", days_idle: 2 },
+  ] };
+  beforeEach(() => {
+    mocks.questions.mockReturnValue({ data: rows, isLoading: false, isError: false });
+    mocks.questionAnalysis.mockImplementation((enabled: boolean) => ({ data: enabled ? analysis : undefined, isFetching: false, isError: false, refetch: mocks.refetchAnalysis }));
+    vi.mocked(apiClient.get).mockImplementation(async url => url.includes("/analysis") ? null : []);
+  });
+
+  it("runs the message triage and the question analysis together and reports both", async () => {
+    open("/personal?tab=agent-work&workTab=answers");
+    expect(screen.getByText(/classifica cada pergunta pendente/)).toBeInTheDocument();
+    expect(screen.queryByText("Sugerida para arquivar")).not.toBeInTheDocument();
+    mocks.post.mockResolvedValue({ id: "run-1", status: "completed", processed: 17, total: 17, applied: 6 });
+    const analyze = screen.getByRole("button", { name: "Analisar e encaminhar" });
+    await waitFor(() => expect(analyze).toBeEnabled()); fireEvent.click(analyze);
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith("/api/v1/demands/agent-work/analyze", {}));
+    expect(mocks.questionAnalysis).toHaveBeenLastCalledWith(true);
+    expect(await screen.findByText(/17 de 17 verificadas · 6 encaminhadas · 3 perguntas analisadas · 2 sugeridas para arquivar/)).toBeInTheDocument();
+    expect(screen.getAllByText("Sugerida para arquivar")).toHaveLength(2);
+    expect(screen.getByText(/parada há mais de 14 dias/)).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: "Filtrar perguntas" }), { target: { value: "answer" } });
+    expect(screen.getByText("Qual destino uso?")).toBeInTheDocument();
+    expect(screen.queryByText("Posso seguir?")).not.toBeInTheDocument();
+  });
+
+  it("selects the suggested ones and archives them with one reason after confirming", async () => {
+    open("/personal?tab=agent-work&workTab=answers");
+    const analyze = screen.getByRole("button", { name: "Analisar e encaminhar" });
+    await waitFor(() => expect(analyze).toBeEnabled()); fireEvent.click(analyze);
+    fireEvent.click(await screen.findByRole("button", { name: "Selecionar sugeridas para arquivar (2)" }));
+    expect(screen.getByRole("checkbox", { name: "Selecionar pergunta #51" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Selecionar pergunta #52" })).not.toBeChecked();
+    expect(mocks.bulkCancel).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Arquivar selecionadas (2)" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/2 tarefas no Messages, uma por pergunta, ou seja, 2 execuções de agente/)).toBeInTheDocument();
+    const confirm = within(dialog).getByRole("button", { name: "Arquivar selecionadas (2)" });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "ab" } });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "  Já resolvidas  " } });
+    fireEvent.click(confirm);
+    expect(mocks.bulkCancel).toHaveBeenCalledWith({ ids: ["question-51", "question-53"], reason: "Já resolvidas" }, expect.anything());
+    const onSuccess = mocks.bulkCancel.mock.calls[0][1].onSuccess;
+    await act(async () => onSuccess({ cancelled: 1, results: [
+      { id: "question-51", number: 51, status: "cancelled", detail: null, reply_demand_id: "d-1" },
+      { id: "question-53", number: 53, status: "already_closed", detail: "x", reply_demand_id: null }] }));
+    expect(screen.getByText("1 de 2 arquivadas")).toBeInTheDocument();
+    expect(screen.getByText(/#53 · já estava encerrada/)).toBeInTheDocument();
+  });
+
+  it("selects every card manually without any analysis", () => {
+    open("/personal?tab=agent-work&workTab=answers");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Selecionar todas" }));
+    expect(screen.getByRole("button", { name: "Arquivar selecionadas (3)" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Selecionar pergunta #52" }));
+    expect(screen.getByRole("button", { name: "Arquivar selecionadas (2)" })).toBeInTheDocument();
   });
 });

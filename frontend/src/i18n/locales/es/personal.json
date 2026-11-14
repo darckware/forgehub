@@ -478,16 +478,63 @@
     "analyzedAt": "Analizada el",
     "analysis": {
       "start": "Analizar y encaminar",
-      "scope": "Analiza todos los pendientes del agente y contexto seleccionados, incluidas otras páginas. La búsqueda y las fechas no limitan el análisis.",
+      "scope": "Analiza todo lo pendiente en Tareas de los agentes: tareas e incubaciones del agente y contexto seleccionados (incluidas otras páginas) y todas las preguntas pendientes. La búsqueda y las fechas no limitan el análisis.",
       "loading": "Consultando el análisis anterior…",
       "unavailable": "Análisis no disponible. Actualiza su estado antes de intentarlo otra vez. Las decisiones siguen disponibles.",
       "failed": "El análisis no pudo completarse. Puedes intentarlo de nuevo.",
       "ready": "Listo para analizar los pendientes de este ámbito.",
       "queued": "Análisis en cola · {{processed}} de {{total}} comprobadas",
       "running": "Analizando · {{processed}} de {{total}} comprobadas · {{applied}} encaminadas",
-      "completed": "Análisis completado · {{processed}} de {{total}} comprobadas · {{applied}} encaminadas"
+      "completed": "Análisis completado · {{processed}} de {{total}} comprobadas · {{applied}} encaminadas",
+      "scopeAnswers": "En esta pestaña: clasifica cada pregunta pendiente como \"necesita respuesta\" o \"sugerida para archivar\", con el motivo. Nada se archiva sin tu confirmación. Las tareas e incubaciones también se analizan.",
+      "questions_one": "{{total}} pregunta analizada · {{archive}} sugerida(s) para archivar",
+      "questions_other": "{{total}} preguntas analizadas · {{archive}} sugeridas para archivar",
+      "questionsRunning": "Analizando preguntas…",
+      "questionsFailed": "Análisis de preguntas no disponible"
     },
-    "instructorContext": "Contexto de instructor"
+    "instructorContext": "Contexto de instructor",
+    "questionBulk": {
+      "selectAll": "Seleccionar todas",
+      "selectItem": "Seleccionar pregunta #{{number}}",
+      "selected_one": "{{count}} seleccionada",
+      "selected_other": "{{count}} seleccionadas",
+      "archive": "Archivar seleccionadas ({{count}})",
+      "clear": "Limpiar selección",
+      "selectSuggested": "Seleccionar sugeridas para archivar ({{count}})",
+      "filterLabel": "Filtrar preguntas",
+      "filterEmpty": "Ninguna pregunta en este filtro.",
+      "filter": {
+        "all": "Todas",
+        "archive": "Sugeridas para archivar",
+        "answer": "Necesitan respuesta"
+      },
+      "recommendation": {
+        "archive": "Sugerida para archivar",
+        "answer": "Necesita respuesta"
+      },
+      "title_one": "¿Archivar {{count}} pregunta?",
+      "title_other": "¿Archivar {{count}} preguntas?",
+      "hint_one": "La pregunta se cierra sin respuesta y queda en el historial. El agente recibe una tarea en Messages con el motivo de abajo (1 ejecución de agente).",
+      "hint_other": "Cada pregunta se cierra sin respuesta y queda en el historial. Cada agente es avisado por separado: se crearán {{count}} tareas en Messages, una por pregunta, es decir, {{count}} ejecuciones de agente con el motivo de abajo.",
+      "resultTitle": "{{cancelled}} de {{total}} archivadas",
+      "result": {
+        "cancelled": "archivada",
+        "already_closed": "ya estaba cerrada",
+        "not_found": "no encontrada",
+        "error": "no se pudo archivar"
+      },
+      "reasonLabel": "Motivo (se envía a cada agente)",
+      "reasonCode": {
+        "agent_inactive": "El agente que preguntó está inactivo o retirado.",
+        "origin_archived": "La tarea de origen fue archivada.",
+        "origin_consolidated": "La tarea de origen fue consolidada en otra.",
+        "origin_completed": "La tarea de origen ya fue concluida.",
+        "origin_cancelled": "La tarea de origen fue descartada o rechazada.",
+        "stale": "No bloquea y está detenida hace más de {{days}} días, sin actividad en el origen.",
+        "blocking": "Bloquea el trabajo del agente: necesita respuesta.",
+        "open": "Aún puede ser útil al agente: respóndela o archívala con un motivo."
+      }
+    }
   },
   "location": {
     "title": "Ubicación actual",

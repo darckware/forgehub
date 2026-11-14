@@ -257,3 +257,45 @@ export function usePendingQuestions() {
     queryFn: () => apiClient.get<AgentQuestion[]>(`${BASE}/questions?status=pending&limit=500`),
   });
 }
+
+/** GET /operations/questions:analysis — the deterministic, read-only part of
+ * "Analisar e encaminhar" that covers pending questions (archive | answer). */
+export type QuestionRecommendation = "archive" | "answer";
+export type QuestionReasonCode = "agent_inactive" | "origin_archived" | "origin_consolidated" | "origin_completed"
+  | "origin_cancelled" | "stale" | "blocking" | "open";
+export interface QuestionAnalysisItem {
+  question_id: string;
+  number: number;
+  recommendation: QuestionRecommendation;
+  reason_code: QuestionReasonCode;
+  reason: string;
+  days_idle: number;
+}
+export interface QuestionAnalysis {
+  analyzed_at: string;
+  stale_days: number;
+  total: number;
+  archive: number;
+  answer: number;
+  items: QuestionAnalysisItem[];
+}
+export type QuestionBulkStatus = "cancelled" | "already_closed" | "not_found" | "error";
+export interface QuestionBulkResult { id: string; number: number | null; status: QuestionBulkStatus; detail: string | null; reply_demand_id: string | null }
+
+export function useQuestionAnalysis(enabled: boolean) {
+  return useQuery({
+    queryKey: [...operationsKeys.questions, "analysis"] as const,
+    queryFn: () => apiClient.get<QuestionAnalysis>(`${BASE}/questions:analysis`),
+    enabled, retry: false,
+  });
+}
+
+/** One reason for many questions; each one is cancelled (and its agent told) on its own. */
+export function useBulkCancelQuestions() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, reason }: { ids: string[]; reason: string }) =>
+      apiClient.post<{ results: QuestionBulkResult[]; cancelled: number }>(`${BASE}/questions:cancel`, { ids, reason }),
+    onSuccess: () => client.invalidateQueries({ queryKey: operationsKeys.questions }),
+  });
+}

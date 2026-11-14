@@ -478,16 +478,63 @@
     "analyzedAt": "Analisada em",
     "analysis": {
       "start": "Analisar e encaminhar",
-      "scope": "Analisa todas as pendências do agente e contexto selecionados, incluindo outras páginas. A busca e as datas não limitam a análise.",
+      "scope": "Analisa todas as pendências das Tarefas dos agentes: tarefas e incubações do agente e contexto selecionados (incluindo outras páginas) e todas as perguntas pendentes. A busca e as datas não limitam a análise.",
       "loading": "Consultando análise anterior…",
       "unavailable": "Análise indisponível. Atualize o estado antes de tentar novamente. As decisões continuam disponíveis.",
       "failed": "A análise não foi concluída. Você pode tentar novamente.",
       "ready": "Pronto para analisar as pendências neste escopo.",
       "queued": "Análise na fila · {{processed}} de {{total}} verificadas",
       "running": "Analisando · {{processed}} de {{total}} verificadas · {{applied}} encaminhadas",
-      "completed": "Análise concluída · {{processed}} de {{total}} verificadas · {{applied}} encaminhadas"
+      "completed": "Análise concluída · {{processed}} de {{total}} verificadas · {{applied}} encaminhadas",
+      "scopeAnswers": "Nesta aba: classifica cada pergunta pendente como \"precisa de resposta\" ou \"sugerida para arquivar\", com o motivo. Nada é arquivado sem a sua confirmação. As tarefas e incubações são analisadas junto.",
+      "questions_one": "{{total}} pergunta analisada · {{archive}} sugerida(s) para arquivar",
+      "questions_other": "{{total}} perguntas analisadas · {{archive}} sugeridas para arquivar",
+      "questionsRunning": "Analisando perguntas…",
+      "questionsFailed": "Análise das perguntas indisponível"
     },
-    "instructorContext": "Contexto de instrutor"
+    "instructorContext": "Contexto de instrutor",
+    "questionBulk": {
+      "selectAll": "Selecionar todas",
+      "selectItem": "Selecionar pergunta #{{number}}",
+      "selected_one": "{{count}} selecionada",
+      "selected_other": "{{count}} selecionadas",
+      "archive": "Arquivar selecionadas ({{count}})",
+      "clear": "Limpar seleção",
+      "selectSuggested": "Selecionar sugeridas para arquivar ({{count}})",
+      "filterLabel": "Filtrar perguntas",
+      "filterEmpty": "Nenhuma pergunta neste filtro.",
+      "filter": {
+        "all": "Todas",
+        "archive": "Sugeridas para arquivar",
+        "answer": "Precisam de resposta"
+      },
+      "recommendation": {
+        "archive": "Sugerida para arquivar",
+        "answer": "Precisa de resposta"
+      },
+      "title_one": "Arquivar {{count}} pergunta?",
+      "title_other": "Arquivar {{count}} perguntas?",
+      "hint_one": "A pergunta é encerrada sem resposta e fica no histórico. O agente recebe uma tarefa no Messages com o motivo abaixo (1 execução de agente).",
+      "hint_other": "Cada pergunta é encerrada sem resposta e fica no histórico. Cada agente é avisado separadamente: serão criadas {{count}} tarefas no Messages, uma por pergunta, ou seja, {{count}} execuções de agente com o motivo abaixo.",
+      "resultTitle": "{{cancelled}} de {{total}} arquivadas",
+      "result": {
+        "cancelled": "arquivada",
+        "already_closed": "já estava encerrada",
+        "not_found": "não encontrada",
+        "error": "não foi possível arquivar"
+      },
+      "reasonLabel": "Motivo (vai para cada agente)",
+      "reasonCode": {
+        "agent_inactive": "O agente que perguntou está inativo ou aposentado.",
+        "origin_archived": "A tarefa de origem foi arquivada.",
+        "origin_consolidated": "A tarefa de origem foi consolidada em outra.",
+        "origin_completed": "A tarefa de origem já foi concluída.",
+        "origin_cancelled": "A tarefa de origem foi descartada ou recusada.",
+        "stale": "Não bloqueia e está parada há mais de {{days}} dias, sem atividade na origem.",
+        "blocking": "Bloqueia o trabalho do agente: precisa de resposta.",
+        "open": "Ainda pode ser útil ao agente: responda ou arquive com motivo."
+      }
+    }
   },
   "location": {
     "title": "Localização atual",

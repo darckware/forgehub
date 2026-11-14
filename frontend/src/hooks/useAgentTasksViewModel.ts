@@ -8,7 +8,7 @@ import { useAgents } from "./useAgent";
 import { useProjects } from "./useProject";
 import { useTasks, useTaskDependencies } from "./useTask";
 import { useGovernedApprovalRequests, useDecideGovernedApproval } from "./useGovernance";
-import { useOperationsViewModel, usePendingQuestions } from "./useOperationsViewModel";
+import { useBulkCancelQuestions, useOperationsViewModel, usePendingQuestions, useQuestionAnalysis, type QuestionAnalysisItem, type QuestionBulkResult } from "./useOperationsViewModel";
 import { missionDecisionsKey } from "./useMissions";
 import { useAuthStore } from "@/store/authStore";
 
@@ -36,6 +36,9 @@ export function resolveWorkTab(params: URLSearchParams): WorkTab {
 export const MOODLE_APPROVALS_KEY = ["personal", "moodle-approvals"] as const;
 export type WorkAction = "approve" | "reject" | "postpone" | "drop" | "archive" | "restore" | "delete" | "reconcile" | "retry" | "authorize_retry" | "record_investigation" | "confirm_inactive";
 type HistoryEvent = { id: string; action: string; actor: string; created_at: string; payload: Record<string, unknown> | null };
+/** Respostas filter over the question analysis (Marcelo, 2026-11-14). */
+export const QUESTION_FILTERS = ["all", "archive", "answer"] as const;
+export type QuestionFilter = typeof QUESTION_FILTERS[number];
 type BulkResult = { id: string; status: "success" | "blocked" | "missing" | "stale"; detail: string | null; number?: number; subject?: string };
 
 export function workState(item: Demand & { work_state?: string }): string {
@@ -78,7 +81,11 @@ export function useAgentTasksViewModel() {
   const listed = tab !== "answers";
   const query = useAgentWork(tab === "approvals" ? { group, view, page: requestedPage, page_size: 25 } : { group, view, search: debouncedSearch, context, agent_id: agent === "all" ? undefined : agent,
     created_from: day(from, false), created_to: day(to, true), page: requestedPage, page_size: 25 }, listed);
-  const analysis = useAgentWorkAnalysis({ agent_id: agent === "all" ? undefined : agent, context: context === "all" ? undefined : context }, group === "tasks");
+  // One action for the whole screen (2026-11-14, Marcelo: "esse botão serve para todas as tarefas dos
+  // agentes"): the message triage (tasks and incubations, unchanged) plus the questions' analysis.
+  const analysis = useAgentWorkAnalysis({ agent_id: agent === "all" ? undefined : agent, context: context === "all" ? undefined : context });
+  const [questionAnalysisRequested, setQuestionAnalysisRequested] = useState(false);
+  const questionAnalysis = useQuestionAnalysis(questionAnalysisRequested);
   // Pending Moodle approvals are decisions too. The "tasks" group excludes
   // Moodle messages server-side, so adding them here never counts one twice.
   // Only the owner may read them; any other session just shows no number.
@@ -94,6 +101,11 @@ export function useAgentTasksViewModel() {
   const operations = useOperationsViewModel("questions");
   const [archiving, setArchiving] = useState<{ id: string; number: number; question: string } | null>(null);
   const [archiveReason, setArchiveReason] = useState("");
+  const [questionFilter, setQuestionFilterState] = useState<QuestionFilter>("all");
+  const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
+  const [bulkArchiveOpen, setBulkArchiveOpen] = useState(false), [bulkArchiveReason, setBulkArchiveReason] = useState("");
+  const [bulkArchiveResults, setBulkArchiveResults] = useState<QuestionBulkResult[]>([]);
+  const bulkCancel = useBulkCancelQuestions();
   // Every pending question is the operator's to answer (2026-11-13, Marcelo: all that needs a
   // human goes to Tarefas dos agentes); blocking ones first, then the oldest.
   const pendingQuestions = usePendingQuestions();
@@ -153,6 +165,15 @@ export function useAgentTasksViewModel() {
   // question-blocked items; missions and governed task approvals aren't messages.
   const approvalsCount = queueCount + (moodlePending ?? 0) + missionPending + taskApprovals.length;
   const cancelQuestion = operations.cancelQuestion;
+  const recommendations = new Map<string, QuestionAnalysisItem>((questionAnalysis.data?.items ?? []).map(item => [item.question_id, item]));
+  const recommendationFor = (id: string) => recommendations.get(id) ?? null;
+  const visibleQuestions = questionFilter === "all" ? questions : questions.filter(item => recommendations.get(item.id)?.recommendation === questionFilter);
+  const pendingIds = new Set(questions.map(item => item.id));
+  const checkedQuestionIds = selectedQuestionIds.filter(id => pendingIds.has(id));
+  const visibleChecked = visibleQuestions.filter(item => checkedQuestionIds.includes(item.id)).length;
+  const suggestedIds = questions.filter(item => recommendations.get(item.id)?.recommendation === "archive").map(item => item.id);
+  const bulkArchiveValid = bulkArchiveReason.trim().length >= 3 && checkedQuestionIds.length > 0;
+  const questionAnalysisSummary = questionAnalysis.data ? { total: questionAnalysis.data.total, archive: questionAnalysis.data.archive } : null;
   return {
     tab, setTab, group, views, promotedTask,
     approvalsCount, answersCount: questions.length, queueCount, taskApprovals, missionPending,
@@ -162,6 +183,39 @@ export function useAgentTasksViewModel() {
     confirmArchiveQuestion: () => { if (archiving && archiveReason.trim().length >= 3) cancelQuestion.mutate({ id: archiving.id, reason: archiveReason.trim() }, { onSuccess: () => { setArchiving(null); void invalidate(); } }); },
     archivingQuestion: cancelQuestion.isPending, archiveQuestionError: failureText(cancelQuestion.error),
     moodlePending,
+
+    // "Analisar e encaminhar": message triage + questions, whatever tab is open.
+    runAnalysis: () => {
+      analysis.start.mutate();
+      if (questionAnalysisRequested) void questionAnalysis.refetch(); else setQuestionAnalysisRequested(true);
+    },
+    analysisBusy: analysis.busy || questionAnalysis.isFetching,
+    questionAnalysisStaleDays: questionAnalysis.data?.stale_days ?? 14,
+    questionAnalysis: { requested: questionAnalysisRequested, loading: questionAnalysis.isFetching, error: questionAnalysis.isError, summary: questionAnalysisSummary },
+    recommendationFor, questionFilter, setQuestionFilter: (value: QuestionFilter) => setQuestionFilterState(value), visibleQuestions,
+    selectedQuestionIds: checkedQuestionIds, questionChecked: (id: string) => checkedQuestionIds.includes(id),
+    toggleQuestion: (id: string) => setSelectedQuestionIds(ids => ids.includes(id) ? ids.filter(value => value !== id) : [...ids, id]),
+    allVisibleChecked: visibleQuestions.length > 0 && visibleChecked === visibleQuestions.length,
+    someVisibleChecked: visibleChecked > 0 && visibleChecked < visibleQuestions.length,
+    toggleAllQuestions: () => {
+      const visibleIds = visibleQuestions.map(item => item.id);
+      setSelectedQuestionIds(ids => visibleChecked === visibleIds.length ? ids.filter(id => !visibleIds.includes(id)) : [...new Set([...ids, ...visibleIds])]);
+    },
+    suggestedArchiveCount: suggestedIds.length,
+    selectSuggestedQuestions: () => setSelectedQuestionIds(ids => [...new Set([...ids, ...suggestedIds])]),
+    clearQuestionSelection: () => setSelectedQuestionIds([]),
+    bulkArchiveOpen, bulkArchiveReason, setBulkArchiveReason, bulkArchiveValid, bulkArchiveResults,
+    bulkArchiving: bulkCancel.isPending, bulkArchiveError: failureText(bulkCancel.error),
+    askBulkArchiveQuestions: () => { bulkCancel.reset(); setBulkArchiveReason(""); setBulkArchiveResults([]); setBulkArchiveOpen(true); },
+    cancelBulkArchiveQuestions: () => { if (!bulkCancel.isPending) setBulkArchiveOpen(false); },
+    confirmBulkArchiveQuestions: () => {
+      if (!bulkArchiveValid) return;
+      bulkCancel.mutate({ ids: checkedQuestionIds, reason: bulkArchiveReason.trim() }, { onSuccess: result => {
+        setBulkArchiveResults(result.results); setBulkArchiveOpen(false);
+        setSelectedQuestionIds(ids => ids.filter(id => !result.results.some(row => row.id === id && row.status === "cancelled")));
+        void invalidate();
+      } });
+    },
 
     analysis, query, items, filtered: items, view, search, context, agent, from, to, page, total: query.data?.total ?? 0, counts,
     agents: agents.data ?? [], selected, setSelectedId, contextName, agentName, state: (item: AgentWorkItem) => item.status === "archived" ? "archived" : item.operator_state ?? workState(item), setComposing, notice,

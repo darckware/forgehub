@@ -4,7 +4,7 @@ import { MissionDecisionsCard } from "./MissionDecisionsCard";
 import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, Loader2 } from "lucide-react";
-import { WORK_TABS, useAgentTasksViewModel, workState, type WorkTab } from "@/hooks/useAgentTasksViewModel";
+import { QUESTION_FILTERS, WORK_TABS, useAgentTasksViewModel, workState, type QuestionFilter, type WorkTab } from "@/hooks/useAgentTasksViewModel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -39,24 +39,64 @@ export function AgentTasksTab() {
     target?.focus({ preventScroll: true });
     target?.scrollIntoView?.({ block: "center" });
   }, [linkedQuestionId]);
+  const selectedCount = vm.selectedQuestionIds.length;
   const questionSection = <section aria-label={t("agentTasks.questionsTitle")} className="space-y-3">
     <h3 className="font-semibold">{vm.questionsError || vm.questionsLoading ? t("agentTasks.questionsTitle") : t("agentTasks.questionsHeading", { count: vm.questions.length })}</h3>
     {vm.questionsError && <p role="alert">{t("agentTasks.questionsError")}</p>}
-    {vm.questions.map(item => <section id={`operator-question-${item.id}`} tabIndex={-1} key={item.id} className="space-y-2 rounded-md border p-4 focus-visible:outline focus-visible:outline-2">
-      <h3 className="font-medium">{t(item.blocking ? "agentTasks.questionTitle" : "agentTasks.questionTitleOpen")} #{item.number} · {item.agent_name} · {item.id}</h3>
-      {item.origin_demand_id ? <Link className="text-sm underline" to={`/demands?message=${item.origin_demand_id}`}>{t("agentTasks.questionTask")}</Link> : <p className="text-sm text-muted-foreground">{t("agentTasks.questionUnlinked")}</p>}
-      <p className="text-xs text-muted-foreground">{date(item.created_at)}</p>
-      <p className="whitespace-pre-wrap text-sm">{item.question}</p>
-      {item.context && <p className="whitespace-pre-wrap text-sm text-muted-foreground">{item.context}</p>}
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" onClick={() => { setQuestion({ id: item.id, text: item.question }); setAnswer(""); vm.answerQuestion.reset(); }}>{t("agentTasks.answer")}</Button>
-        <Button size="sm" variant="outline" disabled={vm.archivingQuestion && vm.archiving?.id === item.id}
-          aria-label={t("agentTasks.archiveQuestion.button", { number: item.number })}
-          onClick={() => vm.askArchiveQuestion({ id: item.id, number: item.number, question: item.question })}>
-          {vm.archivingQuestion && vm.archiving?.id === item.id && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}{t("agentTasks.archiveQuestion.label")}</Button>
-      </div>
-    </section>)}
+    {vm.questions.length > 0 && <div className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-sm">
+      <label className="flex items-center gap-2 px-1">
+        <input ref={element => { if (element) element.indeterminate = vm.someVisibleChecked; }} type="checkbox" className="h-4 w-4"
+          checked={vm.allVisibleChecked} disabled={!vm.visibleQuestions.length} onChange={vm.toggleAllQuestions} />
+        {t("agentTasks.questionBulk.selectAll")}</label>
+      {vm.questionAnalysis.summary && <>
+        <Select aria-label={t("agentTasks.questionBulk.filterLabel")} className="w-auto max-md:text-base" value={vm.questionFilter}
+          onChange={e => vm.setQuestionFilter(e.target.value as QuestionFilter)}>
+          {QUESTION_FILTERS.map(filter => <option key={filter} value={filter}>{t(`agentTasks.questionBulk.filter.${filter}`)}</option>)}
+        </Select>
+        <Button size="sm" variant="outline" className="max-md:h-auto max-md:whitespace-normal" disabled={!vm.suggestedArchiveCount}
+          onClick={vm.selectSuggestedQuestions}>{t("agentTasks.questionBulk.selectSuggested", { count: vm.suggestedArchiveCount })}</Button>
+      </>}
+      {selectedCount > 0 && <>
+        <span role="status">{t("agentTasks.questionBulk.selected", { count: selectedCount })}</span>
+        <Button size="sm" variant="destructive" className="max-md:h-auto max-md:whitespace-normal" disabled={vm.bulkArchiving} onClick={vm.askBulkArchiveQuestions}>
+          {vm.bulkArchiving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}{t("agentTasks.questionBulk.archive", { count: selectedCount })}</Button>
+        <Button size="sm" variant="ghost" onClick={vm.clearQuestionSelection}>{t("agentTasks.questionBulk.clear")}</Button>
+      </>}
+    </div>}
+    {vm.bulkArchiveResults.length > 0 && <div role="status" className="space-y-1 rounded-md border p-3 text-sm">
+      <p className="font-medium">{t("agentTasks.questionBulk.resultTitle", { cancelled: vm.bulkArchiveResults.filter(row => row.status === "cancelled").length, total: vm.bulkArchiveResults.length })}</p>
+      <ul className="space-y-0.5">{vm.bulkArchiveResults.filter(row => row.status !== "cancelled").map(row => <li key={row.id} className="break-words">
+        {row.number ? `#${row.number}` : row.id} · {t(`agentTasks.questionBulk.result.${row.status}`)}</li>)}</ul>
+    </div>}
+    {vm.visibleQuestions.map(item => {
+      const recommendation = vm.recommendationFor(item.id);
+      return <section id={`operator-question-${item.id}`} tabIndex={-1} key={item.id} className="space-y-2 rounded-md border p-4 focus-visible:outline focus-visible:outline-2">
+        <div className="flex items-start gap-3">
+          <input type="checkbox" className="mt-1 h-4 w-4 shrink-0" aria-label={t("agentTasks.questionBulk.selectItem", { number: item.number })}
+            checked={vm.questionChecked(item.id)} onChange={() => vm.toggleQuestion(item.id)} />
+          <div className="min-w-0 flex-1 space-y-2">
+            <h3 className="break-words font-medium">{t(item.blocking ? "agentTasks.questionTitle" : "agentTasks.questionTitleOpen")} #{item.number} · {item.agent_name} · {item.id}</h3>
+            {recommendation && <div className="flex flex-wrap items-center gap-2 text-sm">
+              <Badge variant={recommendation.recommendation === "archive" ? "warning" : "secondary"}>{t(`agentTasks.questionBulk.recommendation.${recommendation.recommendation}`)}</Badge>
+              <span className="text-muted-foreground">{t(`agentTasks.questionBulk.reasonCode.${recommendation.reason_code}`, { days: vm.questionAnalysisStaleDays })}</span>
+            </div>}
+            {item.origin_demand_id ? <Link className="text-sm underline" to={`/demands?message=${item.origin_demand_id}`}>{t("agentTasks.questionTask")}</Link> : <p className="text-sm text-muted-foreground">{t("agentTasks.questionUnlinked")}</p>}
+            <p className="text-xs text-muted-foreground">{date(item.created_at)}</p>
+            <p className="whitespace-pre-wrap break-words text-sm">{item.question}</p>
+            {item.context && <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{item.context}</p>}
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => { setQuestion({ id: item.id, text: item.question }); setAnswer(""); vm.answerQuestion.reset(); }}>{t("agentTasks.answer")}</Button>
+              <Button size="sm" variant="outline" disabled={vm.archivingQuestion && vm.archiving?.id === item.id}
+                aria-label={t("agentTasks.archiveQuestion.button", { number: item.number })}
+                onClick={() => vm.askArchiveQuestion({ id: item.id, number: item.number, question: item.question })}>
+                {vm.archivingQuestion && vm.archiving?.id === item.id && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}{t("agentTasks.archiveQuestion.label")}</Button>
+            </div>
+          </div>
+        </div>
+      </section>;
+    })}
     {!vm.questionsLoading && !vm.questionsError && vm.questions.length === 0 && <p className="text-sm text-muted-foreground">{t("agentTasks.answersEmpty")}</p>}
+    {vm.questions.length > 0 && vm.visibleQuestions.length === 0 && <p className="text-sm text-muted-foreground">{t("agentTasks.questionBulk.filterEmpty")}</p>}
   </section>;
   const questionDialog = (<ConfirmDialog open={Boolean(question)} title={t("agentTasks.questionTitle")} description={question?.text} variant="default"
       confirmLabel={t("agentTasks.answer")} loading={vm.answerQuestion.isPending} error={vm.answerQuestion.error?.message} confirmDisabled={!answer.trim()}
@@ -75,19 +115,25 @@ export function AgentTasksTab() {
       className={`shrink-0 whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 ${vm.tab === tab ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
       onClick={() => vm.setTab(tab)}>{tabLabel(tab)}</button>)}
   </div>;
-  const analysisButton = <Button aria-busy={vm.analysis.busy} disabled={vm.analysis.busy || vm.analysis.loading || vm.analysis.unavailable} onClick={() => vm.analysis.start.mutate()}>{t("agentTasks.analysis.start")}</Button>;
+  const analysisButton = <Button aria-busy={vm.analysisBusy} disabled={vm.analysisBusy || vm.analysis.loading || vm.analysis.unavailable} onClick={vm.runAnalysis}>
+    {vm.analysisBusy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}{t("agentTasks.analysis.start")}</Button>;
+  // The questions' share of the result, appended to the triage line.
+  const questionPart = vm.questionAnalysis.summary ? t("agentTasks.analysis.questions", { count: vm.questionAnalysis.summary.total, total: vm.questionAnalysis.summary.total, archive: vm.questionAnalysis.summary.archive })
+    : vm.questionAnalysis.error ? t("agentTasks.analysis.questionsFailed") : vm.questionAnalysis.loading ? t("agentTasks.analysis.questionsRunning") : null;
+  const withQuestions = (text: string) => questionPart ? `${text} · ${questionPart}` : text;
   const listTab = vm.tab === "tasks" || vm.tab === "incubation";
   const approvalsEmpty = vm.tab === "approvals" && !vm.query.isLoading && !vm.query.isError && vm.approvalsCount === 0;
 
   return <div className="space-y-4 pt-4">
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">{analysisButton}{tabStrip}</div>
-      <p className="text-xs text-muted-foreground">{t("agentTasks.analysis.scope")}</p>
+      <p className="text-xs text-muted-foreground">{t(vm.tab === "answers" ? "agentTasks.analysis.scopeAnswers" : "agentTasks.analysis.scope")}</p>
       <div className="min-h-12 text-sm" aria-live="polite" aria-atomic="true">
         {vm.analysis.loading ? <p role="status">{t("agentTasks.analysis.loading")}</p>
           : vm.analysis.error ? <div role="alert"><p>{t("agentTasks.analysis.unavailable")}</p><Button size="sm" variant="outline" onClick={vm.analysis.refresh}>{t("agentTasks.retryLoad")}</Button></div>
           : vm.analysis.run?.status === "failed" ? <div role="alert"><p>{t("agentTasks.analysis.failed")}</p>{vm.analysis.run.error && <p className="break-words">{vm.analysis.run.error}</p>}</div>
-          : vm.analysis.run ? <p role="status">{t(`agentTasks.analysis.${vm.analysis.run.status}`, { processed: vm.analysis.run.processed, total: vm.analysis.run.total, applied: vm.analysis.run.applied })}</p>
+          : vm.analysis.run ? <p role="status">{withQuestions(t(`agentTasks.analysis.${vm.analysis.run.status}`, { processed: vm.analysis.run.processed, total: vm.analysis.run.total, applied: vm.analysis.run.applied }))}</p>
+          : questionPart ? <p role="status">{questionPart}</p>
           : <p role="status" className="text-muted-foreground">{t("agentTasks.analysis.ready")}</p>}
       </div>
     </div>
@@ -252,6 +298,16 @@ export function AgentTasksTab() {
       <p className="text-sm">{t("agentTasks.archiveQuestion.hint")}</p>
       <label className="mt-3 block space-y-1 text-sm">{t("agentTasks.archiveQuestion.reason")}
         <Textarea className="resize-none max-md:text-base" maxLength={4000} value={vm.archiveReason} onChange={e => vm.setArchiveReason(e.target.value)} /></label>
+    </ConfirmDialog>
+    <ConfirmDialog open={vm.bulkArchiveOpen} variant="destructive" icon="trash"
+      title={t("agentTasks.questionBulk.title", { count: selectedCount })}
+      confirmLabel={t("agentTasks.questionBulk.archive", { count: selectedCount })} loading={vm.bulkArchiving} error={vm.bulkArchiveError ?? undefined}
+      confirmDisabled={!vm.bulkArchiveValid} onCancel={vm.cancelBulkArchiveQuestions} onConfirm={vm.confirmBulkArchiveQuestions}>
+      <p className="text-sm">{t("agentTasks.questionBulk.hint", { count: selectedCount })}</p>
+      <ul className="mt-2 max-h-48 overflow-auto text-sm">{vm.questions.filter(item => vm.questionChecked(item.id)).map(item =>
+        <li key={item.id} className="break-words">#{item.number} · {item.agent_name} · {item.question.slice(0, 120)}</li>)}</ul>
+      <label className="mt-3 block space-y-1 text-sm">{t("agentTasks.questionBulk.reasonLabel")}
+        <Textarea className="resize-none max-md:text-base" maxLength={4000} value={vm.bulkArchiveReason} onChange={e => vm.setBulkArchiveReason(e.target.value)} /></label>
     </ConfirmDialog>
   </div>;
 }
