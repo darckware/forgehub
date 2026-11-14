@@ -20,6 +20,7 @@ from app.db.models.host_execution import HostExecution
 from app.db.models.maintenance_proposal import MaintenanceProposal
 from app.db.models.notification import Notification
 from app.db.models.server import Server
+from app.tests.fixtures.managed_machine import mark_managed_machine
 from app.db.models.user import User
 from app.main import app
 ORIGINAL_BRIDGE_EXEC = host_exec_runner.call_bridge_exec
@@ -35,6 +36,7 @@ async def ctx(monkeypatch):
         other=Agent(name='proposal-other-'+tag,agent_type='executor')
         s=Server(name='proposal-target-'+tag,ip_address='192.0.2.42',remote_user='test',os_family='linux')
         b=Server(name='proposal-outside-'+tag,ip_address='192.0.2.43',remote_user='test',os_family='linux')
+        mark_managed_machine(s);mark_managed_machine(b)
         db.add_all([admin,agent,other,s,b]);await db.flush()
         task=AgentDemand(from_agent='test',from_agent_id=agent.id,target_agent_id=agent.id,subject='test',body='test',origin_type='task',dispatch_status='running',agent_run_id='proposal-'+tag)
         foreign=AgentDemand(from_agent='test',from_agent_id=other.id,target_agent_id=other.id,subject='other',body='test',origin_type='task',dispatch_status='running',agent_run_id='proposal-'+tag)

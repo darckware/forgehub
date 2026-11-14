@@ -73,10 +73,13 @@ class ServerOut(BaseModel):
     # Whether "Enroll station" stored the login's password (never serialized;
     # see the admin-only reveal route).
     login_password_stored: bool = False
+    login_password_in_vault: bool = False
     rustdesk_id: str | None = None
     rustdesk_password_stored: bool = False
     # The private key is kept in ForgeVault (only its id is on the row).
     ssh_key_in_vault: bool = False
+    preparation_pending: bool = False
+    access_verified_at: datetime | None = None
     # ForgeHub-side access switch: false parks the server (no probe, no
     # terminal) without touching any key -- see Server.access_enabled.
     access_enabled: bool = True
@@ -412,6 +415,13 @@ class HostPreparationRequest(BaseModel):
     admin_user: str | None = Field(default=None, min_length=1, max_length=100)
     admin_password: str | None = Field(default=None, min_length=1, max_length=256)
     disable_admin: bool = True
+    use_stored_password: bool = False
+    ssh_port: int | None = Field(default=None, ge=1, le=65535)
+
+
+class HostPreparationValidation(BaseModel):
+    ok: bool
+    detail: str | None = None
 
 
 class HostPreparationOut(BaseModel):

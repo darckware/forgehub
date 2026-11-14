@@ -134,6 +134,7 @@ async def test_enroll_link_and_reveal(client, station_name):
     async with AsyncSessionLocal() as db:
         row = await db.get(Server, uuid.UUID(server_id))
         assert row.remote_user == "darckware" and row.ip_address == "" and row.kind == "workstation"
+        assert row.access_verified_at is None  # script delivery is not SSH identity proof
         assert row.login_password_ref == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         assert row.ssh_key_ref == "ffffffff-0000-0000-0000-000000000000" and row.ssh_key_path is None
         assert row.public_key == KEY and KEY in body["script"]

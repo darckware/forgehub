@@ -120,6 +120,7 @@ describe("Remote Access side panels", () => {
       vi.mocked(apiClient.put).mockImplementation(never);
       vi.mocked(apiClient.post).mockImplementation(never);
       await screen.findByRole("option", { name: /PC-01/ });
+      fireEvent.click(screen.getByRole("radio", { name: "Outra conta" }));
       fireEvent.change(screen.getByLabelText("Login do administrador"), { target: { value: "Administrador" } });
       fireEvent.change(screen.getByLabelText("Senha do administrador"), { target: { value: "secret" } });
       fireEvent.click(screen.getByRole("button", { name: "Preparar agora" }));

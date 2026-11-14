@@ -168,6 +168,7 @@ def direct_coverage_expands(previous, all_machines, server_ids):
 
 async def require_direct(db, agent_id, servers, elevation=False, lock=False):
     """{server id: covering access}, or 403 naming what is missing."""
+    await require_managed_machines(db, servers)
     rows = await direct_accesses(db, agent_id, lock)
     if not servers or any(direct_access_for(rows, s.id) is None for s in servers):
         raise HTTPException(403, {"code": "NO_DIRECT_ACCESS",
@@ -201,7 +202,23 @@ async def machine_ceilings(db, agent_ids, servers, product_id=None, project_id=N
     return ceilings
 
 
+async def require_managed_machines(db, servers):
+    """Agent boundaries require a verified, unique Vault key and machine login."""
+    from app.core.ssh_key_uniqueness import find_key_owner, public_key_blob
+    for server in servers:
+        if (server.preparation_pending or server.remote_user != "darckware" or not server.ssh_key_ref
+                or not server.login_password_ref or not server.access_verified_at
+                or not public_key_blob(server.public_key)):
+            raise HTTPException(403, {"code": "MACHINE_RECONFIGURATION_REQUIRED", "message": (
+                f"Reconfigure {server.name} in Acesso Remoto > Máquinas with the darckware account before agent access.")})
+        if await find_key_owner(db, exclude_id=server.id, public_key=server.public_key,
+                                key_ref=server.ssh_key_ref):
+            raise HTTPException(403, {"code": "MACHINE_RECONFIGURATION_REQUIRED", "message": (
+                f"Reconfigure {server.name}; its SSH key must be unique to this machine.")})
+
+
 async def require_remote(db, principal, servers, risk="read", product_id=None, project_id=None):
+    await require_managed_machines(db, servers)
     if principal.principal_type != "agent":
         raise HTTPException(403, "Individual agent credential required")
     ceilings = await machine_ceilings(db, [principal.principal_id], servers, product_id, project_id)

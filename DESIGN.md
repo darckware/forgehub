@@ -165,3 +165,15 @@ terminal can still run work. Never label a detached session orphaned or infer it
 is safe to terminate. Destructive confirmation names the selected session and
 explains that its processes will end. Reuse terminal metadata hooks, shared table,
 badge, button and confirmation owners; names do not create another session registry.
+
+## Machine login reconfiguration (2026-11-13)
+
+Machines expose Configure/Reconfigure access for every enabled row, including Ready
+servers and workstations. Ready describes transport reachability; a legacy login is
+visibly marked for migration to the machine account darckware, including on narrow
+screens. Machine credentials and agent permissions remain distinct: only the Agents
+tab grants an agent operational authority. Both machine kinds reuse PrepareDialog.
+Pending copy instructions can be recovered after reload; explicit key validation
+activates the candidate credentials. A failed verification retains the pending state
+and existing active access. Each machine owns a password and SSH key in ForgeVault;
+the password source selector never reveals a stored credential to the browser.

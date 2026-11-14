@@ -1,5 +1,6 @@
 /** One machine's color and label (backend `classify_status`), shared by the
  * Machines table and the execution composer so both read the same way. */
+import type { Server } from "@/hooks/useServers";
 import type { HostReadinessEntry, HostStatus } from "@/hooks/useHostInventory";
 
 export const STATUS_DOT: Record<HostStatus, string> = {
@@ -29,3 +30,9 @@ export function statusKey(entry: HostReadinessEntry | undefined): string {
   if (status !== "partial") return status;
   return hasSsh(entry) ? "partial_no_rustdesk" : "partial_no_ssh";
 }
+
+/** Managed machine identity is distinct from a reachable legacy SSH login. */
+export const hasManagedMachineAccess = (machine: Server) =>
+  machine.remote_user === "darckware" && Boolean(machine.ssh_key_in_vault) &&
+  Boolean(machine.login_password_in_vault) && Boolean(machine.access_verified_at) && !machine.preparation_pending &&
+  !machine.duplicate_key_with?.length && !machine.key_public_unknown;

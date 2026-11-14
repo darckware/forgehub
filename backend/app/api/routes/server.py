@@ -50,6 +50,7 @@ from app.api.schemas.server import (
     EnrollmentCreate,
     EnrollmentOut,
     HostPreparationOut,
+    HostPreparationValidation,
     HostPreparationRequest,
     HostReadinessEntry,
     HostReadinessResult,
@@ -379,6 +380,9 @@ async def sync_from_tailnet(
             outcome = "updated" if changed else "unchanged"
         elif (server := find_unlinked(peer.tailscale_ipv4, names)) is not None:
             unlinked.remove(server)
+            # Matching an unbound row by name/IP is an identity reassignment,
+            # not proof that this peer is the machine whose SSH key was tested.
+            server.access_verified_at = None
             server.tailnet_node_id = peer.id
             server.tailnet_name = display
             if server.kind == "workstation":
@@ -980,10 +984,13 @@ async def get_server(
 
 @router.put("/{server_id}", response_model=ServerOut)
 async def update_server(server_id: uuid.UUID, payload: ServerUpdate, db: AsyncSession = Depends(get_db)):
-    server = await db.get(Server, server_id)
-    if not server:
-        raise HTTPException(status_code=404, detail="Server not found")
+    server = await _locked_machine(db, server_id)
     fields = payload.model_dump(exclude_unset=True)
+    if server.remote_user != "darckware" and fields.get("remote_user") == "darckware":
+        raise HTTPException(status_code=422, detail="Use Configurar acesso to validate darckware credentials")
+    conflicting = {"ip_address", "remote_user", "ssh_port", "os_family", "key_passphrase"}
+    if server.preparation_pending and any(k in fields and fields[k] != getattr(server, k, None) for k in conflicting):
+        raise HTTPException(status_code=409, detail="Validate pending preparation before changing access configuration")
     if "key_passphrase" in fields:
         # Present but empty means "clear it"; absent means "leave it alone",
         # which is the case that matters -- the form never receives the stored
@@ -992,6 +999,8 @@ async def update_server(server_id: uuid.UUID, payload: ServerUpdate, db: AsyncSe
         passphrase = fields.pop("key_passphrase")
         server.key_passphrase_encrypted = encrypt_secret(passphrase) if passphrase else None
     group_ids = fields.pop("group_ids", None)
+    if any(k in fields and fields[k] != getattr(server, k, None) for k in conflicting):
+        server.access_verified_at = None
     for field, value in fields.items():
         setattr(server, field, value)
     if group_ids is not None:
@@ -1091,10 +1100,14 @@ async def install_server_key(
     records the installed .pub for auditing. Admin-only: takes a server
     credential and writes files on the host.
     """
-    server = await db.get(Server, server_id)
-    if not server:
-        raise HTTPException(status_code=404, detail="Server not found")
+    server = await _locked_machine(db, server_id)
+    if server.preparation_pending:
+        raise HTTPException(status_code=409, detail="Validate pending preparation before changing credentials")
     remote_user = (payload.remote_user or server.remote_user).strip()
+    if remote_user != "darckware" or server.remote_user != "darckware":
+        raise HTTPException(status_code=422, detail="Use Configurar acesso to prepare the darckware account")
+    if server.preparation_pending:
+        raise HTTPException(status_code=409, detail="Validate the pending preparation first")
     admin_user = payload.admin_user.strip() if payload.admin_user else None
     new_ref, public_key = await _new_machine_key(db, server)
 
@@ -1127,6 +1140,7 @@ async def install_server_key(
         )
 
     old_path = server.ssh_key_path
+    server.access_verified_at = None
     server.ssh_key_ref, server.ssh_key_path = new_ref, None
     server.private_key_encrypted = None
     server.public_key = public_key
@@ -1370,9 +1384,11 @@ async def rotate_machines(
       private key stored in ForgeVault. The machine is never left without a
       working key: the old one goes only after the new one worked.
     """
-    servers = list((await db.execute(select(Server).where(Server.id.in_(payload.server_ids)).order_by(Server.name))).scalars())
+    servers = list((await db.execute(select(Server).where(Server.id.in_(payload.server_ids)).order_by(Server.name).with_for_update())).scalars())
     if len(servers) != len(set(payload.server_ids)):
         raise HTTPException(status_code=422, detail="Unknown machine")
+    if any(s.preparation_pending for s in servers):
+        raise HTTPException(status_code=409, detail="Validate pending preparation before rotating credentials")
     kind = payload.kind
 
     async def executor(server: Server) -> dict:
@@ -1567,133 +1583,208 @@ def _lock_admin_script(os_family: str, admin_user: str) -> str:
     return f"sudo -n usermod -L {admin_user} && sudo -n passwd -S {admin_user}"
 
 
-@router.post("/{server_id}/preparation", response_model=HostPreparationOut)
-async def prepare_host(
-    server_id: uuid.UUID,
-    payload: HostPreparationRequest | None = None,
-    db: AsyncSession = Depends(get_db),
-    admin: User = Depends(get_current_admin),
-):
-    """Puts a station under ForgeHub's own login (decision 1, 2026-10-15/16):
+def _is_machine_login(identity: str, os_family: str) -> bool:
+    identity = identity.strip()
+    if os_family == "windows":
+        # whoami returns DOMAIN\\login. Reject suffixes, extra lines and UPNs.
+        return bool(re.fullmatch(r"[^\\\r\n]+\\darckware", identity, re.IGNORECASE))
+    return identity == STATION_LOGIN
 
-    1. ensures the station's key pair (one per machine) and generates a strong
-       password for `darckware`, stored in ForgeVault before anything runs;
-    2. builds the OS script: OpenSSH (tailnet only, PowerShell as shell on
-       Windows), the `darckware` administrator with that password, ForgeHub's key;
-    3. mode "copy" returns it to paste through RustDesk; mode "ssh" runs it
-       logged in once as the client's administrator, then logs in as
-       `darckware` with the key, and only if that worked (and `disable_admin`)
-       disables the administrator -- never before, so the station can't be left
-       without a working account. The run is an ordinary execution (screen,
-       audit); the admin password is used for that one connection only.
-    """
-    payload = payload or HostPreparationRequest()
-    server = await db.get(Server, server_id)
+
+async def _locked_machine(db: AsyncSession, server_id: uuid.UUID) -> Server:
+    server = (await db.execute(select(Server).where(Server.id == server_id)
+                              .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
+    return server
+
+
+async def _validate_preparation(db: AsyncSession, server_id: uuid.UUID, actor: str,
+                                expected_ref: str | None = None) -> HostPreparationValidation:
+    server = await _locked_machine(db, server_id)
+    if not server.access_enabled:
+        raise HTTPException(status_code=403, detail="Access is disabled")
+    now = datetime.now(timezone.utc)
+    if server.preparation_validation_until and server.preparation_validation_until > now:
+        raise HTTPException(status_code=409, detail="Candidate validation is already running; wait before retrying")
+    ref = server.pending_ssh_key_ref
+    if not ref or not server.pending_login_password_ref or not server.pending_public_key_encrypted:
+        raise HTTPException(status_code=409, detail="No complete preparation pending")
+    if expected_ref and ref != expected_ref:
+        raise HTTPException(status_code=409, detail="Preparation changed; validate the current candidate")
+    public_key = decrypt_secret(server.pending_public_key_encrypted)
+    if not public_key_blob(public_key):
+        raise HTTPException(status_code=409, detail="Candidate public key is invalid")
+    await assert_key_unique(db, server.id, public_key=public_key, key_ref=ref)
+    host, port, os_family = server.ip_address, server.pending_ssh_port or server.ssh_port, server.os_family
+    snapshot = (server.pending_public_key_encrypted, server.pending_login_password_ref, server.pending_ssh_port)
+    lease = now + timedelta(minutes=2)
+    server.preparation_validation_until = lease
+    # Release the reservation lock before network IO. Promotion compares the
+    # generation again so an outdated callback can never activate another key.
+    await db.commit()
+    try:
+        result = await call_bridge_exec_as(
+            host=host, user=STATION_LOGIN, port=port, key_path=None, key_ref=ref, password=None,
+            shell="powershell" if os_family == "windows" else "sh", script="whoami", timeout_seconds=60,
+        )
+    except Exception:
+        # Transport details may include connection credentials. Keep the
+        # candidate recoverable and never forward the exception to the browser.
+        result = {"failure": "connection", "exit_code": 1, "stdout": ""}
+    ok = (not result.get("failure") and result.get("exit_code") == 0
+          and _is_machine_login(result.get("stdout") or "", os_family))
+    server = await _locked_machine(db, server_id)
+    if (server.pending_ssh_key_ref != ref or server.preparation_validation_until != lease
+            or (server.pending_public_key_encrypted, server.pending_login_password_ref, server.pending_ssh_port) != snapshot):
+        raise HTTPException(status_code=409, detail="Preparation changed during verification")
+    server.preparation_validation_until = None
+    if not server.access_enabled or server.ip_address != host or server.os_family != os_family:
+        await db.commit()
+        raise HTTPException(status_code=409, detail="Machine changed during verification")
+    db.add(AuditEvent(entity_type="server", entity_id=server.id,
+                     event_type="preparation_verified" if ok else "preparation_verification_failed",
+                     actor=actor, payload={"candidate_key_ref": ref, "ok": ok}))
+    if ok:
+        await assert_key_unique(db, server.id, public_key=public_key, key_ref=ref)
+        server.access_verified_at = datetime.now(timezone.utc)
+        server.ssh_key_ref = ref
+        server.public_key_encrypted = server.pending_public_key_encrypted
+        server.login_password_ref = server.pending_login_password_ref
+        server.remote_user = STATION_LOGIN
+        server.ssh_port = port
+        server.ssh_key_path = server.private_key_encrypted = server.key_passphrase_encrypted = None
+        server.login_password_encrypted = None
+        server.pending_ssh_key_ref = server.pending_public_key_encrypted = None
+        server.pending_login_password_ref = server.pending_ssh_port = None
+    await db.commit()
+    return HostPreparationValidation(ok=ok, detail=None if ok else "Candidate key did not authenticate exactly as darckware; active access preserved")
+
+
+@router.post("/{server_id}/preparation/pending", response_model=HostPreparationOut)
+async def recover_host_preparation(server_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+                                   admin: User = Depends(get_current_admin)):
+    server = await _locked_machine(db, server_id)
+    if not server.access_enabled:
+        raise HTTPException(status_code=403, detail="Access is disabled")
+    if server_id in await busy_server_ids(db):
+        raise HTTPException(status_code=409, detail="A machine operation is still running")
+    if not server.pending_ssh_key_ref or not server.pending_login_password_ref or not server.pending_public_key_encrypted:
+        raise HTTPException(status_code=409, detail="No complete preparation pending")
+    if (server.preparation_validation_until and
+            server.preparation_validation_until > datetime.now(timezone.utc)):
+        raise HTTPException(status_code=409, detail="Candidate validation is already running")
+    public_key = decrypt_secret(server.pending_public_key_encrypted)
+    password = await vault_reveal(server.pending_login_password_ref)
+    script, language = preparation_script(server.os_family, STATION_LOGIN, public_key, password)
+    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="preparation_script_recovered",
+                     actor=admin.username, payload={"candidate_key_ref": server.pending_ssh_key_ref,
+                     "candidate_login_ref": server.pending_login_password_ref, "state": "pending"}))
+    await db.commit()
+    return HostPreparationOut(server_id=server.id, os_family=server.os_family, language=language,
+                              script=script, public_key=public_key, key_created=False, key_path="")
+
+
+@router.post("/{server_id}/preparation/validate", response_model=HostPreparationValidation)
+async def validate_host_preparation(server_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+                                    admin: User = Depends(get_current_admin)):
+    if server_id in await busy_server_ids(db):
+        raise HTTPException(status_code=409, detail="A machine operation is still running")
+    return await _validate_preparation(db, server_id, admin.username)
+
+
+@router.post("/{server_id}/preparation", response_model=HostPreparationOut)
+async def prepare_host(server_id: uuid.UUID, payload: HostPreparationRequest | None = None,
+                       db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
+    payload = payload or HostPreparationRequest()
+    server = await _locked_machine(db, server_id)
+    if not server.access_enabled:
+        raise HTTPException(status_code=403, detail="Access is disabled")
+    if server.preparation_pending:
+        raise HTTPException(status_code=409, detail="Preparation pending; validate the existing candidate before retrying")
+    if server_id in await busy_server_ids(db):
+        raise HTTPException(status_code=409, detail="A machine operation is still running")
     if server.os_family not in ("windows", "linux"):
         raise HTTPException(status_code=422, detail="Set the machine's operating system (Windows or Linux) first")
     admin_user = (payload.admin_user or server.admin_user or "").strip()
+    if admin_user and not re.fullmatch(r"[A-Za-z0-9_.@\\-]+", admin_user):
+        raise HTTPException(status_code=422, detail="Invalid administrator login")
+    admin_password = payload.admin_password
+    if payload.use_stored_password:
+        if payload.mode != "ssh" or admin_password:
+            raise HTTPException(status_code=422, detail="Choose one bootstrap password source")
+        if server.remote_user != STATION_LOGIN or not server.login_password_ref:
+            raise HTTPException(status_code=422, detail="This machine has no managed Vault login password")
+        shared = (await db.execute(select(Server.id).where(
+            Server.id != server.id, Server.login_password_ref == server.login_password_ref))).first()
+        if shared:
+            raise HTTPException(status_code=409, detail="Stored password is shared; type this machine's bootstrap password")
+        if admin_user and admin_user != STATION_LOGIN:
+            raise HTTPException(status_code=422, detail="Stored password belongs to darckware")
+        admin_user = STATION_LOGIN
+        admin_password = await vault_reveal(server.login_password_ref)
     if payload.mode == "ssh":
-        if not admin_user or not payload.admin_password:
+        if not admin_user or not admin_password:
             raise HTTPException(status_code=422, detail="Inform the administrator login and password")
         if not server.ip_address:
-            raise HTTPException(status_code=422, detail="The machine has no address yet (not in the tailnet)")
-        if admin_user.lower() == STATION_LOGIN:
-            raise HTTPException(status_code=422, detail="Use the client's administrator account, not darckware")
-
-    key_created = not bool(server.ssh_key_ref and server.public_key)
-    if key_created:
-        server.ssh_key_ref, server.public_key = await _new_machine_key(db, server)
-        server.ssh_key_path = None
-        server.private_key_encrypted = None
-    elif server.ssh_key_path:
-        # Existing legacy row: create a fresh ForgeVault key; the user can
-        # rerun enrollment/preparation on the station with this public key.
-        server.ssh_key_ref, server.public_key = await _new_machine_key(db, server)
-        server.ssh_key_path = None
-        server.private_key_encrypted = None
+            raise HTTPException(status_code=422, detail="The machine has no address yet")
+        same_login = (admin_user.lower() == STATION_LOGIN or
+                      (server.os_family == "windows" and _is_machine_login(admin_user, "windows")))
+        if same_login and payload.disable_admin:
+            raise HTTPException(status_code=422, detail="darckware cannot disable itself; turn off disable_admin")
+    # Always generate a dedicated fresh candidate, even when active credentials
+    # appear managed. Existing access and authorizations are never removed.
+    ref, public_key = await _new_machine_key(db, server)
+    if ref == server.ssh_key_ref or (server.public_key and public_key_blob(public_key) == public_key_blob(server.public_key)):
+        raise HTTPException(status_code=409, detail="Vault returned the active key; a fresh candidate is required")
     password = generate_password()
-    previous_login_ref = server.login_password_ref
+    login_ref = await vault_store(fresh_machine_secret_name(server, "LOGIN"), password,
+                                  f"Senha darckware de {server.name}")
+    server.pending_ssh_key_ref = ref
+    server.pending_public_key_encrypted = encrypt_secret(public_key)
+    server.pending_login_password_ref = login_ref
+    server.pending_ssh_port = payload.ssh_port or server.ssh_port
+    host, port, os_family = server.ip_address, server.pending_ssh_port, server.os_family
+    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="preparation_started",
+                     actor=admin.username, payload={"mode": payload.mode, "state": "pending",
+                     "candidate_key_ref": ref, "candidate_login_ref": login_ref,
+                     "previous_key_ref": server.ssh_key_ref, "previous_login_ref": server.login_password_ref}))
+    # Durable before script creation/delivery/execution. A failure can be
+    # recovered by validating the saved candidate without minting new secrets.
+    await db.commit()
     try:
-        script, language = preparation_script(server.os_family, STATION_LOGIN, server.public_key or "", password)
+        script, language = preparation_script(os_family, STATION_LOGIN, public_key, password)
     except PreparationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    server.login_password_ref = await vault_store(
-        fresh_machine_secret_name(server, "LOGIN"), password,
-        f"Senha da conta {STATION_LOGIN} em {server.name} ({server.darckware_client_name or 'sem cliente'})",
-    )
-    server.login_password_encrypted = None
-    if admin_user:
-        server.admin_user = admin_user
-    db.add(AuditEvent(
-        entity_type="server", entity_id=server.id, event_type="preparation_started", actor=admin.username,
-        payload={"mode": payload.mode, "os_family": server.os_family, "admin_user": admin_user or None,
-                 "disable_admin": payload.disable_admin, "key_created": key_created,
-                 "previous_login_ref": previous_login_ref},
-    ))
-
     if payload.mode == "copy":
-        # Readiness probes as `darckware` from now on: the station reads Ready
-        # as soon as someone runs the script.
-        server.remote_user = STATION_LOGIN
-        await db.commit()
-        return HostPreparationOut(
-            server_id=server.id, os_family=server.os_family, language=language, script=script,
-            public_key=server.public_key or "", key_created=key_created, key_path=server.ssh_key_path or "",
-        )
-
-    await db.commit()
-    host, port, key_path, key_ref = server.ip_address, server.ssh_port, server.ssh_key_path, server.ssh_key_ref
-    admin_password, os_family, disable = payload.admin_password, server.os_family, payload.disable_admin
-    station_id = server.id
+        return HostPreparationOut(server_id=server.id, os_family=os_family, language=language,
+                                  script=script, public_key=public_key, key_created=True, key_path="")
 
     async def executor(_server: Server) -> dict:
-        log: list[str] = []
-        prep = await call_bridge_exec_as(
-            host=host, user=admin_user, port=port, key_path=None, password=admin_password,
-            shell=language, script=script, timeout_seconds=900,
-        )
-        log.append(f"== 1/3 Preparação como {admin_user}: " + ("ok" if not prep.get("failure") else "FALHOU"))
-        log.append((prep.get("stdout") or "").strip())
-        if prep.get("failure"):
-            return {**prep, "stdout": "\n".join(log), "stderr": prep.get("stderr")}
-        check = await call_bridge_exec_as(
-            host=host, user=STATION_LOGIN, port=port, key_path=key_path, key_ref=key_ref, password=None,
-            shell=language, script="whoami", timeout_seconds=60,
-        )
-        ok = not check.get("failure") and STATION_LOGIN in (check.get("stdout") or "").lower()
-        log.append(f"== 2/3 Login de {STATION_LOGIN} pela chave: " + ("ok" if ok else "FALHOU"))
-        if not ok:
-            return {"exit_code": check.get("exit_code") or 1, "failure": check.get("failure") or "command",
-                    "stdout": "\n".join(log), "stderr": check.get("stderr"), "duration_ms": prep.get("duration_ms")}
         async with AsyncSessionLocal() as session:
-            row = await session.get(Server, station_id)
-            row.remote_user = STATION_LOGIN
+            current = await _locked_machine(session, server_id)
+            if not current.access_enabled or current.pending_ssh_key_ref != ref or current.ip_address != host:
+                return {"exit_code": 1, "failure": "command", "stdout": "Machine access changed; no preparation sent", "stderr": ""}
             await session.commit()
-        if disable:
-            lock = await call_bridge_exec_as(
-                host=host, user=STATION_LOGIN, port=port, key_path=key_path, key_ref=key_ref, password=None,
-                shell=language, script=_lock_admin_script(os_family, admin_user), timeout_seconds=60,
-            )
-            log.append(f"== 3/3 Bloqueio de {admin_user}: " + ("ok" if not lock.get("failure") else "FALHOU"))
-            log.append((lock.get("stdout") or "").strip())
-            if lock.get("failure"):
-                return {**lock, "stdout": "\n".join(log)}
-        else:
-            log.append(f"== 3/3 Bloqueio de {admin_user}: não solicitado")
-        return {"exit_code": 0, "failure": None, "stdout": "\n".join(log), "stderr": "", "duration_ms": prep.get("duration_ms")}
+        prep = await call_bridge_exec_as(host=host, user=admin_user, port=port, key_path=None,
+            password=admin_password, shell=language, script=script, timeout_seconds=900)
+        if prep.get("failure") or prep.get("exit_code") != 0:
+            return prep
+        async with AsyncSessionLocal() as session:
+            verified = await _validate_preparation(session, server_id, admin.username, ref)
+        if not verified.ok:
+            return {"exit_code": 1, "failure": "command", "stdout": verified.detail, "stderr": ""}
+        if payload.disable_admin:
+            return await call_bridge_exec_as(host=host, user=STATION_LOGIN, port=port, key_path=None,
+                key_ref=ref, password=None, shell=language,
+                script=_lock_admin_script(os_family, admin_user), timeout_seconds=60)
+        return {"exit_code": 0, "failure": None, "stdout": "darckware verified; active credentials promoted", "stderr": ""}
 
-    execution = await launch_execution(
-        db, servers=[server], command=script, shell=language, timeout_seconds=900,
-        actor=admin.username, target_summary=server.name, secrets=[password, admin_password],
-        executor=executor, script_label="Preparar estação",
-    )
-    return HostPreparationOut(
-        server_id=server.id, os_family=server.os_family, language=language, script=None,
-        public_key=server.public_key or "", key_created=key_created, key_path=server.ssh_key_path or "",
-        execution_id=execution.id,
-    )
+    execution = await launch_execution(db, servers=[server], command=script, shell=language,
+        timeout_seconds=900, actor=admin.username, target_summary=server.name,
+        secrets=[password, admin_password], executor=executor, script_label="Preparar máquina")
+    return HostPreparationOut(server_id=server.id, os_family=os_family, language=language,
+        public_key=public_key, key_created=True, key_path="", execution_id=execution.id)
 
 
 async def _read_machine_secret(ref: str | None, legacy_encrypted: str | None) -> str:
@@ -1768,9 +1859,9 @@ async def store_server_key(
     admin-only, and refusing every encrypted key would leave such machines
     with no way in; a wrong .pub only weakens this one check, and the key
     still has to log in for the machine to read as ready."""
-    server = await db.get(Server, server_id)
-    if not server:
-        raise HTTPException(status_code=404, detail="Server not found")
+    server = await _locked_machine(db, server_id)
+    if server.preparation_pending:
+        raise HTTPException(status_code=409, detail="Validate pending preparation before changing credentials")
     material = payload.private_key.strip()
     if "PRIVATE KEY" not in material:
         raise HTTPException(status_code=422, detail="Payload does not look like an SSH private key")
@@ -1818,6 +1909,7 @@ async def store_server_key(
         await _record_unused_secret(server.id, key_ref, exc)
         raise
     previous_ref = server.ssh_key_ref
+    server.access_verified_at = None
     server.ssh_key_ref = key_ref
     server.private_key_encrypted = None
     server.public_key = public_key
@@ -1844,9 +1936,9 @@ async def fill_public_key(
     path) and `ssh-add -L` on it, which lists public keys only -- the private
     key never leaves the bridge. Refused (409 SSH_KEY_IN_USE, nothing
     written) when that public key is already another machine's."""
-    server = await db.get(Server, server_id)
-    if not server:
-        raise HTTPException(status_code=404, detail="Server not found")
+    server = await _locked_machine(db, server_id)
+    if server.preparation_pending:
+        raise HTTPException(status_code=409, detail="Validate pending preparation before changing credentials")
     if not server.ssh_key_ref:
         raise HTTPException(status_code=422, detail="This machine has no key in ForgeVault")
     resp = await _bridge_post("/v1/servers/agent:open", {"key_ref": server.ssh_key_ref})
@@ -1882,10 +1974,11 @@ async def clear_server_key(
     _admin: User = Depends(get_current_admin),
 ):
     """Drops the vaulted copy. Never touches the file on the host."""
-    server = await db.get(Server, server_id)
-    if not server:
-        raise HTTPException(status_code=404, detail="Server not found")
+    server = await _locked_machine(db, server_id)
+    if server.preparation_pending:
+        raise HTTPException(status_code=409, detail="Validate pending preparation before changing credentials")
     server.private_key_encrypted = None
+    server.access_verified_at = None
     server.ssh_key_ref = None
     await db.commit()
     return ServerKeyVaultResult(server_id=server.id, private_key_stored=False)
@@ -1908,7 +2001,7 @@ async def import_servers(payload: ServerImportRequest, db: AsyncSession = Depend
             detail=f"CSV header must include: {', '.join(sorted(REQUIRED_CSV_COLUMNS))}",
         )
 
-    existing_result = await db.execute(select(Server))
+    existing_result = await db.execute(select(Server).with_for_update())
     existing_by_name = {s.name: s for s in existing_result.scalars().all()}
 
     created = 0
@@ -1927,6 +2020,14 @@ async def import_servers(payload: ServerImportRequest, db: AsyncSession = Depend
 
         if name in existing_by_name:
             server = existing_by_name[name]
+            if server.remote_user != "darckware" and remote_user == "darckware":
+                errors.append(f"Line {i}: use Configurar acesso to validate darckware credentials")
+                continue
+            if server.preparation_pending and (server.ip_address != ip_address or server.remote_user != remote_user):
+                errors.append(f"Line {i}: pending preparation; access configuration preserved")
+                continue
+            if server.ip_address != ip_address or server.remote_user != remote_user:
+                server.access_verified_at = None
             server.ip_address = ip_address
             server.remote_user = remote_user
             server.description = description

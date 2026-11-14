@@ -111,13 +111,14 @@ async def find_key_owner(
     blob = public_key_blob(public_key)
     if not blob and not key_ref:
         return None
-    query = select(Server.id, Server.name, Server.public_key_encrypted, Server.ssh_key_ref).order_by(Server.name)
+    query = select(Server.id, Server.name, Server.public_key_encrypted, Server.ssh_key_ref,
+                   Server.pending_public_key_encrypted, Server.pending_ssh_key_ref).order_by(Server.name)
     if exclude_id is not None:
         query = query.where(Server.id != exclude_id)
-    for _id, name, public_encrypted, ref in (await db.execute(query)).all():
-        if key_ref and ref == key_ref:
+    for _id, name, public_encrypted, ref, pending_public, pending_ref in (await db.execute(query)).all():
+        if key_ref and key_ref in (ref, pending_ref):
             return name
-        if blob and public_key_blob(_decrypted(public_encrypted)) == blob:
+        if blob and blob in (public_key_blob(_decrypted(public_encrypted)), public_key_blob(_decrypted(pending_public))):
             return name
     return None
 

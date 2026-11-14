@@ -133,8 +133,9 @@ async def test_copy_mode_creates_key_stores_password_in_vault_and_returns_script
     assert PRIV not in resp.text
     async with AsyncSessionLocal() as db:
         row = await db.get(Server, station.id)
-        assert row.remote_user == "darckware" and row.admin_user == "administrador"
-        assert row.login_password_ref and row.login_password_encrypted is None and row.ssh_key_ref == GEN_REF
+        assert row.remote_user == "administrador" and row.admin_user is None
+        assert row.login_password_ref is None and row.ssh_key_ref is None
+        assert row.pending_login_password_ref and row.pending_ssh_key_ref == GEN_REF
         assert row.private_key_encrypted is None and row.ssh_key_path is None
 
 
@@ -171,9 +172,9 @@ async def test_ssh_mode_prepares_checks_key_then_locks_admin(client, station):
     assert calls[0][1] is True and calls[1][1] is False  # admin by password, darckware by key
     assert "Disable-LocalUser -Name 'administrador'" in calls[2][2] or calls[2][2].startswith("Disable-LocalUser")
     result = detail.results[0]
-    assert result.status == "succeeded" and "3/3 Bloqueio de administrador: ok" in result.stdout
+    assert result.status == "succeeded"
     assert "Segredo#2026" not in (detail.command or "") and "Segredo#2026" not in (result.stdout or "")
-    assert detail.script_name == "Preparar estação"
+    assert detail.script_name == "Preparar máquina"
     async with AsyncSessionLocal() as db:
         assert (await db.get(Server, station.id)).remote_user == "darckware"
 
@@ -184,7 +185,7 @@ async def test_ssh_mode_never_locks_admin_when_the_new_login_fails(client, stati
         OK, {"exit_code": 255, "stdout": "", "stderr": "Permission denied", "duration_ms": 1, "failure": "auth"}])
     assert [c[0] for c in calls] == ["administrador", "darckware"]  # no lock step
     result = detail.results[0]
-    assert result.status == "failed" and "2/3 Login de darckware pela chave: FALHOU" in result.stdout
+    assert result.status == "failed" and "Candidate key did not authenticate" in result.stdout
 
 
 @pytest.mark.asyncio
@@ -201,13 +202,11 @@ async def test_prepare_validations(client, station):
 
 
 @pytest.mark.asyncio
-async def test_a_machine_on_its_vault_key_keeps_it(client, station):
-    """After the phase-5 switch a row has the vault ref and public key but no
-    file path; preparing again must reuse that key, not mint a file whose
-    public half the vault doesn't hold."""
+async def test_a_machine_on_its_vault_key_gets_fresh_candidate(client, station):
+    """Reconfiguration preserves active access while minting a new candidate."""
     async with AsyncSessionLocal() as db:
         row = await db.get(Server, station.id)
-        row.ssh_key_ref, row.public_key, row.ssh_key_path = "00000000-0000-0000-0000-00000000dddd", KEY, None
+        row.ssh_key_ref, row.public_key, row.ssh_key_path = "00000000-0000-0000-0000-00000000dddd", None, None
         await db.commit()
     bridge = AsyncMock(side_effect=_bridge)
     with (
@@ -216,8 +215,142 @@ async def test_a_machine_on_its_vault_key_keeps_it(client, station):
     ):
         resp = await client.post(f"/api/v1/servers/{station.id}/preparation", json={"mode": "copy", "admin_user": "administrador"})
     assert resp.status_code == 200, resp.text
-    assert resp.json()["key_created"] is False
-    assert bridge.call_args_list == []                        # no second key minted
+    assert resp.json()["key_created"] is True
+    assert len(bridge.call_args_list) == 1
     async with AsyncSessionLocal() as db:
         row = await db.get(Server, station.id)
     assert row.ssh_key_ref.endswith("dddd") and row.ssh_key_path is None
+    assert row.pending_ssh_key_ref == GEN_REF
+
+
+@pytest.mark.parametrize("identity,os_family,ok", [
+    ("darckware", "linux", True), ("darckware-evil", "linux", False),
+    ("aegis", "linux", False), ("darckware\nroot", "linux", False),
+    ("HOST\\Darckware", "windows", True), ("HOST\\notdarckware", "windows", False),
+    ("darckware", "windows", False), ("HOST\\darckware-evil", "windows", False),
+])
+def test_exact_machine_identity(identity, os_family, ok):
+    assert server_routes._is_machine_login(identity, os_family) is ok
+
+
+@pytest.mark.asyncio
+async def test_pending_is_durable_recoverable_and_promoted_only_after_exact_validation(client, station):
+    with (patch.object(server_routes, "_bridge_post", AsyncMock(side_effect=_bridge)) as generate,
+          patch.object(server_routes, "vault_store", AsyncMock(side_effect=_fake_store)) as store):
+        first = await client.post(f"/api/v1/servers/{station.id}/preparation", json={"ssh_port": 2222})
+        assert first.status_code == 200, first.text
+        again = await client.post(f"/api/v1/servers/{station.id}/preparation")
+        assert again.status_code == 409
+        assert generate.await_count == store.await_count == 1
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, station.id)
+        assert row.ssh_port == 22 and row.pending_ssh_port == 2222
+        ref = row.pending_login_password_ref
+    password = list(VAULT.values())[-1]
+    with patch.object(server_routes, "vault_reveal", AsyncMock(return_value=password)) as reveal:
+        recovered = await client.post(f"/api/v1/servers/{station.id}/preparation/pending")
+        assert recovered.status_code == 200, recovered.text
+        assert recovered.json()["script"] == first.json()["script"]
+        reveal.assert_awaited_once_with(ref)
+    with patch.object(server_routes, "call_bridge_exec_as", AsyncMock(return_value={**OK, "stdout": "host\\notdarckware"})):
+        bad = await client.post(f"/api/v1/servers/{station.id}/preparation/validate")
+    assert bad.status_code == 200 and bad.json()["ok"] is False
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, station.id)
+        assert row.remote_user == "administrador" and row.ssh_port == 22 and row.preparation_pending
+    with patch.object(server_routes, "call_bridge_exec_as", AsyncMock(return_value={**OK, "stdout": "host\\darckware"})) as bridge:
+        good = await client.post(f"/api/v1/servers/{station.id}/preparation/validate")
+    assert good.status_code == 200 and good.json()["ok"] is True
+    assert bridge.call_args.kwargs["key_ref"] == GEN_REF
+    assert bridge.call_args.kwargs["port"] == 2222
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, station.id)
+        assert row.remote_user == "darckware" and row.ssh_port == 2222
+        assert row.ssh_key_ref == GEN_REF and row.login_password_ref == ref and not row.preparation_pending
+        assert row.access_verified_at is not None
+
+
+@pytest.mark.asyncio
+async def test_stored_password_cannot_bootstrap_legacy_login(client, station):
+    with patch.object(server_routes, "vault_reveal", AsyncMock()) as reveal:
+        response = await client.post(f"/api/v1/servers/{station.id}/preparation", json={
+            "mode": "ssh", "use_stored_password": True, "disable_admin": False})
+    assert response.status_code == 422
+    reveal.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_agents_require_verified_parseable_unique_machine_key():
+    from datetime import datetime, timezone
+    from fastapi import HTTPException
+    from app.core.remote_authority import require_managed_machines
+    from types import SimpleNamespace
+    valid = dict(id=uuid.uuid4(), name="test", remote_user="darckware", ssh_key_ref="key",
+                 login_password_ref="password", access_verified_at=datetime.now(timezone.utc), public_key=KEY,
+                 preparation_pending=False)
+    for changed in [dict(remote_user="aegis"), dict(ssh_key_ref=None), dict(login_password_ref=None),
+                    dict(access_verified_at=None), dict(public_key="invalid"), dict(public_key=None)]:
+        with pytest.raises(HTTPException) as caught:
+            await require_managed_machines(AsyncMock(), [SimpleNamespace(**(valid | changed))])
+        assert caught.value.status_code == 403
+        assert caught.value.detail["code"] == "MACHINE_RECONFIGURATION_REQUIRED"
+    with patch("app.core.ssh_key_uniqueness.find_key_owner", AsyncMock(return_value="other-machine")):
+        with pytest.raises(HTTPException):
+            await require_managed_machines(AsyncMock(), [SimpleNamespace(**valid)])
+    with patch("app.core.ssh_key_uniqueness.find_key_owner", AsyncMock(return_value=None)):
+        await require_managed_machines(AsyncMock(), [SimpleNamespace(**valid)])
+
+
+@pytest.mark.asyncio
+async def test_inventory_cannot_forge_or_keep_machine_verification(client, station):
+    from datetime import datetime, timezone
+    response = await client.put(f"/api/v1/servers/{station.id}", json={"remote_user": "darckware"})
+    assert response.status_code == 422
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, station.id)
+        row.remote_user = "darckware"
+        row.access_verified_at = datetime.now(timezone.utc)
+        await db.commit()
+    response = await client.put(f"/api/v1/servers/{station.id}", json={"ssh_port": 2223})
+    assert response.status_code == 200
+    assert response.json()["access_verified_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_validation_reservation_refuses_parallel_checks_and_access_pause_preserves_candidate(client, station):
+    with (patch.object(server_routes, "_bridge_post", AsyncMock(side_effect=_bridge)),
+          patch.object(server_routes, "vault_store", AsyncMock(side_effect=_fake_store))):
+        response = await client.post(f"/api/v1/servers/{station.id}/preparation")
+    assert response.status_code == 200
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def bridge(**kwargs):
+        started.set()
+        await release.wait()
+        return {**OK, "stdout": "host\\darckware"}
+
+    with patch.object(server_routes, "call_bridge_exec_as", bridge):
+        first = asyncio.create_task(client.post(f"/api/v1/servers/{station.id}/preparation/validate"))
+        await asyncio.wait_for(started.wait(), timeout=5)
+        second = await client.post(f"/api/v1/servers/{station.id}/preparation/validate")
+        assert second.status_code == 409
+        paused = await client.put(f"/api/v1/servers/{station.id}", json={"access_enabled": False})
+        assert paused.status_code == 200
+        release.set()
+        checked = await first
+    assert checked.status_code == 409
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, station.id)
+        assert row.preparation_pending and row.access_verified_at is None
+        assert row.remote_user == "administrador" and row.preparation_validation_until is None
+
+
+@pytest.mark.asyncio
+async def test_staging_blocks_inventory_and_key_mutation(client, station):
+    with (patch.object(server_routes, "_bridge_post", AsyncMock(side_effect=_bridge)),
+          patch.object(server_routes, "vault_store", AsyncMock(side_effect=_fake_store))):
+        response = await client.post(f"/api/v1/servers/{station.id}/preparation")
+    assert response.status_code == 200
+    changed = await client.put(f"/api/v1/servers/{station.id}", json={"ssh_port": 2222})
+    deleted = await client.delete(f"/api/v1/servers/{station.id}/key")
+    assert changed.status_code == deleted.status_code == 409

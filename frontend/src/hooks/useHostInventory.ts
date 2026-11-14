@@ -237,6 +237,7 @@ export interface HostPreparationInput {
   admin_user: string | null;
   admin_password: string | null;
   disable_admin: boolean;
+  use_stored_password?: boolean;
 }
 
 /** Puts a station under the `darckware` login (password generated and kept in
@@ -246,13 +247,31 @@ export interface HostPreparationInput {
 export function usePrepareHost() {
   const qc = useQueryClient();
   return useMutation<HostPreparation, Error, HostPreparationInput>({
-    mutationFn: async ({ serverId, ssh_port, ...body }) => {
-      if (ssh_port !== undefined) await apiClient.put(`/api/v1/servers/${serverId}`, { ssh_port });
-      return apiClient.post(`/api/v1/servers/${serverId}/preparation`, body);
-    },
+    mutationFn: ({ serverId, ...body }) => apiClient.post(`/api/v1/servers/${serverId}/preparation`, body),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["servers"] });
       void qc.invalidateQueries({ queryKey: ["host-executions"] });
+    },
+  });
+}
+
+/** Recover the same pending instructions; this audited reveal never creates new credentials. */
+export function useRecoverPreparation() {
+  return useMutation<HostPreparation, Error, string>({
+    mutationFn: (serverId) => apiClient.post(`/api/v1/servers/${serverId}/preparation/pending`),
+  });
+}
+
+export interface HostPreparationValidation { ok: boolean; detail?: string }
+
+/** Validate the staged key as darckware before activating this machine. */
+export function useValidatePreparation() {
+  const qc = useQueryClient();
+  return useMutation<HostPreparationValidation, Error, string>({
+    mutationFn: (serverId) => apiClient.post(`/api/v1/servers/${serverId}/preparation/validate`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["servers"] });
+      void qc.invalidateQueries({ queryKey: ["servers", "readiness"] });
     },
   });
 }
