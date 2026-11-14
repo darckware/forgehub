@@ -105,6 +105,105 @@ SELECT json_build_object('total',count(*),'invalid',count(*) FILTER (WHERE
 FROM company.user_sessions
 """
 
+# Probe without referencing optional relations at parse time. Partial installs,
+# historical use and an enabled feature all require the complete schema.
+COLLABORATION_SCHEMA_QUERY = """
+SELECT json_build_object('tables',
+ (CASE WHEN to_regclass('company.remote_collaboration_sessions') IS NOT NULL THEN 1 ELSE 0 END)+
+ (CASE WHEN to_regclass('company.remote_collaboration_commands') IS NOT NULL THEN 1 ELSE 0 END),
+ 'historical_events',(SELECT count(*) FROM company.audit_events
+ WHERE event_type LIKE 'remote_collaboration_%'))
+"""
+
+# Historical snapshots only: a Task may have completed or acquired another run.
+# Never compare its current run, assignee or status with the authorization.
+# Commands stay inside PostgreSQL; only aggregate integers cross the transport.
+COLLABORATION_QUERY = """
+WITH used AS (
+ SELECT c.*, s.id sid, s.agent_id session_agent, s.agent_demand_id task_id,
+ s.agent_run_id, s.server_id, s.owner_user_id, s.allow_elevation session_elevation,
+ s.created_at session_created, s.expires_at, s.ended_at,
+ e.id eid, e.agent_id execution_agent, e.agent_demand_id execution_task,
+ e.trigger, e.shell execution_shell, e.command execution_command,
+ e.started_at, e.finished_at, e.status execution_status, d.number message_number
+ FROM company.remote_collaboration_commands c
+ LEFT JOIN company.remote_collaboration_sessions s ON s.id=c.session_id
+ LEFT JOIN company.host_executions e ON e.id=c.execution_id
+ LEFT JOIN company.agent_demands d ON d.id=s.agent_demand_id
+ WHERE c.status='used' OR c.used_at IS NOT NULL OR c.execution_id IS NOT NULL
+), issues AS (
+ SELECT c.*,
+ (c.status='used' AND c.sid IS NOT NULL AND c.eid IS NOT NULL
+ AND c.message_number IS NOT NULL AND c.agent_run_id<>''
+ AND c.execution_agent=c.session_agent AND c.execution_task=c.task_id AND c.trigger='agent'
+ AND c.shell=c.execution_shell
+ AND c.command_sha256=encode(sha256(convert_to(c.command,'UTF8')),'hex')
+ AND (NOT c.allow_elevation OR c.session_elevation)
+ AND c.session_created<=c.created_at AND c.created_at<=c.started_at
+ AND c.started_at<=c.used_at AND c.used_at<=now() AND c.used_at<c.expires_at
+ AND (c.ended_at IS NULL OR c.used_at<=c.ended_at)
+ AND (c.finished_at IS NULL OR c.finished_at BETWEEN c.started_at AND now())) IS NOT TRUE bad_binding,
+ ((SELECT count(*) FROM company.host_execution_results r WHERE r.execution_id=c.eid)=1
+ AND EXISTS (SELECT 1 FROM company.host_execution_results r WHERE r.execution_id=c.eid
+ AND r.server_id=c.server_id
+ AND (r.started_at IS NULL OR r.started_at BETWEEN c.started_at AND now())
+ AND (r.finished_at IS NULL OR r.finished_at BETWEEN coalesce(r.started_at,c.started_at) AND now())
+ AND ((c.execution_status='running' AND r.status IN ('pending','running','succeeded','failed','skipped'))
+ OR (c.execution_status IN ('completed','cancelled') AND r.status IN ('succeeded','failed','skipped')
+ AND r.finished_at IS NOT NULL AND c.finished_at IS NOT NULL)))) IS NOT TRUE bad_result,
+ EXISTS (SELECT 1 FROM (VALUES ('remote_collaboration_session'),('server')) AS targets(kind)
+ CROSS JOIN (VALUES ('remote_collaboration_opened'),('remote_collaboration_command_authorized'),
+ ('remote_collaboration_command_run')) AS required(event)
+ WHERE NOT EXISTS (SELECT 1 FROM company.audit_events a
+ WHERE a.entity_type=targets.kind
+ AND a.entity_id=CASE WHEN targets.kind='server' THEN c.server_id ELSE c.sid END
+ AND a.event_type=required.event AND a.payload->>'session_id'=c.sid::text
+ -- now() defaults on audit rows are the transaction start, slightly before
+ -- Python's used_at. Bound the transaction witness without demanding equality.
+ AND a.created_at BETWEEN c.session_created-interval '1 minute' AND c.used_at+interval '1 minute'
+ AND a.created_at<=now()
+ AND ((required.event='remote_collaboration_opened'
+   AND a.payload->>'agent_id'=c.session_agent::text
+   AND a.payload->>'message_number'=c.message_number::text
+   AND a.payload->>'agent_run_id'=c.agent_run_id
+   AND a.payload->>'allow_elevation'=c.session_elevation::text)
+ OR (required.event='remote_collaboration_command_authorized'
+   AND a.payload->>'command_id'=c.id::text AND a.payload->>'command_sha256'=c.command_sha256
+   AND a.payload->>'shell'=c.shell AND a.payload->>'allow_elevation'=c.allow_elevation::text)
+ OR (required.event='remote_collaboration_command_run'
+   AND a.payload->>'command_id'=c.id::text AND a.payload->>'command_sha256'=c.command_sha256
+   AND a.payload->>'execution_command_sha256'=encode(sha256(convert_to(c.execution_command,'UTF8')),'hex')
+   AND a.payload->>'execution_id'=c.eid::text AND a.payload->>'server_id'=c.server_id::text
+   AND a.payload->>'message_number'=c.message_number::text
+   AND a.payload->>'agent_run_id'=c.agent_run_id AND a.payload->>'owner_user_id'=c.owner_user_id::text))
+ )) OR NOT EXISTS (SELECT 1 FROM company.audit_events a
+ WHERE a.entity_type='host_execution' AND a.entity_id=c.eid AND a.event_type='started'
+ AND a.payload->>'command'=c.execution_command AND a.payload->>'shell'=c.shell
+ AND a.payload->>'agent_id'=c.session_agent::text
+ AND a.payload->>'agent_demand_id'=c.task_id::text
+ AND a.created_at BETWEEN c.created_at-interval '1 minute' AND c.used_at+interval '1 minute'
+ AND a.created_at<=now()) missing_audit
+ FROM used c
+)
+SELECT json_build_object('collaboration_used',(SELECT count(*) FROM used),
+ 'collaboration_binding',count(*) FILTER (WHERE bad_binding),
+ 'collaboration_results',count(*) FILTER (WHERE bad_result),
+ 'collaboration_audit',count(*) FILTER (WHERE missing_audit),
+ 'collaboration_orphan_events',(SELECT count(*) FROM company.audit_events a
+ WHERE a.event_type='remote_collaboration_command_run' AND NOT EXISTS (
+ SELECT 1 FROM used c WHERE c.id::text=a.payload->>'command_id'
+ AND c.sid::text=a.payload->>'session_id' AND c.eid::text=a.payload->>'execution_id')))
+FROM issues
+"""
+
+
+# launch_execution masks with Python before consume records both digests.
+# Recheck that immutable witness and the started event, never emulate masking
+# or infer elevation from command text in a different regex engine.
+COLLABORATION_CHECK = ModuleCheck(COLLABORATION_QUERY,
+    ('collaboration_used','collaboration_binding','collaboration_results','collaboration_audit','collaboration_orphan_events'),
+    ('collaboration_binding','collaboration_results','collaboration_audit','collaboration_orphan_events'))
+
 ROUTINE_QUERY = """
 SELECT json_build_object('enabled',(SELECT count(*) FROM company.agent_routines WHERE enabled),
  'overdue',count(*) FILTER (WHERE r.enabled AND x.status IN ('scheduled','running')

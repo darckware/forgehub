@@ -263,6 +263,9 @@ async def logout(request: Request, current_user: User = Depends(get_current_user
     from app.db.models.user_session import UserSession
     payload = decode_access_token(token)
     if payload.get("sid"):
+        # Before deactivating the session: same lock order as an agent's collaborative command.
+        from app.core.remote_collaboration import end_sessions_for_logout
+        await end_sessions_for_logout(db, session_hash(payload["sid"]), current_user.username)
         await db.execute(update(UserSession).where(UserSession.token_hash == session_hash(payload["sid"]),
                                                    UserSession.user_id == current_user.id).values(is_active=False))
     record_user_event(db, "logout", current_user.username, current_user.id, request)

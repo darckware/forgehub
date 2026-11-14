@@ -28,7 +28,9 @@ stay `weekly`, the frequency the Sunday audit always gave them.
   batch starts.
   - When the batch finishes, the run is `completed`.
     `evidence_received` = every enabled check of the tier has a result in the
-    batch.
+    batch, with at least one result. An empty tier completes with
+    `no_action=true` and `evidence_received=false`; this is the expected quarterly
+    outcome while ECO-058 stays disabled.
   - A failing check still opens its owner's correction Task, as before.
 - **One batch at a time.** Routine tiers, the manual "Executar lista de
   verificação" (`POST /audit/run`) and the legacy `run-internal` all take the
@@ -50,11 +52,22 @@ stay `weekly`, the frequency the Sunday audit always gave them.
 - Audit runs do not use Athos's daily run budget.
 - **Verifier.** Every check command now carries `FORGEHUB_AUDIT_FREQUENCY=<tier>`.
   The verifier writes that value to Foundation's `check_interval`.
-- **ECO-023** passes only when the four routines are enabled with the
-  schedules above *and* each tier has completed a run within one period plus a
+- **ECO-023** accepts the four routines when they are enabled with the
+  schedules above *and* each tier has completed a fully evidenced batch within one period plus a
   day: daily 2 days, weekly 8, monthly 32, quarterly 93. The window counts from
-  the last completed run or from when the routine was enabled
-  (`agent_routines.enabled_at`). Until then the legacy cron still satisfies it.
+  the last qualifying completed run or from when the routine was enabled
+  (`agent_routines.enabled_at`, initial grace). Future timestamps never establish
+  recency. Nonempty tiers need `evidence_received=true` and a terminal result
+  for every enabled control in that routine batch. An empty tier needs
+  `completed`, `no_action=true`, `evidence_received=false`, no enabled checks
+  and no batch results. Until then the enabled legacy cron still satisfies it.
+  Coverage is intentionally checked against the **currently enabled** catalog:
+  adding/enabling a control or moving it to another tier can require a fresh
+  batch for that tier. This is a coverage requirement for today's configuration,
+  not a claim that the older batch was incomplete when it ran. Existing batches
+  are not rewritten. Removing/disabling controls does not invalidate their old
+  nonempty batches while evidence still covers the remaining enabled controls;
+  a tier that becomes empty needs a new no-action occurrence to prove it is empty.
 - **ECO-066** gains `failed_audit`: `failed` or `missed` runs of enabled audit
   routines in the last 7 days whose retry did not complete. It no longer
   counts a running audit batch as "missing demand".
@@ -108,13 +121,15 @@ Run each step only after the one before it is confirmed.
      93 days.
 6. **Verify every tier has a complete routine batch.**
    ```sql
-   SELECT r.audit_frequency, x.status, x.evidence_received, x.audit_batch_id, x.finished_at
+   SELECT r.audit_frequency, x.status, x.no_action, x.evidence_received, x.audit_batch_id, x.finished_at
    FROM company.agent_routine_runs x JOIN company.agent_routines r ON r.id = x.routine_id
    WHERE r.kind = 'audit' ORDER BY x.finished_at DESC;
-   -- one completed run with evidence_received = true for each of the four tiers
+   -- nonempty tiers: completed + evidence_received=true + full batch coverage
+   -- empty quarterly (ECO-058 disabled): completed + no_action=true + evidence_received=false
    ```
-   - Auditor → Faixas de frequência: all four tiers show "Último lote completo"
-     from today, and none says "atrasada".
+   - Auditor → Faixas de frequência: nonempty tiers show "Último lote completo"
+     from today. For the empty quarterly tier, inspect the completed occurrence
+     and the no-action flags above; do not require an evidence-bearing batch.
    - `SELECT requested_by, count(*) FROM company.audit_check_runs WHERE batch_id = '<id>' GROUP BY 1;`
      returns `routine | 21` for the daily batch.
    - On `hindsight_postgres`:

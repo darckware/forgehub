@@ -181,6 +181,13 @@ class Settings(BaseSettings):
     # the schema would publish every route's shape.
     ENVIRONMENT: str = "production"
     HOST_OUTPUT_RETENTION_DAYS: int = 90
+    # Collaborative execution in an active session with Marcelo
+    # (docs/architecture/REMOTE_ACCESS_RULE.md). Off, or an empty/invalid owner
+    # UUID, = every route of app/api/routes/remote_collaboration.py refuses
+    # (COLLABORATION_DISABLED). Stays off until review, homologation and
+    # Marcelo's explicit activation.
+    REMOTE_COLLABORATION_ENABLED: bool = False
+    REMOTE_COLLABORATION_OWNER_USER_ID: str = ""
     TEST_LINUX_TARGET_HOST: str = ""
     TEST_LINUX_TARGET_KEY: str = ""
 

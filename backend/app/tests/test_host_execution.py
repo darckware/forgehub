@@ -18,7 +18,7 @@ from app.core.secret_masking import MASK, mask_secrets
 from app.core.security import create_access_token
 from app.db.base import AsyncSessionLocal
 from app.db.models.governance import AuditEvent
-from app.db.models.host_execution import HostExecution
+from app.db.models.host_execution import HostExecution, HostExecutionResult
 from app.db.models.server import Server
 
 
@@ -322,8 +322,13 @@ async def test_agent_maintenance_needs_delegation_reason_and_a_prepared_machine(
     from app.db.models.host_script import HostScript, HostScriptCategory
     from app.db.models.user import User
     from app.main import app
+    from app.tests.fixtures.managed_machine import mark_managed_machine
 
     rows, created = machines
+    mark_managed_machine(rows["linux"])
+    async with AsyncSessionLocal() as db:
+        await db.merge(rows["linux"])
+        await db.commit()
     tag = uuid.uuid4().hex[:8]
     token = f"agt_test_{tag}"
     async with AsyncSessionLocal() as db:
@@ -406,6 +411,43 @@ async def test_agent_maintenance_needs_delegation_reason_and_a_prepared_machine(
                 assert got["trigger"] == "agent" and got["agent_name"] == f"maint-agent-{tag}"
                 assert got["reason"] == "Cliente relatou lentidão" and got["darckware_item_id"] == "T-42"
                 assert got["counts"]["succeeded"] == 1 and got["agent_demand_id"] == str(ids.task)
+
+                # A collaborative command holds this same machine-row lock
+                # until its execution is committed. The agent script endpoint
+                # must wait, then observe the committed run as busy instead of
+                # starting alongside it.
+                occupied_id = uuid.uuid4()
+                async with AsyncSessionLocal() as holder:
+                    await holder.execute(
+                        select(Server.id).where(Server.id == rows["linux"].id).with_for_update(key_share=True)
+                    )
+                    holder.add(HostExecution(
+                        id=occupied_id, shell="sh", command="uptime", timeout_seconds=30, status="running",
+                        requested_by="collaborative-agent", target_summary=rows["linux"].name,
+                        started_at=datetime.now(timezone.utc), trigger="agent", agent_id=ids.agent,
+                        agent_demand_id=ids.task,
+                    ))
+                    await holder.flush()
+                    holder.add(HostExecutionResult(
+                        execution_id=occupied_id, server_id=rows["linux"].id,
+                        server_name=rows["linux"].name, status="pending",
+                    ))
+                    await holder.flush()
+                    created.append(occupied_id)
+                    request = asyncio.create_task(ac.post(
+                        "/api/v1/host-executions/agent", json=body,
+                    ))
+                    done, _ = await asyncio.wait({request}, timeout=0.25)
+                    assert not done, "agent script route bypassed the collaborative machine lock"
+                    await holder.commit()
+                raced = await request
+                assert raced.status_code == 201, raced.text
+                raced_id = uuid.UUID(raced.json()["id"])
+                created.append(raced_id)
+                await _wait(str(raced_id))
+                raced_detail = (await ac.get(f"/api/v1/host-executions/agent/{raced_id}")).json()
+                assert raced_detail["counts"]["skipped"] == 1
+                assert raced_detail["results"][0]["skip_reason"] == "Already running another command"
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test",
                                headers={"Authorization": f"Bearer {create_access_token(f'grantor-{tag}')}"}) as ac:

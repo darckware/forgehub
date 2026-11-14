@@ -198,6 +198,7 @@ async def launch_execution(
     canary: bool = False,
     proposal_id: uuid.UUID | None = None,
     direct_access: dict[uuid.UUID, uuid.UUID] | None = None,
+    before_commit=None,
 ) -> HostExecution:
     """Creates the execution + one result per machine (skipped ones already
     closed with their reason), audits it and starts the background run.
@@ -206,7 +207,11 @@ async def launch_execution(
 
     A run inside a "Pedir ao agente" task records the task's Darckware item
     when none is given, and is refused (422 DARCKWARE_ITEM_MISMATCH) when a
-    different one is (remote-access support plan, Fase 3)."""
+    different one is (remote-access support plan, Fase 3).
+
+    `before_commit(execution)` runs after the execution and its results are
+    flushed and before the commit, so a caller can consume a single-use
+    authorization in the same transaction that records the run."""
     if agent_demand_id is not None:
         from app.core.work_item_maintenance import resolve_task_item
 
@@ -276,6 +281,8 @@ async def launch_execution(
             },
         )
     )
+    if before_commit is not None:
+        await before_commit(execution)
     await db.commit()
     await db.refresh(execution)
     if on_success is None and script is not None:
@@ -692,8 +699,19 @@ async def agent_create_execution(
         )
     item = darckware_item_of(payload.darckware_item_kind, payload.darckware_item_id)
     command, shell, secrets = await prepare_script_run(script, payload.parameter_values)
-    # Held until launch_execution commits: a pause waits for this run to be recorded.
+    # Serialize every machine against concurrent direct and collaborative
+    # launches. launch_execution checks busy_server_ids and commits the new
+    # results; without these row locks, that check can't see another
+    # transaction's uncommitted result, so both launches could start together.
+    # Keep the same lock order as run_direct_command (sorted by machine id), and
+    # hold the locks until launch_execution commits.
     await require_agent_access_active(db, lock=True)
+    await db.scalars(
+        select(Server.id)
+        .where(Server.id.in_([server.id for server in servers]))
+        .order_by(Server.id)
+        .with_for_update(key_share=True)
+    )
     execution = await launch_execution(
         db,
         servers=servers,
@@ -780,6 +798,15 @@ async def _check_against_task(
     require_remote_task_credential(principal, demand)
     if demand.status == "archived":
         raise HTTPException(status_code=409, detail=f"Message #{payload.message_number} is archived")
+    await _check_task_maintenance_scope(db, demand, script, servers)
+    return demand.id
+
+
+async def _check_task_maintenance_scope(db, demand, script, servers) -> None:
+    """Keep every API maintenance path inside the same request's machines/scripts.
+    Human collaboration management uses the same scope before authorizing a
+    command; the agent execution also checks the live run and credential above.
+    """
     spec = (await db.execute(
         select(AuditEvent).where(AuditEvent.entity_type == REQUEST_EVENT, AuditEvent.entity_id == demand.id)
         .order_by(AuditEvent.created_at.desc()).limit(1)
@@ -792,7 +819,6 @@ async def _check_against_task(
         allowed_scripts = (spec.payload or {}).get("script_ids") or []
         if allowed_scripts and (script is None or str(script.id) not in allowed_scripts):
             raise HTTPException(status_code=403, detail=f"Task #{demand.number} allows only the scripts it lists")
-    return demand.id
 
 
 async def agent_risk_ceilings(db: AsyncSession, agent_ids: list[uuid.UUID], servers: list[Server], project_id: uuid.UUID | None = None) -> dict[uuid.UUID, str]:

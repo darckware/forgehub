@@ -540,6 +540,9 @@ app.include_router(remote_file_transfer.router)
 
 from app.api.routes import direct_access
 app.include_router(direct_access.router)
+# Collaborative execution with Marcelo; off unless REMOTE_COLLABORATION_ENABLED.
+from app.api.routes import remote_collaboration
+app.include_router(remote_collaboration.router)
 app.include_router(host_script.router)
 app.include_router(host_script.schedules_router)
 app.include_router(remote_access.router)

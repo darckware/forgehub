@@ -13,6 +13,15 @@ sys.modules[SPEC.name] = v
 SPEC.loader.exec_module(v)
 
 
+@pytest.fixture(autouse=True)
+def fixed_verifier_clock(monkeypatch):
+    class Clock(_dt):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 11, 14, 13, tzinfo=_tz.utc)
+    monkeypatch.setattr(v, 'datetime', Clock)
+
+
 def metrics(**changes):
     return dict(total=10, failed=0, overdue=0, missing_deadlines=0,
                 unchecked_due=0, feedback_overdue=0, queued_due=0) | changes
@@ -101,7 +110,7 @@ def test_eco027_bare_words_do_not_hide_a_current_assertion(monkeypatch, text):
     assert not v.check_hindsight_obsolete().ok
 
 
-_RECENT = (_dt.now(_tz.utc) - _td(hours=1)).isoformat()
+_RECENT = "2026-11-14T12:00:00+00:00"
 AUDIT_ROUTINES = [
     {"frequency": "daily", "schedule": "0 19 * * *", "timezone": "America/Sao_Paulo", "enabled": True,
      "last_completed_at": _RECENT},
@@ -205,3 +214,31 @@ def test_eco023_falls_back_to_the_cron_when_a_tier_stopped_running(monkeypatch):
     assert not result.ok and "no completed run" in result.notes
     monkeypatch.setattr(v, "load_jobs", lambda: [LEGACY_CRON])
     assert v.check_weekly_audit().ok
+
+
+@pytest.mark.parametrize("field", ["last_completed_at", "enabled_at"])
+def test_eco023_future_dates_never_supply_recency(field):
+    rows = [_tier(f, last_completed_at=None, enabled_at=None) for f in v.AUDIT_ROUTINE_SCHEDULES]
+    rows[0][field] = (NOW + _td(seconds=1)).isoformat()
+    assert "daily: no completed run in 2 days" in v.audit_routine_problems(rows, NOW)
+
+
+def test_eco023_inventory_rejects_duplicate_tiers():
+    rows = [_tier(f, last_completed_at=NOW.isoformat()) for f in v.AUDIT_ROUTINE_SCHEDULES]
+    assert v.audit_routine_problems(rows + [rows[0]], NOW)
+
+
+def test_eco023_only_selects_complete_batches_or_proven_empty_tiers(monkeypatch):
+    queries = []
+    monkeypatch.setattr(v, "load_jobs", lambda: [])
+    def inventory(query, *args):
+        queries.append(query)
+        return json.dumps([])
+    monkeypatch.setattr(v, "psql", inventory)
+    assert not v.check_weekly_audit().ok
+    query = queries[0]
+    assert "x.evidence_received IS TRUE" in query
+    assert "x.no_action IS TRUE" in query
+    assert "company.audit_checks" in query and "company.audit_check_runs" in query
+    assert "x.finished_at<=now()" in query
+    assert "x.audit_batch_id IS NOT NULL" in query

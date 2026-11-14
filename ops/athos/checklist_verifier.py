@@ -343,6 +343,30 @@ AUDIT_ROUTINE_SCHEDULES = {
 # this window, counted from its last completed run or from when it was enabled.
 AUDIT_ROUTINE_WINDOWS_DAYS = {"daily": 2, "weekly": 8, "monthly": 32, "quarterly": 93}
 
+# Completion alone is not evidence. Check the batch's coverage, including
+# failing controls (a complete audit can correctly report failures).
+AUDIT_ROUTINE_INVENTORY_QUERY = """
+SELECT coalesce(json_agg(json_build_object(
+ 'frequency',r.audit_frequency,'schedule',r.schedule,'timezone',r.timezone,
+ 'enabled',r.enabled,'enabled_at',r.enabled_at,'last_completed_at',
+ (SELECT max(x.finished_at) FROM company.agent_routine_runs x
+ WHERE x.routine_id=r.id AND x.status='completed'
+ AND x.audit_batch_id IS NOT NULL AND x.finished_at<=now()
+ AND x.created_at<=x.finished_at AND x.occurrence_at<=x.finished_at
+ AND ((x.evidence_received IS TRUE
+   AND EXISTS (SELECT 1 FROM company.audit_checks c WHERE c.enabled AND c.frequency=r.audit_frequency)
+   AND NOT EXISTS (SELECT 1 FROM company.audit_checks c
+     WHERE c.enabled AND c.frequency=r.audit_frequency AND NOT EXISTS (
+       SELECT 1 FROM company.audit_check_runs y WHERE y.check_id=c.id
+       AND y.batch_id=x.audit_batch_id AND y.requested_by='routine'
+       AND y.status IN ('ok','fail','error','timeout')
+       AND y.created_at BETWEEN x.created_at AND x.finished_at)))
+ OR (x.no_action IS TRUE AND x.evidence_received IS FALSE
+   AND NOT EXISTS (SELECT 1 FROM company.audit_checks c WHERE c.enabled AND c.frequency=r.audit_frequency)
+   AND NOT EXISTS (SELECT 1 FROM company.audit_check_runs y WHERE y.batch_id=x.audit_batch_id))
+ )))), '[]'::json) FROM company.agent_routines r WHERE r.kind='audit'
+"""
+
 
 def _moment(value: object) -> datetime | None:
     if not isinstance(value, str):
@@ -361,6 +385,8 @@ def audit_routine_problems(rows: object, now: datetime | None = None) -> list[st
         return ["malformed audit routine inventory"]
     now = now or datetime.now(timezone.utc)
     by_tier = {row.get("frequency"): row for row in rows if isinstance(row, dict)}
+    if len(by_tier) != len(rows) or set(by_tier) - set(AUDIT_ROUTINE_SCHEDULES):
+        return ["malformed audit routine inventory"]
     problems = []
     for frequency, schedule in AUDIT_ROUTINE_SCHEDULES.items():
         row = by_tier.get(frequency)
@@ -374,7 +400,7 @@ def audit_routine_problems(rows: object, now: datetime | None = None) -> list[st
             window = AUDIT_ROUTINE_WINDOWS_DAYS[frequency]
             since = now.timestamp() - window * 86400
             moments = [_moment(row.get("last_completed_at")), _moment(row.get("enabled_at"))]
-            if not any(moment is not None and moment.timestamp() >= since for moment in moments):
+            if not any(moment is not None and since <= moment.timestamp() <= now.timestamp() for moment in moments):
                 problems.append(f"{frequency}: no completed run in {window} days")
     return problems
 
@@ -389,11 +415,7 @@ def check_weekly_audit() -> Result:
             and j.get("name") == "ecosystem-weekly-audit"]
     legacy_ok = len(jobs) == 1 and jobs[0].get("schedule", {}).get("expr") == "0 19 * * 0" and jobs[0].get("script") == "ecosystem_weekly_audit.sh"
     try:
-        rows = json.loads(psql(
-            "SELECT coalesce(json_agg(json_build_object('frequency',r.audit_frequency,'schedule',r.schedule,"
-            "'timezone',r.timezone,'enabled',r.enabled,'enabled_at',r.enabled_at,'last_completed_at',"
-            "(SELECT max(x.finished_at) FROM company.agent_routine_runs x WHERE x.routine_id=r.id "
-            "AND x.status='completed'))), '[]'::json) FROM company.agent_routines r WHERE r.kind='audit'",
+        rows = json.loads(psql(AUDIT_ROUTINE_INVENTORY_QUERY,
             "forgehub", "forgehub_postgres"))
         problems = audit_routine_problems(rows)
     except Exception as exc:  # before the migration: no audit_frequency column
@@ -1320,8 +1342,26 @@ def check_module_health(name: str) -> Result:
         check = module.CHECKS[name]
         counts = _metadata_counts(check.query, check.fields)
         healthy, notes = check.evaluate(counts)
+        if name == 'remote':
+            schema = _metadata_counts(module.COLLABORATION_SCHEMA_QUERY, ('tables', 'historical_events'))
+            switch = os.environ.get('REMOTE_COLLABORATION_ENABLED', 'false').strip().lower()
+            if switch not in ('true', '1', 'yes', 'on', 'false', '0', 'no', 'off'):
+                raise ValueError('Invalid collaboration switch')
+            expected = switch in ('true', '1', 'yes', 'on') or schema['historical_events'] > 0
+            if schema['tables'] == 2:
+                collaboration = module.COLLABORATION_CHECK
+                valid, evidence = collaboration.evaluate(_metadata_counts(collaboration.query, collaboration.fields))
+                healthy = healthy and valid
+                notes += '; ' + evidence
+            elif schema['tables'] == 0 and not expected:
+                notes += '; collaboration_not_applicable=1'
+            else:
+                healthy = False
+                notes += '; collaboration_unavailable=1'
         return ok(notes) if healthy else fail(notes)
     except Exception:
+        if name == 'remote':
+            return fail('remote_unavailable=1')
         return fail('NOT VERIFIED: module aggregate metadata unavailable')
 
 

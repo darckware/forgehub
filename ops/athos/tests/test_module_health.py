@@ -84,3 +84,62 @@ def test_failed_audit_clears_once_a_later_run_of_the_same_routine_completes():
     clause = m.ROUTINE_QUERY[m.ROUTINE_QUERY.index("'failed_audit'"):]
     assert "y.routine_id=x.routine_id" in clause
     assert "y.occurrence_at>x.occurrence_at" in clause and "y.retry_of_run_id=x.id" in clause
+
+
+def verifier():
+    spec = importlib.util.spec_from_file_location('remote_health_verifier', PATH.with_name('checklist_verifier.py'))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize('tables,events,enabled,healthy', [
+    (0, 0, 'false', True), (0, 0, 'true', False), (0, 1, 'false', False),
+    (1, 0, 'false', False), (2, 0, 'false', True), (2, 1, 'true', True),
+])
+def test_remote_collaboration_schema_gate(monkeypatch, tables, events, enabled, healthy):
+    import json
+    v = verifier()
+    monkeypatch.setenv('REMOTE_COLLABORATION_ENABLED', enabled)
+    calls = []
+    def metadata(query, *args):
+        calls.append(query)
+        if 'to_regclass' in query:
+            return json.dumps(dict(tables=tables, historical_events=events))
+        check = m.CHECKS['remote'] if query == m.REMOTE_QUERY else m.COLLABORATION_CHECK
+        return json.dumps({key: 0 for key in check.fields})
+    monkeypatch.setattr(v, 'psql', metadata)
+    result = v.CHECKS['ECO-064']()
+    assert result.ok is healthy
+    assert all(part.strip().split('=')[1].isdigit() for part in result.notes.split(';'))
+    assert any('remote_collaboration_commands c' in q for q in calls) is (tables == 2)
+
+
+def test_collaboration_aggregate_rejects_every_historical_violation():
+    check = m.COLLABORATION_CHECK
+    baseline = {key: 0 for key in check.fields} | {'collaboration_used': 3}
+    assert check.evaluate(baseline)[0]
+    for field in check.violations:
+        assert not check.evaluate(baseline | {field: 1})[0]
+
+
+def test_collaboration_query_binds_history_instead_of_current_task_run():
+    query = m.COLLABORATION_QUERY
+    for required in ('remote_collaboration_opened', 'remote_collaboration_command_authorized',
+                     'remote_collaboration_command_run', "'remote_collaboration_session'", "'server'",
+                     'e.agent_id', 'e.agent_demand_id', 'r.server_id', 'c.command_sha256',
+                     's.agent_run_id', 'e.shell', 'c.allow_elevation', 'c.used_at', 's.expires_at'):
+        assert required in query
+    assert 'd.agent_run_id' not in query
+    assert 'd.target_agent_id' not in query
+    assert 'sha256(convert_to(c.command' in query
+
+
+@pytest.mark.parametrize('payload', ['not JSON', '{}', '{"tables":true,"historical_events":0}'])
+def test_remote_unreadable_metadata_is_count_only_failure(monkeypatch, payload):
+    v = verifier()
+    monkeypatch.setattr(v, 'psql', lambda *args: payload)
+    result = v.CHECKS['ECO-064']()
+    assert not result.ok
+    assert result.notes == 'remote_unavailable=1'
