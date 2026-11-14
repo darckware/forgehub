@@ -5,6 +5,7 @@ import i18n from "@/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuditTiersViewModel } from "@/hooks/useAuditTiersViewModel";
+import { useAuthStore } from "@/store/authStore";
 
 function formatTimestamp(value: string | null): string {
   if (!value) return "—";
@@ -17,6 +18,7 @@ function formatTimestamp(value: string | null): string {
 export function AuditTiersPanel() {
   const { t } = useTranslation("auditor");
   const vm = useAuditTiersViewModel();
+  const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
   if (vm.status !== "ready" || vm.tiers.length === 0) return null;
   return (
     <section aria-label={t("auditor.tiers.title")} className="rounded-md border bg-card p-4">
@@ -32,6 +34,7 @@ export function AuditTiersPanel() {
         </Link>
       </div>
       {vm.runError && <p role="alert" className="mt-2 text-sm text-destructive">{t("auditor.runFailed")}: {vm.runError}</p>}
+      {vm.startedTier && <p role="status" className="mt-2 text-sm text-muted-foreground">{t("auditor.tiers.started", { tier: t(`auditor.frequency.${vm.startedTier}`) })}</p>}
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {vm.tiers.map((tier) => (
           <div key={tier.frequency} className="rounded-md border border-border/70 p-3 text-xs">
@@ -67,17 +70,19 @@ export function AuditTiersPanel() {
                 </div>
               )}
             </dl>
-            <Button
-              size="sm"
-              variant="outline"
-              className="mt-3 w-full gap-1.5 max-md:h-auto max-md:whitespace-normal"
-              aria-label={t("auditor.tiers.runTier", { tier: t(`auditor.frequency.${tier.frequency}`) })}
-              disabled={vm.runningTier !== null || tier.enabled_checks === 0}
-              onClick={() => vm.runTier(tier.frequency)}
-            >
-              {vm.runningTier === tier.frequency ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
-              {t("auditor.tiers.runNow")}
-            </Button>
+            {isAdmin && tier.routine_id && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-3 w-full gap-1.5 max-md:h-auto max-md:whitespace-normal"
+                aria-label={t("auditor.tiers.runTier", { tier: t(`auditor.frequency.${tier.frequency}`) })}
+                disabled={vm.runningTier !== null || tier.enabled_checks === 0}
+                onClick={() => vm.runTier(tier)}
+              >
+                {vm.runningTier === tier.frequency ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
+                {t("auditor.tiers.runNow")}
+              </Button>
+            )}
           </div>
         ))}
       </div>

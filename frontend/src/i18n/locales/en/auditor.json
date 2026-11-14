@@ -124,7 +124,8 @@
       "nextDue": "Next run",
       "overdue": "overdue",
       "runNow": "Run tier now",
-      "runTier": "Run the {{tier}} tier now"
+      "runTier": "Run the {{tier}} tier now",
+      "started": "The {{tier}} tier batch started in the background; its result shows here when it finishes."
     }
   }
 }

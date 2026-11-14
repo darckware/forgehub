@@ -124,7 +124,8 @@
       "nextDue": "Próxima ejecución",
       "overdue": "atrasada",
       "runNow": "Ejecutar franja ahora",
-      "runTier": "Ejecutar ahora la franja {{tier}}"
+      "runTier": "Ejecutar ahora la franja {{tier}}",
+      "started": "Lote de la franja {{tier}} iniciado en segundo plano; el resultado aparece aquí al terminar."
     }
   }
 }

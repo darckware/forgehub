@@ -7,13 +7,14 @@ import AuditorPage from ".";
 import { ApiError } from "@/lib/api";
 
 const mocks = vi.hoisted(() => ({ checks: vi.fn(), status: vi.fn(), remediate: vi.fn(), setFrequency: vi.fn(),
-  runAll: vi.fn(), admin: { value: true } }));
+  runAll: vi.fn(), runRoutine: vi.fn(), admin: { value: true } }));
 vi.mock("@/store/authStore", () => ({
   useAuthStore: (selector: (s: { user: { is_admin: boolean } }) => unknown) => selector({ user: { is_admin: mocks.admin.value } }),
 }));
 vi.mock("@/hooks/useAudit", () => ({
   AUDIT_FREQUENCIES: ["daily", "weekly", "monthly", "quarterly"],
   useSetAuditCheckFrequency: () => ({ mutate: mocks.setFrequency, isPending: false }),
+  useRunAuditRoutineNow: () => ({ mutate: mocks.runRoutine, isPending: false }),
   useAuditChecks: () => mocks.checks(), useAuditStatus: () => mocks.status(),
   useAuditRuns: () => ({ data: [], isLoading: false }),
   useCreateAuditCheck: () => ({ mutate: vi.fn(), isPending: false }),
@@ -41,6 +42,7 @@ beforeEach(() => {
   mocks.admin.value = true;
   mocks.setFrequency.mockReset();
   mocks.runAll.mockReset();
+  mocks.runRoutine.mockReset();
   mocks.checks.mockReturnValue({ data: [check], isLoading: false, isError: false });
   mocks.status.mockReturnValue({ data: { total: 1, enabled: 1, ok: 0, fail: 1, never_ran: 0,
     last_run_at: "2026-10-04T00:00:00Z", athos_monitor: monitor }, isError: false });
@@ -154,7 +156,12 @@ it.each([["pt-BR", "Faixas de frequência", "Executar agora a faixa Mensal"],
   show();
   expect(screen.getByRole("region", { name: title })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: runLabel }));
-  expect(mocks.runAll).toHaveBeenCalledWith("monthly", expect.anything());
+  // Through the tier routine's background run-now, never a synchronous batch.
+  expect(mocks.runRoutine).toHaveBeenCalledWith("r-monthly", expect.anything());
+  expect(mocks.runAll).not.toHaveBeenCalled();
+  // A tier with no routine has nothing to run.
+  const quarterly = i18n.t("auditor.tiers.runTier", { ns: "auditor", tier: i18n.t("auditor.frequency.quarterly", { ns: "auditor" }) });
+  expect(screen.queryByRole("button", { name: quarterly })).not.toBeInTheDocument();
 });
 
 it("labels the replaced legacy cron and the tier states", () => {
@@ -168,4 +175,12 @@ it("labels the replaced legacy cron and the tier states", () => {
   expect(screen.getByText("Rotina pausada")).toBeInTheDocument();
   expect(screen.getByText("Sem rotina")).toBeInTheDocument();
   expect(screen.getByText(/atrasada/)).toBeInTheDocument();
+});
+
+it("hides the tier run buttons from a non-admin", () => {
+  mocks.admin.value = false;
+  mocks.status.mockReturnValue({ data: { total: 1, enabled: 1, ok: 0, fail: 1, never_ran: 0, last_run_at: null,
+    athos_monitor: monitor, schedule_source: "hermes_cron", tiers: [tier("daily")] }, isError: false });
+  show();
+  expect(screen.queryByRole("button", { name: "Executar agora a faixa Diária" })).not.toBeInTheDocument();
 });

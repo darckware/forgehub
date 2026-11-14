@@ -124,7 +124,8 @@
       "nextDue": "Próxima execução",
       "overdue": "atrasada",
       "runNow": "Executar faixa agora",
-      "runTier": "Executar agora a faixa {{tier}}"
+      "runTier": "Executar agora a faixa {{tier}}",
+      "started": "Lote da faixa {{tier}} iniciado em segundo plano; o resultado aparece aqui ao terminar."
     }
   }
 }

@@ -212,6 +212,21 @@ export function useRunAllAuditChecks() {
   });
 }
 
+/** Admin: run a tier now through its audit routine ("Executar agora"). The
+ * batch runs in the background, so this returns at once instead of holding
+ * an HTTP request for the whole batch; the tier's status refreshes after. */
+export function useRunAuditRoutineNow() {
+  const invalidate = useInvalidateAudit();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (routineId: string) => apiClient.post<unknown>(`/api/v1/operations/routines/${routineId}:run-now`),
+    onSuccess: () => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ["operations"] });
+    },
+  });
+}
+
 /** Admin: move a check to another frequency tier. */
 export function useSetAuditCheckFrequency() {
   const invalidate = useInvalidateAudit();
