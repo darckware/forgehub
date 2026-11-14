@@ -361,6 +361,8 @@
     "selectPage": "Selecionar página",
     "selectItem": "Selecionar mensagem #{{number}}",
     "restoreHint": "Restaurar preserva o histórico e remove o agendamento. Uma nova aprovação será necessária para executar.",
+    "quotaResume": "Revisar retomada após cota",
+    "quotaResumeHint": "Confira os efeitos e o resultado da tentativa anterior. Confirme o identificador da execução para liberar a revisão da retomada com o mesmo agente. As aprovações continuam obrigatórias.",
     "authorizeRetryHint": "A autorização renova o limite sem iniciar a tarefa. Confira as evidências e depois aprove explicitamente a entrada na fila.",
     "evidence": "Referência da evidência",
     "history": "Histórico de decisões e tentativas",
@@ -373,6 +375,11 @@
       "stale": "Alterada — revise novamente"
     },
     "blocked": {
+      "quota_reset_unknown": "O provedor não informou o horário de reset.",
+      "quota_reset_pending": "Aguarde o reset da cota.",
+      "quota_context_changed": "O contexto mudou; revise antes de retomar.",
+      "quota_run_evidence_missing": "Não há identificador da execução anterior.",
+      "quota_effects_review_required": "Revise os efeitos antes de autorizar a retomada.",
       "reconciliation_required": "Reconcilie a execução anterior.",
       "execution_active": "A execução está ativa.",
       "linked_history": "O resumo preserva registros vinculados.",
@@ -391,6 +398,9 @@
       "moodle_flow_required": "Use Aprovações Moodle para decidir esta operação."
     },
     "events": {
+      "demand_quota_wait": "Aguardando reset da cota",
+      "demand_quota_wait_released": "Espera por cota liberada",
+      "demand_quota_continuation_authorized": "Retomada após cota revisada",
       "demand_approve": "Aprovar e liberar",
       "demand_reject": "Reprovar",
       "demand_postpone": "Adiar deliberação",

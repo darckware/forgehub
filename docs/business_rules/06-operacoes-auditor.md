@@ -42,3 +42,29 @@ atualizada separadamente.
 - [Cobertura e release do módulo](../operations/auditor-module-coverage-release.md)
 - [Runbook de recuperação de cron do Auditor](../runbooks/auditor-cron-recovery.md)
 - `backend/app/core/audit_catalog.py`, `audit_routines.py`, `audit_remediation.py`.
+
+## Espera por cota dos agentes externos
+
+- Codex, Claude Code e agy com limite de uso reconhecido entram em
+  `waiting_quota`, estado não terminal, exibido como **Aguardando reset da cota**.
+  A tarefa conserva o agente, a identidade do run, a saída e o histórico de tentativas.
+- Cota esgotada não produz falha do trabalho, diagnóstico automático, conclusão ou
+  arquivamento. O total de dispatches permanece auditável; saídas por cota não
+  consomem o orçamento de tentativas por falhas do trabalho.
+- O reset vem da resposta do provedor. Sem horário reconhecido, o valor fica nulo,
+  a tarefa permanece em espera e não recebe nova execução automática. Outras tarefas
+  para esse executor também mostram a indisponibilidade de cota conhecida pelo sistema.
+- Depois de um reset confirmado e da margem existente de cinco minutos, tarefas
+  comuns retomam no mesmo executor somente com conteúdo e autorizações preservados.
+  A espera não ocupa uma vaga de execução.
+- Execuções vinculadas à Fábrica, missões e aprovações de efeito único exigem revisão
+  explícita dos efeitos antes da continuação: **Autorizar nova tentativa**, com motivo,
+  referência de evidência e confirmação do ID exato do run, seguido da aprovação do
+  conteúdo pelo fluxo existente. O registro de continuação preserva o resultado anterior.
+  O Moodle continua restrito ao seu fluxo próprio de aprovação; essa ação não o substitui.
+- A retomada revalida baseline, permissões, dependências e exclusividade de alvos.
+  Missões e revisões aguardam sem criar outra execução nem trocar executor/revisor.
+  Registros históricos já arquivados não são reabertos automaticamente.
+
+Estado desta alteração: implementada em worktree, aguardando revisão final e
+aprovação de integração/publicação; requer a migração `d3f6a8b2c901`.

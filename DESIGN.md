@@ -177,3 +177,15 @@ Pending copy instructions can be recovered after reload; explicit key validation
 activates the candidate credentials. A failed verification retains the pending state
 and existing active access. Each machine owns a password and SSH key in ForgeVault;
 the password source selector never reveals a stored credential to the browser.
+
+
+## External agent quota waits (2026-11-14)
+
+Messages and Personal agent tasks reuse MessageLabels and the shared Badge with an
+outline neutral waiting state. Show “Aguardando reset da cota” with the quota reset
+date, time and timezone in rows and details. Missing or invalid reset metadata is
+explicitly “Horário não informado pelo provedor”; never show a guessed countdown.
+Quota waits remain open work and use waiting views, without failure colors, spinning
+execution icons, or retention eligibility. Executor identity remains visible in the
+existing sender/target and agent columns. Existing CSS tokens, typography and layout
+own all visuals; labels and timestamps wrap on narrow screens.

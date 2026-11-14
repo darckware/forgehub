@@ -354,6 +354,8 @@ function ReadingPane({
   onOpen: (demand: Demand) => void;
 }) {
   const { t, i18n } = useTranslation("demands");
+  const { data: executorAgents } = useAgents();
+  const executorName = executorAgents?.find(agent => agent.id === demand.target_agent_id)?.name;
   const updateStatus = useUpdateDemandStatus();
   const promoteToTask = useUpdateDemand();
   const reprocessOne = useReprocessDemands();
@@ -363,7 +365,7 @@ function ReadingPane({
   // agent has no runtime_type, see run_scheduled_dispatch_pass) sets
   // dispatch_status="failed" with no agent_run_id, since it never got that
   // far. Polling anyway 400s ("This item has not been dispatched").
-  const dispatchStatus = useDispatchStatus(demand.id, Boolean(demand.dispatch_status) && Boolean(demand.agent_run_id));
+  const dispatchStatus = useDispatchStatus(demand.id, ["dispatched", "running", "failed"].includes(demand.dispatch_status ?? "") && Boolean(demand.agent_run_id));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [sendToOutgoingOpen, setSendToOutgoingOpen] = useState(false);
 
@@ -406,7 +408,7 @@ function ReadingPane({
           <span>· {formatTimestamp(demand.created_at, i18n.language)}</span>
         </div>
         <DemandContextPanel demand={demand} demands={allDemands} projectName={projectName} onOpen={onOpen} />
-        <div className="mt-3"><MessageLabels demand={demand} detail /></div>
+        <div className="mt-3"><MessageLabels demand={demand} executorName={executorName} detail /></div>
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <Button size="sm" variant="outline" className="gap-1.5" onClick={onEdit}>
             <Pencil className="h-3.5 w-3.5" /> {t("editButton")}
@@ -570,6 +572,8 @@ function DemandListRow({
   awaitingResponse: boolean;
 }) {
   const { t, i18n } = useTranslation("demands");
+  const { data: executorAgents } = useAgents();
+  const executorName = executorAgents?.find(agent => agent.id === demand.target_agent_id)?.name;
   return (
     <div className="border-b border-border/50">
     <button
@@ -620,7 +624,7 @@ function DemandListRow({
       <span className="truncate text-xs text-muted-foreground">
         <span className="text-muted-foreground/70">#{demand.number}</span> {demand.subject}
       </span>
-      <MessageLabels demand={demand} />
+      <MessageLabels demand={demand} executorName={executorName} />
       {demand.attachments.length > 0 && (
         <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
           <Paperclip className="h-3 w-3" /> {demand.attachments.length}

@@ -6,7 +6,7 @@ from app.api.schemas.demand import DemandOut
 from app.db.models.demand import AgentDemand
 from app.db.models.operations import AgentQuestion
 from app.db.models.moodle_approval import MoodleApproval
-from app.core.demand_workflow import requires_reconciliation as uncertain
+from app.core.demand_workflow import effective_dispatch_attempts, requires_reconciliation as uncertain
 from app.db.models.message_triage import MessageTriageResult
 from app.core.message_triage_revision import context_revision_sql
 
@@ -32,6 +32,7 @@ def work_state_sql():
         AgentQuestion.blocking.is_(True), AgentQuestion.status == "pending"))
     return case(
         (AgentDemand.status == "archived", "archived"),
+        (AgentDemand.dispatch_status == "waiting_quota", "waiting"),
         (and_(AgentDemand.dispatch_status == "failed", or_(
             and_(AgentDemand.agent_run_id.isnot(None), or_(AgentDemand.dispatch_error.is_(None), AgentDemand.dispatch_error == "")),
             AgentDemand.dispatch_error.ilike("%uncertain%"))), "uncertain"),
@@ -85,6 +86,7 @@ def operator_state_sql():
         return exists(select(MessageTriageResult.message_id).where(current,MessageTriageResult.operator_state==state))
     return case(
         (AgentDemand.status=="archived","resolved"),
+        (AgentDemand.dispatch_status=="waiting_quota","waiting"),
         (or_(question,and_(AgentDemand.requires_approval.is_(True),or_(
             AgentDemand.approval_status.is_(None),AgentDemand.approval_status=="pending"))),"decision"),
         (or_(AgentDemand.dispatch_status.in_(("dispatched","running")),and_(
@@ -129,6 +131,8 @@ async def work_item(db, demand, state):
     direct_moodle = moodle is not None
     if moodle is None and demand.failure_check_source_id:
         moodle = await db.scalar(select(MoodleApproval).where(MoodleApproval.message_id == demand.failure_check_source_id))
+    from app.core.quota_wait import is_factory_quota_continuation
+    factory_continuation = await is_factory_quota_continuation(db, demand)
     actions, blocked = [], {}
     for action in ("approve", "reject", "postpone", "drop", "archive", "restore", "delete", "reconcile", "retry", "authorize_retry", "request_approval",
                    "record_investigation", "confirm_inactive"):
@@ -162,9 +166,14 @@ async def work_item(db, demand, state):
         elif action in ("retry", "authorize_retry"):
             if uncertain(demand):
                 reason = "reconciliation_required"
+            elif demand.dispatch_status == "waiting_quota":
+                from datetime import datetime, timezone
+                from app.core.quota_wait import quota_resume_blocker
+                reason = ("quota_effects_review_required" if action == "retry" else
+                          quota_resume_blocker(demand, datetime.now(timezone.utc)))
             elif demand.dispatch_status != "failed" or demand.origin_type != "task":
                 reason = "no_terminal_failure"
-            elif action == "retry" and (demand.dispatch_attempts >= (demand.retry_limit or 3)):
+            elif action == "retry" and (effective_dispatch_attempts(demand) >= (demand.retry_limit or 3)):
                 reason = "retry_limit"
             elif action == "retry" and demand.requires_approval and demand.approval_status != "approved":
                 reason = "approval_required"
@@ -174,7 +183,7 @@ async def work_item(db, demand, state):
             elif action == "approve":
                 if blocked_question:
                     reason = "blocking_question"
-                elif not demand.from_agent_id or not demand.target_agent_id or not (demand.working_path or "").startswith("/"):
+                elif (not demand.from_agent_id and not factory_continuation) or not demand.target_agent_id or not (demand.working_path or "").startswith("/"):
                     reason = "execution_context_missing"
         elif action in ("postpone", "drop") and demand.origin_type != "incubation":
             reason = "not_incubation"

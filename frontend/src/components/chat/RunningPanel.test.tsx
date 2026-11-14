@@ -12,6 +12,7 @@ vi.mock("@/hooks/useDemands", () => ({
     data: [
       { number: 7, subject: "Revisar deploy", dispatch_status: "dispatched", target_agent_id: "a1" },
       { number: 8, subject: "Já feito", dispatch_status: "completed", target_agent_id: "a1", dispatch_result: "pronto" },
+      { number: 9, subject: "Esperar cota", dispatch_status: "waiting_quota", target_agent_id: "a1" },
     ],
   }),
 }));
@@ -42,6 +43,14 @@ function renderPanel(subagents: ChatSubagent[], delegationNumbers: number[] = []
 }
 
 describe("RunningPanel", () => {
+  it("shows quota delegation as waiting without counting it as running or finished", () => {
+    const view = renderPanel([], [9]);
+    expect(screen.getByText("Esperar cota")).toBeInTheDocument();
+    expect(screen.getByText(/dispatch.status.waitingQuota/)).toBeInTheDocument();
+    expect(screen.getByText("running.noneRunning")).toBeInTheDocument();
+    expect(screen.queryByText(/running.finished/)).not.toBeInTheDocument();
+    expect(view.container.querySelector(".animate-spin")).toBeNull();
+  });
   it("renders nothing when there is nothing to list", () => {
     const { container } = renderPanel([]);
     expect(container).toBeEmptyDOMElement();

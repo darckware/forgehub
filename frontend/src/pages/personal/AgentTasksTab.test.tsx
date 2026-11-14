@@ -52,6 +52,20 @@ beforeEach(async () => {
 });
 
 describe("operator deliberation", () => {
+  it("shows quota waiting in the task row and detail without error treatment", () => {
+    mocks.demands.mockReturnValue({ data: { items: [item({
+      dispatch_status: "waiting_quota", requires_approval: false,
+      operator_state: "waiting", execution_wait_reason: "quota", execution_wait_until: null,
+      message_labels: ["quota_unavailable"], allowed_actions: [],
+    } as Partial<Demand>)], total: 1, page: 1, counts: {}, contexts: [] } });
+    open("/personal?tab=agent-work&workTab=tasks&taskView=waiting");
+    expect(within(screen.getByRole("table")).getByText("Aguardando reset da cota")).toBeInTheDocument();
+    expect(screen.getByText("Horário não informado pelo provedor")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Revisar backup/ }));
+    expect(screen.getAllByText("Aguardando reset da cota")).toHaveLength(2);
+    expect(screen.getAllByText("Horário não informado pelo provedor")).toHaveLength(2);
+    expect(screen.queryByText("Falha")).not.toBeInTheDocument();
+  });
   it("defaults incubations to operator decisions while preserving promotion", () => {
     mocks.demands.mockReturnValue({ data: { items: [item({ origin_type: "incubation" })], total: 1, page: 1, counts: {}, contexts: [] } });
     open(); fireEvent.click(screen.getByRole("tab", { name: "Incubações" }));
@@ -334,6 +348,20 @@ describe("operator deliberation", () => {
     mocks.demands.mockReturnValue({ data: { items: [item({ dispatch_status: "failed", dispatch_error: "Known failure", dispatch_attempts: 3, retry_limit: 3, allowed_actions: ["authorize_retry", "archive", "delete"] } as Partial<Demand>)], total: 1, page: 1, page_size: 25, counts: {}, contexts: [] } });
     open(); fireEvent.click(screen.getByRole("button", { name: /Revisar backup/ }));
     expect(screen.getByRole("button", { name: "Autorizar nova tentativa" })).toBeInTheDocument();
+  });
+  it("requires the exact prior run and evidence before reviewing a quota continuation", async () => {
+    mocks.demands.mockReturnValue({ data: { items: [item({ dispatch_status: "waiting_quota", agent_run_id: "quota-run-42", requires_approval: false, allowed_actions: ["authorize_retry"] } as Partial<Demand>)], total: 1, page: 1, counts: {}, contexts: [] } });
+    open(); fireEvent.click(screen.getByRole("button", { name: /Revisar backup/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Revisar retomada após cota" }));
+    const dialog = screen.getByRole("dialog");
+    const confirm = within(dialog).getByRole("button", { name: "Revisar retomada após cota" });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText("Referência da evidência"), { target: { value: "audit:effects-reviewed" } });
+    fireEvent.change(within(dialog).getByLabelText("Motivo ou comentário"), { target: { value: "Efeitos conferidos" } });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText(/quota-run-42/), { target: { value: "quota-run-42" } });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith("/api/v1/demands/work-1/decision", expect.objectContaining({ action: "authorize_retry", confirmation: "quota-run-42", evidence_ref: "audit:effects-reviewed" })));
   });
 
   it("exposes server filters and confirms only the selected page items", async () => {

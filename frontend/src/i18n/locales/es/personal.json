@@ -361,6 +361,8 @@
     "selectPage": "Seleccionar página",
     "selectItem": "Seleccionar mensaje #{{number}}",
     "restoreHint": "Restaurar conserva el historial y elimina la programación. Ejecutar requiere una nueva aprobación.",
+    "quotaResume": "Revisar reanudación tras la cuota",
+    "quotaResumeHint": "Revise los efectos y el resultado del intento anterior. Confirme el identificador de ejecución para liberar la revisión con el mismo agente. Las aprobaciones siguen siendo obligatorias.",
     "authorizeRetryHint": "La autorización renueva el límite sin iniciar la tarea. Compruebe la evidencia y apruebe explícitamente su entrada en la cola.",
     "evidence": "Referencia de la evidencia",
     "history": "Historial de decisiones e intentos",
@@ -373,6 +375,11 @@
       "stale": "Modificada — revise de nuevo"
     },
     "blocked": {
+      "quota_reset_unknown": "El proveedor no informó la hora del reinicio.",
+      "quota_reset_pending": "Espere el reinicio de la cuota.",
+      "quota_context_changed": "El contexto cambió; revíselo antes de reanudar.",
+      "quota_run_evidence_missing": "Falta el identificador de la ejecución anterior.",
+      "quota_effects_review_required": "Revise los efectos antes de autorizar la reanudación.",
       "reconciliation_required": "Reconcilie la ejecución anterior.",
       "execution_active": "La ejecución está activa.",
       "linked_history": "El resumen conserva el historial vinculado.",
@@ -391,6 +398,9 @@
       "moodle_flow_required": "Use Aprobaciones Moodle para decidir esta operación."
     },
     "events": {
+      "demand_quota_wait": "Esperando el reinicio de la cuota",
+      "demand_quota_wait_released": "Espera por cuota liberada",
+      "demand_quota_continuation_authorized": "Reanudación tras cuota revisada",
       "demand_approve": "Aprobar y liberar",
       "demand_reject": "Rechazar",
       "demand_postpone": "Aplazar decisión",

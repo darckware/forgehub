@@ -31,6 +31,7 @@ FAILOVER_ORDER = ("codex", "agy", "claude")
 def can_switch(demand: AgentDemand) -> bool:
     return not (
         demand.fixed_agent
+        or bool(getattr(demand, "quota_dispatch_attempts", 0))
         or demand.requires_approval
         or demand.task_execution_id
         or demand.mission_context_version_id

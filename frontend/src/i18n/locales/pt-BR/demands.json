@@ -81,7 +81,8 @@
       "needsCorrection": "Aguardando correção",
       "blocked": "Bloqueada",
       "queuedRetry": "Aguardando nova tentativa",
-      "awaitingExecutor": "Aguardando executor"
+      "awaitingExecutor": "Aguardando executor",
+      "waitingQuota": "Aguardando reset da cota"
     }
   },
   "sendToOutgoing": {
@@ -247,6 +248,9 @@
     "close": "Fechar",
     "authority": "Só uma autorização ou decisão humana real leva a Pessoal. Esperar por executor, cota ou serviço não pede nova aprovação. Até três etiquetas aparecem por mensagem.",
     "waitUntil": "Próxima verificação: {{date}}",
+    "quotaExecutor": "Executor: {{agent}}",
+    "quotaReset": "Reset da cota: {{date}}",
+    "quotaResetUnknown": "Horário não informado pelo provedor",
     "destinations": {
       "agent_tasks": "Pessoal · Tarefas dos agentes · Aprovações",
       "incubations": "Pessoal · Tarefas dos agentes · Incubações",
@@ -271,8 +275,8 @@
         "description": "O trabalho já está autorizado e aguarda capacidade ou disponibilidade do executor. Não precisa de nova aprovação."
       },
       "quota_unavailable": {
-        "label": "Sem cota disponível",
-        "description": "A cota do executor está indisponível. A espera não significa nova autorização humana."
+        "label": "Aguardando reset da cota",
+        "description": "A cota do agente terminou. A tarefa aguarda o reset com o mesmo executor e mantém as aprovações existentes."
       },
       "executor_busy": {
         "label": "Executor ocupado",

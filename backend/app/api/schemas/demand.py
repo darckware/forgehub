@@ -369,6 +369,7 @@ class DemandOut(BaseModel):
     # .../pending -- see AgentDemand.agent_processed_at's docstring. Never
     # sent by the compose form.
     agent_processed_at: datetime | None
+    quota_reset_at: datetime | None = None
     dispatch_status: str | None
     agent_run_id: str | None
 
@@ -387,6 +388,7 @@ class DispatchIn(BaseModel):
 
 
 class DispatchStatusOut(BaseModel):
+    quota_reset_at: datetime | None = None
     dispatch_status: str | None
     agent_run_id: str | None
     reply_demand_id: uuid.UUID | None = None

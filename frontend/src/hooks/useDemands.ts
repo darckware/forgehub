@@ -54,11 +54,12 @@ export type DemandAttachment = z.infer<typeof attachmentSchema>;
 export function isExecutionOpen(demand: Demand): boolean {
   return demand.status !== "archived" &&
     ((demand.dispatch_status === null && (demand.message_labels ?? []).includes("awaiting_executor")) ||
-      ["dispatched", "running", "failed"].includes(demand.dispatch_status ?? "") ||
+      ["dispatched", "running", "failed", "waiting_quota"].includes(demand.dispatch_status ?? "") ||
       (demand.dispatch_status === null && ((demand.dispatch_attempts ?? 0) > 0 || Boolean(demand.failure_check_source_id))));
 }
 
 export function executionStage(demand: Demand): string | null {
+  if (demand.dispatch_status === "waiting_quota") return "waitingQuota";
   if (isExecutionOpen(demand) && (demand.message_labels ?? []).includes("awaiting_executor")) return "awaitingExecutor";
   if (demand.dispatch_status === null && isExecutionOpen(demand)) return "queuedRetry";
   if (demand.dispatch_status !== "failed") return demand.dispatch_status;
@@ -150,7 +151,8 @@ export const demandSchema = z.object({
   // Scheduled send -- set together with target_agent_id, dispatched
   // automatically by the backend's poll loop once this time is reached.
   scheduled_at: z.string().nullable(),
-  dispatch_status: z.enum(["dispatched", "running", "completed", "failed"]).nullable(),
+  quota_reset_at: z.string().nullable().default(null),
+  dispatch_status: z.enum(["dispatched", "running", "completed", "failed", "waiting_quota"]).nullable(),
   // Contingência de despacho (2026-08-13): prazo até o qual a execução
   // precisa retornar, quantas vezes já foi despachada e por que a última
   // falhou. `dispatch_attempts` contra DISPATCH_MAX_ATTEMPTS decide se o
@@ -318,7 +320,8 @@ export function computeInboxTotalCount(demands: Demand[]): number {
 }
 
 const dispatchStatusResultSchema = z.object({
-  dispatch_status: z.enum(["dispatched", "running", "completed", "failed"]).nullable(),
+  quota_reset_at: z.string().nullable().default(null),
+  dispatch_status: z.enum(["dispatched", "running", "completed", "failed", "waiting_quota"]).nullable(),
   // Contingência de despacho (2026-08-13): prazo até o qual a execução
   // precisa retornar, quantas vezes já foi despachada e por que a última
   // falhou. `dispatch_attempts` contra DISPATCH_MAX_ATTEMPTS decide se o
