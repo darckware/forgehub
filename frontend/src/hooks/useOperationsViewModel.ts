@@ -5,7 +5,9 @@ import type { Demand } from "@/hooks/useDemands";
 
 const BASE = "/api/v1/operations";
 export type OperationsTab = "agents" | "schedule" | "runs" | "improvements" | "questions" | "instructions" | "evolution";
-export type RoutineKind = "monitoring" | "maintenance" | "improvement" | "report" | "coordination";
+/** "audit" (2026-11-13): an Auditor frequency tier; runs its checks as one batch, no Messages task. */
+export type RoutineKind = "monitoring" | "maintenance" | "improvement" | "report" | "coordination" | "audit";
+export type AuditFrequency = "daily" | "weekly" | "monthly" | "quarterly";
 
 export interface AgentSummary {
   agent_id: string;
@@ -58,6 +60,8 @@ export interface Routine extends RoutineInput {
   /** "agent:<slug>" when an agent created it (2026-11-13), else an admin's username; null before then. */
   created_by?: string | null;
   updated_by?: string | null;
+  /** kind="audit" only: the tier it runs. */
+  audit_frequency?: AuditFrequency | null;
   created_at: string;
   updated_at: string;
 }
@@ -74,6 +78,8 @@ export interface RoutineRun {
   detail: string | null;
   finished_at: string | null;
   overdue: boolean;
+  /** Audit routines: the Auditor batch that is this occurrence's evidence. */
+  audit_batch_id?: string | null;
 }
 export interface OperationsPolicy {
   id: string;

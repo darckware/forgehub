@@ -1,4 +1,5 @@
 {
+  "auditKindHint": "Creada por franja de frecuencia del Auditor; el tipo no cambia.", "confirmRunAuditDescription": "{{title}} ejecutará ahora todos los checks habilitados de esta franja como un lote del Auditor.", "auditRunStarted": "Lote del Auditor iniciado.", "auditBatch": "Lote en el Auditor", "auditTiers": {"daily": "diaria", "weekly": "semanal", "monthly": "mensual", "quarterly": "trimestral"},
   "title": "Operación 24/7",
   "subtitle": "Funciones, programación y resultados de los agentes",
   "refresh": "Actualizar",
@@ -146,7 +147,7 @@
     "maintenance": "Mantenimiento",
     "improvement": "Mejora",
     "report": "Informe",
-    "coordination": "Coordinación"
+    "coordination": "Coordinación", "audit": "Auditoría"
   },
   "runStatus": {
     "scheduled": "Programada",

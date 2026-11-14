@@ -44,9 +44,14 @@ import {
   useRunAuditCheck,
   useRemediateAuditCheck,
   useUpdateAuditCheck,
+  useSetAuditCheckFrequency,
+  AUDIT_FREQUENCIES,
   type AuditCheck,
   type AuditCheckInput,
+  type AuditFrequency,
 } from "@/hooks/useAudit";
+import { AuditTiersPanel } from "@/components/AuditTiersPanel";
+import { useAuthStore } from "@/store/authStore";
 import { AssistantToggleButton } from "@/components/AssistantToggleButton";
 import { useAssistantStore } from "@/store/assistantStore";
 
@@ -88,6 +93,7 @@ function buildAuditCheckChatMessage(check: AuditCheck): string {
     `Responsible agent: ${check.agent_profile}`,
     `Enabled: ${check.enabled ? "yes" : "no"}`,
     `Timeout: ${check.timeout_seconds}s`,
+    `Frequency: ${check.frequency}`,
   ];
   if (check.workdir) lines.push(`Directory: ${check.workdir}`);
   if (check.description) lines.push(`Description: ${check.description}`);
@@ -125,6 +131,7 @@ function CheckFormPanel({ initial, onClose }: { initial: AuditCheck | null; onCl
     agent_profile: initial?.agent_profile ?? "athos",
     enabled: initial?.enabled ?? true,
     timeout_seconds: initial?.timeout_seconds ?? 55,
+    frequency: initial?.frequency ?? "weekly",
   });
   const enabledId = `check-enabled-${initial?.id ?? "new"}`;
 
@@ -138,7 +145,9 @@ function CheckFormPanel({ initial, onClose }: { initial: AuditCheck | null; onCl
       workdir: form.workdir || null,
     };
     if (initial) {
-      updateCheck.mutate({ checkId: initial.id, updates: payload }, { onSuccess: onClose });
+      // The tier is moved by an administrator from the list (its own route).
+      const { frequency: _frequency, ...updates } = payload;
+      updateCheck.mutate({ checkId: initial.id, updates }, { onSuccess: onClose });
     } else {
       createCheck.mutate(payload, { onSuccess: onClose });
     }
@@ -189,6 +198,19 @@ function CheckFormPanel({ initial, onClose }: { initial: AuditCheck | null; onCl
                 onChange={(e) => setForm((f) => ({ ...f, timeout_seconds: Number(e.target.value) || 55 }))}
               />
             </div>
+            {!initial && (
+              <div className="space-y-1">
+                <label htmlFor="new-check-frequency" className="text-xs font-medium text-muted-foreground">{t("auditor.frequencyLabel")}</label>
+                <select
+                  id="new-check-frequency"
+                  className="h-9 w-full rounded-md border bg-background px-2 text-base md:text-sm"
+                  value={form.frequency}
+                  onChange={(e) => setForm((f) => ({ ...f, frequency: e.target.value as AuditFrequency }))}
+                >
+                  {AUDIT_FREQUENCIES.map((frequency) => <option key={frequency} value={frequency}>{t(`auditor.frequency.${frequency}`)}</option>)}
+                </select>
+              </div>
+            )}
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">
@@ -309,6 +331,8 @@ function CheckHistory({ check }: { check: AuditCheck }) {
           <span>
             · {run.requested_by === "cron"
               ? t("auditor.source.cron")
+              : run.requested_by === "routine"
+                ? t("auditor.source.routine")
               : run.requested_by === "athos-remediation"
                 ? t("auditor.source.athosRemediation")
                 : run.requested_by === "remediation-verification"
@@ -337,6 +361,9 @@ export default function AuditorPage() {
   const [profileFilter, setProfileFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
+  const [frequencyFilter, setFrequencyFilter] = useState("all");
+  const setFrequency = useSetAuditCheckFrequency();
+  const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
   const setAssistantOpen = useAssistantStore((s) => s.setOpen);
   const setPendingHiddenContext = useAssistantStore((s) => s.setPendingHiddenContext);
   const profiles = useMemo(
@@ -344,12 +371,15 @@ export default function AuditorPage() {
     [checks],
   );
   const categories = useMemo(() => Array.from(new Set((checks ?? []).map((check) => check.category).filter((item): item is string => Boolean(item)))).sort(), [checks]);
+  // Grouped by tier (daily → quarterly), then by name within each tier.
   const visibleChecks = useMemo(() => (checks ?? []).filter((check) => {
     const state = !check.enabled ? "disabled" : check.evidence_state === "stale" ? "stale" : check.last_run?.status ?? "never";
     return (profileFilter === "all" || check.agent_profile === profileFilter)
       && (categoryFilter === "all" || check.category === categoryFilter)
-      && (stateFilter === "all" || state === stateFilter);
-  }), [checks, profileFilter, categoryFilter, stateFilter]);
+      && (stateFilter === "all" || state === stateFilter)
+      && (frequencyFilter === "all" || check.frequency === frequencyFilter);
+  }).sort((a, b) => AUDIT_FREQUENCIES.indexOf(a.frequency) - AUDIT_FREQUENCIES.indexOf(b.frequency)
+    || a.name.localeCompare(b.name)), [checks, profileFilter, categoryFilter, stateFilter, frequencyFilter]);
 
   function handleSendToAssistant(check: AuditCheck) {
     setPendingHiddenContext(buildAuditCheckChatMessage(check));
@@ -393,7 +423,7 @@ export default function AuditorPage() {
 
       <PageHeader title={t("auditor.title")} icon={<ClipboardCheck className="h-5 w-5" />}
         actions={<>
-          <Button size="sm" className="gap-1.5" disabled={runAll.isPending} onClick={() => runAll.mutate()}>
+          <Button size="sm" className="gap-1.5" disabled={runAll.isPending} onClick={() => runAll.mutate(undefined)}>
             {runAll.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
             {t("auditor.runChecklist")}
           </Button>
@@ -413,6 +443,8 @@ export default function AuditorPage() {
         ))}
       </section>
 
+      <AuditTiersPanel />
+
       <section aria-label={t("auditor.athosMonitor")} className="rounded-md border bg-card p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -420,7 +452,7 @@ export default function AuditorPage() {
             <h2 className="mt-1 font-mono text-sm">{status?.athos_monitor?.job_name ?? "ecosystem-weekly-audit"}</h2>
           </div>
           <div className="flex items-center gap-3">
-            <Badge variant={status?.athos_monitor?.state === "healthy" ? "success" : status?.athos_monitor?.state === "failed" ? "destructive" : "warning"}>
+            <Badge variant={status?.athos_monitor?.state === "healthy" ? "success" : status?.athos_monitor?.state === "replaced" ? "outline" : status?.athos_monitor?.state === "failed" ? "destructive" : "warning"}>
               {status?.athos_monitor ? t(`auditor.monitor.${status.athos_monitor.state}`) : t("auditor.monitor.unavailable")}
             </Badge>
             <Link className="text-sm text-primary underline-offset-2 hover:underline" to="/crons">{t("auditor.openCrons")}</Link>
@@ -484,6 +516,7 @@ export default function AuditorPage() {
         <div className="flex min-h-0 flex-1 flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2" aria-label={t("auditor.filters")}>
             <label className="text-xs">{t("auditor.category")} <select className="ml-1 rounded border bg-background p-1" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="all">{t("auditor.all")}</option>{categories.map((category) => <option key={category}>{category}</option>)}</select></label>
+            <label className="text-xs">{t("auditor.frequencyLabel")} <select className="ml-1 rounded border bg-background p-1" value={frequencyFilter} onChange={(event) => setFrequencyFilter(event.target.value)}><option value="all">{t("auditor.all")}</option>{AUDIT_FREQUENCIES.map((frequency) => <option key={frequency} value={frequency}>{t(`auditor.frequency.${frequency}`)}</option>)}</select></label>
             <label className="text-xs">{t("auditor.status")} <select className="ml-1 rounded border bg-background p-1" value={stateFilter} onChange={(event) => setStateFilter(event.target.value)}><option value="all">{t("auditor.all")}</option>{["ok", "fail", "error", "timeout", "stale", "never", "disabled"].map((state) => <option key={state} value={state}>{t(`auditor.state.${state}`)}</option>)}</select></label>
             <span className="mr-1 text-xs font-medium text-muted-foreground">{t("auditor.profiles")}:</span>
             {["all", ...profiles].map((profile) => (
@@ -509,6 +542,7 @@ export default function AuditorPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>{t("auditor.check")}</TableHead>
+                  <TableHead>{t("auditor.frequencyLabel")}</TableHead>
                   <TableHead>{t("auditor.category")}</TableHead>
                   <TableHead>{t("auditor.agent")}</TableHead>
                   <TableHead>{t("auditor.status")}</TableHead>
@@ -517,11 +551,19 @@ export default function AuditorPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {visibleChecks.map((check) => {
+                {visibleChecks.map((check, index) => {
                   const isOpen = expanded.has(check.id);
                   const badge = check.last_run ? RUN_STATUS_BADGE[check.last_run.status] : null;
+                  const firstOfTier = index === 0 || visibleChecks[index - 1].frequency !== check.frequency;
                   return (
                     <Fragment key={check.id}>
+                      {firstOfTier && (
+                        <TableRow className="bg-muted/40 hover:bg-muted/40">
+                          <TableCell colSpan={7} className="py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            {t(`auditor.frequency.${check.frequency}`)}
+                          </TableCell>
+                        </TableRow>
+                      )}
                       <TableRow key={check.id} className={!check.enabled ? "opacity-60" : undefined}>
                         <TableCell>
                           <button
@@ -546,6 +588,21 @@ export default function AuditorPage() {
                               </code>
                             </span>
                           </button>
+                        </TableCell>
+                        <TableCell>
+                          {isAdmin ? (
+                            <select
+                              aria-label={t("auditor.frequencyFor", { name: check.name })}
+                              className="rounded border bg-background p-1 text-base md:text-xs"
+                              value={check.frequency}
+                              disabled={setFrequency.isPending && setFrequency.variables?.checkId === check.id}
+                              onChange={(event) => setFrequency.mutate({ checkId: check.id, frequency: event.target.value as AuditFrequency })}
+                            >
+                              {AUDIT_FREQUENCIES.map((frequency) => <option key={frequency} value={frequency}>{t(`auditor.frequency.${frequency}`)}</option>)}
+                            </select>
+                          ) : (
+                            <Badge variant="outline">{t(`auditor.frequency.${check.frequency}`)}</Badge>
+                          )}
                         </TableCell>
                         <TableCell>
                           {check.category ? <Badge variant="outline">{check.category}</Badge> : "—"}
@@ -650,14 +707,14 @@ export default function AuditorPage() {
                       </TableRow>
                       {formCheck !== "new" && formCheck?.id === check.id && (
                         <TableRow key={`${check.id}-editor`} className="hover:bg-transparent">
-                          <TableCell colSpan={6} className="bg-muted/10 p-3">
+                          <TableCell colSpan={7} className="bg-muted/10 p-3">
                             <CheckFormPanel key={check.id} initial={check} onClose={() => setFormCheck(null)} />
                           </TableCell>
                         </TableRow>
                       )}
                       {isOpen && (
                         <TableRow key={`${check.id}-history`}>
-                          <TableCell colSpan={6} className="p-0">
+                          <TableCell colSpan={7} className="p-0">
                             <CheckHistory check={check} />
                           </TableCell>
                         </TableRow>

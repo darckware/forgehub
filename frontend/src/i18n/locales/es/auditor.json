@@ -52,7 +52,8 @@
       "degraded": "Programador degradado",
       "failed": "Programador fallido",
       "not_configured": "Trabajo no configurado",
-      "unavailable": "Monitor no disponible"
+      "unavailable": "Monitor no disponible",
+      "replaced": "Reemplazado por las rutinas"
     },
     "createDescription": "Crea un control del ecosistema.",
     "editDescription": "El editor está abierto debajo de este control.",
@@ -94,11 +95,36 @@
       "cron": "Cron",
       "athosRemediation": "Corrección de Athos",
       "verification": "Verificación posterior",
-      "manual": "Manual"
+      "manual": "Manual",
+      "routine": "Rutina de auditoría"
     },
     "stale": "Evidencia vencida",
     "recordedResult": "Resultado registrado: {{result}}",
     "expiresAt": "Evidencia válida hasta: {{date}}",
-    "lastCompleteCronRun": "Última auditoría programada completa"
+    "lastCompleteCronRun": "Última auditoría programada completa",
+    "frequencyLabel": "Frecuencia",
+    "frequencyFor": "Frecuencia de {{name}}",
+    "frequency": {
+      "daily": "Diaria",
+      "weekly": "Semanal",
+      "monthly": "Mensual",
+      "quarterly": "Trimestral"
+    },
+    "tiers": {
+      "title": "Franjas de frecuencia",
+      "sourceRoutines": "Programadas por las rutinas de auditoría de Operación 24x7.",
+      "sourceCron": "Aún programadas por el cron semanal de Athos; las rutinas de auditoría aún no están todas activas.",
+      "openOperations": "Abrir Operación 24x7",
+      "checks_one": "{{count}} check habilitado",
+      "checks_other": "{{count}} checks habilitados",
+      "noRoutine": "Sin rutina",
+      "routineOn": "Rutina activa",
+      "routinePaused": "Rutina pausada",
+      "lastComplete": "Último lote completo",
+      "nextDue": "Próxima ejecución",
+      "overdue": "atrasada",
+      "runNow": "Ejecutar franja ahora",
+      "runTier": "Ejecutar ahora la franja {{tier}}"
+    }
   }
 }

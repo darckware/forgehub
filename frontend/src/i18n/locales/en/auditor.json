@@ -52,7 +52,8 @@
       "degraded": "Scheduler degraded",
       "failed": "Scheduler failed",
       "not_configured": "Job not configured",
-      "unavailable": "Monitor unavailable"
+      "unavailable": "Monitor unavailable",
+      "replaced": "Replaced by routines"
     },
     "createDescription": "Create an ecosystem control.",
     "editDescription": "The editor is open beneath this control.",
@@ -94,11 +95,36 @@
       "cron": "Cron",
       "athosRemediation": "Athos remediation",
       "verification": "Post-remediation verification",
-      "manual": "Manual"
+      "manual": "Manual",
+      "routine": "Audit routine"
     },
     "stale": "Expired evidence",
     "recordedResult": "Recorded result: {{result}}",
     "expiresAt": "Evidence valid until: {{date}}",
-    "lastCompleteCronRun": "Last complete scheduled audit"
+    "lastCompleteCronRun": "Last complete scheduled audit",
+    "frequencyLabel": "Frequency",
+    "frequencyFor": "Frequency of {{name}}",
+    "frequency": {
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "monthly": "Monthly",
+      "quarterly": "Quarterly"
+    },
+    "tiers": {
+      "title": "Frequency tiers",
+      "sourceRoutines": "Scheduled by the 24/7 Operations audit routines.",
+      "sourceCron": "Still scheduled by Athos's weekly cron; the audit routines are not all enabled yet.",
+      "openOperations": "Open 24/7 Operations",
+      "checks_one": "{{count}} enabled check",
+      "checks_other": "{{count}} enabled checks",
+      "noRoutine": "No routine",
+      "routineOn": "Routine on",
+      "routinePaused": "Routine paused",
+      "lastComplete": "Last complete batch",
+      "nextDue": "Next run",
+      "overdue": "overdue",
+      "runNow": "Run tier now",
+      "runTier": "Run the {{tier}} tier now"
+    }
   }
 }

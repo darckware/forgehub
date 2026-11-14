@@ -6,14 +6,20 @@ import i18n from "@/i18n";
 import AuditorPage from ".";
 import { ApiError } from "@/lib/api";
 
-const mocks = vi.hoisted(() => ({ checks: vi.fn(), status: vi.fn(), remediate: vi.fn() }));
+const mocks = vi.hoisted(() => ({ checks: vi.fn(), status: vi.fn(), remediate: vi.fn(), setFrequency: vi.fn(),
+  runAll: vi.fn(), admin: { value: true } }));
+vi.mock("@/store/authStore", () => ({
+  useAuthStore: (selector: (s: { user: { is_admin: boolean } }) => unknown) => selector({ user: { is_admin: mocks.admin.value } }),
+}));
 vi.mock("@/hooks/useAudit", () => ({
+  AUDIT_FREQUENCIES: ["daily", "weekly", "monthly", "quarterly"],
+  useSetAuditCheckFrequency: () => ({ mutate: mocks.setFrequency, isPending: false }),
   useAuditChecks: () => mocks.checks(), useAuditStatus: () => mocks.status(),
   useAuditRuns: () => ({ data: [], isLoading: false }),
   useCreateAuditCheck: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateAuditCheck: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteAuditCheck: () => ({ mutate: vi.fn(), isPending: false }),
-  useRunAllAuditChecks: () => ({ mutate: vi.fn(), isPending: false }),
+  useRunAllAuditChecks: () => ({ mutate: mocks.runAll, isPending: false }),
   useRunAuditCheck: () => ({ mutate: vi.fn(), isPending: false }),
   useRemediateAuditCheck: () => mocks.remediate(),
 }));
@@ -21,7 +27,7 @@ vi.mock("@/components/AssistantToggleButton", () => ({ AssistantToggleButton: ()
 
 const check = { id: "c1", name: "ECO-001", description: "Check gateway", category: "infra",
   command: "true", remediation_description: null, remediation_command: null, workdir: null,
-  agent_profile: "athos", enabled: true, timeout_seconds: 55, created_at: "2026-10-04T00:00:00Z",
+  agent_profile: "athos", enabled: true, timeout_seconds: 55, frequency: "weekly", created_at: "2026-10-04T00:00:00Z",
   updated_at: "2026-10-04T00:00:00Z", last_run: { id: "r1", check_id: "c1", status: "fail",
     exit_code: 1, output: "gateway stopped", duration_ms: 12, requested_by: "cron",
     created_at: "2026-10-04T00:00:00Z" } };
@@ -32,6 +38,9 @@ const monitor = { state: "healthy", job_id: "weekly", job_name: "ecosystem-weekl
 
 beforeEach(() => {
   void i18n.changeLanguage("pt-BR");
+  mocks.admin.value = true;
+  mocks.setFrequency.mockReset();
+  mocks.runAll.mockReset();
   mocks.checks.mockReturnValue({ data: [check], isLoading: false, isError: false });
   mocks.status.mockReturnValue({ data: { total: 1, enabled: 1, ok: 0, fail: 1, never_ran: 0,
     last_run_at: "2026-10-04T00:00:00Z", athos_monitor: monitor }, isError: false });
@@ -102,4 +111,61 @@ it.each(['pt-BR', 'en', 'es'])('formats evidence expiration and run times using 
   show();
   expect(screen.getByText(i18n.t('auditor.expiresAt', { ns: 'auditor', date: new Date(expiry).toLocaleString(locale) }))).toBeInTheDocument();
   expect(screen.getAllByText(new Date(check.last_run.created_at).toLocaleString(locale)).length).toBeGreaterThan(0);
+});
+
+const tier = (frequency: string, changes: Record<string, unknown> = {}) => ({ frequency, enabled_checks: 2,
+  last_complete_run_at: "2026-11-13T22:00:00Z", routine_id: `r-${frequency}`, routine_title: `Auditoria ${frequency}`,
+  routine_enabled: true, schedule: "0 19 * * *", timezone: "America/Sao_Paulo",
+  next_due_at: "2026-11-14T22:00:00Z", overdue: false, ...changes });
+
+it("groups checks by frequency and lets an admin move a check between tiers", () => {
+  mocks.checks.mockReturnValue({ data: [check, { ...check, id: "c2", name: "ECO-005", frequency: "daily" }],
+    isLoading: false, isError: false });
+  show();
+  const rows = screen.getAllByRole("row").map((row) => row.textContent ?? "");
+  const daily = rows.findIndex((text) => text === "Diária");
+  const weekly = rows.findIndex((text) => text === "Semanal");
+  expect(daily).toBeGreaterThan(0);
+  expect(weekly).toBeGreaterThan(daily);
+  expect(rows[daily + 1]).toContain("ECO-005");
+  fireEvent.change(screen.getByRole("combobox", { name: "Frequência de ECO-001" }), { target: { value: "monthly" } });
+  expect(mocks.setFrequency).toHaveBeenCalledWith({ checkId: "c1", frequency: "monthly" });
+  fireEvent.change(screen.getByRole("combobox", { name: "Frequência" }), { target: { value: "daily" } });
+  expect(screen.queryByText("ECO-001")).not.toBeInTheDocument();
+  expect(screen.getByText("ECO-005")).toBeInTheDocument();
+});
+
+it("shows the frequency read-only to a non-admin", () => {
+  mocks.admin.value = false;
+  show();
+  expect(screen.queryByRole("combobox", { name: "Frequência de ECO-001" })).not.toBeInTheDocument();
+  expect(screen.getAllByText("Semanal").length).toBeGreaterThan(0);
+});
+
+it.each([["pt-BR", "Faixas de frequência", "Executar agora a faixa Mensal"],
+  ["en", "Frequency tiers", "Run the Monthly tier now"],
+  ["es", "Franjas de frecuencia", "Ejecutar ahora la franja Mensual"]])("shows each tier's routine and runs one tier in %s", async (locale, title, runLabel) => {
+  await i18n.changeLanguage(locale);
+  mocks.status.mockReturnValue({ data: { total: 1, enabled: 1, ok: 0, fail: 1, never_ran: 0, last_run_at: null,
+    athos_monitor: { ...monitor, state: "replaced", enabled: false }, schedule_source: "routines",
+    tiers: [tier("daily"), tier("weekly", { overdue: true }), tier("monthly", { routine_enabled: false }),
+      tier("quarterly", { routine_id: null, routine_title: null, routine_enabled: false, next_due_at: null })] },
+    isError: false });
+  show();
+  expect(screen.getByRole("region", { name: title })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: runLabel }));
+  expect(mocks.runAll).toHaveBeenCalledWith("monthly", expect.anything());
+});
+
+it("labels the replaced legacy cron and the tier states", () => {
+  mocks.status.mockReturnValue({ data: { total: 1, enabled: 1, ok: 0, fail: 1, never_ran: 0, last_run_at: null,
+    athos_monitor: { ...monitor, state: "replaced", enabled: false }, schedule_source: "hermes_cron",
+    tiers: [tier("daily"), tier("weekly", { overdue: true }), tier("monthly", { routine_enabled: false }),
+      tier("quarterly", { routine_id: null, routine_enabled: false, next_due_at: null })] }, isError: false });
+  show();
+  expect(screen.getByText("Substituído pelas rotinas")).toBeInTheDocument();
+  expect(screen.getByText(/Ainda agendadas pelo cron semanal/)).toBeInTheDocument();
+  expect(screen.getByText("Rotina pausada")).toBeInTheDocument();
+  expect(screen.getByText("Sem rotina")).toBeInTheDocument();
+  expect(screen.getByText(/atrasada/)).toBeInTheDocument();
 });

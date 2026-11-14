@@ -155,7 +155,7 @@ sub-conversion, ticked off independently.
       (`useMachinesViewModel.ts` + `pages/remote-access/MachinesCard.tsx`); the page itself is
       removed in phase 4 of `REMOTE_ACCESS_SERVERS_UNIFICATION_PLAN.md`.
 - [ ] `frontend/src/pages/crons/index.tsx` (633 lines)
-- [ ] `frontend/src/pages/auditor/index.tsx` (628 lines)
+- [ ] `frontend/src/pages/auditor/index.tsx` (628 lines) — partial (2026-11-13): the frequency tiers panel is `components/AuditTiersPanel.tsx` + `hooks/useAuditTiersViewModel.ts`; the checklist itself is not converted yet
 - [ ] `frontend/src/pages/system-control/index.tsx` (604 lines)
       — *partially*: the Docker card (`useDockerCleanupViewModel.ts` + `DockerCleanupCard.tsx`,
       2026-09-27) and the Backups card (`useBackupFilesViewModel.ts` + `BackupFilesCard.tsx`,

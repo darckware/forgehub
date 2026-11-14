@@ -129,3 +129,24 @@ it("renders the controls in Spanish", async () => {
   expect(screen.getByRole("heading", { name: "Operación 24/7" })).toBeInTheDocument();
   expect(screen.getByRole("tab", { name: "Programación" })).toBeInTheDocument();
 });
+
+it("lists an audit routine like any routine, without duplicate and with a batch-run confirmation", () => {
+  const base = mocks.vm();
+  const audit = { ...base.routines.data[0], id: "r-audit", title: "Auditoria diária", kind: "audit",
+    audit_frequency: "daily", schedule: "0 19 * * *" };
+  mocks.vm.mockReturnValue({ ...base, routines: { ...base.routines, data: [audit] },
+    runs: { data: [{ id: "run1", routine_id: "r-audit", routine_title: "Auditoria diária", agent_id: "a1",
+      agent_name: "Athos", occurrence_at: "2026-11-13T22:00:00Z", status: "completed", demand_id: null,
+      demand_number: null, detail: "Lote b1: 21/21 ok", finished_at: "2026-11-13T22:05:00Z", overdue: false,
+      audit_batch_id: "b1" }], isLoading: false, isError: false } });
+  render(<MemoryRouter><OperationsPage /></MemoryRouter>);
+  fireEvent.click(screen.getByRole("tab", { name: "Programação" }));
+  expect(screen.getAllByText("Auditoria diária").length).toBeGreaterThan(0);
+  expect(screen.queryByRole("button", { name: "Duplicar" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Executar agora Auditoria diária" }));
+  expect(screen.getByText(/como um lote do Auditor/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Editar" }));
+  expect(screen.getByText(/Auditoria · diária/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("tab", { name: "Execuções" }));
+  expect(screen.getByRole("link", { name: "Lote no Auditor" })).toHaveAttribute("href", "/auditor");
+});
