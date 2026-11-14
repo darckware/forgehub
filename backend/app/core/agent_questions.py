@@ -416,3 +416,73 @@ async def _continue_asker(db: AsyncSession, question: AgentQuestion, *, subject:
 
         wake_scheduled_dispatch()
     return demand
+
+
+# ------------------------------------------------------------ analysis
+#
+# "Analisar e encaminhar" on Tarefas dos agentes (2026-11-14, Marcelo: the
+# button covers every pending item, questions included). Deterministic and
+# read-only: it only recommends; archiving still goes through the confirmed
+# cancel, which tells each agent why no answer is coming.
+
+QUESTION_STALE_DAYS = 14
+
+_REASON_TEXT = {
+    "agent_inactive": "O agente que perguntou está inativo ou aposentado.",
+    "origin_archived": "A tarefa de origem foi arquivada.",
+    "origin_consolidated": "A tarefa de origem foi consolidada em outra.",
+    "origin_completed": "A tarefa de origem já foi concluída.",
+    "origin_cancelled": "A tarefa de origem foi descartada ou recusada.",
+    "stale": "Não bloqueia e está parada há mais de {days} dias, sem atividade na origem.",
+    "blocking": "Bloqueia o trabalho do agente: precisa de resposta.",
+    "open": "Ainda pode ser útil ao agente: responda ou arquive com motivo.",
+}
+
+
+def classify_question(question: AgentQuestion, agent: Agent | None, origin: AgentDemand | None,
+                      now: datetime, stale_days: int = QUESTION_STALE_DAYS) -> tuple[str, str, int]:
+    """(recommendation, reason_code, days_idle) for one pending question.
+
+    archive when the asker is gone (missing, not is_active, status != active);
+    when the origin message is archived, consolidated, completed, or dropped/
+    rejected; or when the question doesn't block, is older than `stale_days`
+    and its origin (if any) hasn't changed in that time. Otherwise answer.
+    """
+    last_activity = max(question.created_at, origin.updated_at) if origin is not None else question.created_at
+    days_idle = max(0, (now - last_activity).days)
+    if agent is None or not agent.is_active or agent.status != "active":
+        return "archive", "agent_inactive", days_idle
+    if origin is not None:
+        if origin.consolidated_into_id is not None:
+            return "archive", "origin_consolidated", days_idle
+        if origin.status == "archived":
+            return "archive", "origin_archived", days_idle
+        if origin.incubation_state == "dropped" or origin.approval_status == "rejected":
+            return "archive", "origin_cancelled", days_idle
+        if origin.dispatch_status == "completed":
+            return "archive", "origin_completed", days_idle
+    if question.blocking:
+        return "answer", "blocking", days_idle
+    if now - last_activity > timedelta(days=stale_days):
+        return "archive", "stale", days_idle
+    return "answer", "open", days_idle
+
+
+async def analyze_pending_questions(db: AsyncSession, *, now: datetime | None = None,
+                                    stale_days: int = QUESTION_STALE_DAYS) -> dict:
+    now = now or datetime.now(timezone.utc)
+    questions = list((await db.scalars(select(AgentQuestion).where(AgentQuestion.status == "pending")
+        .order_by(AgentQuestion.blocking.desc(), AgentQuestion.created_at))).all())
+    agent_ids = {q.agent_id for q in questions}
+    origin_ids = {q.origin_demand_id for q in questions if q.origin_demand_id}
+    agents = {a.id: a for a in (await db.scalars(select(Agent).where(Agent.id.in_(agent_ids)))).all()} if agent_ids else {}
+    origins = {d.id: d for d in (await db.scalars(select(AgentDemand).where(AgentDemand.id.in_(origin_ids)))).all()} if origin_ids else {}
+    items = []
+    for q in questions:
+        recommendation, code, days_idle = classify_question(
+            q, agents.get(q.agent_id), origins.get(q.origin_demand_id) if q.origin_demand_id else None, now, stale_days)
+        items.append({"question_id": q.id, "number": q.number, "recommendation": recommendation, "reason_code": code,
+                      "reason": _REASON_TEXT[code].format(days=stale_days), "days_idle": days_idle})
+    archive = sum(1 for item in items if item["recommendation"] == "archive")
+    return {"analyzed_at": now, "stale_days": stale_days, "total": len(items), "archive": archive,
+            "answer": len(items) - archive, "items": items}

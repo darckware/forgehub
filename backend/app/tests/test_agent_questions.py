@@ -285,3 +285,78 @@ async def test_cancel_requires_a_reason_audits_and_tells_the_asker(client, agent
     answered = await _ask(client, asker)
     assert (await client.post(f"/api/v1/operations/questions/{answered['id']}:answer", json={"answer": "Sim."})).status_code == 200
     assert (await client.post(f"/api/v1/operations/questions/{answered['id']}:cancel", json={"reason": "tarde"})).status_code == 409
+
+
+# ------------------------------------------------------------ bulk archive and analysis (2026-11-14)
+
+
+async def test_bulk_cancel_archives_each_and_reports_per_id(client, agents, never_due):
+    """One reason for many; each question tells its own agent; one closed or
+    missing id never fails the batch."""
+    asker, _ = agents
+    first, second, answered = await _ask(client, asker), await _ask(client, asker), await _ask(client, asker)
+    assert (await client.post(f"/api/v1/operations/questions/{answered['id']}:answer", json={"answer": "Sim."})).status_code == 200
+    missing = str(uuid.uuid4())
+    url = "/api/v1/operations/questions:cancel"
+    assert (await client.post(url, json={"ids": [first["id"]], "reason": " a "})).status_code == 422
+    assert (await client.post(url, json={"ids": [], "reason": "Sem uso"})).status_code == 422
+    response = await client.post(url, json={"ids": [first["id"], answered["id"], missing, second["id"], first["id"]],
+                                            "reason": "Perguntas antigas, já resolvidas."})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    by_id = {row["id"]: row for row in body["results"]}
+    assert len(body["results"]) == 4 and body["cancelled"] == 2
+    assert by_id[first["id"]]["status"] == "cancelled" and by_id[second["id"]]["status"] == "cancelled"
+    assert by_id[answered["id"]]["status"] == "already_closed" and by_id[answered["id"]]["number"] == answered["number"]
+    assert by_id[missing]["status"] == "not_found"
+    async with AsyncSessionLocal() as db:
+        for q in (first, second):
+            row = await db.get(AgentQuestion, uuid.UUID(q["id"]))
+            assert row.status == "cancelled"
+            task = await db.get(AgentDemand, uuid.UUID(by_id[q["id"]]["reply_demand_id"]))
+            assert task.subject == f"[Pergunta #{q['number']} cancelada]" and task.target_agent_id == asker.id
+            assert "Perguntas antigas, já resolvidas." in task.body
+            event = (await db.execute(select(AuditEvent).where(AuditEvent.entity_type == "agent_question",
+                AuditEvent.entity_id == row.id))).scalar_one()
+            assert event.event_type == "question_cancelled" and event.actor == "tester"
+        assert (await db.get(AgentQuestion, uuid.UUID(answered["id"]))).status == "answered"
+
+
+async def test_question_analysis_recommends_archive_or_answer(client, agents, never_due):
+    asker, relay = agents
+    old = datetime.now(UTC) - timedelta(days=30)
+    async with AsyncSessionLocal() as db:
+        archived_origin = AgentDemand(from_agent=asker.profile_slug, from_agent_id=asker.id, target_agent_id=asker.id,
+            subject="Gone", body="x", origin_type="task", working_path="/tmp", status="archived")
+        live_origin = AgentDemand(from_agent=asker.profile_slug, from_agent_id=asker.id, target_agent_id=asker.id,
+            subject="Live", body="x", origin_type="task", working_path="/tmp")
+        db.add_all([archived_origin, live_origin])
+        await db.commit()
+        archived_number, live_number = archived_origin.number, live_origin.number
+    on_archived = await _ask(client, asker, origin_message_number=archived_number)
+    blocking_old = await _ask(client, asker, blocking=True)
+    stale = await _ask(client, asker)
+    fresh = await _ask(client, asker)
+    old_with_live_origin = await _ask(client, asker, origin_message_number=live_number)
+    from_retired = await _ask(client, relay, blocking=True)
+    async with AsyncSessionLocal() as db:
+        for q in (blocking_old, stale, old_with_live_origin):
+            (await db.get(AgentQuestion, uuid.UUID(q["id"]))).created_at = old
+        (await db.get(Agent, relay.id)).status = "retired"
+        await db.commit()
+
+    response = await client.get("/api/v1/operations/questions:analysis")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["stale_days"] == 14
+    got = {row["question_id"]: (row["recommendation"], row["reason_code"]) for row in body["items"]}
+    assert got[on_archived["id"]] == ("archive", "origin_archived")
+    assert got[blocking_old["id"]] == ("answer", "blocking")
+    assert got[stale["id"]] == ("archive", "stale")
+    assert got[fresh["id"]] == ("answer", "open")
+    # The origin changed recently: still activity, so not stale.
+    assert got[old_with_live_origin["id"]] == ("answer", "open")
+    assert got[from_retired["id"]] == ("archive", "agent_inactive")
+    assert body["archive"] + body["answer"] == body["total"] == len(body["items"])
+    async with AsyncSessionLocal() as db:  # read-only
+        assert (await db.get(AgentQuestion, uuid.UUID(stale["id"]))).status == "pending"

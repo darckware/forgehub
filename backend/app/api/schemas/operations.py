@@ -208,6 +208,48 @@ class QuestionCancelIn(BaseModel):
         return value.strip()
 
 
+class QuestionBulkCancelIn(QuestionCancelIn):
+    """Archive several pending questions with one reason (Respostas tab).
+    Each one is cancelled in its own transaction and tells its own agent."""
+
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+
+
+class QuestionBulkCancelResult(BaseModel):
+    id: uuid.UUID
+    number: int | None = None
+    # cancelled | already_closed | not_found | error
+    status: str
+    detail: str | None = None
+    reply_demand_id: uuid.UUID | None = None
+
+
+class QuestionBulkCancelOut(BaseModel):
+    results: list[QuestionBulkCancelResult]
+    cancelled: int
+
+
+class QuestionAnalysisItem(BaseModel):
+    question_id: uuid.UUID
+    number: int
+    # archive | answer
+    recommendation: str
+    # agent_inactive | origin_archived | origin_consolidated | origin_completed
+    # | origin_cancelled | stale | blocking | open
+    reason_code: str
+    reason: str
+    days_idle: int
+
+
+class QuestionAnalysisOut(BaseModel):
+    analyzed_at: datetime
+    stale_days: int
+    total: int
+    archive: int
+    answer: int
+    items: list[QuestionAnalysisItem]
+
+
 class QuestionRelayAnswerIn(QuestionAnswerIn):
     # The agent whose Telegram conversation received Marcelo's reply.
     agent: str = Field(min_length=1, max_length=50)

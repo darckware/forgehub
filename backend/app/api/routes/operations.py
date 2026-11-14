@@ -40,7 +40,11 @@ from app.api.schemas.operations import (
     AgentRoutineCreate,
     AgentRoutineUpdate,
     AgentOperationsSummary,
+    QuestionAnalysisOut,
     QuestionAnswerIn,
+    QuestionBulkCancelIn,
+    QuestionBulkCancelOut,
+    QuestionBulkCancelResult,
     QuestionCancelIn,
     QuestionAskIn,
     QuestionOut,
@@ -1434,6 +1438,54 @@ async def list_questions(
         query = query.where(AgentQuestion.agent_id == agent_id)
     rows = await db.execute(query.order_by(AgentQuestion.number.desc()).limit(limit))
     return [await _question_out(db, q) for q in rows.scalars()]
+
+
+@router.get("/questions:analysis", response_model=QuestionAnalysisOut)
+async def analyze_questions(
+    db: AsyncSession = Depends(get_db),
+    admin=Depends(get_current_admin),
+) -> QuestionAnalysisOut:
+    """Read-only recommendation (archive / answer) for every pending
+    question, part of "Analisar e encaminhar". Rule:
+    agent_questions.classify_question. Nothing is changed here."""
+    return QuestionAnalysisOut(**await agent_questions.analyze_pending_questions(db))
+
+
+@router.post("/questions:cancel", response_model=QuestionBulkCancelOut)
+async def cancel_questions(
+    payload: QuestionBulkCancelIn,
+    db: AsyncSession = Depends(get_db),
+    admin=Depends(get_current_admin),
+) -> QuestionBulkCancelOut:
+    """Archive several pending questions with one reason. Each goes through
+    the single cancel (record_cancellation) in its own transaction, so each
+    agent gets its own Messages task; one failure never undoes the others."""
+    by = getattr(admin, "full_name", None) or getattr(admin, "username", None) or "marcelo"
+    results: list[QuestionBulkCancelResult] = []
+    for question_id in dict.fromkeys(payload.ids):
+        question = await db.scalar(select(AgentQuestion).where(AgentQuestion.id == question_id)
+            .execution_options(populate_existing=True))
+        if question is None:
+            results.append(QuestionBulkCancelResult(id=question_id, status="not_found", detail="Question not found"))
+            continue
+        number = question.number
+        try:
+            demand = await agent_questions.record_cancellation(db, question, payload.reason, by=by)
+        except HTTPException as exc:
+            await db.rollback()
+            results.append(QuestionBulkCancelResult(
+                id=question_id, number=number, status="already_closed" if exc.status_code == 409 else "not_found",
+                detail=str(exc.detail)))
+            continue
+        except Exception:
+            logger.exception("Bulk cancel failed for question %s", question_id)
+            await db.rollback()
+            results.append(QuestionBulkCancelResult(id=question_id, number=number, status="error",
+                                                    detail="Não foi possível arquivar esta pergunta."))
+            continue
+        results.append(QuestionBulkCancelResult(id=question_id, number=number, status="cancelled",
+                                                reply_demand_id=demand.id))
+    return QuestionBulkCancelOut(results=results, cancelled=sum(1 for r in results if r.status == "cancelled"))
 
 
 async def _question_or_404(db: AsyncSession, question_id: uuid.UUID, *, lock: bool = False) -> AgentQuestion:
