@@ -230,6 +230,12 @@ async def test_preparation_with_a_duplicated_generated_key_changes_nothing(clien
 @pytest.mark.asyncio
 async def test_install_key_with_a_duplicated_secret_id_never_reaches_the_machine(client, machines):
     owner, other, _ = machines
+    # This legacy endpoint is available only for an existing machine login;
+    # migration from an administrator login uses Configurar acesso.
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, other.id)
+        row.remote_user = "darckware"
+        await db.commit()
     _, fresh_public = _keypair()
     bridge, _ = _generate_bridge(owner.ssh_key_ref, fresh_public)
     # The route's own httpx (install-key on the machine) must never be used.

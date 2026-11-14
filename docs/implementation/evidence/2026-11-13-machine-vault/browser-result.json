@@ -1,0 +1,36 @@
+{
+  "fixtureOnly": true,
+  "widths": [
+    1440,
+    390
+  ],
+  "mobileMetrics": {
+    "inner": 390,
+    "client": 390,
+    "scroll": 390,
+    "scrollX": 0,
+    "bodyWidth": 390,
+    "visual": 390,
+    "scale": 1
+  },
+  "desktopNameWidth": 180,
+  "errors": [],
+  "mutations": [
+    {
+      "path": "/api/v1/servers/staged/preparation/pending",
+      "method": "POST",
+      "body": null
+    },
+    {
+      "path": "/api/v1/servers/staged/preparation/validate",
+      "method": "POST",
+      "body": null
+    },
+    {
+      "path": "/api/v1/servers/staged/preparation/validate",
+      "method": "POST",
+      "body": null
+    }
+  ],
+  "success": true
+}

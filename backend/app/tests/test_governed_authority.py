@@ -19,6 +19,7 @@ from app.db.models.product import Product, ProductVersion
 from app.db.models.project import PlanBaseline, Project, ProjectPlan
 from app.db.models.profile import Profile, ProfileActionPermission
 from app.db.models.task import ProjectTask, TaskAssignment
+from app.tests.fixtures.managed_machine import mark_managed_machine
 from app.db.models.user import User
 from app.main import app
 
@@ -254,6 +255,7 @@ async def maintenance_targets(authority_context):
     suffix = uuid.uuid4().hex
     async with AsyncSessionLocal() as db:
         server = Server(name=f"grant-srv-{suffix}", ip_address="192.0.2.71", remote_user="test", os_family="linux")
+        mark_managed_machine(server)
         group = HostGroup(name=f"grant-group-{suffix}")
         db.add_all([server, group]); await db.flush()
         db.add(HostGroupMember(group_id=group.id, server_id=server.id))

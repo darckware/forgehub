@@ -27,6 +27,7 @@ from app.db.models.host_execution import HostExecution, HostExecutionResult
 from app.db.models.host_script import HostSchedule, HostScript, HostScriptCategory
 from app.db.models.notification import Notification
 from app.db.models.server import HostGroup, HostGroupMember, Server
+from app.tests.fixtures.managed_machine import mark_managed_machine
 from app.db.models.user import User
 from app.main import app
 
@@ -49,6 +50,8 @@ async def ctx(monkeypatch):
         lab = Server(name="direct-lab-" + tag, ip_address="192.0.2.51", remote_user="test", os_family="linux", environment="lab")
         lab2 = Server(name="direct-lab2-" + tag, ip_address="192.0.2.52", remote_user="test", os_family="linux", environment="test")
         prod = Server(name="direct-prod-" + tag, ip_address="192.0.2.53", remote_user="test", os_family="linux", environment="client")
+        for machine in (lab, lab2, prod):
+            mark_managed_machine(machine)
         group = HostGroup(name="direct-group-" + tag)
         db.add_all([admin, plain, agent, other, hermes, lab, lab2, prod, group])
         await db.flush()
@@ -1006,6 +1009,7 @@ async def test_indefinite_all_machines_covers_new_prepared_machine_after_25_hour
         row.valid_from -= timedelta(hours=25)
         machine = Server(name='future-' + uuid.uuid4().hex, ip_address='192.0.2.99', remote_user='test',
                          os_family='linux', environment='client', kind='workstation')
+        mark_managed_machine(machine)
         db.add(machine)
         await db.commit()
     async def ready(db):
@@ -1366,3 +1370,31 @@ async def test_a_script_delegation_counts_only_if_the_profile_reaches_the_tool(r
         demand_ids = select(AgentDemand.id).where(AgentDemand.target_agent_id == c.hermes.id)
         await db.execute(delete(AuditEvent).where(AuditEvent.entity_id.in_(demand_ids)))
         await db.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('legacy', ['login', 'unverified', 'invalid_public', 'shared_key'])
+async def test_agent_command_refuses_unmanaged_machine_without_bridge(ctx, monkeypatch, legacy):
+    c = ctx
+    await opened(c)
+    called = []
+    async def bridge(*args, **kwargs):
+        called.append(args)
+        raise AssertionError('an unmanaged machine must not reach SSH')
+    monkeypatch.setattr(host_exec_runner, 'call_bridge_exec', bridge)
+    async with AsyncSessionLocal() as db:
+        machine = await db.get(Server, c.lab.id)
+        if legacy == 'login':
+            machine.remote_user = 'aegis'
+        elif legacy == 'unverified':
+            machine.access_verified_at = None
+        elif legacy == 'invalid_public':
+            machine.public_key = 'invalid'
+        else:
+            other = await db.get(Server, c.lab2.id)
+            machine.ssh_key_ref = other.ssh_key_ref
+        await db.commit()
+    response = await c.client.post(RUN, json=command(c), headers=c.agent_h)
+    assert response.status_code == 403, response.text
+    assert response.json()['detail']['code'] == 'MACHINE_RECONFIGURATION_REQUIRED'
+    assert not called

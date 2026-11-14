@@ -115,7 +115,7 @@ export function buildMachineSections(
     if (!matchesPath(kind, filters.path)) continue;
     if (
       q &&
-      ![machine.name, machine.ip_address, machine.location, machine.tailnet_name, machine.darckware_client_name, readiness?.tailscale_ipv4]
+      ![machine.name, machine.ip_address, machine.remote_user, machine.location, machine.tailnet_name, machine.darckware_client_name, readiness?.tailscale_ipv4]
         .some((v) => v?.toLowerCase().includes(q))
     ) continue;
 
@@ -199,13 +199,10 @@ export interface MachinesViewModel {
   form: Server | "new" | null;
   openForm: (target: Server | "new") => void;
   closeForm: () => void;
-  installing: Server | null;
-  closeInstall: () => void;
-  /** Station opened in "Prepare station" from its row. */
+  /** Machine opened in the shared access configuration panel. */
   preparing: Server | null;
   closePrepare: () => void;
-  /** One "Configure access" per machine (phase 5): a server gets the key
-   * installed with an admin account, a station gets prepared. */
+  /** Servers and workstations share the darckware preparation workflow. */
   configure: (machine: Server) => void;
   importingCsv: boolean;
   setImportingCsv: (open: boolean) => void;
@@ -249,7 +246,6 @@ export function useMachinesViewModel(): MachinesViewModel {
   const [testResult, setTestResult] = useState<VpnActionResult | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [form, setForm] = useState<Server | "new" | null>(null);
-  const [installing, setInstalling] = useState<Server | null>(null);
   const [preparing, setPreparing] = useState<Server | null>(null);
   const [importingCsv, setImportingCsv] = useState(false);
   const [deleting, setDeleting] = useState<Server | null>(null);
@@ -327,11 +323,9 @@ export function useMachinesViewModel(): MachinesViewModel {
     form,
     openForm: setForm,
     closeForm: () => setForm(null),
-    installing,
-    closeInstall: () => setInstalling(null),
     preparing,
     closePrepare: () => setPreparing(null),
-    configure: (machine) => (machine.kind === "workstation" ? setPreparing(machine) : setInstalling(machine)),
+    configure: setPreparing,
     importingCsv,
     setImportingCsv,
     deleting,

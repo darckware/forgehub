@@ -5,7 +5,7 @@
  * passed. Or copies the script to paste through RustDesk. Right-hand panel
  * (2026-11-11). State:
  * usePreparationViewModel. */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Copy, Loader2, ShieldCheck, Wrench } from "lucide-react";
 
@@ -26,7 +26,16 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
   const { t } = useTranslation("remoteAccess");
   const vm = usePreparationViewModel(onExecution, initialServerId);
   const [copied, setCopied] = useState(false);
-  const busy = vm.status === "submitting";
+  const busy = vm.status === "submitting" || vm.validating;
+  const [showPassword, setShowPassword] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    setShowPassword(false);
+    setCopied(false);
+    setCopyFailed(false);
+    return () => { if (copyTimer.current) clearTimeout(copyTimer.current); };
+  }, [vm.serverId]);
 
   return (
     <SidePanel
@@ -38,21 +47,38 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
       title={t("prepare.dialogTitle")}
       closeLabel={t("cancel")}
       footer={
-        <>
+        <div className="flex w-full flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={busy} className="cursor-pointer">{t("prepare.close")}</Button>
-          {vm.status !== "copy_ready" && (
+          {vm.pending && !vm.validated && !vm.result?.script && (
+            <Button type="button" size="sm" variant="outline" onClick={vm.recover} disabled={busy} className="cursor-pointer">
+              {t("prepare.recover")}
+            </Button>
+          )}
+          {vm.pending && !vm.validated && (
+            <Button type="button" size="sm" onClick={vm.validate} disabled={busy} className="cursor-pointer gap-1.5">
+              {vm.validating && <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" />}
+              {t("prepare.validate")}
+            </Button>
+          )}
+          {!vm.pending && !vm.validated && (
             <Button type="button" size="sm" onClick={vm.submit} disabled={busy || !vm.canSubmit} className="cursor-pointer gap-1.5">
               {busy && <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" />}
               {t(vm.mode === "ssh" ? "prepare.runSsh" : "prepare.generateCopy")}
             </Button>
           )}
-        </>
+        </div>
       }
     >
       <p className="text-sm text-muted-foreground">{t("prepare.intro")}</p>
+      {vm.selected && !vm.validated && vm.selected.remote_user !== "darckware" && (
+        <p className="text-sm text-amber-500">{t("prepare.legacyHelp", { user: vm.selected.remote_user || "—" })}</p>
+      )}
+      {vm.pending && !vm.validated && <p role="status" className="rounded-md border border-amber-500/50 p-3 text-sm">{t("prepare.pendingHelp")}</p>}
+      {vm.validated && <p role="status" className="rounded-md border border-border p-3 text-sm">{t("prepare.validated")}</p>}
+      {vm.validationFailed && <p role="alert" className="text-sm text-destructive">{vm.validationDetail || t("prepare.validationFailed")}</p>}
       <div className="space-y-1">
         <Label htmlFor="prep-machine">{t("prepare.machine")}</Label>
-        <Select id="prep-machine" value={vm.serverId} onChange={(e) => vm.setServerId(e.target.value)} className="max-md:text-base">
+        <Select id="prep-machine" disabled={busy} value={vm.serverId} onChange={(e) => vm.setServerId(e.target.value)} className="max-md:text-base">
           <option value="">{t("prepare.pickMachine")}</option>
           {vm.candidates.map((m) => (
             <option key={m.id} value={m.id}>
@@ -60,13 +86,15 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
             </option>
           ))}
         </Select>
-        {vm.candidates.length === 0 && <p className="text-xs text-muted-foreground">{t("prepare.noCandidates")}</p>}
+        {vm.selected && !vm.candidates.some((machine) => machine.id === vm.selected?.id) && <p role="status" className="text-xs text-amber-500">{t("prepare.noCandidates")}</p>}
+        {!vm.selected && vm.candidates.length === 0 && <p className="text-xs text-muted-foreground">{t("prepare.noCandidates")}</p>}
       </div>
 
+      {!vm.pending && !vm.validated && <>
       <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t("prepare.mode")}>
         {(["ssh", "copy"] as const).map((m) => (
           <Button key={m} type="button" size="sm" variant={vm.mode === m ? "default" : "outline"} role="radio" aria-checked={vm.mode === m}
-            onClick={() => vm.setMode(m)} className="cursor-pointer">
+            onClick={() => vm.setMode(m)} disabled={busy} className="cursor-pointer">
             {t(`prepare.modes.${m}`)}
           </Button>
         ))}
@@ -81,7 +109,7 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
             <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t("prepare.accountLabel")}>
               {(["registered", "other"] as const).map((a) => (
                 <Button key={a} type="button" size="sm" variant={vm.account === a ? "default" : "outline"} role="radio" aria-checked={vm.account === a}
-                  onClick={() => vm.setAccount(a)} className="cursor-pointer max-md:h-auto max-md:whitespace-normal">
+                  onClick={() => vm.setAccount(a)} disabled={busy} className="cursor-pointer max-md:h-auto max-md:whitespace-normal">
                   {a === "registered" ? t("prepare.accounts.registered", { user: vm.registeredUser }) : t("prepare.accounts.other")}
                 </Button>
               ))}
@@ -91,16 +119,25 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
             {vm.account === "other" && (
               <div className="space-y-1">
                 <Label htmlFor="prep-admin">{t("prepare.adminUser")}</Label>
-                <Input id="prep-admin" value={vm.otherUser} onChange={(e) => vm.setOtherUser(e.target.value)} autoComplete="off" className="max-md:text-base" />
+                <Input id="prep-admin" disabled={busy} value={vm.otherUser} onChange={(e) => vm.setOtherUser(e.target.value)} autoComplete="off" className="max-md:text-base" />
               </div>
             )}
-            <div className="space-y-1">
+            {vm.canUseStoredPassword && (
+              <label className="flex items-start gap-2 text-sm sm:col-span-2">
+                <input type="checkbox" checked={vm.useStoredPassword} onChange={(e) => vm.setUseStoredPassword(e.target.checked)} disabled={busy} />
+                <span>{t("prepare.useStoredPassword")}</span>
+              </label>
+            )}
+            {!vm.useStoredPassword && <div className="space-y-1">
               <Label htmlFor="prep-password">{t("prepare.adminPassword")}</Label>
-              <Input id="prep-password" type="password" value={vm.adminPassword} onChange={(e) => vm.setAdminPassword(e.target.value)} autoComplete="off" className="max-md:text-base" />
-            </div>
+              <Input id="prep-password" type={showPassword ? "text" : "password"} value={vm.adminPassword} onChange={(e) => vm.setAdminPassword(e.target.value)} autoComplete="current-password" className="max-md:text-base" disabled={busy} />
+              <Button type="button" size="sm" variant="ghost" aria-pressed={showPassword} onClick={() => setShowPassword((value) => !value)}>
+                {t(showPassword ? "prepare.hidePassword" : "prepare.showPassword")}
+              </Button>
+            </div>}
           </div>
           <label className="flex items-start gap-2 text-sm">
-            <input type="checkbox" className="mt-1" checked={vm.disableAdmin} onChange={(e) => vm.setDisableAdmin(e.target.checked)} />
+            <input type="checkbox" className="mt-1" checked={vm.disableAdmin} disabled={vm.selfBootstrap || busy} onChange={(e) => vm.setDisableAdmin(e.target.checked)} />
             <span>{t("prepare.disableAdmin", { user: vm.adminUser || t("prepare.thisAccount") })}</span>
           </label>
         </div>
@@ -108,11 +145,12 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
         <p className="rounded-md border border-border p-3 text-xs text-muted-foreground">{t("prepare.copyHelp")}</p>
       )}
 
+      </>}
       <p className="flex items-start gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> {t("prepare.vaultNote")}
       </p>
 
-      {vm.result?.script && (
+      {vm.result?.script && !vm.validated && (
         <div className="space-y-2">
           <ol className="list-decimal space-y-1 pl-5 text-sm">
             <li>{t("prepare.step1")}</li>
@@ -122,9 +160,12 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
           <div className="relative">
             <pre className="max-h-[45vh] overflow-auto whitespace-pre rounded-md border border-border bg-muted/40 p-3 font-mono text-xs">{vm.result.script}</pre>
             <Button type="button" size="sm" variant="outline" className="absolute right-2 top-2 cursor-pointer gap-1.5" onClick={() => {
-              void navigator.clipboard.writeText(vm.result!.script!);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1500);
+              setCopyFailed(false);
+              void navigator.clipboard.writeText(vm.result!.script!).then(() => {
+                setCopied(true);
+                if (copyTimer.current) clearTimeout(copyTimer.current);
+                copyTimer.current = setTimeout(() => setCopied(false), 1500);
+              }).catch(() => setCopyFailed(true));
             }}>
               {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
               {t(copied ? "prepare.copied" : "prepare.copy")}
@@ -132,6 +173,7 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
           </div>
         </div>
       )}
+      {copyFailed && <p role="alert" className="text-xs text-destructive">{t("prepare.copyFailed")}</p>}
       {vm.error && <p role="alert" className="text-xs text-destructive">{vm.error}</p>}
     </SidePanel>
   );

@@ -24,6 +24,12 @@ export interface Server {
   /** "Enroll station" stored the login's password (never sent; see
    * useRevealLoginPassword in useHostInventory.ts). */
   login_password_stored?: boolean;
+  /** Password is referenced in ForgeVault rather than legacy encrypted storage. */
+  login_password_in_vault?: boolean;
+  /** Candidate credentials await application and explicit key validation. */
+  preparation_pending?: boolean;
+  /** Exact darckware identity was verified with the active machine key. */
+  access_verified_at?: string | null;
   /** RustDesk ID and whether its permanent password is on file (recorded by
    * the RustDesk system scripts after they succeed). */
   rustdesk_id?: string | null;
