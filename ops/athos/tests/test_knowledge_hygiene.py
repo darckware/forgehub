@@ -172,3 +172,15 @@ def test_only_the_first_megabyte_is_read(tmp_path):
     big = tmp_path / 'big.md'
     big.write_text('x' * (k.MAX_READ_BYTES + 10) + '\nKanboard\n')
     assert k.text_findings(big, 'big.md') == []
+
+
+def test_generic_history_and_must_not_do_not_exempt(tmp_path):
+    root = foundation(tmp_path)
+    (root / '36_governance' / 'G.md').write_text('Keep the git history clean.\nTrack work in Kanboard.\n\nYou must not skip.\nKanboard is official.\n')
+    assert sum('kanboard' in f for f in k.foundation_findings(root)) == 2
+
+
+def test_a_history_section_is_exempt(tmp_path):
+    root = foundation(tmp_path)
+    (root / '36_governance' / 'H.md').write_text('# H\n\n## 4. History\n\n- 2026-09-04: the foundation_postgres pair was split.\n')
+    assert k.foundation_findings(root) == []

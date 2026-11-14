@@ -47,12 +47,14 @@ HISTORY_WORDS = re.compile(
     r"\b(?:retired|discontinued|descontinuad[oa]s?|removed|removid[oa]s?|aposentad[oa]s?|legacy|legado|"
     r"archived|arquivad[oa]s?|no longer|não existe[m]?|nao existe[m]?|never existed|superseded|"
     r"substituíd[oa]s?|replaced|replaces|deprecated|obsolete|obsolet[oa]s?|not installed|não instalad[oa]s?|"
-    r"does not use|não usa|instead of|em vez de|never use|do not use|não use|never write|must not|não deve|"
-    r"formerly|history|histórico|\*\*why:\*\*)(?!\w)",
+    r"does not use|não usa|instead of|em vez de|never use|do not use|não use|never write|must not be used|must not use|não deve ser usad[oa]|"
+    r"formerly|as history|\(history|history only|histórico|\*\*why:\*\*)(?!\w)",
     re.I)
 FILE_STATUS = re.compile(r"status[^\n]{0,30}\b(retired|historical|history|snapshot|superseded|archived|aposentad[oa]|histórico|not installed)\b|"
                          r"superseded[^\n]{0,40}do not follow|history only", re.I)
 HEADING = re.compile(r"^\s{0,3}#{1,6}\s")
+# A section titled History/Histórico/Changelog is history as a whole.
+HEADING_HISTORY = re.compile(r"\b(history|histórico|historico|changelog)\b", re.I)
 FENCE = re.compile(r"^\s{0,3}(```|~~~)")
 # A Foundation-relative path: NN_folder[/...]
 FOUNDATION_REF = re.compile(r"(?:/root/memory/foundation/|(?<![\w/.-]))((?:0[0-9]|[1-6][0-9])_[A-Za-z][\w.-]*(?:/[\w.@-]+)*)")
@@ -105,7 +107,7 @@ def _lines_with_context(text: str):
         if FENCE.match(line):
             in_fence = not in_fence
         elif not in_fence and HEADING.match(line):
-            heading_history = bool(HISTORY_WORDS.search(line))
+            heading_history = bool(HISTORY_WORDS.search(line) or HEADING_HISTORY.search(line))
         neighbours = lines[max(i - 1, 0):i + 2]      # a sentence may wrap onto the next line
         allowed = header_history or heading_history or any(HISTORY_WORDS.search(x) for x in neighbours)
         yield i + 1, line, allowed
