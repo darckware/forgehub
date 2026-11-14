@@ -20,11 +20,14 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from sqlalchemy import select
+from datetime import datetime, timezone
+
+from sqlalchemy import select, text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db.models.governance import AuditEvent
+from app.db.models.notification import Notification
 from app.db.models.personal import AgentServiceRule
 
 # Which agent serves which outside channel. A new pair is a code change on purpose: each one needs
@@ -37,6 +40,7 @@ SERVICE_RULE_PAIRS: dict[str, tuple[str, ...]] = {
 # and tail (tools/hook_output_spill.py); the rules plus their header must stay under that.
 SERVICE_RULE_MAX_CHARS = 9000
 AUDIT_ENTITY = "agent_service_rule"
+OWNER = "marcelo"
 _NAMESPACE = uuid.UUID("6f1d8a2e-3c55-4b7e-9a0d-2b7f4e1c9a51")
 
 # What the host calls the profiles directory the backend sees at settings.SERVICE_RULES_PROFILES_ROOT.
@@ -146,16 +150,27 @@ async def list_rules(db: AsyncSession) -> list[tuple[str, str, AgentServiceRule 
             for agent, channels in SERVICE_RULE_PAIRS.items() for channel in channels]
 
 
+@dataclass
+class SaveResult:
+    row: AgentServiceRule
+    previous_content: str | None   # what the file held before, to restore it if the commit fails
+
+
 async def save_rule(db: AsyncSession, agent: str, channel: str, content: str, actor: str, *,
-                    expected_hash: str | None = None, check_expected: bool = True) -> AgentServiceRule:
-    """Validate, write the profile file, then stage the row and its audit event. Caller commits."""
+                    expected_hash: str | None = None, check_expected: bool = True) -> SaveResult:
+    """Validate, write the profile file, then stage the row and its audit event. Caller commits and,
+    if the commit fails, calls ``restore_file`` with ``previous_content``."""
     check_pair(agent, channel)
     text = normalize(content)
+    # One writer per pair, also for the first save, when FOR UPDATE has no row to lock.
+    await db.execute(sql_text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+                     {"key": f"service_rule:{agent}:{channel}"})
     row = await get_rule(db, agent, channel, lock=True)
     current = row.content_hash if row else None
     if check_expected and expected_hash != current:
         raise ServiceRuleConflict(current)
     new_hash = content_hash(text)
+    previous_content = _read_current_file(agent, channel)
     write_file(agent, channel, text)
     if row is None:
         row = AgentServiceRule(agent_slug=agent, channel=channel, content=text, content_hash=new_hash, updated_by=actor)
@@ -166,8 +181,37 @@ async def save_rule(db: AsyncSession, agent: str, channel: str, content: str, ac
         db.add(AuditEvent(entity_type=AUDIT_ENTITY, entity_id=entity_id(agent, channel), event_type="updated",
                           actor=actor, payload={"agent": agent, "channel": channel, "content_hash": new_hash,
                                                 "previous_hash": current, "chars": len(text.strip())}))
+        if actor != OWNER:
+            # An agent changed customer-facing rules (the Maia's MCP tool): Marcelo must see it, since
+            # a prompt injection that got her to call the tool would persist in every later turn.
+            now = datetime.now(timezone.utc)
+            db.add(Notification(
+                source="system", severity="warning",
+                title=f"Regras de atendimento alteradas por {actor}: {agent} · {channel}"[:255],
+                message=("Um agente alterou regras de atendimento. Confira em Pessoal → Regras de atendimento "
+                         "(Histórico) e desfaça se não foi um pedido seu."),
+                event_key=f"service-rule:{agent}:{channel}:{new_hash}:{now.timestamp()}", occurred_at=now))
     await db.flush()
-    return row
+    return SaveResult(row, previous_content)
+
+
+def _read_current_file(agent: str, channel: str) -> str | None:
+    try:
+        return rule_file(agent, channel).container_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def restore_file(agent: str, channel: str, previous_content: str | None) -> None:
+    """Best-effort undo of a write whose commit failed: the file must not run ahead of ForgeHub."""
+    path = rule_file(agent, channel).container_path
+    try:
+        if previous_content is None:
+            path.unlink(missing_ok=True)
+        else:
+            write_file(agent, channel, previous_content)
+    except (OSError, ServiceRuleFileError):
+        pass
 
 
 async def history(db: AsyncSession, agent: str, channel: str, limit: int = 50) -> list[AuditEvent]:

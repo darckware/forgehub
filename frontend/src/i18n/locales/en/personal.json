@@ -724,8 +724,8 @@
     "overLimit": "Over the {{max}}-character limit. Shorten the text to save.",
     "emptyText": "The text cannot be empty.",
     "saved": "Rules saved. The agent's file was rewritten.",
-    "conflict": "Someone else saved this rule after you opened it. Reload to see the current version (your unsaved text will be discarded).",
-    "reload": "Reload",
+    "conflict": "Someone else saved these rules after you opened them. Keep your text and save it over the newer version, or discard it and see the current version.",
+    "reload": "Discard and reload",
     "unsaved": "Unsaved changes",
     "switch": {
       "title": "Discard changes?",
@@ -736,6 +736,7 @@
     "history": "History",
     "historyEmpty": "No recorded changes.",
     "historyError": "Could not load the history.",
-    "historyEntry": "{{chars}} characters"
+    "historyEntry": "{{chars}} characters",
+    "keepMine": "Keep my text"
   }
 }

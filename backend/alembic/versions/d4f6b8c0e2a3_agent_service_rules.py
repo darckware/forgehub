@@ -34,7 +34,7 @@ def upgrade():
     bind.execute(sa.text('''INSERT INTO company.audit_checks
         (id,name,description,category,command,agent_profile,enabled,timeout_seconds,frequency)
         VALUES (gen_random_uuid(),'ECO-070',:description,'knowledge',:command,'mnemosyne',true,55,'daily')
-        ON CONFLICT (name) DO NOTHING'''), dict(
+        ON CONFLICT (name) DO UPDATE SET enabled = true, updated_at = now()'''), dict(
             description='One SOUL per agent in its home; service-rule files ATENDIMENTO_<CANAL>.md match ForgeHub; no legacy rule copies',
             command='python3 /root/.hermes/profiles/athos/scripts/checklist_verifier.py --check ECO-070'))
     current = bind.execute(sa.text(

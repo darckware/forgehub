@@ -724,8 +724,8 @@
     "overLimit": "Supera el límite de {{max}} caracteres. Reduzca el texto para guardar.",
     "emptyText": "El texto no puede quedar vacío.",
     "saved": "Reglas guardadas. Se reescribió el archivo del agente.",
-    "conflict": "Otra persona guardó esta regla después de que usted la abrió. Recargue para ver la versión actual (se descartará su texto no guardado).",
-    "reload": "Recargar",
+    "conflict": "Otra persona guardó estas reglas después de que las abriste. Puedes mantener tu texto y guardarlo sobre la versión nueva, o descartarlo y ver la versión actual.",
+    "reload": "Descartar y recargar",
     "unsaved": "Cambios sin guardar",
     "switch": {
       "title": "¿Descartar cambios?",
@@ -736,6 +736,7 @@
     "history": "Historial",
     "historyEmpty": "Sin cambios registrados.",
     "historyError": "No se pudo cargar el historial.",
-    "historyEntry": "{{chars}} caracteres"
+    "historyEntry": "{{chars}} caracteres",
+    "keepMine": "Mantener mi texto"
   }
 }

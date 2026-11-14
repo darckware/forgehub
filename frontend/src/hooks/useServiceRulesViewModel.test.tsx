@@ -97,6 +97,27 @@ describe("useServiceRulesViewModel", () => {
     expect(result.current.dirty).toBe(false);
   });
 
+  it("keepMine loads the newer version but keeps the draft and saves it over that version", async () => {
+    const { result } = await ready();
+    act(() => result.current.change("Minha versão."));
+    vi.mocked(apiClient.put).mockRejectedValueOnce(
+      new ApiError("conflict", 409, { detail: { code: "SERVICE_RULE_CHANGED" } }),
+    );
+    await act(() => result.current.save());
+    expect(result.current.status).toBe("conflict");
+
+    rules = [{ ...rules[0], content: "Versão de outra pessoa.", content_hash: "h9" }, rules[1]];
+    await act(() => result.current.keepMine());
+    await waitFor(() => expect(result.current.selected?.content_hash).toBe("h9"));
+    expect(result.current.text).toBe("Minha versão.");
+    expect(result.current.status).toBe("idle");
+    expect(result.current.canSave).toBe(true);
+
+    vi.mocked(apiClient.put).mockResolvedValueOnce({ ...rules[0], content: "Minha versão.\n", content_hash: "h10" });
+    await act(() => result.current.save());
+    expect(vi.mocked(apiClient.put).mock.calls.at(-1)?.[1]).toEqual({ content: "Minha versão.", expected_hash: "h9" });
+  });
+
   it("shows other save errors without entering conflict", async () => {
     const { result } = await ready();
     act(() => result.current.change("Outro texto."));

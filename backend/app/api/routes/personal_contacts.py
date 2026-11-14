@@ -592,7 +592,7 @@ async def update_assistant_settings(payload: AssistantSettingsUpdate, actor: str
         # Since 2026-11-14 the Maia's WhatsApp rules are the service rule maia/whatsapp (mirrored into
         # her profile as ATENDIMENTO_WHATSAPP.md); this route keeps the plugin and old clients working.
         try:
-            await service_rules.save_rule(db, "maia", "whatsapp", instructions, actor, check_expected=False)
+            saved = await service_rules.save_rule(db, "maia", "whatsapp", instructions, actor, check_expected=False)
         except service_rules.ServiceRuleError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
         except service_rules.ServiceRuleFileError as exc:
@@ -601,7 +601,13 @@ async def update_assistant_settings(payload: AssistantSettingsUpdate, actor: str
     for key, value in changes.items():
         if value is not None:
             setattr(row, key, value)
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        if instructions is not None:
+            service_rules.restore_file("maia", "whatsapp", saved.previous_content)
+        raise
     await db.refresh(row)
     return await _settings_out(db, row)
 

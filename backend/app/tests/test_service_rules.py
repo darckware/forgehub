@@ -157,3 +157,39 @@ async def test_maia_assistant_settings_reads_and_writes_the_whatsapp_rule(client
                                                       AuditEvent.entity_id == rules.entity_id("maia", "whatsapp"),
                                                       AuditEvent.payload["content_hash"].astext == rules.content_hash("Regras da Maia de teste\n")))
             await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_two_first_saves_at_once_leave_file_and_db_agreeing(client, admin_headers, agent, tmp_path):
+    import asyncio
+    first, second = await asyncio.gather(
+        client.put(f"{BASE}/{agent}/site", headers=admin_headers, json={"content": "A", "expected_hash": None}),
+        client.put(f"{BASE}/{agent}/site", headers=admin_headers, json={"content": "B", "expected_hash": None}))
+    codes = sorted([first.status_code, second.status_code])
+    assert codes == [200, 409], (first.text, second.text)
+    item = _item((await client.get(BASE, headers=admin_headers)).json(), agent, "site")
+    assert item["file_state"] == "in_sync"
+    assert (tmp_path / agent / "ATENDIMENTO_SITE.md").read_text() == item["content"]
+
+
+@pytest.mark.asyncio
+async def test_restore_file_undoes_a_write_whose_commit_failed(agent, tmp_path):
+    rules.write_file(agent, "site", "novo\n")
+    rules.restore_file(agent, "site", "antigo\n")
+    assert (tmp_path / agent / "ATENDIMENTO_SITE.md").read_text() == "antigo\n"
+    rules.restore_file(agent, "site", None)
+    assert not (tmp_path / agent / "ATENDIMENTO_SITE.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_an_agent_changing_rules_notifies_marcelo(agent):
+    from sqlalchemy import select
+    from app.db.models.notification import Notification
+    async with AsyncSessionLocal() as db:
+        result = await rules.save_rule(db, agent, "whatsapp", "regra trocada pelo agente", "maia", check_expected=False)
+        await db.commit()
+        rows = (await db.execute(select(Notification).where(Notification.event_key.like(f"service-rule:{agent}:whatsapp:%")))).scalars().all()
+        assert len(rows) == 1 and "maia" in rows[0].title and rows[0].severity == "warning"
+        assert result.previous_content is None
+        await db.execute(delete(Notification).where(Notification.event_key.like(f"service-rule:{agent}:%")))
+        await db.commit()

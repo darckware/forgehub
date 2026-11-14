@@ -724,8 +724,8 @@
     "overLimit": "Acima do limite de {{max}} caracteres. Reduza o texto para salvar.",
     "emptyText": "O texto não pode ficar vazio.",
     "saved": "Regras salvas. O arquivo do agente foi regravado.",
-    "conflict": "Outra pessoa salvou esta regra depois que você abriu. Recarregue para ver a versão atual (seu texto não salvo será descartado).",
-    "reload": "Recarregar",
+    "conflict": "Outra pessoa salvou esta regra depois que você abriu. Você pode manter o seu texto e salvá-lo por cima da versão nova, ou descartá-lo e ver a versão atual.",
+    "reload": "Descartar e recarregar",
     "unsaved": "Alterações não salvas",
     "switch": {
       "title": "Descartar alterações?",
@@ -736,6 +736,7 @@
     "history": "Histórico",
     "historyEmpty": "Sem alterações registradas.",
     "historyError": "Não foi possível carregar o histórico.",
-    "historyEntry": "{{chars}} caracteres"
+    "historyEntry": "{{chars}} caracteres",
+    "keepMine": "Manter meu texto"
   }
 }

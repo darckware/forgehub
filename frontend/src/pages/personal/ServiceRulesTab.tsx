@@ -169,9 +169,14 @@ export function ServiceRulesTab() {
                 {vm.status === "conflict" && (
                   <div className="flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-100 sm:flex-row sm:items-center sm:justify-between">
                     <span>{t("serviceRules.conflict")}</span>
-                    <Button type="button" size="sm" variant="outline" onClick={() => void vm.reload()}>
-                      <RefreshCw className="mr-1 h-4 w-4" />{t("serviceRules.reload")}
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" size="sm" variant="outline" onClick={() => void vm.keepMine()}>
+                        {t("serviceRules.keepMine")}
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => void vm.reload()}>
+                        <RefreshCw className="mr-1 h-4 w-4" />{t("serviceRules.reload")}
+                      </Button>
+                    </div>
                   </div>
                 )}
                 {vm.saved && <p className="text-sm text-emerald-600">{t("serviceRules.saved")}</p>}

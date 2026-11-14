@@ -48,7 +48,7 @@ async def update_service_rule(agent: str, channel: str, payload: ServiceRuleUpda
                               db: AsyncSession = Depends(get_db)) -> ServiceRuleOut:
     _pair(agent, channel)
     try:
-        row = await rules.save_rule(db, agent, channel, payload.content, actor, expected_hash=payload.expected_hash)
+        result = await rules.save_rule(db, agent, channel, payload.content, actor, expected_hash=payload.expected_hash)
     except rules.ServiceRuleError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     except rules.ServiceRuleConflict as exc:
@@ -59,9 +59,16 @@ async def update_service_rule(agent: str, channel: str, payload: ServiceRuleUpda
         await db.rollback()
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, {"code": "SERVICE_RULE_FILE_NOT_WRITTEN",
                                                          "message": str(exc)}) from exc
-    await db.commit()
-    await db.refresh(row)
-    return _out(agent, channel, row)
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        rules.restore_file(agent, channel, result.previous_content)
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, {
+            "code": "SERVICE_RULE_NOT_SAVED",
+            "message": "The rules were not saved; the agent's file was put back as it was."}) from exc
+    await db.refresh(result.row)
+    return _out(agent, channel, result.row)
 
 
 @router.get("/{agent}/{channel}/history", response_model=list[ServiceRuleHistoryOut])

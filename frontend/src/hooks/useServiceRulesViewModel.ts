@@ -7,7 +7,7 @@
  * (the draft is kept on screen, saving is blocked, and `reload` brings the stored version back).
  * Switching to another pair with unsaved changes asks first (`pendingKey` -> ConfirmDialog).
  */
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/lib/api";
 import {
@@ -53,6 +53,8 @@ export interface ServiceRulesViewModel {
   discard: () => void;
   save: () => Promise<void>;
   reload: () => Promise<void>;
+  /** After a conflict: load the newer version but keep this draft, to save it over that version. */
+  keepMine: () => Promise<void>;
 }
 
 const DEFAULT_MAX_CHARS = 9000;
@@ -99,6 +101,14 @@ export function useServiceRulesViewModel(): ServiceRulesViewModel {
   const overLimit = chars > maxChars;
   const empty = text.trim().length === 0;
   const saving = save.isPending;
+  // Leaving the page with unsaved rules asks first (switching pairs has its own guard).
+  useEffect(() => {
+    if (draft === null) return undefined;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [draft]);
+
   const canSave = Boolean(selected) && dirty && !overLimit && !empty && !saving && status !== "conflict";
 
   function resetEditor() {
@@ -178,6 +188,11 @@ export function useServiceRulesViewModel(): ServiceRulesViewModel {
     async reload() {
       await qc.invalidateQueries({ queryKey: serviceRulesKey });
       resetEditor();
+    },
+    async keepMine() {
+      await qc.invalidateQueries({ queryKey: serviceRulesKey });
+      setStatus("idle");
+      setError(null);
     },
   };
 }
