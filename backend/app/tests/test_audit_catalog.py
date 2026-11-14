@@ -14,9 +14,9 @@ VERIFIER = Path(__file__).resolve().parents[3] / 'ops/athos/checklist_verifier.p
 
 
 def test_catalog_v2_ids_are_contiguous_and_unique():
-    expected = {f"ECO-{number:03d}" for number in range(1, 71)}
+    expected = {f"ECO-{number:03d}" for number in range(1, 72)}
     assert set(CANONICAL_AUDIT_CHECKS) | set(RETIRED_AUDIT_CHECKS) == expected
-    assert len(CANONICAL_AUDIT_CHECKS) == 69
+    assert len(CANONICAL_AUDIT_CHECKS) == 70
     assert {name for name, check in CANONICAL_AUDIT_CHECKS.items() if not check.enabled} == {
         "ECO-048", "ECO-050", "ECO-055", "ECO-056", "ECO-058"
     }

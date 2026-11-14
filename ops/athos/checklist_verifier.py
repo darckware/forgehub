@@ -1397,6 +1397,82 @@ def check_agent_profile_files() -> Result:
     return _findings_result(findings, "One SOUL per agent; service-rule files match ForgeHub; no legacy copies")
 
 
+# ---------------------------------------------------------------- WhatsApp takes no commands (ECO-071)
+# Marcelo, 2026-11-14: no command may be accepted over WhatsApp. Hermes gates slash commands only when
+# the transport profile's ``allow_admin_from`` (DM) / ``group_allow_admin_from`` (group) is set; with no
+# list every contact is an admin. The accepted setting is a single admin id no contact can have.
+WHATSAPP_NO_COMMANDS_ADMIN = "whatsapp-sem-comandos"
+
+
+def _whatsapp_list(raw) -> set[str]:
+    """Hermes' coercion (gateway/slash_access.py): None, list, comma string or scalar."""
+    if raw is None:
+        return set()
+    items = raw if isinstance(raw, (list, tuple, set)) else (str(raw).split(",") if isinstance(raw, str) else [raw])
+    return {str(item).strip() for item in items if str(item).strip()}
+
+
+def whatsapp_command_findings(configs: dict[str, Path] | None = None) -> list[str]:
+    """Every config with WhatsApp on refuses all slash commands (DM and group), and no WhatsApp
+    session is served by two adapters (they fight over one linked device)."""
+    import yaml
+
+    if configs is None:
+        configs = {"root": HERMES / "config.yaml"}
+        profiles = HERMES / "profiles"
+        if profiles.is_dir():
+            # A parked profile is not served (profiles/default is a parked copy; the live default
+            # profile is the root config above).
+            configs.update({d.name: d / "config.yaml" for d in sorted(profiles.iterdir())
+                            if d.is_dir() and (d / "config.yaml").is_file() and not (d / "gateway.parked").exists()})
+    findings: list[str] = []
+    sessions: dict[str, list[str]] = {}
+    for label, path in configs.items():
+        try:
+            config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError) as exc:
+            findings.append(f"{label}: config.yaml unreadable ({type(exc).__name__})")
+            continue
+        if not isinstance(config, dict):
+            findings.append(f"{label}: config.yaml is not a mapping")
+            continue
+        root_block = config.get("whatsapp") if isinstance(config.get("whatsapp"), dict) else {}
+        platform = ((config.get("platforms") or {}).get("whatsapp")) if isinstance(config.get("platforms"), dict) else None
+        platform = platform if isinstance(platform, dict) else {}
+        extra = platform.get("extra") if isinstance(platform.get("extra"), dict) else {}
+        if not (root_block.get("enabled") or platform.get("enabled")):
+            continue
+        merged = {**root_block, **{k: v for k, v in platform.items() if k != "extra"}, **extra}
+        for key, scope in (("allow_admin_from", "DM"), ("group_allow_admin_from", "group")):
+            admins = _whatsapp_list(merged.get(key))
+            if not admins:
+                findings.append(f"{label}: WhatsApp on with no whatsapp.{key} — every {scope} contact can run every slash command")
+            elif admins != {WHATSAPP_NO_COMMANDS_ADMIN}:
+                findings.append(f"{label}: whatsapp.{key} lists {len(admins - {WHATSAPP_NO_COMMANDS_ADMIN})} admin(s); "
+                                f"no one may run commands over WhatsApp (use only {WHATSAPP_NO_COMMANDS_ADMIN})")
+        for key in ("user_allowed_commands", "group_user_allowed_commands"):
+            allowed = sorted(c.lstrip("/").lower() for c in _whatsapp_list(merged.get(key)))
+            if allowed:
+                findings.append(f"{label}: whatsapp.{key} allows " + ", ".join(f"/{c}" for c in allowed))
+        session = str(merged.get("session_path") or "").rstrip("/")
+        if session:
+            sessions.setdefault(os.path.realpath(session), []).append(label)
+    for session, labels in sorted(sessions.items()):
+        if len(labels) > 1:
+            findings.append(f"WhatsApp session {session} is served by {len(labels)} adapters ({', '.join(labels)}); "
+                            "keep one, or they fight over the linked device")
+    return findings
+
+
+def check_whatsapp_no_commands() -> Result:
+    """ECO-071: no WhatsApp entry accepts slash commands; one adapter per WhatsApp session."""
+    try:
+        findings = whatsapp_command_findings()
+    except Exception as exc:
+        return fail(f"WhatsApp command lock not verified: {type(exc).__name__}")
+    return _findings_result(findings, "No WhatsApp entry accepts commands; one adapter per WhatsApp session")
+
+
 def check_module_health(name: str) -> Result:
     # Release source first; deployed profile scripts may load the helper next
     # to themselves. No dependency on an accidentally installed older profile.
@@ -1505,6 +1581,7 @@ CHECKS = {
     "ECO-068": check_agent_memory_size,
     "ECO-069": check_agent_memory_currency,
     "ECO-070": check_agent_profile_files,
+    "ECO-071": check_whatsapp_no_commands,
 }
 
 
