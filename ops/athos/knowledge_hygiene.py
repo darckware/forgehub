@@ -41,21 +41,27 @@ RETIRED_TERMS: dict[str, str] = {
     r"\bWSL\b": "the VPS",
 }
 _RETIRED = [(re.compile(term, re.I), term, repl) for term, repl in RETIRED_TERMS.items()]
+# Explicit history markers only, whole words. Checked on the line of the term and the lines right
+# before and after it (wrapped sentences); a heading or the file header (first 12 lines) can also mark a whole section/file.
 HISTORY_WORDS = re.compile(
-    r"retired|discontinued|descontinuad|removed|removid|aposentad|legacy|legado|archived|arquivad|no longer|"
-    r"não existe|nao existe|never existed|gone\b|superseded|substitu|replaced|deprecated|obsolet|antig|"
-    r"\bold\b|former|anterior|previous|history|histór|histor|was\b|were\b|used to|until\b|até\b|era\b|"
-    r"migrat|migrad|instead of|em vez|não use|never use|do not use|never write|nunca|replac|must not|não deve|"
-    r"not installed|não instalad|moved|movid|\*\*why:\*\*|does not use|não usa",
+    r"\b(?:retired|discontinued|descontinuad[oa]s?|removed|removid[oa]s?|aposentad[oa]s?|legacy|legado|"
+    r"archived|arquivad[oa]s?|no longer|não existe[m]?|nao existe[m]?|never existed|superseded|"
+    r"substituíd[oa]s?|replaced|replaces|deprecated|obsolete|obsolet[oa]s?|not installed|não instalad[oa]s?|"
+    r"does not use|não usa|instead of|em vez de|never use|do not use|não use|never write|must not|não deve|"
+    r"formerly|history|histórico|\*\*why:\*\*)(?!\w)",
     re.I)
-FILE_STATUS = re.compile(r"status[^\n]{0,30}(retired|historical|history|snapshot|superseded|archived|aposentad|histórico|not installed)|"
+FILE_STATUS = re.compile(r"status[^\n]{0,30}\b(retired|historical|history|snapshot|superseded|archived|aposentad[oa]|histórico|not installed)\b|"
                          r"superseded[^\n]{0,40}do not follow|history only", re.I)
 HEADING = re.compile(r"^\s{0,3}#{1,6}\s")
+FENCE = re.compile(r"^\s{0,3}(```|~~~)")
 # A Foundation-relative path: NN_folder[/...]
 FOUNDATION_REF = re.compile(r"(?:/root/memory/foundation/|(?<![\w/.-]))((?:0[0-9]|[1-6][0-9])_[A-Za-z][\w.-]*(?:/[\w.@-]+)*)")
-# An absolute path under the ecosystem roots that a reader would follow.
-ABS_REF = re.compile(r"(/root/(?:memory|\.hermes|project|\.claude|\.codex|\.gemini)/[\w./@-]+)")
-PLACEHOLDER = re.compile(r"[<>{}*$\[\]]|\.\.\.|XXX|NNN|YYYY", re.I)
+# Absolute paths a reader would follow. Foundation documents: every ecosystem root. Agent memories:
+# only the shared memory roots (a note may legitimately name a removed worktree or session).
+ABS_REF_FOUNDATION = re.compile(r"(/root/(?:memory|\.hermes|project|\.claude|\.codex|\.gemini)/[\w./@-]+)")
+ABS_REF_MEMORY = re.compile(r"(/root/(?:memory|\.hermes)/[\w./@-]+)")
+PLACEHOLDER = re.compile(r"[<>{}*$\[\]]|XXX|NNN|YYYY", re.I)
+MAX_READ_BYTES = 1_000_000
 
 # Size limits. Hermes injects memories/MEMORY.md and memories/USER.md into every turn and refuses
 # writes beyond the profile's own limits (config.yaml memory_char_limit/user_char_limit); the other
@@ -79,28 +85,29 @@ class MemoryFile:
     text: bool = True               # checked for retired terms and dead links
 
 
+def read_text(path: Path) -> str:
+    """At most MAX_READ_BYTES of a regular file; raises OSError (callers report it as unreadable)."""
+    if not path.is_file():
+        raise OSError("not a regular file")
+    with path.open("rb") as handle:
+        return handle.read(MAX_READ_BYTES).decode("utf-8", errors="ignore")
+
+
 def _lines_with_context(text: str):
-    """Yield (line_number, line, allowed) — allowed when the paragraph, heading or file header is history."""
+    """Yield (line_number, line, allowed): allowed when the line or the one before it carries a
+    history marker, when the enclosing heading does, or when the file header marks it historical.
+    Lines inside code fences never change the heading."""
     lines = text.splitlines()
     header_history = any(FILE_STATUS.search(line) for line in lines[:12])
     heading_history = False
-    paragraphs: list[list[int]] = []
-    current: list[int] = []
+    in_fence = False
     for i, line in enumerate(lines):
-        if line.strip():
-            current.append(i)
-        elif current:
-            paragraphs.append(current)
-            current = []
-    if current:
-        paragraphs.append(current)
-    paragraph_of = {i: tuple(p) for p in paragraphs for i in p}
-    for i, line in enumerate(lines):
-        if HEADING.match(line):
+        if FENCE.match(line):
+            in_fence = not in_fence
+        elif not in_fence and HEADING.match(line):
             heading_history = bool(HISTORY_WORDS.search(line))
-        paragraph = paragraph_of.get(i, (i,))
-        window = paragraph if len(paragraph) <= 12 else range(max(i - 2, 0), min(i + 3, len(lines)))
-        allowed = header_history or heading_history or any(HISTORY_WORDS.search(lines[j]) for j in window)
+        neighbours = lines[max(i - 1, 0):i + 2]      # a sentence may wrap onto the next line
+        allowed = header_history or heading_history or any(HISTORY_WORDS.search(x) for x in neighbours)
         yield i + 1, line, allowed
 
 
@@ -112,11 +119,14 @@ def _clean(target: str) -> str:
     return target.rstrip(".,:;)`'\"")
 
 
-def retired_term_findings(path: Path, label: str) -> list[str]:
+def text_findings(path: Path, label: str, *, foundation: Path = FOUNDATION, private: bool = False) -> list[str]:
+    """Retired terms and dead links in one file. `private` (agent memories): a dead link is reported
+    without its target, since the path itself can carry personal data."""
     try:
-        text = path.read_text(errors="ignore")
-    except OSError as exc:
-        return [f"{label}: unreadable ({type(exc).__name__})"]
+        text = read_text(path)
+    except OSError:
+        return [f"{label}: unreadable"]
+    abs_ref = ABS_REF_MEMORY if private else ABS_REF_FOUNDATION
     found = []
     for n, line, allowed in _lines_with_context(text):
         if allowed:
@@ -124,64 +134,67 @@ def retired_term_findings(path: Path, label: str) -> list[str]:
         for pattern, term, repl in _RETIRED:
             if pattern.search(line):
                 found.append(f"{label}:{n} uses retired '{_display(term)}' -> {repl}")
+        dead = []
+        for m in FOUNDATION_REF.finditer(line):
+            target = _clean(m.group(1))
+            if not PLACEHOLDER.search(target) and not ((foundation / target).exists() or (path.parent / target).exists()):
+                dead.append(target)
+        for m in abs_ref.finditer(line):
+            target = _clean(m.group(1))
+            following = line[m.end():m.end() + 1]
+            if PLACEHOLDER.search(target) or target.endswith("/") or (following and following in "*<{$"):
+                continue
+            if not os.path.lexists(target):
+                dead.append(target)
+        for target in dict.fromkeys(dead):
+            found.append(f"{label}:{n} links a missing path" if private else f"{label}:{n} links missing {target}")
     return found
+
+
+def retired_term_findings(path: Path, label: str) -> list[str]:
+    return [f for f in text_findings(path, label) if "uses retired" in f or f.endswith("unreadable")]
 
 
 def dead_link_findings(path: Path, label: str, foundation: Path = FOUNDATION) -> list[str]:
-    try:
-        text = path.read_text(errors="ignore")
-    except OSError:
-        return []
-    found = []
-    for n, line, allowed in _lines_with_context(text):
-        if allowed:
-            continue
-        targets = {_clean(m.group(1)) for m in FOUNDATION_REF.finditer(line)}
-        for target in targets:
-            if PLACEHOLDER.search(target):
-                continue
-            if not ((foundation / target).exists() or (path.parent / target).exists()):
-                found.append(f"{label}:{n} links missing {target}")
-        for m in ABS_REF.finditer(line):
-            target = _clean(m.group(1))
-            if PLACEHOLDER.search(target) or target.endswith("/") or line[m.end():m.end() + 1] in "*<{$":
-                continue
-            if not os.path.lexists(target):
-                found.append(f"{label}:{n} links missing {target}")
-    return found
+    return [f for f in text_findings(path, label, foundation=foundation) if "links" in f or f.endswith("unreadable")]
 
 
 # ---------------------------------------------------------------- Foundation (ECO-067)
 
 def foundation_documents(foundation: Path = FOUNDATION):
-    for path in sorted(foundation.rglob("*")):
-        rel = path.relative_to(foundation)
-        if path.is_file() and rel.parts[0] not in HISTORY_DIRS and ".git" not in rel.parts and path.suffix in DOC_SUFFIXES:
-            yield path, str(rel)
+    """Live documents, walking without .git or the dated records and never through symlinks."""
+    for dirpath, dirnames, filenames in os.walk(foundation):
+        rel_dir = Path(dirpath).relative_to(foundation)
+        dirnames[:] = sorted(d for d in dirnames if d != ".git" and not (rel_dir == Path(".") and d in HISTORY_DIRS))
+        for name in sorted(filenames):
+            path = Path(dirpath) / name
+            if path.suffix in DOC_SUFFIXES and not path.is_symlink():
+                yield path, str(path.relative_to(foundation))
 
 
 def foundation_findings(foundation: Path = FOUNDATION) -> list[str]:
     findings = [f"unexpected top-level entry: {p.name}" for p in sorted(foundation.iterdir())
                 if p.name not in FOUNDATION_ROOT_ENTRIES]
-    manifest = foundation / "09_MANIFEST.yaml"
-    if manifest.is_file():
-        root = re.search(r"^canonical_root:\s*(\S+)", manifest.read_text(), re.M)
+    try:
+        root = re.search(r"^canonical_root:\s*(\S+)", read_text(foundation / "09_MANIFEST.yaml"), re.M)
         if not root or root.group(1) != str(foundation):
             findings.append(f"09_MANIFEST.yaml canonical_root is {root.group(1) if root else 'missing'}, expected {foundation}")
+    except OSError:
+        findings.append("09_MANIFEST.yaml: unreadable")
     for path, label in foundation_documents(foundation):
-        findings += retired_term_findings(path, label)
-        findings += dead_link_findings(path, label, foundation)
+        findings += text_findings(path, label, foundation=foundation)
     return findings
 
 
 # ---------------------------------------------------------------- agent memories (ECO-068/069)
 
-def _hermes_limits(profile: Path) -> dict[str, int]:
+def _hermes_limits(profile: Path) -> dict[str, int] | None:
+    """The profile's own limits; None when its config can't be read (reported, never guessed)."""
     limits = dict(HERMES_DEFAULT_LIMITS)
     try:
-        config = (profile / "config.yaml").read_text()
+        config = read_text(profile / "config.yaml")
     except OSError:
-        return limits
+        return None
     for key, name in (("memory_char_limit", "MEMORY.md"), ("user_char_limit", "USER.md")):
         m = re.search(rf"^\s+{key}:\s*(\d+)", config, re.M)
         if m:
@@ -193,9 +206,12 @@ def memory_inventory(profiles: Path = PROFILES, home: Path = HOME) -> list[Memor
     files: list[MemoryFile] = []
     if profiles.is_dir():
         for profile in sorted(p for p in profiles.iterdir() if p.is_dir() and not (p / "gateway.parked").exists()):
-            if not (profile / "config.yaml").is_file():
+            if not os.path.lexists(profile / "config.yaml"):
                 continue
             limits = _hermes_limits(profile)
+            if limits is None:
+                files.append(MemoryFile(profile.name, profile / "config.yaml", limit=-1, text=False))
+                limits = {}
             for name, limit in limits.items():
                 files.append(MemoryFile(profile.name, profile / "memories" / name, limit, "chars"))
             for name, limit in PROFILE_FILE_LIMITS.items():
@@ -219,30 +235,50 @@ def memory_inventory(profiles: Path = PROFILES, home: Path = HOME) -> list[Memor
     return files
 
 
+def _tree_size(root: Path) -> int:
+    total = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        for name in filenames:
+            try:
+                total += (Path(dirpath) / name).lstat().st_size
+            except OSError:
+                continue          # removed mid-walk
+    return total
+
+
 def _size(item: MemoryFile) -> int:
     if item.path.is_dir():
-        return sum(p.stat().st_size for p in item.path.rglob("*") if p.is_file())
+        return _tree_size(item.path)
     if item.unit == "chars":
-        return len(item.path.read_text(errors="ignore"))
-    return item.path.stat().st_size
+        return len(read_text(item.path))
+    return item.path.lstat().st_size if item.path.is_symlink() and not item.path.exists() else item.path.stat().st_size
 
 
 def memory_size_findings(inventory: list[MemoryFile], knowledge_base: Path = KNOWLEDGE_BASE) -> list[str]:
     findings = []
     for item in inventory:
+        if item.limit == -1:
+            findings.append(f"{item.agent}: {item.path} unreadable; memory limits not verified")
+            continue
+        if item.path.is_symlink() and not item.path.exists():
+            findings.append(f"{item.agent}: {item.path} is a broken link")
+            continue
         if not item.path.exists():
             continue
-        if item.limit is not None:
-            size = _size(item)
-            if size > item.limit:
-                findings.append(f"{item.agent}: {item.path} is {size} {item.unit} (limit {item.limit})")
-        if item.max_lines is not None:
-            lines = len(item.path.read_text(errors="ignore").splitlines())
-            if lines > item.max_lines:
-                findings.append(f"{item.agent}: {item.path} has {lines} lines (only the first {item.max_lines} are loaded)")
+        try:
+            if item.limit is not None:
+                size = _size(item)
+                if size > item.limit:
+                    findings.append(f"{item.agent}: {item.path} is {size} {item.unit} (limit {item.limit})")
+            if item.max_lines is not None:
+                lines = len(read_text(item.path).splitlines())
+                if lines > item.max_lines:
+                    findings.append(f"{item.agent}: {item.path} has {lines} lines (only the first {item.max_lines} are loaded)")
+        except OSError:
+            findings.append(f"{item.agent}: {item.path} unreadable")
     if knowledge_base.is_dir():
-        for agent in sorted(p for p in knowledge_base.iterdir() if p.is_dir()):
-            size = sum(p.stat().st_size for p in agent.rglob("*") if p.is_file())
+        for agent in sorted(p for p in knowledge_base.iterdir() if p.is_dir() and not p.is_symlink()):
+            size = _tree_size(agent)
             if size > KNOWLEDGE_BASE_AGENT_LIMIT:
                 findings.append(f"{agent.name}: knowledge base {agent} is {size} bytes (limit {KNOWLEDGE_BASE_AGENT_LIMIT})")
     return findings
@@ -251,9 +287,12 @@ def memory_size_findings(inventory: list[MemoryFile], knowledge_base: Path = KNO
 def memory_currency_findings(inventory: list[MemoryFile], foundation: Path = FOUNDATION) -> list[str]:
     findings = []
     for item in inventory:
-        if not item.text or not item.path.is_file():
+        if not item.text:
             continue
-        label = f"{item.agent}: {item.path}"
-        findings += retired_term_findings(item.path, label)
-        findings += dead_link_findings(item.path, label, foundation)
+        if item.path.is_symlink() and not item.path.exists():
+            findings.append(f"{item.agent}: {item.path} is a broken link")
+            continue
+        if not item.path.exists():
+            continue
+        findings += text_findings(item.path, f"{item.agent}: {item.path}", foundation=foundation, private=True)
     return findings

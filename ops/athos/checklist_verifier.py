@@ -1343,9 +1343,15 @@ def _knowledge_hygiene():
 def _findings_result(findings: list[str], passed: str) -> Result:
     if not findings:
         return ok(passed)
-    shown = "; ".join(findings[:40])
-    more = f" (+{len(findings) - 40} more)" if len(findings) > 40 else ""
-    return fail(f"{len(findings)} finding(s): {shown}{more}")
+    shown: list[str] = []
+    size = 0
+    for finding in findings:          # whole findings only, within fail()'s 4000 characters
+        if size + len(finding) + 2 > 3500:
+            break
+        shown.append(finding)
+        size += len(finding) + 2
+    more = f" (+{len(findings) - len(shown)} more)" if len(shown) < len(findings) else ""
+    return fail(f"{len(findings)} finding(s): {'; '.join(shown)}{more}")
 
 
 def check_foundation_integrity() -> Result:

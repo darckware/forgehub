@@ -112,5 +112,63 @@ def test_memory_currency_covers_hermes_claude_and_external_runtimes(tmp_path):
 def test_findings_never_quote_memory_text(tmp_path):
     profiles, root = home(tmp_path)
     (root / '.claude' / 'projects' / '-root-project-x' / 'memory' / 'note.md').write_text('secret-ish note on Kanboard\n')
+    memory = root / '.claude' / 'projects' / '-root-project-x' / 'memory'
+    (memory / 'contact.md').write_text('Ficha em /root/memory/knowledge_base/maia/contatos/joao-silva.md\n')
     findings = k.memory_currency_findings(k.memory_inventory(profiles, root), tmp_path / 'foundation')
-    assert all('secret-ish' not in f for f in findings)
+    assert all('secret-ish' not in f and 'joao-silva' not in f for f in findings)
+    assert any('contact.md:1 links a missing path' in f for f in findings)
+
+
+def test_dead_link_at_end_of_line_is_reported(tmp_path):
+    root = foundation(tmp_path)
+    (root / '36_governance' / 'C.md').write_text('see /root/memory/nope_missing_file.md\n')
+    assert any('nope_missing_file.md' in f for f in k.foundation_findings(root))
+
+
+def test_common_words_do_not_exempt_a_live_rule(tmp_path):
+    root = foundation(tmp_path)
+    (root / '36_governance' / 'D.md').write_text(
+        'Use Kanboard in the camera opera.\nO tracking era bom; usar Kanboard até o fim.\n'
+        'Previous notes were here.\n\nUse Kanboard now.\n')
+    findings = k.foundation_findings(root)
+    assert sum('kanboard' in f for f in findings) == 3
+
+
+def test_marker_on_the_next_line_covers_a_wrapped_sentence(tmp_path):
+    root = foundation(tmp_path)
+    (root / '36_governance' / 'E.md').write_text('# E\n\nTracking: Kanboard was\nretired in 2026-08.\n\nFar below.\n\nKanboard again.\n')
+    findings = k.foundation_findings(root)
+    assert len(findings) == 1 and 'E.md:8' in findings[0]
+
+
+def test_heading_inside_code_fence_does_not_change_the_section(tmp_path):
+    root = foundation(tmp_path)
+    (root / '36_governance' / 'F.md').write_text('# Retired things\n\n```\n# live\n```\n\nKanboard row.\n\n# Current\n\nKanboard now.\n')
+    findings = k.foundation_findings(root)
+    assert len(findings) == 1 and 'F.md:11' in findings[0]
+
+
+def test_symlinked_documents_are_not_followed(tmp_path):
+    root = foundation(tmp_path)
+    outside = tmp_path / 'outside.md'
+    outside.write_text('Kanboard is official.\n')
+    (root / '36_governance' / 'link.md').symlink_to(outside)
+    assert k.foundation_findings(root) == []
+
+
+def test_unreadable_memory_and_config_are_reported_not_passed(tmp_path):
+    profiles, root = home(tmp_path)
+    (profiles / 'athos' / 'config.yaml').unlink()
+    (profiles / 'athos' / 'config.yaml').mkdir()           # unreadable as a file
+    broken = root / '.gemini' / 'config' / 'TOOLS.md'
+    broken.symlink_to(tmp_path / 'gone.md')
+    inventory = k.memory_inventory(profiles, root)
+    sizes = k.memory_size_findings(inventory, tmp_path / 'kb')
+    assert any('memory limits not verified' in f for f in sizes)
+    assert any('TOOLS.md is a broken link' in f for f in k.memory_currency_findings(inventory, tmp_path / 'f'))
+
+
+def test_only_the_first_megabyte_is_read(tmp_path):
+    big = tmp_path / 'big.md'
+    big.write_text('x' * (k.MAX_READ_BYTES + 10) + '\nKanboard\n')
+    assert k.text_findings(big, 'big.md') == []
