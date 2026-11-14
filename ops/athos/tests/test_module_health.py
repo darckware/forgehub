@@ -67,3 +67,13 @@ def test_routine_evidence_counts_only_enabled_routines_in_the_last_week():
     assert "r.enabled" in demand and "interval" not in demand
     # Audit routines run Auditor batches, never a Messages task (2026-11-13).
     assert "r.kind<>'audit'" in demand
+
+
+def test_routine_health_fails_on_lost_audit_runs_not_rescued_by_a_retry():
+    """2026-11-13: a failed or missed audit run of an enabled audit routine in
+    the last 7 days is a failure, unless its retry completed."""
+    query = m.ROUTINE_QUERY
+    clause = query[query.index("'failed_audit'"):]
+    assert "r.kind='audit'" in clause and "x.status IN ('failed','missed')" in clause
+    assert "y.retry_of_run_id=x.id AND y.status='completed'" in clause
+    assert 'failed_audit' in m.CHECKS['routines'].violations

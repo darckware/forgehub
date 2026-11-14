@@ -1,5 +1,6 @@
 """Metadata health checks exercise verdicts without querying host state or secrets."""
 import importlib.util
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
 import json
 from pathlib import Path
 import sys
@@ -100,11 +101,16 @@ def test_eco027_bare_words_do_not_hide_a_current_assertion(monkeypatch, text):
     assert not v.check_hindsight_obsolete().ok
 
 
+_RECENT = (_dt.now(_tz.utc) - _td(hours=1)).isoformat()
 AUDIT_ROUTINES = [
-    {"frequency": "daily", "schedule": "0 19 * * *", "timezone": "America/Sao_Paulo", "enabled": True},
-    {"frequency": "weekly", "schedule": "0 19 * * 0", "timezone": "America/Sao_Paulo", "enabled": True},
-    {"frequency": "monthly", "schedule": "0 19 1 * *", "timezone": "America/Sao_Paulo", "enabled": True},
-    {"frequency": "quarterly", "schedule": "0 19 1 1,4,7,10 *", "timezone": "America/Sao_Paulo", "enabled": True},
+    {"frequency": "daily", "schedule": "0 19 * * *", "timezone": "America/Sao_Paulo", "enabled": True,
+     "last_completed_at": _RECENT},
+    {"frequency": "weekly", "schedule": "0 19 * * 0", "timezone": "America/Sao_Paulo", "enabled": True,
+     "last_completed_at": _RECENT},
+    {"frequency": "monthly", "schedule": "0 19 1 * *", "timezone": "America/Sao_Paulo", "enabled": True,
+     "last_completed_at": _RECENT},
+    {"frequency": "quarterly", "schedule": "0 19 1 1,4,7,10 *", "timezone": "America/Sao_Paulo", "enabled": True,
+     "last_completed_at": _RECENT},
 ]
 LEGACY_CRON = {"name": "ecosystem-weekly-audit", "enabled": True, "script": "ecosystem_weekly_audit.sh",
                "schedule": {"expr": "0 19 * * 0"}}
@@ -165,3 +171,37 @@ def test_eco023_does_not_count_a_paused_legacy_cron(monkeypatch):
     assert result.ok and "disable it" not in result.notes
     monkeypatch.setattr(v, "psql", lambda *args: json.dumps([]))
     assert not v.check_weekly_audit().ok
+
+
+NOW = _dt(2026, 12, 1, 12, tzinfo=_tz.utc)
+
+
+def _tier(frequency, **changes):
+    row = next(dict(r) for r in AUDIT_ROUTINES if r["frequency"] == frequency)
+    row.update(changes)
+    return row
+
+
+def test_eco023_requires_a_completed_run_within_each_tier_window():
+    rows = [_tier("daily", last_completed_at=(NOW - _td(days=3)).isoformat()),
+            _tier("weekly", last_completed_at=(NOW - _td(days=7)).isoformat()),
+            _tier("monthly", last_completed_at=(NOW - _td(days=33)).isoformat()),
+            _tier("quarterly", last_completed_at=(NOW - _td(days=90)).isoformat())]
+    assert v.audit_routine_problems(rows, NOW) == ["daily: no completed run in 2 days",
+                                                   "monthly: no completed run in 32 days"]
+
+
+def test_eco023_gives_a_newly_enabled_tier_one_period_of_grace():
+    never = [_tier(f, last_completed_at=None, enabled_at=(NOW - _td(days=5)).isoformat())
+             for f in ("daily", "weekly", "monthly", "quarterly")]
+    assert v.audit_routine_problems(never, NOW) == ["daily: no completed run in 2 days"]
+
+
+def test_eco023_falls_back_to_the_cron_when_a_tier_stopped_running(monkeypatch):
+    stale = [dict(r, last_completed_at=None, enabled_at=None) for r in AUDIT_ROUTINES]
+    monkeypatch.setattr(v, "psql", lambda *args: json.dumps(stale))
+    monkeypatch.setattr(v, "load_jobs", lambda: [])
+    result = v.check_weekly_audit()
+    assert not result.ok and "no completed run" in result.notes
+    monkeypatch.setattr(v, "load_jobs", lambda: [LEGACY_CRON])
+    assert v.check_weekly_audit().ok

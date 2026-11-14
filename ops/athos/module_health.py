@@ -114,7 +114,10 @@ SELECT json_build_object('enabled',(SELECT count(*) FROM company.agent_routines 
  'missing_evidence',count(*) FILTER (WHERE r.enabled AND x.status='completed'
  AND x.occurrence_at>=now()-interval '7 days' AND r.expected_evidence IS NOT NULL
  AND btrim(r.expected_evidence)<>'' AND x.no_action IS NOT TRUE AND x.evidence_received IS NOT TRUE
- AND r.mission_project_id IS NULL))
+ AND r.mission_project_id IS NULL),
+ 'failed_audit',count(*) FILTER (WHERE r.enabled AND r.kind='audit' AND x.status IN ('failed','missed')
+ AND x.occurrence_at>=now()-interval '7 days' AND NOT EXISTS (SELECT 1 FROM company.agent_routine_runs y
+ WHERE y.retry_of_run_id=x.id AND y.status='completed')))
 FROM company.agent_routine_runs x JOIN company.agent_routines r ON r.id=x.routine_id
 """
 
@@ -124,5 +127,5 @@ CHECKS = {
  'factory': ModuleCheck(FACTORY_QUERY, ('total','invalid'), ('invalid',)),
  'remote': ModuleCheck(REMOTE_QUERY, ('enabled_machines','unobserved','source_unavailable','stale_executions','missing_task'), ('unobserved','source_unavailable','stale_executions','missing_task')),
  'sessions': ModuleCheck(SESSION_QUERY, ('total','invalid','post_expiry_activity'), ('invalid','post_expiry_activity')),
- 'routines': ModuleCheck(ROUTINE_QUERY, ('enabled','overdue','missing_demand','missing_evidence'), ('overdue','missing_demand','missing_evidence')),
+ 'routines': ModuleCheck(ROUTINE_QUERY, ('enabled','overdue','missing_demand','missing_evidence','failed_audit'), ('overdue','missing_demand','missing_evidence','failed_audit')),
 }

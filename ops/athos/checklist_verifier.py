@@ -339,11 +339,27 @@ AUDIT_ROUTINE_SCHEDULES = {
 }
 
 
-def audit_routine_problems(rows: object) -> list[str]:
-    """Why the four Operação 24x7 audit routines don't schedule every tier
-    (empty = they do). Pure, so it is testable without a database."""
+# One period plus a day of grace: a tier must have completed a run within
+# this window, counted from its last completed run or from when it was enabled.
+AUDIT_ROUTINE_WINDOWS_DAYS = {"daily": 2, "weekly": 8, "monthly": 32, "quarterly": 93}
+
+
+def _moment(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        moment = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def audit_routine_problems(rows: object, now: datetime | None = None) -> list[str]:
+    """Why the four Operação 24x7 audit routines don't schedule and run every
+    tier (empty = they do). Pure, so it is testable without a database."""
     if not isinstance(rows, list):
         return ["malformed audit routine inventory"]
+    now = now or datetime.now(timezone.utc)
     by_tier = {row.get("frequency"): row for row in rows if isinstance(row, dict)}
     problems = []
     for frequency, schedule in AUDIT_ROUTINE_SCHEDULES.items():
@@ -354,12 +370,19 @@ def audit_routine_problems(rows: object) -> list[str]:
             problems.append(f"{frequency}: routine disabled")
         elif row.get("schedule") != schedule or row.get("timezone") != "America/Sao_Paulo":
             problems.append(f"{frequency}: schedule {row.get('schedule')} {row.get('timezone')}")
+        else:
+            window = AUDIT_ROUTINE_WINDOWS_DAYS[frequency]
+            since = now.timestamp() - window * 86400
+            moments = [_moment(row.get("last_completed_at")), _moment(row.get("enabled_at"))]
+            if not any(moment is not None and moment.timestamp() >= since for moment in moments):
+                problems.append(f"{frequency}: no completed run in {window} days")
     return problems
 
 
 def check_weekly_audit() -> Result:
     """ECO-023: every tier is scheduled -- by the four audit routines (since
-    2026-11-13), or, until they are all enabled, by the legacy Sunday cron."""
+    2026-11-13), each with a completed run within one period plus a day of
+    grace, or, until they all are, by the legacy Sunday cron."""
     # A paused job (`hermes cron pause`, the activation plan's step) keeps
     # enabled=true in the store but no longer runs.
     jobs = [j for j in load_jobs() if j.get("enabled") and j.get("state") != "paused"
@@ -367,15 +390,17 @@ def check_weekly_audit() -> Result:
     legacy_ok = len(jobs) == 1 and jobs[0].get("schedule", {}).get("expr") == "0 19 * * 0" and jobs[0].get("script") == "ecosystem_weekly_audit.sh"
     try:
         rows = json.loads(psql(
-            "SELECT coalesce(json_agg(json_build_object('frequency',audit_frequency,'schedule',schedule,"
-            "'timezone',timezone,'enabled',enabled)), '[]'::json) FROM company.agent_routines WHERE kind='audit'",
+            "SELECT coalesce(json_agg(json_build_object('frequency',r.audit_frequency,'schedule',r.schedule,"
+            "'timezone',r.timezone,'enabled',r.enabled,'enabled_at',r.enabled_at,'last_completed_at',"
+            "(SELECT max(x.finished_at) FROM company.agent_routine_runs x WHERE x.routine_id=r.id "
+            "AND x.status='completed'))), '[]'::json) FROM company.agent_routines r WHERE r.kind='audit'",
             "forgehub", "forgehub_postgres"))
         problems = audit_routine_problems(rows)
     except Exception as exc:  # before the migration: no audit_frequency column
         problems = [f"audit routines unreadable: {type(exc).__name__}"]
     if not problems:
         note = "; legacy ecosystem-weekly-audit cron still enabled (disable it)" if jobs else ""
-        return ok("Audit tiers scheduled by the four Operação 24x7 audit routines" + note)
+        return ok("Audit tiers scheduled and run by the four Operação 24x7 audit routines" + note)
     if legacy_ok:
         return ok("Weekly ecosystem audit scheduled Sunday 19:00 (legacy cron; audit routines: " + ", ".join(problems) + ")")
     return fail(f"No audit schedule: routines {', '.join(problems)}; legacy cron missing or drifted: {jobs}")

@@ -85,7 +85,7 @@ async def test_routine_actual_sql_honors_disabled_and_coordination_exceptions(en
     counts=await execute('routines',f'''fixture_agent_routines AS (SELECT 1 id,
     {str(enabled).lower()} enabled,60 deadline_minutes,'report'::text expected_evidence,'{kind}'::text kind,
     {'1' if mission else 'NULL::int'} mission_project_id),
-    fixture_agent_routine_runs AS (SELECT 1 routine_id,'{status}'::text status,
+    fixture_agent_routine_runs AS (SELECT 1 id,NULL::int retry_of_run_id,1 routine_id,'{status}'::text status,
     now()-interval '2 hours' occurrence_at,NULL::uuid demand_id,
     {str(evidence).lower()} evidence_received,{str(no_action).lower()} no_action)''')
     assert m.CHECKS['routines'].evaluate(counts)[0] is healthy
@@ -95,7 +95,7 @@ async def test_routine_actual_sql_honors_disabled_and_coordination_exceptions(en
 async def test_running_audit_batch_within_its_deadline_is_not_missing_a_demand():
     counts=await execute('routines','''fixture_agent_routines AS (SELECT 1 id,true enabled,
     180 deadline_minutes,'lote'::text expected_evidence,'audit'::text kind,NULL::int mission_project_id),
-    fixture_agent_routine_runs AS (SELECT 1 routine_id,'running'::text status,now() occurrence_at,
+    fixture_agent_routine_runs AS (SELECT 1 id,NULL::int retry_of_run_id,1 routine_id,'running'::text status,now() occurrence_at,
     NULL::uuid demand_id,NULL::boolean evidence_received,NULL::boolean no_action)''')
     assert counts['missing_demand'] == 0 and m.CHECKS['routines'].evaluate(counts)[0] is True
 
