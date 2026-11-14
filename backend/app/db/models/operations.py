@@ -31,11 +31,13 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Identity,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -43,7 +45,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, TimestampMixin
 
 CHARTER_ESCALATIONS = ("telegram_direct", "via_athos")
-ROUTINE_KINDS = ("monitoring", "maintenance", "improvement", "report", "coordination")
+# "audit" (2026-11-13): an Auditor tier. Its occurrence runs the tier's
+# enabled checks through the Auditor runner -- deterministic, no LLM and no
+# Messages task; the batch is the run's evidence (core/audit_routines.py).
+ROUTINE_KINDS = ("monitoring", "maintenance", "improvement", "report", "coordination", "audit")
+AUDIT_ROUTINE_FREQUENCIES = ("daily", "weekly", "monthly", "quarterly")
 ROUTINE_RUN_STATUSES = ("scheduled", "running", "completed", "failed", "missed", "skipped_budget")
 ROUTINE_RUN_TERMINAL_STATUSES = ("completed", "failed", "missed", "skipped_budget")
 QUESTION_STATUSES = ("pending", "answered", "cancelled")
@@ -91,6 +97,9 @@ class AgentRoutine(Base, TimestampMixin):
     kind: Mapped[str] = mapped_column(String(30), nullable=False, default="monitoring")
     expected_evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
     linked_audit_checks: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    # Only for kind="audit": the tier of audit_checks.frequency it runs. At
+    # most one routine per tier (partial unique index in the migration).
+    audit_frequency: Mapped[str | None] = mapped_column(String(20), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     deadline_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
@@ -120,6 +129,13 @@ class AgentRoutine(Base, TimestampMixin):
     __table_args__ = (
         CheckConstraint(f"kind IN {ROUTINE_KINDS!r}", name="ck_agent_routines_kind"),
         CheckConstraint("deadline_minutes > 0", name="ck_agent_routines_deadline"),
+        CheckConstraint("(kind = 'audit') = (audit_frequency IS NOT NULL)", name="ck_agent_routines_audit_tier"),
+        CheckConstraint(
+            f"audit_frequency IS NULL OR audit_frequency IN {AUDIT_ROUTINE_FREQUENCIES!r}",
+            name="ck_agent_routines_audit_frequency",
+        ),
+        Index("uq_agent_routines_audit_frequency", "audit_frequency", unique=True,
+              postgresql_where=text("kind = 'audit'")),
     )
 
 
@@ -143,6 +159,9 @@ class AgentRoutineRun(Base, TimestampMixin):
     cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 6), nullable=True)
     evidence_received: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     no_action: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Audit routines: the audit_check_runs.batch_id this occurrence produced
+    # (assigned before the batch starts, so an interrupted batch stays traceable).
+    audit_batch_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
 
     routine: Mapped[AgentRoutine] = relationship(back_populates="runs")
 

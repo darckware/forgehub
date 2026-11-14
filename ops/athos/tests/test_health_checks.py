@@ -98,3 +98,61 @@ def test_eco027_still_fails_on_a_current_assertion(monkeypatch):
 def test_eco027_bare_words_do_not_hide_a_current_assertion(monkeypatch, text):
     _hindsight(monkeypatch, [{'fact_type': 'world', 'text': text}])
     assert not v.check_hindsight_obsolete().ok
+
+
+AUDIT_ROUTINES = [
+    {"frequency": "daily", "schedule": "0 19 * * *", "timezone": "America/Sao_Paulo", "enabled": True},
+    {"frequency": "weekly", "schedule": "0 19 * * 0", "timezone": "America/Sao_Paulo", "enabled": True},
+    {"frequency": "monthly", "schedule": "0 19 1 * *", "timezone": "America/Sao_Paulo", "enabled": True},
+    {"frequency": "quarterly", "schedule": "0 19 1 1,4,7,10 *", "timezone": "America/Sao_Paulo", "enabled": True},
+]
+LEGACY_CRON = {"name": "ecosystem-weekly-audit", "enabled": True, "script": "ecosystem_weekly_audit.sh",
+               "schedule": {"expr": "0 19 * * 0"}}
+
+
+@pytest.mark.parametrize("value,expected", [("daily", "daily"), ("quarterly", "quarterly"), ("", "weekly"),
+                                            ("hourly", "weekly"), (None, "weekly")])
+def test_check_interval_records_the_auditor_tier(monkeypatch, value, expected):
+    if value is None:
+        monkeypatch.delenv("FORGEHUB_AUDIT_FREQUENCY", raising=False)
+    else:
+        monkeypatch.setenv("FORGEHUB_AUDIT_FREQUENCY", value)
+    assert v.check_interval() == expected
+
+
+def test_eco023_accepts_the_four_audit_routines_without_the_cron(monkeypatch):
+    monkeypatch.setattr(v, "load_jobs", lambda: [])
+    monkeypatch.setattr(v, "psql", lambda *args: json.dumps(AUDIT_ROUTINES))
+    result = v.check_weekly_audit()
+    assert result.ok and "routines" in result.notes
+
+
+def test_eco023_flags_the_legacy_cron_still_enabled_but_passes(monkeypatch):
+    monkeypatch.setattr(v, "load_jobs", lambda: [LEGACY_CRON])
+    monkeypatch.setattr(v, "psql", lambda *args: json.dumps(AUDIT_ROUTINES))
+    result = v.check_weekly_audit()
+    assert result.ok and "disable it" in result.notes
+
+
+def test_eco023_falls_back_to_the_legacy_cron_until_routines_are_enabled(monkeypatch):
+    monkeypatch.setattr(v, "load_jobs", lambda: [LEGACY_CRON])
+    monkeypatch.setattr(v, "psql", lambda *args: json.dumps([dict(AUDIT_ROUTINES[0], enabled=False)]))
+    result = v.check_weekly_audit()
+    assert result.ok and "legacy cron" in result.notes
+
+
+def test_eco023_fails_with_neither_schedule(monkeypatch):
+    def unreadable(*args):
+        raise RuntimeError("column audit_frequency does not exist")
+
+    monkeypatch.setattr(v, "load_jobs", lambda: [])
+    monkeypatch.setattr(v, "psql", unreadable)
+    result = v.check_weekly_audit()
+    assert not result.ok and "unreadable" in result.notes
+
+
+def test_audit_routine_problems_name_each_tier():
+    drifted = [dict(AUDIT_ROUTINES[0], schedule="0 20 * * *"), dict(AUDIT_ROUTINES[1], enabled=False)]
+    problems = v.audit_routine_problems(drifted)
+    assert problems == ["daily: schedule 0 20 * * * America/Sao_Paulo", "weekly: routine disabled",
+                        "monthly: no routine", "quarterly: no routine"]

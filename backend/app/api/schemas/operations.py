@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.core.routine_schedule import validate_schedule
 
 Escalation = Literal["telegram_direct", "via_athos"]
-RoutineKind = Literal["monitoring", "maintenance", "improvement", "report", "coordination"]
+RoutineKind = Literal["monitoring", "maintenance", "improvement", "report", "coordination", "audit"]
 
 
 class Coordination(BaseModel):
@@ -103,6 +103,8 @@ class RoutineOut(RoutineBase):
     created_by: str | None = None
     updated_by: str | None = None
     created_by_agent_id: uuid.UUID | None = None
+    # kind="audit" only: the audit_checks.frequency tier it runs.
+    audit_frequency: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -127,6 +129,8 @@ class RoutineRunOut(BaseModel):
     no_action: bool | None = None
     # Still waiting in the Messages queue past occurrence + deadline.
     overdue: bool = False
+    # Audit routines: the Auditor batch that is this occurrence's evidence.
+    audit_batch_id: uuid.UUID | None = None
 
 
 class PolicyIn(BaseModel):

@@ -707,12 +707,14 @@ async def _incubation_maturation_poll_loop() -> None:
 
 async def _routine_poll_loop() -> None:
     """24x7 agent operation: turn due routine occurrences into Messages tasks
-    and copy finished tasks' outcomes back onto their runs. Its own task:
+    (or, for audit routines, Auditor batches) and copy finished tasks'
+    outcomes back onto their runs. Its own task:
     it only touches ForgeHub's database, so a host-bridge outage that stalls
     dispatch must not also stop occurrences from being recorded (a missed
     occurrence is evidence the screen has to show)."""
     from app.api.routes.operations import run_evolution_pass, run_routine_generation_pass, run_routine_sync_pass
     from app.core.agent_questions import run_question_delivery_pass
+    from app.core.audit_routines import run_audit_routine_pass
     from app.db.base import AsyncSessionLocal
 
     while True:
@@ -724,6 +726,13 @@ async def _routine_poll_loop() -> None:
                     await run_routine_sync_pass(db)
         except Exception:
             logger.exception("Routine poll failed")
+        # Audit routines (2026-11-13): claim each scheduled occurrence and run
+        # its tier's Auditor batch in the background, one batch at a time.
+        try:
+            async with AsyncSessionLocal() as db:
+                await run_audit_routine_pass(db)
+        except Exception:
+            logger.exception("Audit routine pass failed")
         try:
             async with AsyncSessionLocal() as db:
                 await run_evolution_pass(db)

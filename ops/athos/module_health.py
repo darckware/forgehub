@@ -110,7 +110,7 @@ SELECT json_build_object('enabled',(SELECT count(*) FROM company.agent_routines 
  'overdue',count(*) FILTER (WHERE r.enabled AND x.status IN ('scheduled','running')
  AND x.occurrence_at+make_interval(mins=>r.deadline_minutes)+interval '15 minutes'<now()),
  'missing_demand',count(*) FILTER (WHERE r.enabled AND x.status='running' AND x.demand_id IS NULL
- AND r.mission_project_id IS NULL),
+ AND r.mission_project_id IS NULL AND r.kind<>'audit'),
  'missing_evidence',count(*) FILTER (WHERE r.enabled AND x.status='completed'
  AND x.occurrence_at>=now()-interval '7 days' AND r.expected_evidence IS NOT NULL
  AND btrim(r.expected_evidence)<>'' AND x.no_action IS NOT TRUE AND x.evidence_received IS NOT TRUE

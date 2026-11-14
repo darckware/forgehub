@@ -331,11 +331,51 @@ def check_cron_status() -> Result:
     return fail("Failed enabled jobs: " + "; ".join(bad)) if bad else ok("Enabled Hermes jobs have no failed latest execution")
 
 
+AUDIT_ROUTINE_SCHEDULES = {
+    "daily": "0 19 * * *",
+    "weekly": "0 19 * * 0",
+    "monthly": "0 19 1 * *",
+    "quarterly": "0 19 1 1,4,7,10 *",
+}
+
+
+def audit_routine_problems(rows: object) -> list[str]:
+    """Why the four Operação 24x7 audit routines don't schedule every tier
+    (empty = they do). Pure, so it is testable without a database."""
+    if not isinstance(rows, list):
+        return ["malformed audit routine inventory"]
+    by_tier = {row.get("frequency"): row for row in rows if isinstance(row, dict)}
+    problems = []
+    for frequency, schedule in AUDIT_ROUTINE_SCHEDULES.items():
+        row = by_tier.get(frequency)
+        if row is None:
+            problems.append(f"{frequency}: no routine")
+        elif row.get("enabled") is not True:
+            problems.append(f"{frequency}: routine disabled")
+        elif row.get("schedule") != schedule or row.get("timezone") != "America/Sao_Paulo":
+            problems.append(f"{frequency}: schedule {row.get('schedule')} {row.get('timezone')}")
+    return problems
+
+
 def check_weekly_audit() -> Result:
+    """ECO-023: every tier is scheduled -- by the four audit routines (since
+    2026-11-13), or, until they are all enabled, by the legacy Sunday cron."""
     jobs = [j for j in load_jobs() if j.get("enabled") and j.get("name") == "ecosystem-weekly-audit"]
-    if len(jobs) != 1 or jobs[0].get("schedule", {}).get("expr") != "0 19 * * 0" or jobs[0].get("script") != "ecosystem_weekly_audit.sh":
-        return fail(f"Weekly audit cron missing or drifted: {jobs}")
-    return ok("Weekly ecosystem audit scheduled Sunday 19:00")
+    legacy_ok = len(jobs) == 1 and jobs[0].get("schedule", {}).get("expr") == "0 19 * * 0" and jobs[0].get("script") == "ecosystem_weekly_audit.sh"
+    try:
+        rows = json.loads(psql(
+            "SELECT coalesce(json_agg(json_build_object('frequency',audit_frequency,'schedule',schedule,"
+            "'timezone',timezone,'enabled',enabled)), '[]'::json) FROM company.agent_routines WHERE kind='audit'",
+            "forgehub", "forgehub_postgres"))
+        problems = audit_routine_problems(rows)
+    except Exception as exc:  # before the migration: no audit_frequency column
+        problems = [f"audit routines unreadable: {type(exc).__name__}"]
+    if not problems:
+        note = "; legacy ecosystem-weekly-audit cron still enabled (disable it)" if jobs else ""
+        return ok("Audit tiers scheduled by the four Operação 24x7 audit routines" + note)
+    if legacy_ok:
+        return ok("Weekly ecosystem audit scheduled Sunday 19:00 (legacy cron; audit routines: " + ", ".join(problems) + ")")
+    return fail(f"No audit schedule: routines {', '.join(problems)}; legacy cron missing or drifted: {jobs}")
 
 
 def check_backup() -> Result:
@@ -1331,12 +1371,24 @@ def active_items() -> list[tuple[int, str, str]]:
     return [(int(parts[0]), parts[1], parts[2]) for line in rows.splitlines() if line for parts in [line.split("|", 2)]]
 
 
+AUDIT_FREQUENCIES = ("daily", "weekly", "monthly", "quarterly")
+
+
+def check_interval() -> str:
+    """The tier ForgeHub's Auditor ran this check in (FORGEHUB_AUDIT_FREQUENCY,
+    set on every command since 2026-11-13); weekly when run by hand or by an
+    older runner -- what the single Sunday audit always recorded."""
+    value = os.environ.get("FORGEHUB_AUDIT_FREQUENCY", "").strip()
+    return value if value in AUDIT_FREQUENCIES else "weekly"
+
+
 def record(item_id: int, result: Result) -> None:
     notes = result.notes.replace("'", "''")
     state = "OK" if result.ok else "FAIL"
+    interval = check_interval()
     psql(
         f"INSERT INTO audit.foundation_checklist_log(checklist_item_id,verified_at,result,notes) VALUES ({item_id},NOW(),'{state}','{notes}');"
-        f"UPDATE audit.foundation_checklist SET status='{state.lower()}',last_checked=NOW(),last_result='{notes}',check_interval='weekly' WHERE id={item_id};"
+        f"UPDATE audit.foundation_checklist SET status='{state.lower()}',last_checked=NOW(),last_result='{notes}',check_interval='{interval}' WHERE id={item_id};"
     )
 
 

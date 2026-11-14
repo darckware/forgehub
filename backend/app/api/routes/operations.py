@@ -10,6 +10,10 @@ main.py, keep it moving:
   cap, failure notification and Agent Activity visibility as any task.
 - run_routine_sync_pass copies each linked task's outcome back onto its run.
 
+Exception (2026-11-13): an "audit" routine's occurrence is not a Messages
+task. It runs its tier's Auditor checks as one batch, with no LLM in the
+loop (core/audit_routines.py, started by run_audit_routine_pass).
+
 Spec: docs/superpowers/specs/2026-10-02-agent-operations-24x7-design.md.
 Cost budgets are stored on the charter but only the run budget is enforced
 here; cost enforcement arrives with the self-improvement phase, which is
@@ -192,6 +196,8 @@ async def _runs_counted_today(db: AsyncSession, agent_id: uuid.UUID, tz: str, no
             .join(AgentRoutine, AgentRoutine.id == AgentRoutineRun.routine_id)
             .where(
                 AgentRoutine.agent_id == agent_id,
+                # Audit batches spend no LLM run: they never use the budget.
+                AgentRoutine.kind != "audit",
                 AgentRoutineRun.occurrence_at >= start,
                 AgentRoutineRun.occurrence_at < end,
                 AgentRoutineRun.status.notin_(_NON_BUDGET_STATUSES),
@@ -213,6 +219,10 @@ async def _materialize_occurrence(
     if now - occurrence_at > timedelta(minutes=routine.deadline_minutes):
         run.status, run.detail, run.finished_at = "missed", "occurrence window closed before generation", now
         return run
+    if routine.kind == "audit":
+        from app.core.audit_routines import new_audit_run
+
+        return new_audit_run(routine, occurrence_at)
 
     agent = await db.get(Agent, routine.agent_id)
     charter = (
@@ -306,7 +316,11 @@ async def run_routine_sync_pass(db: AsyncSession) -> int:
         await db.execute(
             select(AgentRoutineRun, AgentDemand)
             .outerjoin(AgentDemand, AgentDemand.id == AgentRoutineRun.demand_id)
-            .where(AgentRoutineRun.status.in_(("scheduled", "running")))
+            .where(
+                AgentRoutineRun.status.in_(("scheduled", "running")),
+                # Audit runs have no task; core/audit_routines.py closes them.
+                AgentRoutineRun.audit_batch_id.is_(None),
+            )
         )
     ).all()
     now = datetime.now(timezone.utc)
@@ -774,6 +788,7 @@ async def create_routine(
     payload: RoutineCreate, db: AsyncSession = Depends(get_db), admin=Depends(get_current_admin)
 ) -> RoutineOut:
     agent = await _agent_or_404(db, payload.agent_id)
+    _refuse_audit_kind(payload.kind)
     routine = _new_routine(db, payload, admin.username)
     await db.commit()
     await db.refresh(routine)
@@ -796,9 +811,22 @@ def _new_routine(
     return routine
 
 
+def _refuse_audit_kind(kind: str | None, current: str | None = None) -> None:
+    """Audit routines exist once per tier, created by
+    core/audit_routines.ensure_audit_routines: no route creates one, and no
+    edit turns a routine into one or back."""
+    if kind is not None and kind != current and "audit" in (kind, current):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Audit routines are provisioned per frequency tier (python -m app.core.audit_routines); "
+                   "the kind cannot be set or changed here",
+        )
+
+
 def _apply_routine_changes(routine: AgentRoutine, changes: dict, actor: str) -> None:
     """Validate the resulting schedule, apply the changes and re-arm the
     cursor when the routine is (re-)enabled or rescheduled."""
+    _refuse_audit_kind(changes.get("kind"), routine.kind)
     schedule = changes.get("schedule", routine.schedule)
     tz = changes.get("timezone", routine.timezone)
     try:
@@ -827,7 +855,11 @@ async def _run_routine_now(db: AsyncSession, routine: AgentRoutine, *, commit: b
     else:
         await db.flush()
     await db.refresh(run)
-    if commit and run.status == "scheduled":
+    if commit and run.status == "scheduled" and run.audit_batch_id is not None:
+        from app.core.audit_routines import start_audit_run
+
+        start_audit_run(run.id)
+    elif commit and run.status == "scheduled":
         from app.core.dispatch_signal import wake_scheduled_dispatch
 
         wake_scheduled_dispatch()
@@ -997,7 +1029,7 @@ async def assert_within_charter(
     schedule plus the agent's other enabled routines, must fit the charter's
     daily run budget."""
     query = select(AgentRoutine.schedule, AgentRoutine.timezone).where(
-        AgentRoutine.agent_id == charter.agent_id, AgentRoutine.enabled.is_(True))
+        AgentRoutine.agent_id == charter.agent_id, AgentRoutine.enabled.is_(True), AgentRoutine.kind != "audit")
     if exclude_routine_id is not None:
         query = query.where(AgentRoutine.id != exclude_routine_id)
     schedules = [(schedule, tz), *(await db.execute(query)).all()]
@@ -1052,6 +1084,7 @@ async def agent_create_routine(
     body_hash, replay = await _begin_routine_write(db, principal, payload.idempotency_key, command, body)
     if replay is not None:
         return replay
+    _refuse_audit_kind(payload.kind)
     target, charter = await _allowed_target(db, payload.agent_id)
     if payload.enabled:
         await assert_within_charter(db, charter, payload.schedule, payload.timezone)

@@ -69,23 +69,35 @@ async def test_workers_actual_sql_requires_recent_real_progress(status,success,e
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('enabled,status,mission,evidence,no_action,healthy',[
-    (True,'scheduled',False,False,False,False),
-    (True,'running',False,False,False,False),
-    (False,'scheduled',False,False,False,True),
-    (True,'completed',False,False,False,False),
-    (True,'completed',False,True,False,True),
-    (True,'completed',False,False,True,True),
-    (True,'completed',True,False,False,True),
+@pytest.mark.parametrize('enabled,status,mission,evidence,no_action,healthy,kind',[
+    (True,'scheduled',False,False,False,False,'report'),
+    (True,'running',False,False,False,False,'report'),
+    (False,'scheduled',False,False,False,True,'report'),
+    (True,'completed',False,False,False,False,'report'),
+    (True,'completed',False,True,False,True,'report'),
+    (True,'completed',False,False,True,True,'report'),
+    (True,'completed',True,False,False,True,'report'),
+    # An audit routine's batch has no Messages task by design (2026-11-13);
+    # only its deadline (an interrupted batch) still counts.
+    (True,'running',False,False,False,False,'audit'),
 ])
-async def test_routine_actual_sql_honors_disabled_and_coordination_exceptions(enabled,status,mission,evidence,no_action,healthy):
+async def test_routine_actual_sql_honors_disabled_and_coordination_exceptions(enabled,status,mission,evidence,no_action,healthy,kind):
     counts=await execute('routines',f'''fixture_agent_routines AS (SELECT 1 id,
-    {str(enabled).lower()} enabled,60 deadline_minutes,'report'::text expected_evidence,
+    {str(enabled).lower()} enabled,60 deadline_minutes,'report'::text expected_evidence,'{kind}'::text kind,
     {'1' if mission else 'NULL::int'} mission_project_id),
     fixture_agent_routine_runs AS (SELECT 1 routine_id,'{status}'::text status,
     now()-interval '2 hours' occurrence_at,NULL::uuid demand_id,
     {str(evidence).lower()} evidence_received,{str(no_action).lower()} no_action)''')
     assert m.CHECKS['routines'].evaluate(counts)[0] is healthy
+
+
+@pytest.mark.asyncio
+async def test_running_audit_batch_within_its_deadline_is_not_missing_a_demand():
+    counts=await execute('routines','''fixture_agent_routines AS (SELECT 1 id,true enabled,
+    180 deadline_minutes,'lote'::text expected_evidence,'audit'::text kind,NULL::int mission_project_id),
+    fixture_agent_routine_runs AS (SELECT 1 routine_id,'running'::text status,now() occurrence_at,
+    NULL::uuid demand_id,NULL::boolean evidence_received,NULL::boolean no_action)''')
+    assert counts['missing_demand'] == 0 and m.CHECKS['routines'].evaluate(counts)[0] is True
 
 
 @pytest.mark.asyncio

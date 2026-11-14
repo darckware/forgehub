@@ -46,7 +46,7 @@ _CHECK_ROWS = (
     ('ECO-019', 'security', 'aegis', 'Secret-bearing configuration files for all ecosystem applications are owner-only', 55, True),
     ('ECO-020', 'cron', 'athos', 'Hermes cron scheduler heartbeat is current', 55, True),
     ('ECO-022', 'cron', 'athos', 'Enabled Hermes crons have no failed latest execution', 55, True),
-    ('ECO-023', 'cron', 'athos', 'Complete ecosystem audit is scheduled weekly on Sunday at 19:00', 55, True),
+    ('ECO-023', 'cron', 'athos', 'Every audit tier is scheduled: the four Operação 24x7 audit routines (daily, weekly, monthly, quarterly at 19:00), or the legacy Sunday 19:00 cron', 55, True),
     ('ECO-024', 'backup', 'hephaestus', 'Weekly Hermes backup archive is recent and nontrivial', 55, True),
     ('ECO-025', 'audit', 'themis', 'Foundation and ForgeHub audit persistence contains the required active checks', 55, True),
     ('ECO-026', 'knowledge', 'scriba', 'Active Knowledge Base contains no retired provider-rotation or vault references', 55, True),
@@ -91,6 +91,27 @@ _CHECK_ROWS = (
     ('ECO-065', 'security', 'aegis', 'Browser session metadata is consistent and has no activity after expiry', 55, True),
     ('ECO-066', 'operations', 'athos', 'Routine occurrences meet deadlines and required demand and evidence links', 55, True),
 )
+
+def _ids(*numbers: int) -> tuple[str, ...]:
+    return tuple(f"ECO-{number:03d}" for number in numbers)
+
+
+# How often each check runs (approved by Marcelo on 2026-11-13). Every tier is
+# one Operação 24x7 audit routine (core/audit_routines.py). A check missing
+# here is weekly, the frequency the single Sunday audit always gave it.
+AUDIT_CHECK_FREQUENCIES: dict[str, str] = {
+    **dict.fromkeys(_ids(5, 6, 7, 9, 10, 15, 18, 20, 22, 46, 47, 49, 51, 52, 54, 57, 59, 60, 61, 64, 66), "daily"),
+    **dict.fromkeys(_ids(4, 8, 12, 13, 14, 17, 19, 24, 27, 28, 29, 39, 40, 41, 44, 45, 53, 62, 63, 65), "weekly"),
+    **dict.fromkeys(_ids(1, 2, 3, 11, 16, 23, 25, 26, 30, *range(31, 39), 42, 43), "monthly"),
+    # Restore drill: an offsite snapshot and a sample restore, quarterly.
+    "ECO-058": "quarterly",
+}
+DEFAULT_AUDIT_FREQUENCY = "weekly"
+
+
+def audit_check_frequency(name: str) -> str:
+    return AUDIT_CHECK_FREQUENCIES.get(name, DEFAULT_AUDIT_FREQUENCY)
+
 
 CANONICAL_AUDIT_CHECKS: dict[str, CheckSpec] = {
     row[0]: CheckSpec(*row) for row in _CHECK_ROWS

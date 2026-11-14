@@ -16,8 +16,13 @@ def inspect_athos_audit_job(
     store_errors: list[CronStoreErrorOut],
     last_cron_run_at: datetime | None,
     now: datetime,
+    replaced_by_routines: bool = False,
 ) -> AthosAuditMonitorOut:
-    """Report scheduler health independently from individual checklist results."""
+    """Report scheduler health independently from individual checklist results.
+
+    With ``replaced_by_routines`` (all four Operação 24x7 audit routines
+    enabled, 2026-11-13) the cron is expected to be off: off or absent is
+    "replaced", still enabled is "degraded" -- every check would run twice."""
     athos_jobs = [job for job in jobs if job.profile == "athos"]
     matches = [job for job in athos_jobs if job.name == _JOB_NAME or job.script == _SCRIPT]
     job = next((candidate for candidate in matches if candidate.name == _JOB_NAME), None)
@@ -57,7 +62,14 @@ def inspect_athos_audit_job(
             if current - run_at > _MAX_AUDIT_AGE:
                 issues.append("Last cron audit run is older than 8 days")
 
-    state = "failed" if failed else "not_configured" if job is None else "degraded" if issues else "healthy"
+    if replaced_by_routines:
+        retired = job is None or not job.enabled or job.status != "active"
+        issues = [issue for issue in issues if issue.startswith("Athos cron store error")]
+        if not retired:
+            issues.append("Legacy weekly audit cron is still enabled alongside the audit routines; disable it")
+        state = "failed" if errors else "replaced" if retired and not issues else "degraded"
+    else:
+        state = "failed" if failed else "not_configured" if job is None else "degraded" if issues else "healthy"
     return AthosAuditMonitorOut(
         state=state,
         job_id=job.id if job else None,

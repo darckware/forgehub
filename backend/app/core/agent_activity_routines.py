@@ -111,7 +111,10 @@ def classify_occurrences(
             recorded=True, run_id=run.id, detail=detail, finished_at=run.finished_at,
             duration_ms=run.duration_ms,
             message_number=getattr(demand, "number", None),
-            canonical_path=f"/demands?message={run.demand_id}" if run.demand_id else "/operations",
+            canonical_path=(
+                f"/demands?message={run.demand_id}" if run.demand_id
+                else "/auditor" if getattr(run, "audit_batch_id", None) else "/operations"
+            ),
         )
 
     for routine in routines:

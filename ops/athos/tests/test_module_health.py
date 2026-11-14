@@ -65,3 +65,5 @@ def test_routine_evidence_counts_only_enabled_routines_in_the_last_week():
     assert "x.occurrence_at>=now()-interval '7 days'" in clause
     demand = query[query.index("'missing_demand'"):query.index("'missing_evidence'")]
     assert "r.enabled" in demand and "interval" not in demand
+    # Audit routines run Auditor batches, never a Messages task (2026-11-13).
+    assert "r.kind<>'audit'" in demand

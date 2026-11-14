@@ -3,10 +3,12 @@
 The checklist (audit_checks) is fully editable from the Auditor page;
 POST /run executes every enabled check by shipping its command to the
 host through the chat bridge's /v1/exec (exit 0 = ok) and recording an
-audit_check_runs row per check. /run-internal is the same trigger for
-the `hermes cron` job (ecosystem-weekly-audit in the athos store) --
-it bypasses user auth but requires the shared bridge token, the same
-trust boundary the bridge itself uses.
+audit_check_runs row per check; ``?frequency=`` limits it to one tier.
+/run-internal is the same trigger for the legacy `hermes cron` job
+(ecosystem-weekly-audit in the athos store) -- it bypasses user auth but
+requires the shared bridge token, the same trust boundary the bridge itself
+uses. Since 2026-11-13 each tier is normally run by its Operação 24x7 audit
+routine through ``run_audit_batch`` (core/audit_routines.py).
 """
 import asyncio
 import shlex
@@ -22,12 +24,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.audit import (
     AuditCheckCreate,
+    AuditCheckFrequencyIn,
     AuditCheckOut,
     AuditCheckUpdate,
     AuditRunAllOut,
     AuditRunOut,
     AuditRemediationOut,
     AuditStatusOut,
+    AuditTierOut,
 )
 from app.api.schemas.demand import DemandSubmitIn
 from app.api.routes import foundation
@@ -40,12 +44,14 @@ from app.core.audit_remediation import (
     structural_remediation_problems,
 )
 from app.core.config import settings
+from app.core.routine_schedule import next_occurrences
 from app.core.deps import get_current_admin
 from app.db.base import get_db
-from app.db.models.audit import AuditCheck, AuditCheckRun
+from app.db.models.audit import AUDIT_FREQUENCIES, AuditCheck, AuditCheckRun
 from app.db.models.agent import Agent
 from app.db.models.demand import AgentDemand
 from app.db.models.notification import Notification
+from app.db.models.operations import AgentRoutine
 
 router = APIRouter(prefix="/api/v1/audit", tags=["audit"])
 
@@ -63,7 +69,9 @@ async def _execute_command(
     its AuditCheckRun. `timeout(1)` wraps the command so a hung check
     yields exit 124 -> "timeout" instead of tripping the bridge's cap."""
     seconds = min(check.timeout_seconds or _MAX_TIMEOUT, _MAX_TIMEOUT)
-    wrapped = f"timeout {seconds} bash -c {shlex.quote(command)}"
+    # The verifier records the check's real tier as Foundation's check_interval.
+    frequency = check.frequency if check.frequency in AUDIT_FREQUENCIES else "weekly"
+    wrapped = f"FORGEHUB_AUDIT_FREQUENCY={frequency} timeout {seconds} bash -c {shlex.quote(command)}"
     started = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=seconds + 15) as client:
@@ -227,11 +235,16 @@ Verification after correction ({verification.status}, exit={verification.exit_co
 """
 
 
-async def _run_enabled_checks(db: AsyncSession, requested_by: str) -> list[AuditCheckRun]:
-    result = await db.execute(
-        select(AuditCheck).where(AuditCheck.enabled == True).order_by(AuditCheck.name)  # noqa: E712
-    )
-    checks = list(result.scalars().all())
+async def _run_enabled_checks(
+    db: AsyncSession,
+    requested_by: str,
+    frequency: str | None = None,
+    batch_id: uuid.UUID | None = None,
+) -> list[AuditCheckRun]:
+    query = select(AuditCheck).where(AuditCheck.enabled == True)  # noqa: E712
+    if frequency is not None:
+        query = query.where(AuditCheck.frequency == frequency)
+    checks = list((await db.execute(query.order_by(AuditCheck.name))).scalars().all())
     # Bounded concurrency: the bridge runs each command in a thread.
     sem = asyncio.Semaphore(4)
 
@@ -242,7 +255,7 @@ async def _run_enabled_checks(db: AsyncSession, requested_by: str) -> list[Audit
     runs = await asyncio.gather(*(_one(c) for c in checks))
     # Batch identity must never re-date evidence collected before another
     # concurrent verification. Each command retains its own completion time.
-    batch_id = uuid.uuid4()
+    batch_id = batch_id or uuid.uuid4()
     for run in runs:
         run.batch_id = batch_id
     dispatch_needed = False
@@ -257,6 +270,26 @@ async def _run_enabled_checks(db: AsyncSession, requested_by: str) -> list[Audit
     for run in runs:
         await db.refresh(run)
     return list(runs)
+
+
+async def run_audit_batch(
+    db: AsyncSession, frequency: str, requested_by: str, batch_id: uuid.UUID | None = None
+) -> list[AuditCheckRun]:
+    """Every enabled check of one tier as one batch -- the API an audit
+    routine occurrence uses (core/audit_routines.py). ``batch_id`` lets the
+    caller name the batch before it starts."""
+    if frequency not in AUDIT_FREQUENCIES:
+        raise ValueError(f"unknown audit frequency: {frequency}")
+    return await _run_enabled_checks(db, requested_by, frequency=frequency, batch_id=batch_id)
+
+
+def _frequency_or_422(frequency: str | None) -> str | None:
+    if frequency is not None and frequency not in AUDIT_FREQUENCIES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"frequency must be one of {', '.join(AUDIT_FREQUENCIES)}",
+        )
+    return frequency
 
 
 _RECOVERY_MARKER = "[Auditor recovery]"
@@ -391,7 +424,7 @@ def _check_out(check: AuditCheck, last_run: AuditCheckRun | None) -> AuditCheckO
     out = AuditCheckOut.model_validate(check)
     out.last_run = AuditRunOut.model_validate(last_run) if last_run else None
     out.evidence_state, out.expires_at = evidence_freshness(
-        last_run.created_at if last_run else None, datetime.now(timezone.utc)
+        last_run.created_at if last_run else None, datetime.now(timezone.utc), check.frequency
     )
     return out
 
@@ -441,6 +474,23 @@ async def update_check(
             status_code=status.HTTP_409_CONFLICT,
             detail="An audit check with this name already exists",
         ) from None
+    await db.refresh(check)
+    latest = await _latest_runs_by_check(db)
+    return _check_out(check, latest.get(check.id))
+
+
+@router.put("/checks/{check_id}/frequency", response_model=AuditCheckOut)
+async def set_check_frequency(
+    check_id: uuid.UUID,
+    payload: AuditCheckFrequencyIn,
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(get_current_admin),
+) -> AuditCheckOut:
+    """Move a check to another tier (admin): from the next occurrence on, the
+    new tier's audit routine runs it."""
+    check = await _get_check_or_404(db, check_id)
+    check.frequency = payload.frequency
+    await db.commit()
     await db.refresh(check)
     latest = await _latest_runs_by_check(db)
     return _check_out(check, latest.get(check.id))
@@ -527,15 +577,17 @@ async def remediate_check(
 
 
 @router.post("/run", response_model=AuditRunAllOut)
-async def run_all(db: AsyncSession = Depends(get_db)) -> AuditRunAllOut:
-    """Execute every enabled check ("solicitar checagem"): dispatches all
-    of them (bounded concurrency) and records one run per check."""
-    runs = await _run_enabled_checks(db, "manual")
+async def run_all(frequency: str | None = None, db: AsyncSession = Depends(get_db)) -> AuditRunAllOut:
+    """Execute every enabled check ("solicitar checagem"), or only one tier's
+    with ``?frequency=``: dispatches them (bounded concurrency) and records
+    one run per check, all in one batch."""
+    runs = await _run_enabled_checks(db, "manual", frequency=_frequency_or_422(frequency))
     return AuditRunAllOut(runs=[AuditRunOut.model_validate(r) for r in runs])
 
 
 @router.post("/run-internal", response_model=AuditRunAllOut)
 async def run_internal(
+    frequency: str | None = None,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> AuditRunAllOut:
@@ -543,7 +595,7 @@ async def run_internal(
     _PUBLIC_API_PATHS, so it must validate the shared bridge token itself."""
     if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid bridge token")
-    runs = await _run_enabled_checks(db, "cron")
+    runs = await _run_enabled_checks(db, "cron", frequency=_frequency_or_422(frequency))
     return AuditRunAllOut(runs=[AuditRunOut.model_validate(r) for r in runs])
 
 
@@ -560,6 +612,59 @@ async def list_runs(
     return [AuditRunOut.model_validate(r) for r in result.scalars().all()]
 
 
+# Batches that count as the tier's schedule having run: an audit routine
+# occurrence, or the legacy Sunday cron (which ran every tier at once).
+_SCHEDULED_SOURCES = ("cron", "routine")
+
+
+async def _last_complete_tier_batch(db: AsyncSession, check_ids: list[uuid.UUID], now: datetime) -> datetime | None:
+    completed_at = func.max(AuditCheckRun.created_at)
+    batches = (
+        select(completed_at.label("completed_at"))
+        .where(
+            AuditCheckRun.requested_by.in_(_SCHEDULED_SOURCES),
+            AuditCheckRun.check_id.in_(check_ids),
+            AuditCheckRun.batch_id.is_not(None),
+        )
+        .group_by(AuditCheckRun.batch_id)
+        .having(func.count(func.distinct(AuditCheckRun.check_id)) == len(check_ids), completed_at <= now)
+        .subquery()
+    )
+    return (await db.execute(select(func.max(batches.c.completed_at)))).scalar_one_or_none()
+
+
+async def audit_tiers(
+    db: AsyncSession, checks: list[AuditCheck], now: datetime
+) -> tuple[list[AuditTierOut], str]:
+    """Per frequency: enabled checks, the tier's routine and next occurrence,
+    and its last complete scheduled batch. The source is "routines" only once
+    all four audit routines are enabled."""
+    routines = {
+        routine.audit_frequency: routine
+        for routine in (await db.execute(select(AgentRoutine).where(AgentRoutine.kind == "audit"))).scalars()
+    }
+    tiers = []
+    for frequency in AUDIT_FREQUENCIES:
+        ids = [check.id for check in checks if check.enabled and check.frequency == frequency]
+        last = await _last_complete_tier_batch(db, ids, now) if ids else None
+        routine = routines.get(frequency)
+        enabled = bool(routine and routine.enabled)
+        tiers.append(AuditTierOut(
+            frequency=frequency,
+            enabled_checks=len(ids),
+            last_complete_run_at=last,
+            routine_id=routine.id if routine else None,
+            routine_title=routine.title if routine else None,
+            routine_enabled=enabled,
+            schedule=routine.schedule if routine else None,
+            timezone=routine.timezone if routine else None,
+            next_due_at=next_occurrences(routine.schedule, routine.timezone, now, 1)[0] if enabled else None,
+            overdue=last is not None and evidence_freshness(last, now, frequency)[0] == "stale",
+        ))
+    source = "routines" if all(tier.routine_enabled for tier in tiers) else "hermes_cron"
+    return tiers, source
+
+
 @router.get("/status", response_model=AuditStatusOut)
 async def audit_status(db: AsyncSession = Depends(get_db)) -> AuditStatusOut:
     """Summary for the Auditor header and any future dashboard card."""
@@ -567,7 +672,10 @@ async def audit_status(db: AsyncSession = Depends(get_db)) -> AuditStatusOut:
     latest = await _latest_runs_by_check(db)
     enabled = [c for c in checks if c.enabled]
     now = datetime.now(timezone.utc)
-    states = {c.id: evidence_freshness(latest[c.id].created_at if c.id in latest else None, now)[0] for c in enabled}
+    states = {
+        c.id: evidence_freshness(latest[c.id].created_at if c.id in latest else None, now, c.frequency)[0]
+        for c in enabled
+    }
     ok = sum(1 for c in enabled if states[c.id] == "fresh" and latest[c.id].status == "ok")
     fail = sum(1 for c in enabled if states[c.id] == "fresh" and latest[c.id].status != "ok")
     stale = sum(1 for state in states.values() if state == "stale")
@@ -600,11 +708,13 @@ async def audit_status(db: AsyncSession = Depends(get_db)) -> AuditStatusOut:
         )
         candidates = complete_batch.union_all(legacy_batch).subquery()
         complete_at = (await db.execute(select(func.max(candidates.c.completed_at)))).scalar_one_or_none()
+    tiers, source = await audit_tiers(db, list(checks), now)
     monitor = inspect_athos_audit_job(
         foundation._list_cron_jobs(),
         foundation._cron_store_errors(),
         complete_at,
         now,
+        replaced_by_routines=source == "routines",
     )
     return AuditStatusOut(
         total=len(checks),
@@ -616,4 +726,6 @@ async def audit_status(db: AsyncSession = Depends(get_db)) -> AuditStatusOut:
         last_complete_cron_run_at=complete_at,
         last_run_at=last_at,
         athos_monitor=monitor,
+        schedule_source=source,
+        tiers=tiers,
     )

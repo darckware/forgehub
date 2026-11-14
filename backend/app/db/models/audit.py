@@ -16,6 +16,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, TimestampMixin
 
 AUDIT_RUN_STATUSES = ("ok", "fail", "error", "timeout")
+# How often a check runs (2026-11-13, Marcelo): each tier is one Operação
+# 24x7 audit routine (core/audit_routines.py) that runs its enabled checks as
+# one batch. Order matters: it is the display order everywhere.
+AUDIT_FREQUENCIES = ("daily", "weekly", "monthly", "quarterly")
 
 
 class AuditCheck(Base, TimestampMixin):
@@ -41,9 +45,15 @@ class AuditCheck(Base, TimestampMixin):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Defaults to 55s; explicitly bounded maintenance may use up to 600s.
     timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=55)
+    # Which tier's audit routine runs this check (AUDIT_FREQUENCIES).
+    frequency: Mapped[str] = mapped_column(String(20), nullable=False, default="weekly", server_default="weekly")
 
     runs: Mapped[list["AuditCheckRun"]] = relationship(
         back_populates="check", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        CheckConstraint(f"frequency IN {AUDIT_FREQUENCIES}", name="ck_audit_checks_frequency"),
     )
 
 
@@ -66,8 +76,9 @@ class AuditCheckRun(Base, TimestampMixin):
     # stdout+stderr, truncated by the route layer (never store unbounded).
     output: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # "manual"/"cron", or "athos-remediation"/"remediation-verification"
-    # for the administrator-confirmed repair cycle.
+    # "manual"/"cron"/"routine" (an Operação 24x7 audit tier), or
+    # "athos-remediation"/"remediation-verification" for the
+    # administrator-confirmed repair cycle.
     requested_by: Mapped[str] = mapped_column(String(50), nullable=False, default="manual")
 
     check: Mapped[AuditCheck] = relationship(back_populates="runs")
