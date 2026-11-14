@@ -181,6 +181,9 @@ class Settings(BaseSettings):
     # the schema would publish every route's shape.
     ENVIRONMENT: str = "production"
     HOST_OUTPUT_RETENTION_DAYS: int = 90
+    # Where the backend sees the Hermes profiles (docker-compose mounts /root/.hermes/profiles there);
+    # agent service rules are mirrored into <root>/<agent>/ATENDIMENTO_<CANAL>.md (core/service_rules.py).
+    SERVICE_RULES_PROFILES_ROOT: str = "/profiles"
     # Collaborative execution in an active session with Marcelo
     # (docs/architecture/REMOTE_ACCESS_RULE.md). Off, or an empty/invalid owner
     # UUID, = every route of app/api/routes/remote_collaboration.py refuses

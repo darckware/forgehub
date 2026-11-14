@@ -8,6 +8,7 @@
     "demands": "Demandas",
     "contacts": "Contactos personales",
     "maia": "Maia",
+    "serviceRules": "Reglas de atención",
     "suggestions": "Sugerencias",
     "agentWork": "Tareas de los agentes",
     "location": "Resumen diario",
@@ -226,8 +227,11 @@
       "waitInvalid": "Use un número entre 0 y 240.",
       "capture": "Registrar el contexto y sugerir demandas, tareas y anotaciones",
       "captureHelp": "Después de cada mensaje de contacto. Usted confirma cada sugerencia.",
-      "saved": "Reglas guardadas.",
-      "updatedAt": "Actualizado {{when}}"
+      "saved": "Configuración guardada.",
+      "updatedAt": "Actualizado {{when}}",
+      "movedNote": "Las reglas de atención de Maia en WhatsApp ahora están en la pestaña Reglas de atención, junto con las de Lara.",
+      "openServiceRules": "Abrir Reglas de atención",
+      "settingsTitle": "Configuración de la atención"
     },
     "now": {
       "title": "Ahora",
@@ -683,5 +687,55 @@
     "reasonOptional": "Comentario (opcional)",
     "loadError": "No se pudieron cargar las decisiones de misión.",
     "retry": "Reintentar"
+  },
+  "serviceRules": {
+    "title": "Reglas de atención",
+    "description": "Las reglas que cada agente sigue al atender a personas fuera del ecosistema, una por agente y canal. ForgeHub guarda el texto y reescribe el archivo que lee el agente.",
+    "agents": {
+      "lara": "Lara",
+      "maia": "Maia"
+    },
+    "channels": {
+      "whatsapp": "WhatsApp",
+      "site": "Sitio web",
+      "email": "Correo"
+    },
+    "pairs": "Agentes y canales",
+    "choose": "Elija el agente y el canal",
+    "loadError": "No se pudieron cargar las reglas.",
+    "empty": "No hay reglas registradas.",
+    "neverUpdated": "Aún sin texto guardado",
+    "updated": "Actualizado el {{when}}",
+    "updatedBy": "Actualizado el {{when}} por {{who}}",
+    "fileState": {
+      "in_sync": "Archivo al día",
+      "differs": "Archivo diferente",
+      "missing": "Archivo ausente",
+      "unknown": "Archivo no verificado"
+    },
+    "fileStateHelp": {
+      "differs": "El archivo del agente es diferente al de ForgeHub; guardar reescribe el archivo.",
+      "missing": "El archivo del agente no existe; guardar reescribe el archivo.",
+      "unknown": "No se pudo leer el archivo del agente ahora."
+    },
+    "filePath": "Archivo que lee el agente",
+    "editor": "Reglas de {{agent}} · {{channel}}",
+    "chars": "{{count}} de {{max}} caracteres",
+    "overLimit": "Supera el límite de {{max}} caracteres. Reduzca el texto para guardar.",
+    "emptyText": "El texto no puede quedar vacío.",
+    "saved": "Reglas guardadas. Se reescribió el archivo del agente.",
+    "conflict": "Otra persona guardó esta regla después de que usted la abrió. Recargue para ver la versión actual (se descartará su texto no guardado).",
+    "reload": "Recargar",
+    "unsaved": "Cambios sin guardar",
+    "switch": {
+      "title": "¿Descartar cambios?",
+      "description": "Tiene cambios sin guardar en {{pair}}. Cambiar de regla los descarta.",
+      "confirm": "Descartar y cambiar"
+    },
+    "back": "Volver",
+    "history": "Historial",
+    "historyEmpty": "Sin cambios registrados.",
+    "historyError": "No se pudo cargar el historial.",
+    "historyEntry": "{{chars}} caracteres"
   }
 }

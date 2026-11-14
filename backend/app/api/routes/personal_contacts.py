@@ -38,6 +38,7 @@ from app.api.schemas.personal_contacts import (
     WhatsappMessageIn,
 )
 from app.core import personal_contacts as rules
+from app.core import service_rules
 from app.core.config import settings
 from app.db.base import get_db
 from app.db.models.personal import (
@@ -575,22 +576,41 @@ async def dismiss_suggestion(suggestion_id: uuid.UUID, actor: str = Depends(pers
 
 @router.get("/assistant-settings", response_model=AssistantSettingsOut)
 async def get_assistant_settings(actor: str = Depends(personal_actor),
-                                 db: AsyncSession = Depends(get_db)) -> PersonalAssistantSettings:
+                                 db: AsyncSession = Depends(get_db)) -> AssistantSettingsOut:
     row = await _settings_row(db)
     await db.commit()
-    return row
+    return await _settings_out(db, row)
 
 
 @router.put("/assistant-settings", response_model=AssistantSettingsOut)
 async def update_assistant_settings(payload: AssistantSettingsUpdate, actor: str = Depends(personal_actor),
-                                    db: AsyncSession = Depends(get_db)) -> PersonalAssistantSettings:
+                                    db: AsyncSession = Depends(get_db)) -> AssistantSettingsOut:
     row = await _settings_row(db)
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    instructions = changes.pop("instructions", None)
+    if instructions is not None:
+        # Since 2026-11-14 the Maia's WhatsApp rules are the service rule maia/whatsapp (mirrored into
+        # her profile as ATENDIMENTO_WHATSAPP.md); this route keeps the plugin and old clients working.
+        try:
+            await service_rules.save_rule(db, "maia", "whatsapp", instructions, actor, check_expected=False)
+        except service_rules.ServiceRuleError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        except service_rules.ServiceRuleFileError as exc:
+            await db.rollback()
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    for key, value in changes.items():
         if value is not None:
             setattr(row, key, value)
     await db.commit()
     await db.refresh(row)
-    return row
+    return await _settings_out(db, row)
+
+
+async def _settings_out(db: AsyncSession, row: PersonalAssistantSettings) -> AssistantSettingsOut:
+    rule = await service_rules.get_rule(db, "maia", "whatsapp")
+    return AssistantSettingsOut(instructions=rule.content if rule else row.instructions,
+                                wait_minutes=row.wait_minutes, capture_enabled=row.capture_enabled,
+                                updated_at=max(row.updated_at, rule.updated_at) if rule else row.updated_at)
 
 
 def _read_json(path: Path) -> dict[str, Any]:

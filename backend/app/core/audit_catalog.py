@@ -93,6 +93,7 @@ _CHECK_ROWS = (
     ('ECO-067', 'foundation', 'athos', 'Foundation keeps its structure, its links resolve and it uses no retired path or term', 55, True),
     ('ECO-068', 'knowledge', 'mnemosyne', 'Hermes and external agents memories stay within their runtime size limits', 55, True),
     ('ECO-069', 'knowledge', 'mnemosyne', 'Agent memories carry no retired rules, paths or dead links', 55, True),
+    ('ECO-070', 'knowledge', 'mnemosyne', 'One SOUL per agent in its home; service-rule files ATENDIMENTO_<CANAL>.md match ForgeHub; no legacy rule copies', 55, True),
 )
 
 def _ids(*numbers: int) -> tuple[str, ...]:
@@ -105,6 +106,7 @@ def _ids(*numbers: int) -> tuple[str, ...]:
 AUDIT_CHECK_FREQUENCIES: dict[str, str] = {
     **dict.fromkeys(_ids(5, 6, 7, 9, 10, 15, 18, 20, 22, 46, 47, 49, 51, 52, 54, 57, 59, 60, 61, 64, 66, 68), "daily"),
     **dict.fromkeys(_ids(4, 8, 12, 13, 14, 17, 19, 24, 27, 28, 29, 39, 40, 41, 44, 45, 53, 62, 63, 65, 67, 69), "weekly"),
+    **dict.fromkeys(_ids(70), "daily"),
     **dict.fromkeys(_ids(1, 2, 3, 11, 16, 23, 25, 26, 30, *range(31, 39), 42, 43), "monthly"),
     # Restore drill: an offsite snapshot and a sample restore, quarterly.
     "ECO-058": "quarterly",

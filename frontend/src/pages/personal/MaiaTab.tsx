@@ -1,10 +1,10 @@
 import { useTranslation } from "react-i18next";
-import { Loader2, PauseCircle, Save, Target } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Loader2, PauseCircle, Save, ScrollText, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { useMaiaSettingsViewModel } from "@/hooks/usePersonalContactsViewModel";
 
 function when(iso: string | null | undefined, locale: string): string {
@@ -12,8 +12,9 @@ function when(iso: string | null | undefined, locale: string): string {
   return new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "short" }).format(new Date(iso));
 }
 
-/** The Maia's WhatsApp service: the rules she reads before every message, and what she is doing now. */
-export function MaiaTab() {
+/** The Maia's WhatsApp service: its settings (wait, capture) and what she is doing now. The rules text
+ * she reads lives in the Regras de atendimento tab (`onOpenServiceRules` switches to it). */
+export function MaiaTab({ onOpenServiceRules }: { onOpenServiceRules?: () => void } = {}) {
   const { t, i18n } = useTranslation("personal");
   const vm = useMaiaSettingsViewModel();
   const s = vm.state;
@@ -22,28 +23,30 @@ export function MaiaTab() {
     <div className="grid grid-cols-1 gap-4 pt-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">{t("maia.rules.title")}</CardTitle>
-          <CardDescription>{t("maia.rules.description")}</CardDescription>
+          <CardTitle className="text-lg">{t("maia.rules.settingsTitle")}</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {/* The instructions text moved to the Regras de atendimento tab (2026-11-14), one document
+              per agent + channel; this card keeps only the WhatsApp service's own settings. */}
+          <div className="flex flex-col gap-2 rounded-md border bg-muted/40 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <span className="flex items-start gap-1.5">
+              <ScrollText className="mt-0.5 h-4 w-4 shrink-0" />
+              {t("maia.rules.movedNote")}
+            </span>
+            {onOpenServiceRules ? (
+              <Button type="button" size="sm" variant="outline" className="max-md:h-auto max-md:whitespace-normal" onClick={onOpenServiceRules}>
+                {t("maia.rules.openServiceRules")}
+              </Button>
+            ) : (
+              <Link to="/personal?tab=service-rules" className="text-primary underline-offset-4 hover:underline">
+                {t("maia.rules.openServiceRules")}
+              </Link>
+            )}
+          </div>
           {vm.loading || !vm.form ? (
             <Loader2 className="h-5 w-5 animate-spin" />
           ) : (
             <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); void vm.save(); }}>
-              <div className="space-y-1">
-                <Label htmlFor="maia-instructions">{t("maia.rules.instructions")}</Label>
-                <Textarea
-                  id="maia-instructions"
-                  rows={18}
-                  maxLength={6000}
-                  className="font-mono text-xs max-md:text-base"
-                  value={vm.form.instructions}
-                  onChange={(e) => vm.change({ instructions: e.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t("maia.rules.instructionsHelp", { count: vm.form.instructions.length })}
-                </p>
-              </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label htmlFor="maia-wait">{t("maia.rules.wait")}</Label>

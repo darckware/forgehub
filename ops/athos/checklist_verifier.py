@@ -1383,6 +1383,20 @@ def check_agent_memory_currency() -> Result:
     return _findings_result(findings, "Agent memories carry no retired rules, paths or dead links")
 
 
+def check_agent_profile_files() -> Result:
+    """ECO-070: one SOUL/IDENTITY per agent in its home, external agents carry USER/MEMORY, and each
+    customer-service rules file ATENDIMENTO_<CANAL>.md equals what ForgeHub stores (Marcelo, 2026-11-14)."""
+    try:
+        module = _knowledge_hygiene()
+        rows = psql("SELECT coalesce(json_agg(json_build_object('a',agent_slug,'c',channel,'h',content_hash)),'[]'::json) "
+                    "FROM company.agent_service_rules", "forgehub", "forgehub_postgres")
+        hashes = {(r["a"], r["c"]): r["h"] for r in json.loads(rows or "[]")}
+        findings = module.profile_file_findings() + module.service_rule_findings(hashes)
+    except Exception as exc:
+        return fail(f"Agent profile files not verified: {type(exc).__name__}")
+    return _findings_result(findings, "One SOUL per agent; service-rule files match ForgeHub; no legacy copies")
+
+
 def check_module_health(name: str) -> Result:
     # Release source first; deployed profile scripts may load the helper next
     # to themselves. No dependency on an accidentally installed older profile.
@@ -1490,6 +1504,7 @@ CHECKS = {
     "ECO-067": check_foundation_integrity,
     "ECO-068": check_agent_memory_size,
     "ECO-069": check_agent_memory_currency,
+    "ECO-070": check_agent_profile_files,
 }
 
 

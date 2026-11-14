@@ -73,7 +73,7 @@ RUNTIME_EXTRA_FILES: dict[str, tuple[str, ...]] = {
 
 # Default home directory per runtime_type for agents that are not Hermes
 # profiles. Sourced from each agent's canonical Foundation contract
-# (/root/.hermes/foundation/14_agents/{PORTHOS,ARAMIS,DARTAN}.md).
+# (/root/memory/foundation/14_agents/{PORTHUS,ARAMIS,DARTAN}.md).
 RUNTIME_DEFAULT_HOMES: dict[str, str] = {
     "claude": "/root/.claude",
     "codex": "/root/.codex",
@@ -216,13 +216,17 @@ def stat_file(path: Path, filename: str, host_home: str) -> ProfileFileInfo:
 # on this host, so they can't carry "you are Porthus". The identity therefore
 # travels with each dispatch instead (2026-10-02).
 EXTERNAL_RUNTIMES = ("claude", "codex", "agy")
-IDENTITY_PREAMBLE_FILES = ("IDENTITY.md", "SOUL.md")
+# Same layers a Hermes agent gets every turn (SOUL plus its memories): identity and character,
+# then the operator context and the memory contract (Marcelo, 2026-11-14: external agents get the
+# same memory as the Hermes agents, so they understand the ecosystem they work in).
+IDENTITY_PREAMBLE_FILES = ("IDENTITY.md", "SOUL.md", "USER.md", "MEMORY.md")
 IDENTITY_PREAMBLE_MAX_CHARS = 8000
 
 
 def external_identity_preamble(agent) -> str | None:
     """The identity block prepended to a task dispatched to an external
-    runtime: the agent's IDENTITY.md and SOUL.md, bounded in size. None for
+    runtime: the agent's IDENTITY.md, SOUL.md, USER.md and MEMORY.md, in that
+    order, bounded in size (the Auditor's ECO-068 flags a set that no longer fits). None for
     Hermes agents (Hermes loads SOUL.md itself) or when no file exists."""
     if agent.runtime_type not in EXTERNAL_RUNTIMES:
         return None

@@ -184,3 +184,65 @@ def test_a_history_section_is_exempt(tmp_path):
     root = foundation(tmp_path)
     (root / '36_governance' / 'H.md').write_text('# H\n\n## 4. History\n\n- 2026-09-04: the foundation_postgres pair was split.\n')
     assert k.foundation_findings(root) == []
+
+
+def test_dispatch_preamble_over_the_limit_is_reported(tmp_path):
+    claude = tmp_path / '.claude'
+    claude.mkdir()
+    (claude / 'SOUL.md').write_text('s' * 5000)
+    (claude / 'MEMORY.md').write_text('m' * 4000)
+    findings = k.preamble_findings(tmp_path)
+    assert len(findings) == 1 and findings[0].startswith('porthus: dispatched identity and memory')
+
+
+def test_one_soul_per_agent_and_no_stray_copies(tmp_path):
+    profiles = tmp_path / 'profiles'
+    for name in ('athos', 'old'):
+        (profiles / name).mkdir(parents=True)
+        (profiles / name / 'config.yaml').write_text('')
+    (profiles / 'old' / 'gateway.parked').write_text('')
+    (profiles / 'athos' / 'SOUL.md').write_text('x')
+    (profiles / 'athos' / 'IDENTITY.md').write_text('x')
+    (profiles / 'athos' / 'backup').mkdir()
+    (profiles / 'athos' / 'backup' / 'SOUL.md').write_text('old')
+    (profiles / 'athos' / 'state-snapshots').mkdir()
+    (profiles / 'athos' / 'state-snapshots' / 'SOUL.md').write_text('kept backup')
+    (profiles / 'old' / 'SOUL.md').write_text('parked')
+    home = tmp_path / 'home'
+    for parts in (('.claude',), ('.codex',), ('.gemini', 'config')):
+        d = home.joinpath(*parts)
+        d.mkdir(parents=True)
+        for name in k.DISPATCH_PREAMBLE_FILES:
+            (d / name).write_text('x')
+    (home / '.codex' / 'MEMORY.md').unlink()
+    foundation = tmp_path / 'foundation'
+    (foundation / '14_agents').mkdir(parents=True)
+    (foundation / '14_agents' / 'IDENTITY.md').write_text('stray')
+    findings = k.profile_file_findings(profiles, home, foundation, tmp_path / 'kb')
+    assert any('stray SOUL.md' in f and 'backup' in f for f in findings)
+    assert any('stray IDENTITY.md' in f and '14_agents' in f for f in findings)
+    assert any(f.startswith('aramis: missing') and 'MEMORY.md' in f for f in findings)
+    assert not any('state-snapshots' in f or '/old/' in f for f in findings)
+    assert len(findings) == 3
+
+
+def test_service_rule_files_must_match_forgehub(tmp_path):
+    import hashlib
+    profiles = tmp_path / 'profiles'
+    (profiles / 'lara').mkdir(parents=True)
+    (profiles / 'maia').mkdir(parents=True)
+    ok_text = 'regras do site\n'
+    (profiles / 'lara' / 'ATENDIMENTO_SITE.md').write_text(ok_text)
+    (profiles / 'lara' / 'ATENDIMENTO_WHATSAPP.md').write_text('editado a mão\n')
+    (profiles / 'lara' / 'ATENDIMENTO_EMAIL.md').write_text('x' * (k.SERVICE_RULE_MAX_CHARS + 5))
+    legacy = tmp_path / 'REGRAS.md'
+    legacy.write_text('old')
+    hashes = {('lara', 'site'): hashlib.sha256(ok_text.encode()).hexdigest(),
+              ('lara', 'whatsapp'): 'f' * 64,
+              ('lara', 'email'): hashlib.sha256(('x' * (k.SERVICE_RULE_MAX_CHARS + 5)).encode()).hexdigest()}
+    findings = k.service_rule_findings(hashes, profiles, (str(legacy),))
+    assert not any('lara/site' in f for f in findings)
+    assert any('lara/whatsapp' in f and 'differs from ForgeHub' in f for f in findings)
+    assert any('lara/email' in f and 'limit' in f for f in findings)
+    assert any(f.startswith('maia/whatsapp: missing') and 'not registered' in f for f in findings)
+    assert any('legacy service-rule copy' in f for f in findings)

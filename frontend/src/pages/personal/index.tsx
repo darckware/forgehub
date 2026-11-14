@@ -19,6 +19,7 @@ import {
   PinOff,
   Plus,
   Repeat,
+  ScrollText,
   Tag,
   Trash2,
   User,
@@ -52,6 +53,7 @@ import { SuggestionsTab } from "./SuggestionsTab";
 import { MaiaTab } from "./MaiaTab";
 import { AgentTasksTab } from "./AgentTasksTab";
 import { LocationTab } from "./LocationTab";
+import { ServiceRulesTab } from "./ServiceRulesTab";
 
 const RECURRENCES: Recurrence[] = ["", "daily", "weekly", "monthly", "yearly"];
 const fieldClass = "h-9 rounded-md border bg-background px-2 text-sm max-md:text-base";
@@ -72,8 +74,17 @@ function whenLabel(task: PersonalTask, locale: string): string | null {
 export default function PersonalPage() {
   const { t } = useTranslation("personal");
   // ?tab= opens a tab directly (the old /suggestions route redirects to ?tab=suggestions).
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const [tab, setTab] = useState(params.get("tab") || "tasks");
+  // Switching from another tab's link also updates ?tab=, so a reload or a shared link lands there.
+  const openTab = (value: string) => {
+    setTab(value);
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("tab", value);
+      return next;
+    }, { replace: true });
+  };
   const del = usePersonalDeleteViewModel();
 
   return (
@@ -89,6 +100,7 @@ export default function PersonalPage() {
           <TabsTrigger value="contacts"><Contact className="mr-1.5 h-4 w-4" />{t("tabs.contacts")}</TabsTrigger>
           <TabsTrigger value="groups"><UsersRound className="mr-1.5 h-4 w-4" />{t("tabs.groups")}</TabsTrigger>
           <TabsTrigger value="maia"><Bot className="mr-1.5 h-4 w-4" />{t("tabs.maia")}</TabsTrigger>
+          <TabsTrigger value="service-rules"><ScrollText className="mr-1.5 h-4 w-4" />{t("tabs.serviceRules")}</TabsTrigger>
           <TabsTrigger value="suggestions"><Lightbulb className="mr-1.5 h-4 w-4" />{t("tabs.suggestions")}</TabsTrigger>
           <TabsTrigger value="location"><MapPin className="mr-1.5 h-4 w-4" />{t("tabs.location")}</TabsTrigger>
         </TabsList>
@@ -99,7 +111,8 @@ export default function PersonalPage() {
         <TabsContent value="demands"><DemandsTab /></TabsContent>
         <TabsContent value="contacts"><ContactsTab /></TabsContent>
         <TabsContent value="groups"><WhatsAppGroupsTab /></TabsContent>
-        <TabsContent value="maia"><MaiaTab /></TabsContent>
+        <TabsContent value="maia"><MaiaTab onOpenServiceRules={() => openTab("service-rules")} /></TabsContent>
+        <TabsContent value="service-rules"><ServiceRulesTab /></TabsContent>
         <TabsContent value="suggestions"><SuggestionsTab /></TabsContent>
         <TabsContent value="location"><LocationTab /></TabsContent>
       </Tabs>

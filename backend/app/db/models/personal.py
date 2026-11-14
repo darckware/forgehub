@@ -272,6 +272,31 @@ class PersonalAssistantSettings(Base, TimestampMixin):
     capture_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
 
 
+SERVICE_RULE_CHANNELS = ("whatsapp", "site", "email")
+
+
+class AgentServiceRule(Base, TimestampMixin):
+    """Customer-service rules of an agent that talks to people outside the ecosystem, one document
+    per agent and channel (2026-11-14, Marcelo: "precisa está em um arquivo de nome padrão que serve
+    como complemento da memória principal dos agentes" -- Lara: WhatsApp, site, e-mail; Maia:
+    WhatsApp). ForgeHub is the source; every save is mirrored into the agent's profile as
+    ``ATENDIMENTO_<CANAL>.md`` (core/service_rules.py), which the agent reads each turn. The Maia's
+    WhatsApp row replaces ``personal_assistant_settings.instructions``."""
+
+    __tablename__ = "agent_service_rules"
+    __table_args__ = (
+        UniqueConstraint("agent_slug", "channel", name="uq_agent_service_rules_agent_channel"),
+        CheckConstraint("channel IN ('whatsapp','site','email')", name="ck_agent_service_rules_channel"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_slug: Mapped[str] = mapped_column(String(50), nullable=False)
+    channel: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_by: Mapped[str | None] = mapped_column(String(150), nullable=True)
+
+
 PERSONAL_LOCATION_SOURCES = ("telegram", "whatsapp", "browser")
 
 

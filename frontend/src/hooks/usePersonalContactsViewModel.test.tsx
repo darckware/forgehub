@@ -69,7 +69,7 @@ describe("useMaiaSettingsViewModel", () => {
     );
     vi.mocked(apiClient.put).mockResolvedValue({ instructions: "Seja breve.", wait_minutes: 10, capture_enabled: true, updated_at: "" });
     const { result } = renderHook(() => useMaiaSettingsViewModel(), { wrapper });
-    await waitFor(() => expect(result.current.form?.instructions).toBe("Seja breve."));
+    await waitFor(() => expect(result.current.form?.wait_minutes).toBe("5"));
     expect(result.current.dirty).toBe(false);
     act(() => result.current.change({ wait_minutes: "999" }));
     expect(result.current.minutesError).toBe("minutes");
@@ -77,7 +77,7 @@ describe("useMaiaSettingsViewModel", () => {
     expect(result.current.dirty).toBe(true);
     await act(() => result.current.save());
     expect(apiClient.put).toHaveBeenCalledWith("/api/v1/personal/assistant-settings", {
-      instructions: "Seja breve.", wait_minutes: 10, capture_enabled: true });
+      wait_minutes: 10, capture_enabled: true });
     expect(result.current.saved).toBe(true);
   });
 });

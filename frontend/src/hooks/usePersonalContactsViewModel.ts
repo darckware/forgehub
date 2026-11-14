@@ -208,8 +208,11 @@ export type PersonalContactsViewModel = ReturnType<typeof usePersonalContactsVie
 
 /* ---------------------------------------------------------------- the Maia's rules */
 
+/** The Maia's WhatsApp service settings. The rules text itself is edited in Pessoal -> Regras de
+ * atendimento (useServiceRulesViewModel, 2026-11-14) and is deliberately never sent from here: the
+ * backend writes `instructions` into the same Maia · WhatsApp rule without a hash check, so a stale
+ * copy saved from this form would silently overwrite a newer rule. */
 export interface MaiaDraft {
-  instructions: string;
   wait_minutes: string;
   capture_enabled: boolean;
 }
@@ -224,14 +227,13 @@ export function useMaiaSettingsViewModel() {
 
   // The form starts from what is stored and follows it until Marcelo starts typing.
   const current: MaiaDraft | null = draft ?? (settings.data
-    ? { instructions: settings.data.instructions, wait_minutes: String(settings.data.wait_minutes), capture_enabled: settings.data.capture_enabled }
+    ? { wait_minutes: String(settings.data.wait_minutes), capture_enabled: settings.data.capture_enabled }
     : null);
   const minutes = Number(current?.wait_minutes);
   const minutesError = current && (!Number.isInteger(minutes) || minutes < 0 || minutes > 240) ? "minutes" : null;
   const dirty = Boolean(
     draft && settings.data &&
-      (draft.instructions !== settings.data.instructions ||
-        Number(draft.wait_minutes) !== settings.data.wait_minutes ||
+      (Number(draft.wait_minutes) !== settings.data.wait_minutes ||
         draft.capture_enabled !== settings.data.capture_enabled),
   );
 
@@ -255,7 +257,6 @@ export function useMaiaSettingsViewModel() {
       if (!draft || minutesError) return;
       try {
         await update.mutateAsync({
-          instructions: draft.instructions,
           wait_minutes: Number(draft.wait_minutes),
           capture_enabled: draft.capture_enabled,
         });

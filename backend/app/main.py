@@ -515,6 +515,9 @@ app.include_router(system_info.router)
 app.include_router(systemstats.router)
 app.include_router(workspace_browser.router)
 app.include_router(file_explorer.router)
+# Before personal.router: its own fixed prefix /api/v1/personal/service-rules.
+from app.api.routes import service_rules as service_rules_routes
+app.include_router(service_rules_routes.router)
 app.include_router(personal.router)
 app.include_router(moodle_approval.router)
 app.include_router(personal_contacts.router)

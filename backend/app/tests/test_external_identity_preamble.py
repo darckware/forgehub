@@ -19,6 +19,21 @@ def test_preamble_carries_identity_and_soul(tmp_path):
     assert preamble.endswith("</agent-identity>")
 
 
+def test_preamble_carries_user_and_memory_after_identity_and_soul(tmp_path):
+    (tmp_path / "IDENTITY.md").write_text("ID-BLOCK")
+    (tmp_path / "SOUL.md").write_text("SOUL-BLOCK")
+    (tmp_path / "USER.md").write_text("USER-BLOCK")
+    (tmp_path / "MEMORY.md").write_text("MEMORY-BLOCK")
+    preamble = external_identity_preamble(_agent(tmp_path))
+    order = [preamble.index(x) for x in ("ID-BLOCK", "SOUL-BLOCK", "USER-BLOCK", "MEMORY-BLOCK")]
+    assert order == sorted(order)
+
+
+def test_memory_alone_still_reaches_the_agent(tmp_path):
+    (tmp_path / "MEMORY.md").write_text("Foundation lives in /root/memory/foundation")
+    assert "Foundation lives in" in external_identity_preamble(_agent(tmp_path))
+
+
 def test_no_preamble_for_hermes_or_missing_files(tmp_path):
     (tmp_path / "IDENTITY.md").write_text("x")
     assert external_identity_preamble(_agent(tmp_path, runtime="hermes", name="Athos")) is None

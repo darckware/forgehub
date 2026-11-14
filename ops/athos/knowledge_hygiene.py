@@ -75,6 +75,16 @@ CLAUDE_INDEX_MAX_LINES = 200            # Claude Code loads only the first 200 l
 CLAUDE_MEMORY_DIR_LIMIT = 200_000
 CODEX_MEMORY_DB_LIMIT = 5_000_000
 KNOWLEDGE_BASE_AGENT_LIMIT = 50_000_000
+# ForgeHub prepends these files, in order, to every task dispatched to an external runtime and cuts
+# the block at this many characters (backend/app/core/agent_profile_files.py); past it, the end of
+# the agent's memory is silently lost.
+DISPATCH_PREAMBLE_FILES = ("IDENTITY.md", "SOUL.md", "USER.md", "MEMORY.md")
+DISPATCH_PREAMBLE_MAX_CHARS = 8000
+EXTERNAL_HOMES = {"porthus": (".claude",), "aramis": (".codex",), "dartan": (".gemini", "config")}
+PROFILE_IDENTITY_FILES = ("SOUL.md", "IDENTITY.md")
+# Never walked by the stray-copy scan: backups, runtime caches and third-party content.
+STRAY_SCAN_SKIP = {"state-snapshots", "node_modules", "plugins", ".git", "sessions", "cache", "logs",
+                   "__pycache__", "antigravity-cli", "47_migrations"}
 
 
 @dataclass(frozen=True)
@@ -150,7 +160,7 @@ def text_findings(path: Path, label: str, *, foundation: Path = FOUNDATION, priv
                 dead.append(target)
         for target in dict.fromkeys(dead):
             found.append(f"{label}:{n} links a missing path" if private else f"{label}:{n} links missing {target}")
-    return found
+    return list(dict.fromkeys(found))
 
 
 def retired_term_findings(path: Path, label: str) -> list[str]:
@@ -218,8 +228,12 @@ def memory_inventory(profiles: Path = PROFILES, home: Path = HOME) -> list[Memor
                 files.append(MemoryFile(profile.name, profile / "memories" / name, limit, "chars"))
             for name, limit in PROFILE_FILE_LIMITS.items():
                 files.append(MemoryFile(profile.name, profile / name, limit))
+            for rules_file in sorted(profile.glob("ATENDIMENTO_*.md")):
+                files.append(MemoryFile(profile.name, rules_file))
     claude = home / ".claude"
     files.append(MemoryFile("porthus", claude / "CLAUDE.md", INSTRUCTION_FILE_LIMIT))
+    for name in DISPATCH_PREAMBLE_FILES:
+        files.append(MemoryFile("porthus", claude / name, INSTRUCTION_FILE_LIMIT))
     for memory_dir in sorted((claude / "projects").glob("*/memory")):
         files.append(MemoryFile("porthus", memory_dir / "MEMORY.md", max_lines=CLAUDE_INDEX_MAX_LINES))
         files.append(MemoryFile("porthus", memory_dir, CLAUDE_MEMORY_DIR_LIMIT, text=False))
@@ -227,7 +241,7 @@ def memory_inventory(profiles: Path = PROFILES, home: Path = HOME) -> list[Memor
             if note.name != "MEMORY.md":
                 files.append(MemoryFile("porthus", note))
     codex = home / ".codex"
-    for name in ("AGENTS.md", "SOUL.md", "IDENTITY.md"):
+    for name in ("AGENTS.md", *DISPATCH_PREAMBLE_FILES):
         files.append(MemoryFile("aramis", codex / name, INSTRUCTION_FILE_LIMIT))
     files.append(MemoryFile("aramis", codex / "memories_1.sqlite", CODEX_MEMORY_DB_LIMIT, text=False))
     gemini = home / ".gemini"
@@ -278,6 +292,7 @@ def memory_size_findings(inventory: list[MemoryFile], knowledge_base: Path = KNO
                     findings.append(f"{item.agent}: {item.path} has {lines} lines (only the first {item.max_lines} are loaded)")
         except OSError:
             findings.append(f"{item.agent}: {item.path} unreadable")
+    findings += preamble_findings(home=_home_of(inventory))
     if knowledge_base.is_dir():
         for agent in sorted(p for p in knowledge_base.iterdir() if p.is_dir() and not p.is_symlink()):
             size = _tree_size(agent)
@@ -297,4 +312,112 @@ def memory_currency_findings(inventory: list[MemoryFile], foundation: Path = FOU
         if not item.path.exists():
             continue
         findings += text_findings(item.path, f"{item.agent}: {item.path}", foundation=foundation, private=True)
+    return findings
+
+
+def _home_of(inventory: list[MemoryFile]) -> Path:
+    for item in inventory:
+        if item.agent == "porthus" and item.path.name == "CLAUDE.md":
+            return item.path.parent.parent
+    return HOME
+
+
+def preamble_findings(home: Path = HOME) -> list[str]:
+    """An external agent whose dispatched identity+memory no longer fits loses its end silently."""
+    findings = []
+    for agent, parts in EXTERNAL_HOMES.items():
+        total = 0
+        for name in DISPATCH_PREAMBLE_FILES:
+            path = home.joinpath(*parts, name)
+            try:
+                total += len(read_text(path).strip()) + 2 if path.exists() else 0
+            except OSError:
+                findings.append(f"{agent}: {path} unreadable")
+        if total > DISPATCH_PREAMBLE_MAX_CHARS:
+            findings.append(f"{agent}: dispatched identity and memory are {total} chars; only the first "
+                            f"{DISPATCH_PREAMBLE_MAX_CHARS} reach the agent — compact {'/'.join(DISPATCH_PREAMBLE_FILES)}")
+    return findings
+
+
+# ---------------------------------------------------------------- service rules (ECO-070)
+
+# Same pairs as backend/app/core/service_rules.py (this script can't import the backend).
+SERVICE_RULE_PAIRS = {"lara": ("whatsapp", "site", "email"), "maia": ("whatsapp",)}
+SERVICE_RULE_MAX_CHARS = 9000
+# Where these rules used to live; none may come back (2026-11-14: one source, ForgeHub + the file).
+LEGACY_RULE_PATHS = (
+    "/root/memory/knowledge_base/lara/atendimento/cartilha-lara-omnichannel.md",
+    "/root/.hermes/profiles/maia/whatsapp/INSTRUCOES_PESSOAIS.md",
+    "/root/project/agentes/lara/REGRAS.md",
+    "/root/project/agentes/maia/REGRAS.md",
+)
+
+
+def service_rule_findings(db_hashes: dict[tuple[str, str], str], profiles: Path = PROFILES,
+                          legacy: tuple[str, ...] = LEGACY_RULE_PATHS) -> list[str]:
+    """Each agent/channel file exists, fits the hook limit and equals what ForgeHub stores."""
+    import hashlib
+    findings = []
+    for agent, channels in SERVICE_RULE_PAIRS.items():
+        for channel in channels:
+            path = profiles / agent / f"ATENDIMENTO_{channel.upper()}.md"
+            stored = db_hashes.get((agent, channel))
+            if not path.exists():
+                findings.append(f"{agent}/{channel}: missing {path}" + ("" if stored else " (not registered in ForgeHub)"))
+                continue
+            try:
+                text = read_text(path)
+            except OSError:
+                findings.append(f"{agent}/{channel}: {path} unreadable")
+                continue
+            if len(text.strip()) > SERVICE_RULE_MAX_CHARS:
+                findings.append(f"{agent}/{channel}: {path} has {len(text.strip())} chars (limit {SERVICE_RULE_MAX_CHARS}; "
+                                "past it the agent sees only the start and the end)")
+            if stored is None:
+                findings.append(f"{agent}/{channel}: {path} exists but is not registered in ForgeHub")
+            elif hashlib.sha256(text.encode("utf-8")).hexdigest() != stored:
+                findings.append(f"{agent}/{channel}: {path} differs from ForgeHub (edit it on Pessoal -> Regras de atendimento)")
+    for old in legacy:
+        if os.path.lexists(old):
+            findings.append(f"legacy service-rule copy still present: {old}")
+    return findings
+
+
+# ---------------------------------------------------------------- one SOUL per agent (ECO-070)
+
+def profile_file_findings(profiles: Path = PROFILES, home: Path = HOME, foundation: Path = FOUNDATION,
+                          knowledge_base: Path = KNOWLEDGE_BASE) -> list[str]:
+    """Each agent has exactly one SOUL/IDENTITY, in its canonical home; external agents also have
+    USER.md and MEMORY.md; no stray copy anywhere the agents or the Foundation keep files."""
+    findings: list[str] = []
+    canonical: set[Path] = set()
+    parked: set[Path] = set()
+    if profiles.is_dir():
+        for profile in sorted(p for p in profiles.iterdir() if p.is_dir() and not p.is_symlink()):
+            if (profile / "gateway.parked").exists():
+                parked.add(profile)
+                continue
+            if not os.path.lexists(profile / "config.yaml"):
+                continue
+            for name in PROFILE_IDENTITY_FILES:
+                canonical.add(profile / name)
+                if not (profile / name).exists():
+                    findings.append(f"{profile.name}: missing {profile / name}")
+    for agent, parts in EXTERNAL_HOMES.items():
+        for name in DISPATCH_PREAMBLE_FILES:
+            path = home.joinpath(*parts, name)
+            canonical.add(path)
+            if not path.exists():
+                findings.append(f"{agent}: missing {path}")
+    roots = [profiles, home / ".claude", home / ".codex", home / ".gemini", foundation, knowledge_base]
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            current = Path(dirpath)
+            dirnames[:] = sorted(d for d in dirnames if d not in STRAY_SCAN_SKIP and current / d not in parked)
+            for name in filenames:
+                path = current / name
+                if name in PROFILE_IDENTITY_FILES and path not in canonical:
+                    findings.append(f"stray {name}: {path} (one per agent, in its profile home)")
     return findings

@@ -201,6 +201,7 @@ sub-conversion, ticked off independently.
   `useClientConversionsViewModel.ts` (approve Lara's proposal or convert a lead, reject).
 - [x] `frontend/src/pages/client-accounts/[id].tsx` — born converted 2026-10-04:
   `useClientAccountViewModel.ts` (contract create/edit, confirmed status changes).
+- [x] `frontend/src/pages/personal/ServiceRulesTab.tsx` — born converted 2026-11-14: `useServiceRulesViewModel` (status loading/idle/saving/error/conflict, expected_hash, switch guard).
 
 ## Wave 5 — Simple domain CRUD (list + form pairs, already close to the pattern)
 
@@ -255,5 +256,5 @@ by hand.
 | 1 — Chat & Channels | 2 (7 sub-items) | ChannelPane.tsx fully done (3/3 sub-items, 2026-08-07); ChatPane.tsx not started (0/4) |
 | 2 — Software Factory | 21 | 0 |
 | 3 — Messages/Inbox | 8 | 0 |
-| 4 — Admin/Ops | 34 | 4 (client-demands, client-emails, client-accounts list/detail — new screens, 2026-10-04) |
+| 4 — Admin/Ops | 35 | 5 (client-demands, client-emails, client-accounts list/detail — new screens, 2026-10-04; personal ServiceRulesTab, 2026-11-14) |
 | 5 — Simple CRUD | 25 | 1 (ProjectForm.tsx, 2026-08-07) |

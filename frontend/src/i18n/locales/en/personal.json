@@ -8,6 +8,7 @@
     "demands": "Demands",
     "contacts": "Personal contacts",
     "maia": "Maia",
+    "serviceRules": "Service rules",
     "suggestions": "Suggestions",
     "agentWork": "Agent tasks",
     "location": "Daily summary",
@@ -226,8 +227,11 @@
       "waitInvalid": "Use a number between 0 and 240.",
       "capture": "Record context and suggest demands, tasks and notes",
       "captureHelp": "After each contact message. You confirm each suggestion.",
-      "saved": "Rules saved.",
-      "updatedAt": "Updated {{when}}"
+      "saved": "Settings saved.",
+      "updatedAt": "Updated {{when}}",
+      "movedNote": "Maia's WhatsApp service rules now live in the Service rules tab, together with Lara's.",
+      "openServiceRules": "Open Service rules",
+      "settingsTitle": "Service settings"
     },
     "now": {
       "title": "Now",
@@ -683,5 +687,55 @@
     "reasonOptional": "Comment (optional)",
     "loadError": "Could not load mission decisions.",
     "retry": "Try again"
+  },
+  "serviceRules": {
+    "title": "Service rules",
+    "description": "The rules each agent follows when serving people outside the ecosystem, one per agent and channel. ForgeHub keeps the text and rewrites the file the agent reads.",
+    "agents": {
+      "lara": "Lara",
+      "maia": "Maia"
+    },
+    "channels": {
+      "whatsapp": "WhatsApp",
+      "site": "Website",
+      "email": "E-mail"
+    },
+    "pairs": "Agents and channels",
+    "choose": "Choose the agent and channel",
+    "loadError": "Could not load the rules.",
+    "empty": "No rules registered.",
+    "neverUpdated": "No text saved yet",
+    "updated": "Updated {{when}}",
+    "updatedBy": "Updated {{when}} by {{who}}",
+    "fileState": {
+      "in_sync": "File in sync",
+      "differs": "File differs",
+      "missing": "File missing",
+      "unknown": "File not checked"
+    },
+    "fileStateHelp": {
+      "differs": "The agent's file differs from ForgeHub; saving rewrites the file.",
+      "missing": "The agent's file does not exist; saving rewrites the file.",
+      "unknown": "The agent's file could not be read right now."
+    },
+    "filePath": "File the agent reads",
+    "editor": "Rules for {{agent}} · {{channel}}",
+    "chars": "{{count}} of {{max}} characters",
+    "overLimit": "Over the {{max}}-character limit. Shorten the text to save.",
+    "emptyText": "The text cannot be empty.",
+    "saved": "Rules saved. The agent's file was rewritten.",
+    "conflict": "Someone else saved this rule after you opened it. Reload to see the current version (your unsaved text will be discarded).",
+    "reload": "Reload",
+    "unsaved": "Unsaved changes",
+    "switch": {
+      "title": "Discard changes?",
+      "description": "You have unsaved changes in {{pair}}. Switching rules discards them.",
+      "confirm": "Discard and switch"
+    },
+    "back": "Back",
+    "history": "History",
+    "historyEmpty": "No recorded changes.",
+    "historyError": "Could not load the history.",
+    "historyEntry": "{{chars}} characters"
   }
 }
