@@ -360,7 +360,10 @@ def audit_routine_problems(rows: object) -> list[str]:
 def check_weekly_audit() -> Result:
     """ECO-023: every tier is scheduled -- by the four audit routines (since
     2026-11-13), or, until they are all enabled, by the legacy Sunday cron."""
-    jobs = [j for j in load_jobs() if j.get("enabled") and j.get("name") == "ecosystem-weekly-audit"]
+    # A paused job (`hermes cron pause`, the activation plan's step) keeps
+    # enabled=true in the store but no longer runs.
+    jobs = [j for j in load_jobs() if j.get("enabled") and j.get("state") != "paused"
+            and j.get("name") == "ecosystem-weekly-audit"]
     legacy_ok = len(jobs) == 1 and jobs[0].get("schedule", {}).get("expr") == "0 19 * * 0" and jobs[0].get("script") == "ecosystem_weekly_audit.sh"
     try:
         rows = json.loads(psql(

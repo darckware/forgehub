@@ -156,3 +156,12 @@ def test_audit_routine_problems_name_each_tier():
     problems = v.audit_routine_problems(drifted)
     assert problems == ["daily: schedule 0 20 * * * America/Sao_Paulo", "weekly: routine disabled",
                         "monthly: no routine", "quarterly: no routine"]
+
+
+def test_eco023_does_not_count_a_paused_legacy_cron(monkeypatch):
+    monkeypatch.setattr(v, "load_jobs", lambda: [dict(LEGACY_CRON, state="paused")])
+    monkeypatch.setattr(v, "psql", lambda *args: json.dumps(AUDIT_ROUTINES))
+    result = v.check_weekly_audit()
+    assert result.ok and "disable it" not in result.notes
+    monkeypatch.setattr(v, "psql", lambda *args: json.dumps([]))
+    assert not v.check_weekly_audit().ok
