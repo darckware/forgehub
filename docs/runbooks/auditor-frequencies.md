@@ -7,10 +7,16 @@ at once) to four Operação 24x7 routines. Each routine runs one tier's checks.
 
 | Routine (Athos) | Tier | Schedule (America/Sao_Paulo) | Checks |
 |---|---|---|---|
-| Auditoria diária | daily | `0 19 * * *` | 005 006 007 009 010 015 018 020 022 046 047 049 051 052 054 057 059 060 061 064 066 |
-| Auditoria semanal | weekly | `0 19 * * 0` | 004 008 012 013 014 017 019 024 027 028 029 039 040 041 044 045 053 062 063 065 |
+| Auditoria diária | daily | `0 19 * * *` | 005 006 007 009 010 015 018 020 022 046 047 049 051 052 054 057 059 060 061 064 066 068 |
+| Auditoria semanal | weekly | `0 19 * * 0` | 004 008 012 013 014 017 019 024 027 028 029 039 040 041 044 045 053 062 063 065 067 069 |
 | Auditoria mensal | monthly | `0 19 1 * *` | 001 002 003 011 016 023 025 026 030 031–038 042 043 |
 | Auditoria trimestral | quarterly | `0 19 1 1,4,7,10 *` | 058 (restore drill; stays disabled until its activation condition is met) |
+
+Foundation and agent memories (Marcelo, 2026-11-14; `ops/athos/knowledge_hygiene.py`):
+**ECO-067** (weekly) Foundation structure, links and retired paths/terms; **ECO-068** (daily)
+Hermes and external agents' memory sizes against each runtime's limits; **ECO-069** (weekly)
+retired rules, paths and dead links in the agents' memories. Findings name file, line and rule,
+never memory content. A finding means the document or memory is out of date: fix it, not the check.
 
 Checks not in the list (048, 050, 055, 056, all disabled, and 021, retired)
 stay `weekly`, the frequency the Sunday audit always gave them.

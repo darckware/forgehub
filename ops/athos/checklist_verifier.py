@@ -25,7 +25,7 @@ from urllib.request import urlopen
 FOUNDATION = Path("/root/memory/foundation")
 HERMES = Path("/root/.hermes")
 ATHOS = HERMES / "profiles/athos"
-KB = HERMES / "knowledge_base"
+KB = Path("/root/memory/knowledge_base")  # /root/.hermes/knowledge_base is a legacy symlink
 FORGEHUB = Path("/root/project/forgehub")
 FORGEROUTER = Path("/root/project/forgerouter")
 CATALOG_SOURCE = Path(__file__).resolve().parents[2] / "backend/app/core/audit_catalog.py"
@@ -1327,6 +1327,56 @@ def check_forgevault_ssh_key_reads() -> Result:
     return ok(output) if result.returncode == 0 else fail(output or "NOT VERIFIED: no output from the audit")
 
 
+def _knowledge_hygiene():
+    """Release source first, then the copy installed next to this script."""
+    import importlib.util
+    candidates = (Path(__file__).resolve().with_name('knowledge_hygiene.py'),
+                  FORGEHUB / 'ops/athos/knowledge_hygiene.py')
+    source = next(path for path in candidates if path.is_file())
+    spec = importlib.util.spec_from_file_location('athos_knowledge_hygiene', source)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _findings_result(findings: list[str], passed: str) -> Result:
+    if not findings:
+        return ok(passed)
+    shown = "; ".join(findings[:40])
+    more = f" (+{len(findings) - 40} more)" if len(findings) > 40 else ""
+    return fail(f"{len(findings)} finding(s): {shown}{more}")
+
+
+def check_foundation_integrity() -> Result:
+    """ECO-067: Foundation structure, links and retired paths/terms (Marcelo, 2026-11-14)."""
+    try:
+        findings = _knowledge_hygiene().foundation_findings()
+    except Exception as exc:  # an unreadable Foundation is a failure, never a pass
+        return fail(f"Foundation integrity not verified: {type(exc).__name__}")
+    return _findings_result(findings, "Foundation structure, links and terms are current")
+
+
+def check_agent_memory_size() -> Result:
+    """ECO-068: Hermes and external agents' memories within their runtime limits."""
+    try:
+        module = _knowledge_hygiene()
+        findings = module.memory_size_findings(module.memory_inventory())
+    except Exception as exc:
+        return fail(f"Agent memory size not verified: {type(exc).__name__}")
+    return _findings_result(findings, "Agent memories are within their size limits")
+
+
+def check_agent_memory_currency() -> Result:
+    """ECO-069: agents' memories carry no retired rules, paths or dead links."""
+    try:
+        module = _knowledge_hygiene()
+        findings = module.memory_currency_findings(module.memory_inventory())
+    except Exception as exc:
+        return fail(f"Agent memory currency not verified: {type(exc).__name__}")
+    return _findings_result(findings, "Agent memories carry no retired rules, paths or dead links")
+
+
 def check_module_health(name: str) -> Result:
     # Release source first; deployed profile scripts may load the helper next
     # to themselves. No dependency on an accidentally installed older profile.
@@ -1431,6 +1481,9 @@ CHECKS = {
     "ECO-064": lambda: check_module_health("remote"),
     "ECO-065": lambda: check_module_health("sessions"),
     "ECO-066": lambda: check_module_health("routines"),
+    "ECO-067": check_foundation_integrity,
+    "ECO-068": check_agent_memory_size,
+    "ECO-069": check_agent_memory_currency,
 }
 
 
