@@ -514,8 +514,8 @@
       },
       "title_one": "Arquivar {{count}} pergunta?",
       "title_other": "Arquivar {{count}} perguntas?",
-      "hint_one": "A pergunta é encerrada sem resposta e fica no histórico. O agente recebe uma tarefa no Messages com o motivo abaixo (1 execução de agente).",
-      "hint_other": "Cada pergunta é encerrada sem resposta e fica no histórico. Cada agente é avisado separadamente: serão criadas {{count}} tarefas no Messages, uma por pergunta, ou seja, {{count}} execuções de agente com o motivo abaixo.",
+      "hint_one": "A pergunta é encerrada sem resposta e fica no histórico. Se o agente estiver ativo, recebe uma tarefa no Messages com o motivo abaixo (1 execução de agente).",
+      "hint_other": "Cada pergunta é encerrada sem resposta e fica no histórico. Cada pergunta de um agente ativo cria uma tarefa no Messages com o motivo abaixo: até {{count}} tarefas, ou seja, até {{count}} execuções de agente. Agentes inativos ou aposentados não recebem tarefa.",
       "resultTitle": "{{cancelled}} de {{total}} arquivadas",
       "result": {
         "cancelled": "arquivada",
@@ -532,8 +532,10 @@
         "origin_cancelled": "A tarefa de origem foi descartada ou recusada.",
         "stale": "Não bloqueia e está parada há mais de {{days}} dias, sem atividade na origem.",
         "blocking": "Bloqueia o trabalho do agente: precisa de resposta.",
-        "open": "Ainda pode ser útil ao agente: responda ou arquive com motivo."
-      }
+        "open": "Ainda pode ser útil ao agente: responda ou arquive com motivo.",
+        "blocking_origin_completed": "Bloqueia o trabalho do agente; a tarefa de origem terminou, mas a resposta ainda retoma o trabalho."
+      },
+      "limit": "Selecione no máximo {{max}} perguntas por vez."
     }
   },
   "location": {

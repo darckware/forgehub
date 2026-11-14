@@ -514,8 +514,8 @@
       },
       "title_one": "¿Archivar {{count}} pregunta?",
       "title_other": "¿Archivar {{count}} preguntas?",
-      "hint_one": "La pregunta se cierra sin respuesta y queda en el historial. El agente recibe una tarea en Messages con el motivo de abajo (1 ejecución de agente).",
-      "hint_other": "Cada pregunta se cierra sin respuesta y queda en el historial. Cada agente es avisado por separado: se crearán {{count}} tareas en Messages, una por pregunta, es decir, {{count}} ejecuciones de agente con el motivo de abajo.",
+      "hint_one": "La pregunta se cierra sin respuesta y queda en el historial. Si el agente está activo, recibe una tarea en Messages con el motivo de abajo (1 ejecución de agente).",
+      "hint_other": "Cada pregunta se cierra sin respuesta y queda en el historial. Cada pregunta de un agente activo crea una tarea en Messages con el motivo de abajo: hasta {{count}} tareas, es decir, hasta {{count}} ejecuciones de agente. Los agentes inactivos o retirados no reciben tarea.",
       "resultTitle": "{{cancelled}} de {{total}} archivadas",
       "result": {
         "cancelled": "archivada",
@@ -532,8 +532,10 @@
         "origin_cancelled": "La tarea de origen fue descartada o rechazada.",
         "stale": "No bloquea y está detenida hace más de {{days}} días, sin actividad en el origen.",
         "blocking": "Bloquea el trabajo del agente: necesita respuesta.",
-        "open": "Aún puede ser útil al agente: respóndela o archívala con un motivo."
-      }
+        "open": "Aún puede ser útil al agente: respóndela o archívala con un motivo.",
+        "blocking_origin_completed": "Bloquea el trabajo del agente; la tarea de origen terminó, pero la respuesta aún reanuda el trabajo."
+      },
+      "limit": "Selecciona como máximo {{max}} preguntas a la vez."
     }
   },
   "location": {

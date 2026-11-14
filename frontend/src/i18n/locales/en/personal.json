@@ -514,8 +514,8 @@
       },
       "title_one": "Archive {{count}} question?",
       "title_other": "Archive {{count}} questions?",
-      "hint_one": "The question is closed without an answer and kept in history. The agent gets a Messages task with the reason below (1 agent run).",
-      "hint_other": "Each question is closed without an answer and kept in history. Each agent is told separately: {{count}} Messages tasks will be created, one per question, i.e. {{count}} agent runs with the reason below.",
+      "hint_one": "The question is closed without an answer and kept in history. If its agent is active, it gets a Messages task with the reason below (1 agent run).",
+      "hint_other": "Each question is closed without an answer and kept in history. Each question from an active agent creates one Messages task with the reason below: up to {{count}} tasks, i.e. up to {{count}} agent runs. Inactive or retired agents get no task.",
       "resultTitle": "{{cancelled}} of {{total}} archived",
       "result": {
         "cancelled": "archived",
@@ -532,8 +532,10 @@
         "origin_cancelled": "The originating task was dropped or rejected.",
         "stale": "Not blocking and idle for more than {{days}} days, with no activity on its origin.",
         "blocking": "Blocks the agent's work: needs an answer.",
-        "open": "May still help the agent: answer it or archive it with a reason."
-      }
+        "open": "May still help the agent: answer it or archive it with a reason.",
+        "blocking_origin_completed": "Blocks the agent's work; the originating task ended, but the answer still resumes the work."
+      },
+      "limit": "Select at most {{max}} questions at a time."
     }
   },
   "location": {

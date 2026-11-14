@@ -17,7 +17,7 @@ vi.mock("@/hooks/useGovernance", () => ({
   useGovernedApprovalRequests: mocks.approvals,
   useDecideGovernedApproval: () => ({ reset: vi.fn() }),
 }));
-vi.mock("@/hooks/useOperationsViewModel", () => ({ useQuestionAnalysis: (enabled: boolean) => mocks.questionAnalysis(enabled), useBulkCancelQuestions: () => ({ mutate: mocks.bulkCancel, isPending: false, error: null, reset: vi.fn() }), usePendingQuestions: () => mocks.questions(), useOperationsViewModel: () => ({ questions: mocks.questions(), answerQuestion: { reset: vi.fn(), mutate: mocks.answerQuestion }, cancelQuestion: { reset: vi.fn(), mutate: mocks.cancelQuestion, isPending: false, error: null } }) }));
+vi.mock("@/hooks/useOperationsViewModel", () => ({ QUESTION_BULK_MAX: 50, useQuestionAnalysis: (enabled: boolean) => mocks.questionAnalysis(enabled), useBulkCancelQuestions: () => ({ mutate: mocks.bulkCancel, isPending: false, error: null, reset: vi.fn() }), usePendingQuestions: () => mocks.questions(), useOperationsViewModel: () => ({ questions: mocks.questions(), answerQuestion: { reset: vi.fn(), mutate: mocks.answerQuestion }, cancelQuestion: { reset: vi.fn(), mutate: mocks.cancelQuestion, isPending: false, error: null } }) }));
 vi.mock("@/components/Markdown", () => ({ Markdown: ({ content }: { content: string }) => <div>{content}</div> }));
 
 function item(overrides: Partial<Demand> = {}): Demand {
@@ -393,7 +393,7 @@ describe("Respostas: one analysis for everything, selection and bulk archive (20
     expect(mocks.bulkCancel).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Arquivar selecionadas (2)" }));
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText(/2 tarefas no Messages, uma por pergunta, ou seja, 2 execuções de agente/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Cada pergunta de um agente ativo cria uma tarefa no Messages com o motivo abaixo: até 2 tarefas, ou seja, até 2 execuções de agente/)).toBeInTheDocument();
     const confirm = within(dialog).getByRole("button", { name: "Arquivar selecionadas (2)" });
     expect(confirm).toBeDisabled();
     fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "ab" } });
@@ -407,6 +407,24 @@ describe("Respostas: one analysis for everything, selection and bulk archive (20
       { id: "question-53", number: 53, status: "already_closed", detail: "x", reply_demand_id: null }] }));
     expect(screen.getByText("1 de 2 arquivadas")).toBeInTheDocument();
     expect(screen.getByText(/#53 · já estava encerrada/)).toBeInTheDocument();
+  });
+
+  it("never keeps a question hidden by the filter in the selection", async () => {
+    open("/personal?tab=agent-work&workTab=answers");
+    const analyze = screen.getByRole("button", { name: "Analisar e encaminhar" });
+    await waitFor(() => expect(analyze).toBeEnabled()); fireEvent.click(analyze);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Selecionar todas" }));
+    expect(screen.getByRole("button", { name: "Arquivar selecionadas (3)" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: "Filtrar perguntas" }), { target: { value: "archive" } });
+    fireEvent.click(screen.getByRole("button", { name: "Arquivar selecionadas (2)" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).queryByText(/Qual destino uso/)).not.toBeInTheDocument();
+    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "Encerradas" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Arquivar selecionadas (2)" }));
+    expect(mocks.bulkCancel).toHaveBeenCalledWith({ ids: ["question-51", "question-53"], reason: "Encerradas" }, expect.anything());
+    // Back to all: the hidden one did not come back ticked.
+    fireEvent.change(screen.getByRole("combobox", { name: "Filtrar perguntas" }), { target: { value: "all" } });
+    expect(screen.getByRole("checkbox", { name: "Selecionar pergunta #52" })).not.toBeChecked();
   });
 
   it("selects every card manually without any analysis", () => {

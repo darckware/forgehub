@@ -62,6 +62,7 @@ export function AgentTasksTab() {
           {vm.bulkArchiving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}{t("agentTasks.questionBulk.archive", { count: selectedCount })}</Button>
         <Button size="sm" variant="ghost" onClick={vm.clearQuestionSelection}>{t("agentTasks.questionBulk.clear")}</Button>
       </>}
+      {vm.overQuestionLimit && <p role="alert" className="w-full text-destructive">{t("agentTasks.questionBulk.limit", { max: vm.questionBulkMax })}</p>}
     </div>}
     {vm.bulkArchiveResults.length > 0 && <div role="status" className="space-y-1 rounded-md border p-3 text-sm">
       <p className="font-medium">{t("agentTasks.questionBulk.resultTitle", { cancelled: vm.bulkArchiveResults.filter(row => row.status === "cancelled").length, total: vm.bulkArchiveResults.length })}</p>
@@ -304,6 +305,7 @@ export function AgentTasksTab() {
       confirmLabel={t("agentTasks.questionBulk.archive", { count: selectedCount })} loading={vm.bulkArchiving} error={vm.bulkArchiveError ?? undefined}
       confirmDisabled={!vm.bulkArchiveValid} onCancel={vm.cancelBulkArchiveQuestions} onConfirm={vm.confirmBulkArchiveQuestions}>
       <p className="text-sm">{t("agentTasks.questionBulk.hint", { count: selectedCount })}</p>
+      {vm.overQuestionLimit && <p role="alert" className="mt-2 text-sm text-destructive">{t("agentTasks.questionBulk.limit", { max: vm.questionBulkMax })}</p>}
       <ul className="mt-2 max-h-48 overflow-auto text-sm">{vm.questions.filter(item => vm.questionChecked(item.id)).map(item =>
         <li key={item.id} className="break-words">#{item.number} · {item.agent_name} · {item.question.slice(0, 120)}</li>)}</ul>
       <label className="mt-3 block space-y-1 text-sm">{t("agentTasks.questionBulk.reasonLabel")}

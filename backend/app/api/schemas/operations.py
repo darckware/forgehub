@@ -212,7 +212,7 @@ class QuestionBulkCancelIn(QuestionCancelIn):
     """Archive several pending questions with one reason (Respostas tab).
     Each one is cancelled in its own transaction and tells its own agent."""
 
-    ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=50)
 
 
 class QuestionBulkCancelResult(BaseModel):
@@ -235,7 +235,7 @@ class QuestionAnalysisItem(BaseModel):
     # archive | answer
     recommendation: str
     # agent_inactive | origin_archived | origin_consolidated | origin_completed
-    # | origin_cancelled | stale | blocking | open
+    # | origin_cancelled | stale | blocking_origin_completed | blocking | open
     reason_code: str
     reason: str
     days_idle: int

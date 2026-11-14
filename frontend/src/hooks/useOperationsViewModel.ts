@@ -262,7 +262,9 @@ export function usePendingQuestions() {
  * "Analisar e encaminhar" that covers pending questions (archive | answer). */
 export type QuestionRecommendation = "archive" | "answer";
 export type QuestionReasonCode = "agent_inactive" | "origin_archived" | "origin_consolidated" | "origin_completed"
-  | "origin_cancelled" | "stale" | "blocking" | "open";
+  | "origin_cancelled" | "stale" | "blocking_origin_completed" | "blocking" | "open";
+/** Same cap as the backend's QuestionBulkCancelIn. */
+export const QUESTION_BULK_MAX = 50;
 export interface QuestionAnalysisItem {
   question_id: string;
   number: number;

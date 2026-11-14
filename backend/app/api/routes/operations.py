@@ -1484,7 +1484,7 @@ async def cancel_questions(
                                                     detail="Não foi possível arquivar esta pergunta."))
             continue
         results.append(QuestionBulkCancelResult(id=question_id, number=number, status="cancelled",
-                                                reply_demand_id=demand.id))
+                                                reply_demand_id=demand.id if demand else None))
     return QuestionBulkCancelOut(results=results, cancelled=sum(1 for r in results if r.status == "cancelled"))
 
 

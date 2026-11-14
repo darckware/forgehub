@@ -360,3 +360,49 @@ async def test_question_analysis_recommends_archive_or_answer(client, agents, ne
     assert body["archive"] + body["answer"] == body["total"] == len(body["items"])
     async with AsyncSessionLocal() as db:  # read-only
         assert (await db.get(AgentQuestion, uuid.UUID(stale["id"]))).status == "pending"
+
+
+async def test_blocking_question_on_completed_origin_is_answer(client, agents, never_due):
+    asker, _ = agents
+    async with AsyncSessionLocal() as db:
+        done = AgentDemand(from_agent=asker.profile_slug, from_agent_id=asker.id, target_agent_id=asker.id,
+            subject="Done", body="x", origin_type="task", working_path="/tmp", dispatch_status="completed")
+        db.add(done)
+        await db.commit()
+        number = done.number
+    blocking = await _ask(client, asker, blocking=True, origin_message_number=number)
+    open_q = await _ask(client, asker, origin_message_number=number)
+    got = {row["question_id"]: (row["recommendation"], row["reason_code"])
+           for row in (await client.get("/api/v1/operations/questions:analysis")).json()["items"]}
+    assert got[blocking["id"]] == ("answer", "blocking_origin_completed")
+    assert got[open_q["id"]] == ("archive", "origin_completed")
+
+
+async def test_cancel_for_inactive_asker_closes_and_audits_without_a_task(client, agents, never_due):
+    asker, _ = agents
+    single, bulk_one = await _ask(client, asker), await _ask(client, asker)
+    async with AsyncSessionLocal() as db:
+        (await db.get(Agent, asker.id)).status = "retired"
+        await db.commit()
+    response = await client.post(f"/api/v1/operations/questions/{single['id']}:cancel", json={"reason": "Agente aposentado."})
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "cancelled" and response.json()["reply_demand_id"] is None
+    bulk = await client.post("/api/v1/operations/questions:cancel", json={"ids": [bulk_one["id"]], "reason": "Agente aposentado."})
+    assert bulk.status_code == 200, bulk.text
+    assert bulk.json()["results"][0]["status"] == "cancelled" and bulk.json()["results"][0]["reply_demand_id"] is None
+    async with AsyncSessionLocal() as db:
+        for q in (single, bulk_one):
+            event = (await db.execute(select(AuditEvent).where(AuditEvent.entity_type == "agent_question",
+                AuditEvent.entity_id == uuid.UUID(q["id"])))).scalar_one()
+            assert event.event_type == "question_cancelled" and event.payload["asker_notified"] is False
+            assert (await db.get(AgentQuestion, uuid.UUID(q["id"]))).status == "cancelled"
+        tasks = (await db.execute(select(AgentDemand).where(AgentDemand.target_agent_id == asker.id,
+            AgentDemand.subject.like("[Pergunta #%")))).scalars().all()
+        assert tasks == []
+
+
+async def test_bulk_cancel_caps_at_fifty_ids(client, agents, never_due):
+    ids = [str(uuid.uuid4()) for _ in range(51)]
+    assert (await client.post("/api/v1/operations/questions:cancel", json={"ids": ids, "reason": "Limite"})).status_code == 422
+    ok = await client.post("/api/v1/operations/questions:cancel", json={"ids": ids[:50], "reason": "Limite"})
+    assert ok.status_code == 200 and {r["status"] for r in ok.json()["results"]} == {"not_found"}

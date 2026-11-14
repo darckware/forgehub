@@ -8,7 +8,7 @@ import { useAgents } from "./useAgent";
 import { useProjects } from "./useProject";
 import { useTasks, useTaskDependencies } from "./useTask";
 import { useGovernedApprovalRequests, useDecideGovernedApproval } from "./useGovernance";
-import { useBulkCancelQuestions, useOperationsViewModel, usePendingQuestions, useQuestionAnalysis, type QuestionAnalysisItem, type QuestionBulkResult } from "./useOperationsViewModel";
+import { QUESTION_BULK_MAX, useBulkCancelQuestions, useOperationsViewModel, usePendingQuestions, useQuestionAnalysis, type QuestionAnalysisItem, type QuestionBulkResult } from "./useOperationsViewModel";
 import { missionDecisionsKey } from "./useMissions";
 import { useAuthStore } from "@/store/authStore";
 
@@ -168,11 +168,13 @@ export function useAgentTasksViewModel() {
   const recommendations = new Map<string, QuestionAnalysisItem>((questionAnalysis.data?.items ?? []).map(item => [item.question_id, item]));
   const recommendationFor = (id: string) => recommendations.get(id) ?? null;
   const visibleQuestions = questionFilter === "all" ? questions : questions.filter(item => recommendations.get(item.id)?.recommendation === questionFilter);
-  const pendingIds = new Set(questions.map(item => item.id));
-  const checkedQuestionIds = selectedQuestionIds.filter(id => pendingIds.has(id));
+  // Only what the operator can see counts as selected: a filter never hides a ticked question.
+  const visibleIds = new Set(visibleQuestions.map(item => item.id));
+  const checkedQuestionIds = selectedQuestionIds.filter(id => visibleIds.has(id));
   const visibleChecked = visibleQuestions.filter(item => checkedQuestionIds.includes(item.id)).length;
-  const suggestedIds = questions.filter(item => recommendations.get(item.id)?.recommendation === "archive").map(item => item.id);
-  const bulkArchiveValid = bulkArchiveReason.trim().length >= 3 && checkedQuestionIds.length > 0;
+  const suggestedIds = visibleQuestions.filter(item => recommendations.get(item.id)?.recommendation === "archive").map(item => item.id);
+  const overQuestionLimit = checkedQuestionIds.length > QUESTION_BULK_MAX;
+  const bulkArchiveValid = bulkArchiveReason.trim().length >= 3 && checkedQuestionIds.length > 0 && !overQuestionLimit;
   const questionAnalysisSummary = questionAnalysis.data ? { total: questionAnalysis.data.total, archive: questionAnalysis.data.archive } : null;
   return {
     tab, setTab, group, views, promotedTask,
@@ -192,7 +194,11 @@ export function useAgentTasksViewModel() {
     analysisBusy: analysis.busy || questionAnalysis.isFetching,
     questionAnalysisStaleDays: questionAnalysis.data?.stale_days ?? 14,
     questionAnalysis: { requested: questionAnalysisRequested, loading: questionAnalysis.isFetching, error: questionAnalysis.isError, summary: questionAnalysisSummary },
-    recommendationFor, questionFilter, setQuestionFilter: (value: QuestionFilter) => setQuestionFilterState(value), visibleQuestions,
+    recommendationFor, questionFilter, setQuestionFilter: (value: QuestionFilter) => {
+      setQuestionFilterState(value);
+      const nextVisible = new Set((value === "all" ? questions : questions.filter(item => recommendations.get(item.id)?.recommendation === value)).map(item => item.id));
+      setSelectedQuestionIds(ids => ids.filter(id => nextVisible.has(id)));
+    }, visibleQuestions,
     selectedQuestionIds: checkedQuestionIds, questionChecked: (id: string) => checkedQuestionIds.includes(id),
     toggleQuestion: (id: string) => setSelectedQuestionIds(ids => ids.includes(id) ? ids.filter(value => value !== id) : [...ids, id]),
     allVisibleChecked: visibleQuestions.length > 0 && visibleChecked === visibleQuestions.length,
@@ -204,7 +210,7 @@ export function useAgentTasksViewModel() {
     suggestedArchiveCount: suggestedIds.length,
     selectSuggestedQuestions: () => setSelectedQuestionIds(ids => [...new Set([...ids, ...suggestedIds])]),
     clearQuestionSelection: () => setSelectedQuestionIds([]),
-    bulkArchiveOpen, bulkArchiveReason, setBulkArchiveReason, bulkArchiveValid, bulkArchiveResults,
+    overQuestionLimit, questionBulkMax: QUESTION_BULK_MAX, bulkArchiveOpen, bulkArchiveReason, setBulkArchiveReason, bulkArchiveValid, bulkArchiveResults,
     bulkArchiving: bulkCancel.isPending, bulkArchiveError: failureText(bulkCancel.error),
     askBulkArchiveQuestions: () => { bulkCancel.reset(); setBulkArchiveReason(""); setBulkArchiveResults([]); setBulkArchiveOpen(true); },
     cancelBulkArchiveQuestions: () => { if (!bulkCancel.isPending) setBulkArchiveOpen(false); },

@@ -288,8 +288,13 @@ def compose_cancellation_message(question: AgentQuestion, reason: str) -> str:
     ])
 
 
-async def record_cancellation(db: AsyncSession, question: AgentQuestion, reason: str, *, by: str) -> AgentDemand:
+async def record_cancellation(db: AsyncSession, question: AgentQuestion, reason: str, *, by: str) -> AgentDemand | None:
     """Close a pending question without an answer and tell the asker, in one commit.
+
+    An asker that is missing, inactive or retired gets no continuation task:
+    it could never run and would land back in the operator's decisions. The
+    question is still closed and audited (`asker_notified: false`); None is
+    returned instead of the task.
 
     Same continuation path as an answer (a Messages task to the asker with
     reply_to_id = the blocked message, the same attempt handling), so the
@@ -307,9 +312,17 @@ async def record_cancellation(db: AsyncSession, question: AgentQuestion, reason:
     if question.status != "pending":
         raise HTTPException(409, f"Question #{question.number} is already {question.status}")
     question.status = "cancelled"
+    asker = await db.get(Agent, question.agent_id)
+    asker_active = asker is not None and asker.is_active and asker.status == "active"
+    payload = {"reason": reason.strip(), "number": question.number,
+               "origin_demand_id": str(question.origin_demand_id) if question.origin_demand_id else None}
+    if not asker_active:
+        payload["asker_notified"] = False
     db.add(AuditEvent(entity_type="agent_question", entity_id=question.id, event_type="question_cancelled",
-        actor=by, payload={"reason": reason.strip(), "number": question.number,
-                           "origin_demand_id": str(question.origin_demand_id) if question.origin_demand_id else None}))
+        actor=by, payload=payload))
+    if not asker_active:
+        await db.commit()
+        return None
     return await _continue_asker(db, question, subject=f"[Pergunta #{question.number} cancelada]",
         message=compose_cancellation_message(question, reason), by=by, now=datetime.now(timezone.utc),
         notice=f"Pergunta #{question.number} arquivada sem resposta", event_key=f"agent-question-cancelled:{question.id}")
@@ -434,6 +447,7 @@ _REASON_TEXT = {
     "origin_completed": "A tarefa de origem já foi concluída.",
     "origin_cancelled": "A tarefa de origem foi descartada ou recusada.",
     "stale": "Não bloqueia e está parada há mais de {days} dias, sem atividade na origem.",
+    "blocking_origin_completed": "Bloqueia o trabalho do agente; a tarefa de origem terminou, mas a resposta ainda retoma o trabalho.",
     "blocking": "Bloqueia o trabalho do agente: precisa de resposta.",
     "open": "Ainda pode ser útil ao agente: responda ou arquive com motivo.",
 }
@@ -460,6 +474,10 @@ def classify_question(question: AgentQuestion, agent: Agent | None, origin: Agen
         if origin.incubation_state == "dropped" or origin.approval_status == "rejected":
             return "archive", "origin_cancelled", days_idle
         if origin.dispatch_status == "completed":
+            # A blocking question still holds the agent's work: answering it
+            # resumes that work, and record_answer handles a closed origin.
+            if question.blocking:
+                return "answer", "blocking_origin_completed", days_idle
             return "archive", "origin_completed", days_idle
     if question.blocking:
         return "answer", "blocking", days_idle
