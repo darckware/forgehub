@@ -27,7 +27,7 @@ DEMAND_STATUSES = ("new", "read", "converted", "archived")
 # frontend's "Incoming" folder alive by redefining it around self-addressed
 # work instead (see useDemands.ts's isIncomingItem) rather than leaving a
 # dead enum value as a stand-in for a state that never occurred.
-DEMAND_DISPATCH_STATUSES = ("dispatched", "running", "completed", "failed")
+DEMAND_DISPATCH_STATUSES = ("dispatched", "running", "completed", "failed", "waiting_quota")
 
 # "Tipo" da mensagem -- mandatory, exactly two values (2026-07-28, Marcelo:
 # "no type só sistem dois tipo task ou backlog e o campo é obrigatório...
@@ -406,6 +406,9 @@ class AgentDemand(Base, TimestampMixin):
     # come back and explicitly mark things read.
     agent_processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     dispatch_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    quota_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    quota_wait_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    quota_dispatch_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     # host-bridge POST /v1/agent-runs' run_id, for polling GET .../{run_id}.
     agent_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 

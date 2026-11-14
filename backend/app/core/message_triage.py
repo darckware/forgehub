@@ -233,6 +233,10 @@ def proposal(demand,status,category,summary,reason,recommendation,action="none",
 
 
 async def deterministic_analysis(db,demand):
+    if demand.dispatch_status == "waiting_quota":
+        return proposal(demand,"waiting","service","Aguardando reset da cota",
+            "Limite de uso do executor; o resultado da tentativa está preservado.",
+            "Aguardar o reset e verificar efeitos e autorizações antes da continuação.")
     if busy(demand):
         return proposal(demand,"waiting","uncertain","Execução em acompanhamento",
             "Uma execução ativa ou de resultado incerto não pode ser repetida.","Acompanhar o run registrado.")

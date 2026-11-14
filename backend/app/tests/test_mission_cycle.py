@@ -23,8 +23,6 @@ from sqlalchemy import func, select, text
 from app.api.routes import demand as demand_routes
 from app.core import mission_cycle
 from app.core.config import settings
-from app.core.demand_dispatch_guard import reserve_dispatch
-from app.core.demand_workflow import WorkflowBlocked
 from app.db.base import AsyncSessionLocal
 from app.db.models.agent import AgentSkill
 from app.db.models.demand import AgentDemand
@@ -453,42 +451,20 @@ async def test_schedule_on_quota_reset(cw):
     assert (await _decide(cw, mission, headers, "dispatch", task_id=task.id)).status_code == 201
     [demand] = await m06b_demands(task.id)
     await _finalize(demand.id, "failed", "You've hit your 5-hour limit · resets 3:30am")
-
-    now = datetime.now(timezone.utc).astimezone(SP)
-    expected = now.replace(hour=3, minute=30, second=0, microsecond=0)
-    if expected <= now:
-        expected += timedelta(days=1)
     async with AsyncSessionLocal() as db:
-        row = await db.get(AgentAvailability, mission.executor)
-        assert row.unavailable_until == expected and row.source_demand_id == demand.id
+        current = await db.get(AgentDemand, demand.id)
+        assert current.dispatch_status == "waiting_quota" and current.quota_reset_at is not None
         execution = (await db.execute(select(TaskExecution).where(TaskExecution.task_id == task.id))).scalar_one()
-        assert execution.status == "failed"
+        assert execution.status in {"pending", "running"} and execution.finished_at is None
         assert await db.scalar(select(func.count(TaskExecutionReview.id)).where(
-            TaskExecutionReview.execution_id == execution.id)) == 0  # not a rejection
-        # The orchestrator decides what follows, not Messages' automatic
-        # failure check (Marcelo, 2026-11-03).
-        from app.db.models.demand import AgentDemand
+            TaskExecutionReview.execution_id == execution.id)) == 0
         assert await db.scalar(select(func.count(AgentDemand.id)).where(
             AgentDemand.failure_check_source_id == demand.id)) == 0
-
-    cycle = await _cycle(cw, mission, headers)
-    [proposal] = _proposals(cycle, task.id)
-    assert proposal["action"] == "schedule" and proposal["reason_facts"]["infra"] == "usage_limit"
-    scheduled_at = datetime.fromisoformat(proposal["params"]["scheduled_at"])
-    assert scheduled_at == expected + timedelta(minutes=5)
-    decided = await _decide(cw, mission, headers, "schedule", reason="quota resets at 03:30", task_id=task.id,
-                            proposal_id=proposal["proposal_id"], scheduled_at=proposal["params"]["scheduled_at"])
-    assert decided.status_code == 201, decided.text
-    queued = await _demand(uuid.UUID(decided.json()["demand_id"]))
-    assert queued.dispatch_status is None and queued.scheduled_at == scheduled_at
-
-    # Even if due, reserve_dispatch keeps it queued until the reset.
-    async with AsyncSessionLocal() as db:
-        demand_row = await db.get(AgentDemand, queued.id)
-        with pytest.raises(WorkflowBlocked) as blocked:
-            await reserve_dispatch(db, demand_row, mission.executor, None)
-        assert str(blocked.value.detail).startswith("AGENT_UNAVAILABLE")
-        await db.rollback()
+    [proposal] = _proposals(await _cycle(cw, mission, headers), task.id)
+    assert proposal["action"] == "wait" and proposal["reason_code"] == "awaiting_quota_reset"
+    [again] = _proposals(await _cycle(cw, mission, headers), task.id)
+    assert again["action"] == "wait"
+    assert len(await m06b_demands(task.id)) == 1
 
 
 @pytest.mark.asyncio
@@ -1020,3 +996,73 @@ async def test_cycle_conducts_planning_but_never_approves_baseline(cw):
     assert cycle["board"] == []
     headers = await _orch_headers(cw, mission)
     assert (await _decide(cw, mission, headers, "approve_baseline")).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_quota_review_wait_keeps_original_reviewer_without_duplicate(cw):
+    mission = await _mission(cw)
+    [task] = await _baselined(mission, "quota review")
+    first, second = await cw.agent("quota-rev-a"), await cw.agent("quota-rev-b")
+    membership = await _member(mission.project_id, first, can_review=True)
+    await _member(mission.project_id, second, can_review=True)
+    execution_id = await _verified_execution(task, f"db:project_task:{task.id}")
+    async with AsyncSessionLocal() as db:
+        demand = AgentDemand(from_agent="test", subject="m08 quota review", body="x", origin_type="task",
+                             origin_id=task.id, target_agent_id=first, dispatch_status="waiting_quota",
+                             agent_run_id=str(uuid.uuid4()), quota_reset_at=datetime.now(timezone.utc) - timedelta(minutes=6))
+        db.add(demand)
+        await db.flush()
+        review = TaskExecutionReview(execution_id=execution_id, reviewer_membership_id=membership,
+                                    status="pending", runtime_session_ref=str(demand.id))
+        db.add(review)
+        await db.commit()
+    headers = await _orch_headers(cw, mission)
+    for _ in range(2):
+        [proposal] = _proposals(await _cycle(cw, mission, headers), task.id)
+        assert (proposal["action"], proposal["reason_code"]) == ("wait", "awaiting_quota_reset")
+    async with AsyncSessionLocal() as db:
+        assert await db.scalar(select(func.count(TaskExecutionReview.id)).where(
+            TaskExecutionReview.execution_id == execution_id)) == 1
+        assert (await db.get(TaskExecutionReview, review.id)).reviewer_membership_id == membership
+
+
+@pytest.mark.asyncio
+async def test_quota_dispatches_do_not_exhaust_mission_work_retry_budget(cw):
+    mission = await _mission(cw)
+    [task] = await _baselined(mission, "quota budget")
+    headers = await _orch_headers(cw, mission)
+    assert (await _decide(cw, mission, headers, "dispatch", task_id=task.id)).status_code == 201
+    [demand] = await m06b_demands(task.id)
+    await _finalize(demand.id, "failed", "Actual work failure")
+    await _update(AgentDemand, demand.id, dispatch_attempts=4, quota_dispatch_attempts=3)
+    [proposal] = _proposals(await _cycle(cw, mission, headers), task.id)
+    assert (proposal["action"], proposal["reason_code"]) == ("reprocess", "known_failure")
+
+
+@pytest.mark.asyncio
+async def test_operator_can_resume_same_task_execution_after_quota_effect_review(cw):
+    from app.api.schemas.demand import DemandDecisionIn
+    from app.core.demand_workflow import decide_demand
+    mission = await _mission(cw)
+    [task] = await _baselined(mission, "protected quota resume")
+    headers = await _orch_headers(cw, mission)
+    assert (await _decide(cw, mission, headers, "dispatch", task_id=task.id)).status_code == 201
+    [demand] = await m06b_demands(task.id)
+    await _finalize(demand.id, "failed", "You've hit your 5-hour limit · resets 3:30am")
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AgentDemand, demand.id)
+        execution_id, executor = row.task_execution_id, row.target_agent_id
+        row.quota_reset_at = datetime.now(timezone.utc) - timedelta(minutes=6)
+        await db.execute(text("DELETE FROM company.agent_availability WHERE agent_id=:id"), {"id": executor})
+        await db.commit()
+        await decide_demand(db, row, DemandDecisionIn(action="authorize_retry", reason="Reviewed previous effects",
+            evidence_ref="review:quota-effects", confirmation=row.agent_run_id), actor="admin")
+        assert row.task_execution_id == execution_id and row.target_agent_id == executor
+        assert row.dispatch_status is None and row.scheduled_at is None
+        await decide_demand(db, row, DemandDecisionIn(action="approve"), actor="admin")
+        # Actual reservation runs the current task baseline, permissions and target guards.
+        from app.core.demand_dispatch_guard import reserve_dispatch
+        await reserve_dispatch(db, row, executor, row.command_text)
+        assert row.task_execution_id == execution_id and row.target_agent_id == executor
+        assert row.agent_run_id and row.agent_run_id != demand.agent_run_id
+        assert (await db.get(TaskExecution, execution_id)).status in {"pending", "running"}

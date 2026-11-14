@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 
 from app.core.agent_runs import AgentRunDispatchError
 from app.core.config import settings
-from app.core.demand_workflow import WorkflowBlocked, ensure_workflow_allowed, requires_reconciliation
+from app.core.demand_workflow import WorkflowBlocked, effective_dispatch_attempts, ensure_workflow_allowed, requires_reconciliation
 from app.db.models.demand import AgentDemand, DISPATCH_MAX_ATTEMPTS, DISPATCH_TIMEOUT_MINUTES
 from app.db.models.task import ProjectTask
 
@@ -66,9 +66,11 @@ async def reserve_dispatch(db, demand, target_agent_id, command_text):
         raise WorkflowBlocked("Promote incubation to a task before execution")
     if current.dispatch_status in ("dispatched", "running") or (current.dispatch_status is None and current.agent_run_id):
         raise WorkflowBlocked("This message already has an active or reserved execution")
+    if current.dispatch_status == "waiting_quota":
+        raise WorkflowBlocked("Awaiting quota reset and safe continuation review")
     if requires_reconciliation(current):
         raise WorkflowBlocked("Reconcile the previous run before retrying")
-    if current.dispatch_status == "failed" and (current.dispatch_attempts or 0) >= (current.retry_limit or DISPATCH_MAX_ATTEMPTS):
+    if current.dispatch_status == "failed" and effective_dispatch_attempts(current) >= (current.retry_limit or DISPATCH_MAX_ATTEMPTS):
         raise WorkflowBlocked("Attempt limit reached; investigate the failure before another execution")
     if await _dispatch_slots(db) <= 0 or target_agent_id in await _agents_already_running(db):
         raise WorkflowBlocked("Execution capacity is occupied; keep this task queued")
@@ -77,6 +79,14 @@ async def reserve_dispatch(db, demand, target_agent_id, command_text):
     until = await unavailable_until(db, target_agent_id)
     if until is not None:
         raise WorkflowBlocked(f"AGENT_UNAVAILABLE: until {until.isoformat()}")
+    if current.quota_dispatch_attempts and current.target_agent_id != target_agent_id:
+        raise WorkflowBlocked("Quota continuation must keep its original executor")
+    unknown_quota = await db.scalar(select(AgentDemand.id).where(
+        AgentDemand.target_agent_id == target_agent_id,
+        AgentDemand.dispatch_status == "waiting_quota", AgentDemand.quota_reset_at.is_(None),
+        AgentDemand.status != "archived").limit(1))
+    if unknown_quota:
+        raise WorkflowBlocked("AGENT_UNAVAILABLE: quota reset time is unknown")
     current.target_agent_id = target_agent_id
     current.command_text = command_text
     from app.core.agent_failover import executor_eligibility

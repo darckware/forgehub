@@ -357,6 +357,8 @@
     "selectPage": "Select page",
     "selectItem": "Select message #{{number}}",
     "restoreHint": "Restoring preserves history and clears the schedule. Execution requires a new approval.",
+    "quotaResume": "Review resumption after quota reset",
+    "quotaResumeHint": "Review the previous attempt’s effects and output. Confirm the run identifier to release the resumption review with the same agent. Approvals remain required.",
     "authorizeRetryHint": "Authorization renews the limit without starting the task. Check the evidence, then explicitly approve queueing.",
     "evidence": "Evidence reference",
     "history": "Decision and attempt history",
@@ -369,6 +371,11 @@
       "stale": "Changed — review again"
     },
     "blocked": {
+      "quota_reset_unknown": "The provider did not specify a reset time.",
+      "quota_reset_pending": "Wait for the quota reset.",
+      "quota_context_changed": "The context changed; review it before resuming.",
+      "quota_run_evidence_missing": "The previous run identifier is missing.",
+      "quota_effects_review_required": "Review prior effects before authorizing resumption.",
       "reconciliation_required": "Reconcile the previous run.",
       "execution_active": "Execution is active.",
       "linked_history": "The summary preserves linked history.",
@@ -387,6 +394,9 @@
       "moodle_flow_required": "Use Moodle approvals to decide this operation."
     },
     "events": {
+      "demand_quota_wait": "Awaiting quota reset",
+      "demand_quota_wait_released": "Quota wait released",
+      "demand_quota_continuation_authorized": "Quota resumption reviewed",
       "demand_approve": "Approve and release",
       "demand_reject": "Reject",
       "demand_postpone": "Postpone decision",

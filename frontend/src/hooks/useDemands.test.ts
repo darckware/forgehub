@@ -13,6 +13,13 @@ function row(overrides: Partial<Demand>): Demand {
 }
 
 describe("execution tracking", () => {
+  it("keeps quota waits open without classifying them as errors or retention candidates", () => {
+    const waiting = row({ dispatch_status: "waiting_quota" as Demand["dispatch_status"], agent_run_id: "ended-run" });
+    expect(isExecutionOpen(waiting)).toBe(true);
+    expect(executionStage(waiting)).toBe("waitingQuota");
+    expect(isRetentionEligible(waiting)).toBe(false);
+    expect(isIncomingItem(waiting, "agent-b")).toBe(false);
+  });
   it("keeps authorized executor waits in execution before their first attempt", () => {
     const waiting = row({ target_agent_id: "agent-b", from_agent_id: "agent-b", dispatch_status: null, dispatch_attempts: 0, message_labels: ["awaiting_executor", "quota_unavailable"], execution_wait_reason: "quota" });
     expect(isExecutionOpen(waiting)).toBe(true);

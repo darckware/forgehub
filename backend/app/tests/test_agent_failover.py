@@ -12,7 +12,7 @@ from sqlalchemy import delete, select
 
 from app.api.routes import demand as demand_routes
 from app.core.agent_availability import (
-    HOST_TIMEZONE, RESCHEDULE_MARGIN, classify_infra_failure, describe_reset, parse_usage_limit,
+    HOST_TIMEZONE, classify_infra_failure, parse_usage_limit,
 )
 from app.core.agent_failover import can_switch, substitute_for
 from app.core.demand_dispatch_guard import reserve_dispatch
@@ -143,13 +143,14 @@ async def _pass(monkeypatch, expected_demand_ids: set[uuid.UUID] | None = None) 
 
 
 @pytest.mark.asyncio
-async def test_queued_work_moves_off_the_limited_agent(world, monkeypatch):
+async def test_zero_attempt_queued_work_waits_for_same_limited_agent(world, monkeypatch):
     row = await world.message(world.limited)
     await _pass(monkeypatch, {row.id})
     async with AsyncSessionLocal() as db:
         fresh = await db.get(AgentDemand, row.id)
-    assert fresh.target_agent_id != world.limited.id
-    assert fresh.body.startswith("## Troca de agente por limite de uso")
+    assert fresh.target_agent_id == world.limited.id
+    assert fresh.dispatch_status is None and fresh.dispatch_attempts == 0
+    assert fresh.body == "corpo"
 
 
 @pytest.mark.asyncio
@@ -253,10 +254,10 @@ async def _finish_on_a_limit(world, **fields) -> tuple[AgentDemand, datetime]:
 @pytest.mark.asyncio
 async def test_a_fixed_agent_message_waits_for_the_reset_and_then_runs(world, monkeypatch):
     fresh, reset = await _finish_on_a_limit(world, fixed_agent=True)
-    assert fresh.dispatch_status is None and fresh.agent_run_id is None
+    assert fresh.dispatch_status == "waiting_quota" and fresh.agent_run_id is not None
     assert fresh.target_agent_id == world.limited.id
-    assert fresh.scheduled_at == reset + RESCHEDULE_MARGIN
-    assert describe_reset(reset) in fresh.dispatch_error
+    assert fresh.quota_reset_at == reset
+    assert fresh.dispatch_error is None
     async with AsyncSessionLocal() as db:
         assert await db.scalar(select(AgentDemand.id).where(AgentDemand.failure_check_source_id == fresh.id)) is None
         notice = await db.scalar(select(Notification).where(
@@ -274,11 +275,15 @@ async def test_a_fixed_agent_message_waits_for_the_reset_and_then_runs(world, mo
     async with AsyncSessionLocal() as db:
         row = await db.get(AgentDemand, fresh.id)
         assert row.dispatch_attempts == 1 and row.target_agent_id == world.limited.id
-        with pytest.raises(WorkflowBlocked, match="AGENT_UNAVAILABLE"):
+        with pytest.raises(WorkflowBlocked, match="Awaiting quota"):
             await reserve_dispatch(db, row, world.limited.id, None)
         await db.rollback()
     # After the reset: it runs, on the same agent.
     await _no_availability_row(world.limited)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AgentDemand, fresh.id)
+        row.quota_reset_at = datetime.now(timezone.utc) - timedelta(minutes=6)
+        await db.commit()
     assert await _pass(monkeypatch, {fresh.id}) == [world.limited.id]
 
 
@@ -286,23 +291,24 @@ async def test_a_fixed_agent_message_waits_for_the_reset_and_then_runs(world, mo
 async def test_a_failure_check_waits_for_the_reset(world):
     source = await world.message(world.free, dispatch_status="failed", dispatch_error="x")
     fresh, reset = await _finish_on_a_limit(world, failure_check_source_id=source.id)
-    assert fresh.dispatch_status is None and fresh.scheduled_at == reset + RESCHEDULE_MARGIN
+    assert fresh.dispatch_status == "waiting_quota" and fresh.quota_reset_at == reset
     assert fresh.target_agent_id == world.limited.id
 
 
 @pytest.mark.asyncio
-async def test_without_fixed_agent_the_failover_is_unchanged(world, monkeypatch):
+async def test_quota_attempt_keeps_same_agent_without_fixed_agent(world, monkeypatch):
     fresh, reset = await _finish_on_a_limit(world)
-    assert fresh.dispatch_status is None and fresh.dispatch_error is None and fresh.scheduled_at < reset
+    assert fresh.dispatch_status == "waiting_quota" and fresh.quota_reset_at == reset
+    assert fresh.target_agent_id == world.limited.id
     await _pass(monkeypatch, {fresh.id})
     async with AsyncSessionLocal() as db:
-        assert (await db.get(AgentDemand, fresh.id)).target_agent_id != world.limited.id
+        assert (await db.get(AgentDemand, fresh.id)).target_agent_id == world.limited.id
 
 
 @pytest.mark.asyncio
-async def test_an_approved_text_stays_failed_and_names_the_limit(world):
+async def test_an_approved_text_waits_without_automatic_replay(world):
     fresh, reset = await _finish_on_a_limit(world, requires_approval=True, approval_status="approved")
-    assert fresh.dispatch_status == "failed" and describe_reset(reset) in fresh.dispatch_error
+    assert fresh.dispatch_status == "waiting_quota" and fresh.dispatch_error is None
 
 
 @pytest.mark.asyncio
@@ -317,3 +323,122 @@ async def test_a_run_with_no_limit_stays_failed(world):
     async with AsyncSessionLocal() as db:
         fresh = await db.get(AgentDemand, row.id)
     assert fresh.dispatch_status == "failed" and fresh.dispatch_error == "The agent run ended as 'failed'."
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("runtime, output", [
+    ("codex", "You've hit your usage limit."),
+    ("claude", "You've hit your 5-hour limit."),
+    ("agy", "RESOURCE_EXHAUSTED (code 429): Individual quota reached."),
+])
+async def test_quota_unknown_reset_is_nonterminal_and_preserves_evidence(world, runtime, output):
+    from app.core.message_classification import classify_messages
+    from app.core.demand_management import operator_state_sql, work_item
+    from app.core.message_triage import deterministic_analysis
+    await _no_availability_row(world.limited)
+    run_id = str(uuid.uuid4())
+    row = await world.message(world.limited, agent_run_id=run_id, dispatch_status="running",
+                              dispatch_attempts=3, working_path="/tmp")
+    async with AsyncSessionLocal() as db:
+        agent = await db.get(Agent, world.limited.id)
+        agent.runtime_type = runtime
+        await db.commit()
+        await demand_routes._finalize_dispatch(db, row.id,
+            {"run_id": run_id, "status": "failed", "output": output}, expected_run_id=run_id)
+        await db.commit()
+        fresh = await db.get(AgentDemand, row.id)
+        assert fresh.dispatch_status == "waiting_quota"
+        assert fresh.quota_reset_at is None and fresh.dispatch_error is None
+        assert fresh.agent_run_id == run_id and output in fresh.dispatch_result
+        assert fresh.dispatch_attempts == 3 and fresh.quota_dispatch_attempts == 1
+        assert fresh.dispatch_deadline_at is None
+        assert await db.scalar(select(AgentDemand.id).where(AgentDemand.failure_check_source_id == row.id)) is None
+        assert await db.scalar(select(Notification.id).where(Notification.event_key == f"demand-dispatch-failed:{row.id}:3")) is None
+        metadata = (await classify_messages(db, [fresh]))[row.id]
+        assert metadata["execution_wait_reason"] == "quota"
+        assert metadata["operator_decision"] is None
+        assert await db.scalar(select(operator_state_sql()).where(AgentDemand.id == row.id)) == "waiting"
+        suggestion = await deterministic_analysis(db, fresh)
+        assert suggestion.status == "waiting" and suggestion.proposed_action == "none"
+        item = await work_item(db, fresh, "waiting")
+        assert item["blocked_actions"]["authorize_retry"] == "quota_reset_unknown"
+        sibling = await world.message(world.limited, working_path="/tmp")
+        sibling_metadata = (await classify_messages(db, [sibling]))[sibling.id]
+        assert sibling_metadata["execution_wait_reason"] == "quota"
+        assert sibling_metadata["execution_wait_until"] is None
+        with pytest.raises(WorkflowBlocked, match="Awaiting quota"):
+            await reserve_dispatch(db, fresh, world.limited.id, None)
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_quota_finalization_is_idempotent_and_not_a_failure_budget(world):
+    fresh, reset = await _finish_on_a_limit(world)
+    run_id = fresh.agent_run_id
+    async with AsyncSessionLocal() as db:
+        await demand_routes._finalize_dispatch(db, fresh.id,
+            {"run_id": run_id, "status": "failed", "output": "You've hit your usage limit."},
+            expected_run_id=run_id)
+        await db.commit()
+        again = await db.get(AgentDemand, fresh.id)
+        assert again.quota_dispatch_attempts == 1
+        assert again.quota_reset_at == reset and again.agent_run_id == run_id
+
+
+@pytest.mark.asyncio
+async def test_quota_resume_rejects_changed_context(world, monkeypatch):
+    fresh, _ = await _finish_on_a_limit(world, fixed_agent=True)
+    await _no_availability_row(world.limited)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AgentDemand, fresh.id)
+        row.quota_reset_at = datetime.now(timezone.utc) - timedelta(minutes=6)
+        row.body = "changed after quota"
+        await db.commit()
+    assert await _pass(monkeypatch, {fresh.id}) == []
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AgentDemand, fresh.id)
+        assert row.dispatch_status == "waiting_quota" and row.agent_run_id == fresh.agent_run_id
+
+
+@pytest.mark.asyncio
+async def test_operator_reviews_quota_effects_then_renews_approval_without_budget_inflation(world):
+    from app.api.schemas.demand import DemandDecisionIn
+    from app.core.demand_workflow import approval_fingerprint, decide_demand
+    fresh, _ = await _finish_on_a_limit(world, requires_approval=True, approval_status="approved")
+    await _no_availability_row(world.limited)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AgentDemand, fresh.id)
+        row.quota_reset_at = datetime.now(timezone.utc) - timedelta(minutes=6)
+        row.dispatch_attempts = 8
+        row.quota_dispatch_attempts = 7
+        row.quota_wait_fingerprint = approval_fingerprint(row)
+        await db.commit()
+        payload = dict(action="authorize_retry", reason="Reviewed prior effects", evidence_ref="review:test")
+        with pytest.raises(WorkflowBlocked, match="exact run identifier"):
+            await decide_demand(db, row, DemandDecisionIn(**payload, confirmation="wrong"), actor="admin")
+        await db.rollback()
+        row = await db.get(AgentDemand, fresh.id)
+        run_id = row.agent_run_id
+        await decide_demand(db, row, DemandDecisionIn(**payload, confirmation=run_id), actor="admin")
+        assert row.dispatch_status is None and row.scheduled_at is None
+        assert row.agent_run_id is None and row.target_agent_id == world.limited.id
+        assert row.retry_limit == 4  # one work attempt plus three, not lifetime eight plus three
+        assert row.approval_status == "approved"
+        await decide_demand(db, row, DemandDecisionIn(action="approve"), actor="admin")
+        assert row.scheduled_at is not None and row.target_agent_id == world.limited.id
+        event = await db.scalar(select(AuditEvent).where(AuditEvent.entity_id == row.id,
+            AuditEvent.event_type == "demand_quota_continuation_authorized"))
+        assert event.payload["run_id"] == run_id and event.payload["effects_reviewed"] is True
+
+
+@pytest.mark.asyncio
+async def test_real_work_retry_budget_excludes_historical_quota_dispatches(world):
+    await _no_availability_row(world.limited)
+    row = await world.message(world.limited, dispatch_status="failed", agent_run_id=str(uuid.uuid4()),
+                              dispatch_error="Actual work failure", dispatch_attempts=8,
+                              quota_dispatch_attempts=7, working_path="/tmp")
+    async with AsyncSessionLocal() as db:
+        await demand_routes._reprocess_demand(row.id, db)
+        current = await db.get(AgentDemand, row.id)
+        assert current.dispatch_status is None and current.scheduled_at is not None
+        assert current.dispatch_attempts == 8 and current.quota_dispatch_attempts == 7

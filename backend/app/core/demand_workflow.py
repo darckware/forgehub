@@ -24,6 +24,11 @@ class WorkflowBlocked(HTTPException):
         super().__init__(409, detail)
 
 
+def effective_dispatch_attempts(demand):
+    """Lifetime dispatches stay auditable; quota exits are not work failures."""
+    return max(0, (demand.dispatch_attempts or 0) - (getattr(demand, "quota_dispatch_attempts", 0) or 0))
+
+
 def requires_reconciliation(demand):
     return demand.dispatch_status == "failed" and bool(
         (demand.agent_run_id and not demand.dispatch_error)
@@ -176,11 +181,22 @@ async def decide_demand(db, demand, payload, *, actor):
             demand.approval_status = "pending"
             demand.approved_content_hash = None
     elif payload.action == "authorize_retry":
-        if demand.dispatch_status != "failed" or requires_reconciliation(demand):
+        if demand.dispatch_status == "waiting_quota":
+            from app.core.quota_wait import quota_resume_blocker
+            blocker = quota_resume_blocker(demand, now)
+            if blocker:
+                raise WorkflowBlocked(blocker)
+            if (payload.confirmation or "").strip() != demand.agent_run_id:
+                raise WorkflowBlocked("Confirm the exact run identifier after reviewing the prior effects")
+            await _ensure_context_authorizations(db, demand)
+            record_transition(db, demand, "quota_continuation_authorized", actor=actor,
+                              extra={"result": demand.dispatch_result, "effects_reviewed": True})
+            demand.quota_reset_at = None
+        elif demand.dispatch_status != "failed" or requires_reconciliation(demand):
             raise WorkflowBlocked("A known terminal failure must be verified before authorizing a retry")
         if demand.origin_type != "task":
             raise WorkflowBlocked("Only an executable task can be retried")
-        demand.retry_limit = max(demand.retry_limit or 3, (demand.dispatch_attempts or 0) + 3)
+        demand.retry_limit = max(demand.retry_limit or 3, effective_dispatch_attempts(demand) + 3)
         demand.requires_approval = True
         demand.approval_status = "approved"
         demand.approved_content_hash = approval_fingerprint(demand)
@@ -195,7 +211,9 @@ async def decide_demand(db, demand, payload, *, actor):
     elif payload.action == "approve":
         if demand.dispatch_status is not None:
             raise WorkflowBlocked("Reconcile or reprocess the failed execution separately before release")
-        if demand.target_agent_id is None or demand.from_agent_id is None or not (demand.working_path or "").startswith("/"):
+        from app.core.quota_wait import is_factory_quota_continuation
+        factory_continuation = await is_factory_quota_continuation(db, demand)
+        if demand.target_agent_id is None or (demand.from_agent_id is None and not factory_continuation) or not (demand.working_path or "").startswith("/"):
             raise HTTPException(400, "Define sender, executor and absolute working directory before approving")
         demand.origin_type = "task"
         demand.incubation_owner_id = None

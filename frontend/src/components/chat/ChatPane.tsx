@@ -7,6 +7,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  Clock,
   AlertCircle,
   ArrowUp,
   AudioLines,
@@ -224,6 +225,8 @@ function SubagentStatusCard({ number }: { number: number }) {
     <div className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5 text-xs">
       {status === "completed" ? (
         <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-600" />
+      ) : status === "waiting_quota" ? (
+        <Clock className="h-3 w-3 shrink-0 text-muted-foreground" />
       ) : status === "failed" ? (
         <AlertCircle className="h-3 w-3 shrink-0 text-destructive" />
       ) : (
@@ -232,7 +235,7 @@ function SubagentStatusCard({ number }: { number: number }) {
       <span className="truncate">
         {t("queue.subagentDelegatedTo", { number: demand.number, agent: targetAgent?.name ?? "?" })}
         {" — "}
-        {status ? t(`dispatch.status.${status}`, { ns: "demands" }) : t("dispatch.status.pending", { ns: "demands" })}
+        {status ? t(`dispatch.status.${status === "waiting_quota" ? "waitingQuota" : status}`, { ns: "demands" }) : t("dispatch.status.pending", { ns: "demands" })}
       </span>
     </div>
   );

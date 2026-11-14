@@ -43,7 +43,7 @@ from app.core.instructor_group import GROUP_CHANNEL, is_sti_approval, run_toolse
 from app.core.agent_runs import AgentRunDispatchError, dispatch_agent_run, poll_agent_run
 from app.core.config import settings
 from app.core.deps import get_current_admin
-from app.core.demand_workflow import WorkflowBlocked, assert_execution_allowed, dispatch_intent_fingerprint, ensure_workflow_allowed, invalidate_changed_approval, requires_reconciliation, record_transition
+from app.core.demand_workflow import WorkflowBlocked, assert_execution_allowed, effective_dispatch_attempts, ensure_workflow_allowed, invalidate_changed_approval, requires_reconciliation, record_transition
 from app.core.demand_dispatch_guard import ensure_task_dispatch_admissible, reserve_dispatch
 from app.core.completion_report import (
     completion_failure_reason,
@@ -751,10 +751,10 @@ async def _reprocess_demand(demand_id, db, *, commit=True):
     assert_execution_allowed(demand)
     if demand.dispatch_status != "failed":
         raise HTTPException(400, "Only a failed dispatch can be reprocessed")
-    if (demand.dispatch_attempts or 0) >= (demand.retry_limit or DISPATCH_MAX_ATTEMPTS):
+    if effective_dispatch_attempts(demand) >= (demand.retry_limit or DISPATCH_MAX_ATTEMPTS):
         raise HTTPException(
             409,
-            f"This message already failed {demand.dispatch_attempts} times "
+            f"This message already failed {effective_dispatch_attempts(demand)} times "
             f"(limit {demand.retry_limit or DISPATCH_MAX_ATTEMPTS}). Fix the cause rather than retrying it again.",
         )
     if demand.target_agent_id is None:
@@ -1785,6 +1785,11 @@ async def _fail_dispatch(
     changes, matching the rest of this module ("Caller commits").
     """
     await _revoke_dispatch_credential(db, demand, "failed")
+    from app.core.quota_wait import enter_quota_wait
+    from app.core.agent_availability import record_usage_limit
+    reset = await record_usage_limit(db, demand, reason)
+    if await enter_quota_wait(db, demand, reason, reset):
+        return
     demand.dispatch_status = "failed"
     demand.dispatch_error = reason
     demand.dispatch_deadline_at = None
@@ -1848,7 +1853,8 @@ async def _add_usage_limit_wait_notification(db: AsyncSession, demand: AgentDema
             source="system",
             severity="warning",
             title=f"Waiting for usage limit reset: {demand.subject}",
-            message=f"#{demand.number}: {demand.dispatch_error}",
+            message=f"#{demand.number}: Aguardando reset da cota do mesmo agente; "
+                    f"{demand.quota_reset_at.isoformat() if demand.quota_reset_at else 'horário não informado pelo provedor'}.",
             event_key=event_key,
             occurred_at=datetime.now(timezone.utc),
         )
@@ -2015,6 +2021,8 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
     fires it through the same path a manual dispatch takes. scheduled_at
     itself is left set afterward as a historical record."""
     now = datetime.now(timezone.utc)
+    from app.core.quota_wait import release_due_quota_waits
+    await release_due_quota_waits(db, now)
     # Reconcile only bounded, system-created future quota waits before the
     # ordinary due+assigned selection. This recovers an early quota reset or
     # operator-cleared limit without disturbing deliberate schedules.
@@ -2071,7 +2079,6 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
     # breaks ties, then the message number preserves creation order for equal
     # scheduled times, so the contested agent goes to the higher priority.
     from app.core.agent_availability import unavailable_agents
-    from app.core.agent_failover import can_switch, substitute_for, switch_agent
     from app.core.mission_cycle import effective_priorities
 
     priorities = await effective_priorities(db, due)
@@ -2081,6 +2088,10 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
     # An executor out of quota (§3.3) is skipped like a busy one.
     unavailable = await unavailable_agents(db)
     busy |= set(unavailable)
+    unknown_quota = set((await db.scalars(select(AgentDemand.target_agent_id).where(
+        AgentDemand.dispatch_status == "waiting_quota", AgentDemand.quota_reset_at.is_(None),
+        AgentDemand.status != "archived", AgentDemand.target_agent_id.isnot(None)))).all())
+    busy |= unknown_quota
 
     # Two independent limits, both applied while picking: the global cap
     # (what the machine can take) and one run per agent (so an agent's
@@ -2093,11 +2104,6 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
         if len(selected) >= slots:
             deferred += len(due) - len(selected) - deferred
             break
-        if demand.target_agent_id in unavailable and can_switch(demand):
-            substitute = await substitute_for(db, demand, set(unavailable), busy)
-            if substitute is not None:
-                switch_agent(db, demand, substitute, unavailable[demand.target_agent_id])
-                await db.commit()
         if demand.target_agent_id in busy:
             deferred += 1
             continue
@@ -2169,7 +2175,7 @@ async def run_scheduled_dispatch_pass(db: AsyncSession) -> None:
             retry.agent_run_id = None
             retry.dispatch_deadline_at = None
             retry.dispatch_error = "Host bridge temporarily unavailable"
-            if retry.dispatch_attempts >= (retry.retry_limit or DISPATCH_MAX_ATTEMPTS):
+            if effective_dispatch_attempts(retry) >= (retry.retry_limit or DISPATCH_MAX_ATTEMPTS):
                 await _fail_dispatch(
                     db,
                     retry,
@@ -2324,7 +2330,7 @@ async def _finalize_dispatch(
     ).scalar_one_or_none()
     if locked is None or (expected_run_id is not None and locked.agent_run_id != expected_run_id):
         return None
-    if locked.dispatch_status == "completed" or (locked.dispatch_status == "failed" and not requires_reconciliation(locked)):
+    if locked.dispatch_status in ("completed", "waiting_quota") or (locked.dispatch_status == "failed" and not requires_reconciliation(locked)):
         return None
 
     run_status = run.get("status")
@@ -2355,47 +2361,15 @@ async def _finalize_dispatch(
         # M0.8 (cycle spec §3.3): a usage-limit message marks the executor
         # unavailable until its reset; no match writes nothing.
         from app.core.agent_availability import (
-            RESCHEDULE_MARGIN, classify_infra_failure, describe_reset, record_usage_limit, run_finished_at,
+            describe_reset, record_usage_limit, run_finished_at,
         )
-        from app.core.agent_failover import can_switch, can_wait_for_reset
         limit_until = await record_usage_limit(
             db, locked, reply_body, finished_at=run_finished_at(run), reconciling=reconciling)
-        attempts_left = (locked.dispatch_attempts or 0) < (locked.retry_limit or DISPATCH_MAX_ATTEMPTS)
-        if limit_until and not historical and can_wait_for_reset(locked) and attempts_left:
-            # Not a failure of the work: back to the queue. Work that may move
-            # is due now, so the scheduled pass hands it to a free agent; work
-            # that keeps its agent is due after the reset. The date holds it
-            # even when a reconciliation recorded no unavailability.
-            from app.core.demand_workflow import record_transition
-            resume_at = datetime.now(timezone.utc)
-            if not can_switch(locked):
-                resume_at = max(resume_at, limit_until + RESCHEDULE_MARGIN)
-            record_transition(db, locked, "reprocess", actor="forgehub:usage-limit", extra={
-                "automatic_wait_reason": "quota", "automatic_resume_at": resume_at.isoformat(),
-                "quota_reset_at": limit_until.isoformat(),
-                    "content_hash": dispatch_intent_fingerprint(locked),
-                "target_agent_id": str(locked.target_agent_id),
-            })
-            locked.dispatch_status = None
-            locked.agent_run_id = None
-            locked.dispatch_error = None
-            locked.dispatch_deadline_at = None
-            locked.scheduled_at = resume_at
-            if not can_switch(locked):
-                # Cleared when the next run starts (_execute_dispatch).
-                locked.dispatch_error = (
-                    f"Waiting for the agent's usage limit to reset at {describe_reset(limit_until)}; "
-                    f"next attempt at {describe_reset(locked.scheduled_at)}, with the same agent."
-                )
-                await _add_usage_limit_wait_notification(db, locked)
-            await db.commit()
-            from app.core.dispatch_signal import wake_scheduled_dispatch
-            wake_scheduled_dispatch()
+        from app.core.quota_wait import enter_quota_wait
+        if not historical and await enter_quota_wait(db, locked, reply_body, limit_until):
             return None
         if limit_until:
             failure_reason = f"{failure_reason} Usage limit reached; it resets at {describe_reset(limit_until)}."
-        elif run_status != "completed" and classify_infra_failure(reply_body) == "usage_limit":
-            failure_reason = f"{failure_reason} The run reported a usage limit, with no reset time recognised."
         locked.dispatch_error = failure_reason
     # Reached a terminal state, so the deadline no longer applies -- leaving
     # it set would let the timeout sweep re-fail an already-finished run.
@@ -2579,7 +2553,7 @@ async def run_dispatch_completion_pass(db: AsyncSession) -> None:
                 continue
             demand = (await db.execute(select(AgentDemand).where(AgentDemand.id == demand_id)
                 .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
-            if demand is None or demand.agent_run_id != run_id or demand.dispatch_status in ("completed", "failed"):
+            if demand is None or demand.agent_run_id != run_id or demand.dispatch_status in ("completed", "failed", "waiting_quota"):
                 await db.rollback()
                 continue
             await _fail_dispatch(
@@ -2657,8 +2631,8 @@ async def get_dispatch_status(
     if demand.agent_run_id is None:
         raise HTTPException(status_code=400, detail="This item has not been dispatched")
 
-    if demand.dispatch_status in ("completed", "failed"):
-        return DispatchStatusOut(dispatch_status=demand.dispatch_status, agent_run_id=demand.agent_run_id)
+    if demand.dispatch_status in ("completed", "failed", "waiting_quota"):
+        return DispatchStatusOut(dispatch_status=demand.dispatch_status, agent_run_id=demand.agent_run_id, quota_reset_at=demand.quota_reset_at)
 
     run_id = demand.agent_run_id
     try:
@@ -2668,13 +2642,13 @@ async def get_dispatch_status(
 
     demand = await _get_demand_or_404(db, demand_id, lock=True)
     await db.refresh(demand)
-    if demand.agent_run_id != run_id or demand.dispatch_status in ("completed", "failed"):
+    if demand.agent_run_id != run_id or demand.dispatch_status in ("completed", "failed", "waiting_quota"):
         await db.commit()
-        return DispatchStatusOut(dispatch_status=demand.dispatch_status, agent_run_id=demand.agent_run_id)
+        return DispatchStatusOut(dispatch_status=demand.dispatch_status, agent_run_id=demand.agent_run_id, quota_reset_at=demand.quota_reset_at)
     if run.get("status") in ("starting", "running"):
         demand.dispatch_status = "running"
         await db.commit()
-        return DispatchStatusOut(dispatch_status=demand.dispatch_status, agent_run_id=demand.agent_run_id)
+        return DispatchStatusOut(dispatch_status=demand.dispatch_status, agent_run_id=demand.agent_run_id, quota_reset_at=demand.quota_reset_at)
 
     if run.get("status") not in ("completed", "failed", "timed_out", "cancelled", "stale"):
         raise HTTPException(502, "Runner returned an unknown state")
@@ -2686,6 +2660,7 @@ async def get_dispatch_status(
     return DispatchStatusOut(
         dispatch_status=demand.dispatch_status,
         agent_run_id=demand.agent_run_id,
+        quota_reset_at=demand.quota_reset_at,
         reply_demand_id=reply.id if reply is not None else None,
     )
 

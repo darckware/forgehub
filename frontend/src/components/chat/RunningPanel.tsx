@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Activity, AlertCircle, Bot, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleSlash, Loader2, Send } from "lucide-react";
+import { Clock, Activity, AlertCircle, Bot, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleSlash, Loader2, Send } from "lucide-react";
 import { Markdown } from "@/components/Markdown";
 import { useAgents } from "@/hooks/useAgent";
 import { useDemands } from "@/hooks/useDemands";
@@ -61,7 +61,8 @@ export function RunningPanel({
         .map(({ number, demand }) => ({
           number,
           demand,
-          running: !demand || !TERMINAL_DISPATCH.has(demand.dispatch_status ?? ""),
+          waiting: demand?.dispatch_status === "waiting_quota",
+          running: !demand || (demand.dispatch_status !== "waiting_quota" && !TERMINAL_DISPATCH.has(demand.dispatch_status ?? "")),
           agentName: agents?.find((a) => a.id === demand?.target_agent_id)?.name ?? "?",
         })),
     [delegationNumbers, demands, agents]
@@ -70,11 +71,12 @@ export function RunningPanel({
   const runningSubagents = subagents.filter((s) => s.status === "running");
   const finishedSubagents = subagents.filter((s) => s.status !== "running");
   const runningDelegations = delegations.filter((d) => d.running);
-  const finishedDelegations = delegations.filter((d) => !d.running);
+  const waitingDelegations = delegations.filter((d) => d.waiting);
+  const finishedDelegations = delegations.filter((d) => !d.running && !d.waiting);
   const runningCount = runningSubagents.length + runningDelegations.length;
   const finishedCount = finishedSubagents.length + finishedDelegations.length;
 
-  if (runningCount + finishedCount === 0) return null;
+  if (runningCount + finishedCount + waitingDelegations.length === 0) return null;
 
   const selectedSubagent = selection?.kind === "subagent" ? subagents.find((s) => s.id === selection.id) : undefined;
   const selectedDelegation = selection?.kind === "delegation" ? delegations.find((d) => d.number === selection.number) : undefined;
@@ -109,12 +111,13 @@ export function RunningPanel({
       onClick={() => setSelection({ kind: "delegation", number: d.number })}
       className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent"
     >
-      <StatusIcon status={d.running ? "running" : d.demand?.dispatch_status === "failed" ? "failed" : "completed"} />
+      {d.waiting ? <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <StatusIcon status={d.running ? "running" : d.demand?.dispatch_status === "failed" ? "failed" : "completed"} />}
       <Send className="h-3.5 w-3.5 shrink-0 text-sky-500" />
       <span className="min-w-0 flex-1">
         <span className="block truncate font-medium text-foreground">
           {t("running.delegation", { number: d.number, agent: d.agentName })}
         </span>
+        {d.waiting && <span className="block break-words text-muted-foreground">{t("dispatch.status.waitingQuota", { ns: "demands" })}</span>}
         {d.demand?.subject && <span className="block truncate text-muted-foreground">{d.demand.subject}</span>}
       </span>
       <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -191,6 +194,7 @@ export function RunningPanel({
               {runningCount === 0 && <p className="px-2 py-1 text-xs italic text-muted-foreground">{t("running.noneRunning")}</p>}
               {runningSubagents.map(subagentRow)}
               {runningDelegations.map(delegationRow)}
+              {waitingDelegations.map(delegationRow)}
               {finishedCount > 0 && (
                 <>
                   <button

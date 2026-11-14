@@ -55,8 +55,13 @@ async def classify_messages(db, demands):
         questions.setdefault(question.origin_demand_id, question.id)
     moodle = {row.message_id: row for row in (await db.scalars(select(MoodleApproval)
         .where(MoodleApproval.message_id.in_(ids)).execution_options(populate_existing=True))).all()}
-    agents = {row.id: row for row in (await db.scalars(select(Agent).where(Agent.id.in_(target_ids))
-        .execution_options(populate_existing=True))).all()}
+    unknown_quota_exists = select(AgentDemand.id).where(
+        AgentDemand.target_agent_id == Agent.id, AgentDemand.dispatch_status == 'waiting_quota',
+        AgentDemand.quota_reset_at.is_(None), AgentDemand.status != 'archived').exists()
+    agent_rows = (await db.execute(select(Agent, unknown_quota_exists).where(Agent.id.in_(target_ids))
+        .execution_options(populate_existing=True))).all()
+    agents = {agent.id: agent for agent, _ in agent_rows}
+    unknown_quota = {agent.id for agent, waiting in agent_rows if waiting}
     availability = {row.agent_id: row for row in (await db.scalars(select(AgentAvailability).where(
         AgentAvailability.agent_id.in_(target_ids), AgentAvailability.unavailable_until > now)
         .execution_options(populate_existing=True))).all()}
@@ -119,6 +124,15 @@ async def classify_messages(db, demands):
         elif row.status == 'archived' or row.consolidated_into_id:
             info = _metadata(['obsolete'] if row.consolidated_into_id else ['archived'],
                 'Registro preservado no histórico.' if not row.consolidated_into_id else 'Acompanhe a mensagem consolidada.')
+        elif row.dispatch_status == 'waiting_quota':
+            from app.core.agent_failover import can_wait_for_reset
+            protected = not can_wait_for_reset(row)
+            summary = ('Cota esgotada; verifique os efeitos da tentativa no fluxo da tarefa/aprovação antes de continuar.'
+                       if protected else 'Aguardando reset da cota do mesmo executor; a tarefa permanece autorizada.')
+            if row.quota_reset_at is None:
+                summary += ' O provedor não informou o horário de reset; não haverá tentativa automática.'
+            info = _metadata(['awaiting_executor', 'quota_unavailable'], summary,
+                             wait='quota', until=row.quota_reset_at)
         elif pending_authorization:
             info = _metadata(['authorization_pending'], 'O conteúdo atual precisa de autorização.',
                              decision='authorization', destination=destination)
@@ -166,6 +180,10 @@ async def classify_messages(db, demands):
                     executor.runtime_type == 'hermes' and not executor.profile_slug):
                 info = _metadata(['awaiting_executor', 'executor_unavailable'], 'O executor registrado está indisponível.',
                                  wait='unavailable')
+            elif row.target_agent_id in unknown_quota:
+                info = _metadata(['awaiting_executor', 'quota_unavailable'],
+                    'Cota indisponível; o provedor não informou o horário de reset. Aguardar o mesmo executor.',
+                    wait='quota')
             elif quota:
                 info = _metadata(['awaiting_executor', 'quota_unavailable'], 'A tarefa autorizada aguarda a cota do executor.',
                                  wait='quota', until=quota.unavailable_until)

@@ -8,6 +8,14 @@ para isso, consulte a evidência operacional de deploy.
 
 ### Correções
 
+- **Espera por cota dos agentes externos — aguardando integração/publicação.**
+  Codex, Claude Code e agy passam a registrar `waiting_quota`, com executor e
+  reset conhecido ou explicitamente não informado. A tarefa conserva resultado,
+  identificador da tentativa e aprovações, sem virar falha, diagnóstico ou
+  arquivamento automático. A fila aguarda o mesmo agente; retomadas protegidas
+  exigem revisão dos efeitos e das autorizações. A interface apresenta o estado
+  em Messages, Tarefas dos agentes e delegações do chat. Evidências em
+  [homologação da espera por cota](../reports/2026-11-14-quota-wait-indicator.md).
 - **Messages — preparada, aguardando integração/publicação.** A criação de diagnóstico
   arquivava automaticamente a tarefa original que falhou. O commit `3d88492`, branch
   `fix/messages-failure-preservation`, preserva falha, causa, run e evidências e mantém

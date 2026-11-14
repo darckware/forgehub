@@ -598,6 +598,14 @@ async def _task_proposals(
     if question is not None:
         return board, [_proposal("defer", f"awaiting_marcelo:{question}", task, question_id=str(question))]
 
+    from app.core.demand_workflow import effective_dispatch_attempts
+    quota_wait = next((d for d in [*demands, review_demand] if d is not None if d.dispatch_status == "waiting_quota"), None)
+    if quota_wait is not None:
+        return board, [_proposal("wait", "awaiting_quota_reset", task,
+            demand_number=quota_wait.number,
+            quota_reset_at=quota_wait.quota_reset_at.isoformat() if quota_wait.quota_reset_at else None,
+            next_step="Review prior effects and authorization in the task execution before continuation")]
+
     in_flight = next((d for d in demands if d.dispatch_status in ("dispatched", "running")
                       or (d.dispatch_status is None and d.agent_run_id)), None)
     uncertain = next((d for d in demands if requires_reconciliation(d)), None)
@@ -647,7 +655,7 @@ async def _task_proposals(
                 return board, [_proposal("schedule", "executor_unavailable", task, infra=kind,
                                          unavailable_until=until.isoformat(),
                                          params={"scheduled_at": (until + RESCHEDULE_MARGIN).isoformat()})]
-            if reprocessed < 1 and (exec_demand.dispatch_attempts or 0) < limit:
+            if reprocessed < 1 and effective_dispatch_attempts(exec_demand) < limit:
                 return board, [_proposal("reprocess", "infra_failure", task, infra=kind,
                                          params={"demand_id": str(exec_demand.id)})]
             candidates = await _eligible_executors(db, scope_projects, {assignee} - {None})
@@ -660,10 +668,10 @@ async def _task_proposals(
             if candidates:
                 return board, [_proposal("reassign", "failed_twice", task, failed_runs=failed_runs,
                                          params={"agent_id": str(candidates[0])})]
-        if (exec_demand.dispatch_attempts or 0) < limit:
+        if effective_dispatch_attempts(exec_demand) < limit:
             return board, [_proposal("reprocess", "known_failure", task,
                                      params={"demand_id": str(exec_demand.id)})]
-        return board, [_proposal("ask_marcelo", "retry_budget_exhausted", task, attempts=exec_demand.dispatch_attempts,
+        return board, [_proposal("ask_marcelo", "retry_budget_exhausted", task, attempts=effective_dispatch_attempts(exec_demand),
                                  retry_limit=limit)]
 
     if execution is not None and execution.status == "reported":

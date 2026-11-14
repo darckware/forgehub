@@ -80,9 +80,9 @@ it("keeps executor waits only in the existing Execution folder with tags in row 
   expect(screen.getByRole("button", { name: /^Entrada/ })).not.toHaveTextContent("1");
   expect(screen.getByRole("button", { name: /^Saída/ })).not.toHaveTextContent("1");
   fireEvent.click(execution);
-  const row = screen.getByRole("button", { name: /Athos.*Aguardando executor.*Sem cota disponível/ });
+  const row = screen.getByRole("button", { name: /Athos.*Aguardando executor.*Aguardando reset da cota/ });
   fireEvent.click(row);
-  expect(screen.getAllByText("Sem cota disponível")).toHaveLength(2);
+  expect(screen.getAllByText("Aguardando reset da cota")).toHaveLength(2);
   expect(screen.getByText("A autorização está preservada; aguardando cota.")).toBeInTheDocument();
   expect(screen.queryByRole("link", { name: /Pessoal/ })).not.toBeInTheDocument();
   expect(screen.queryByText("Aguardando sua autorização")).not.toBeInTheDocument();

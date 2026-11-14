@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { MoodleApprovalPanel } from "./MoodleApprovalPanel";
+import { MessageLabels } from "../demands/MessageLabels";
 import { MissionDecisionsCard } from "./MissionDecisionsCard";
 import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -28,9 +29,11 @@ export function AgentTasksTab() {
   const selected = vm.selected;
   const action = vm.confirmation?.action;
   const evidenceRequired = action === "authorize_retry" || action === "record_investigation" || action === "confirm_inactive";
+  const quotaRetry = action === "authorize_retry" && vm.confirmation?.item.dispatch_status === "waiting_quota";
+  const runConfirmationRequired = action === "confirm_inactive" || quotaRetry;
   const reasonRequired = action === "reject" || action === "postpone" || action === "drop" || evidenceRequired;
   const date = (value: string | null) => value ? new Intl.DateTimeFormat(i18n.language, { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "—";
-  const actionLabel = (name: string) => name === "approve" && (vm.confirmation?.item ?? selected)?.origin_type === "incubation"
+  const actionLabel = (name: string) => name === "authorize_retry" && (vm.confirmation?.item ?? selected)?.dispatch_status === "waiting_quota" ? t("agentTasks.quotaResume") : name === "approve" && (vm.confirmation?.item ?? selected)?.origin_type === "incubation"
     ? t("agentTasks.promote") : t(`agentTasks.actions.${name}`);
   const linkedQuestionId = vm.questions.find(item => item.id === questionId)?.id;
   useEffect(() => {
@@ -189,7 +192,7 @@ export function AgentTasksTab() {
                 <p><span className="font-medium">{t("agentTasks.recommendation")}: </span>{item.analysis.recommendation}</p>
               </div>}<button type="button" className="mt-1 block cursor-pointer text-xs text-primary underline hover:text-primary/80 focus-visible:outline" onClick={() => vm.setSelectedId(item.id)}>{t("agentTasks.viewDetails")}</button></TableCell>
               <TableCell>{vm.agentName(item)}</TableCell><TableCell>{vm.contextName(item) ?? t("agentTasks.unclassified")}</TableCell>
-              <TableCell><Badge variant={["uncertain", "failed", "overdue"].includes(vm.state(item)) ? "warning" : "outline"}>{t(`agentTasks.states.${vm.state(item)}`)}</Badge></TableCell>
+              <TableCell className={item.dispatch_status === "waiting_quota" ? "min-w-52" : undefined}>{item.dispatch_status === "waiting_quota" ? <MessageLabels demand={item} /> : <Badge variant={["uncertain", "failed", "overdue"].includes(vm.state(item)) ? "warning" : "outline"}>{t(`agentTasks.states.${vm.state(item)}`)}</Badge>}</TableCell>
               <TableCell className="whitespace-nowrap">{date(vm.group === "incubation" ? item.matures_at : vm.state(item) === "waiting" ? item.scheduled_at : null)}</TableCell>
               <TableCell><Button size="sm" variant="outline" disabled={!vm.allowed(item, item.status === "archived" ? "restore" : "archive")}
                 aria-label={t(item.status === "archived" ? "agentTasks.restoreItem" : "agentTasks.archiveItem", { number: item.number })}
@@ -207,13 +210,14 @@ export function AgentTasksTab() {
     {vm.tab !== "answers" && selected && <section aria-label={t("agentTasks.detail")} className="space-y-3 rounded-md border p-4">
       <h3 className="font-semibold">#{selected.number} · {selected.subject}</h3>
       <p className="text-sm text-muted-foreground">{vm.agentName(selected)} · {t("agentTasks.attempts", { count: selected.dispatch_attempts })}</p>
+      {selected.dispatch_status === "waiting_quota" && <MessageLabels demand={selected} detail />}
       {selected.analysis && <div className="space-y-1 border-l-2 pl-3 text-sm">
         <p>{selected.analysis.summary}</p><p className="text-muted-foreground">{selected.analysis.reason}</p>
         <p>{t("agentTasks.recommendation")}: {selected.analysis.recommendation}</p>
         {selected.analysis.related_message_id && <Link className="underline" to={`/demands?message=${selected.analysis.related_message_id}`}>{t("agentTasks.relatedMessage")}</Link>}
         <p className="text-xs text-muted-foreground">{t("agentTasks.analyzedAt")}: {date(selected.analysis.analyzed_at)}</p>
       </div>}
-      {selected.dispatch_error && <p className="break-words text-sm text-destructive"><AlertCircle className="mr-1 inline h-4 w-4" />{selected.dispatch_error}</p>}
+      {selected.dispatch_error && selected.dispatch_status !== "waiting_quota" && <p className="break-words text-sm text-destructive"><AlertCircle className="mr-1 inline h-4 w-4" />{selected.dispatch_error}</p>}
       {workState(selected) === "uncertain" && <p className="text-sm">{t("agentTasks.uncertainHint")}</p>}
       {selected.moodle_approval && <p className="text-sm rounded border p-3">{t("agentTasks.moodleRelated")} · {t(`agentTasks.moodleStates.${selected.moodle_approval.outcome === "completed" ? "completed" : selected.moodle_approval.state}`)}
         <Link className="ml-2 underline" to="/personal?tab=agent-work&workTab=approvals">{t("agentTasks.groups.moodle")}</Link></p>}
@@ -266,13 +270,13 @@ export function AgentTasksTab() {
       description={vm.confirmation ? `#${vm.confirmation.item.number} · ${vm.confirmation.item.subject}` : undefined}
       confirmLabel={action ? actionLabel(action) : undefined} variant={action === "delete" ? "destructive" : "default"}
       loading={vm.mutation.isPending} error={vm.mutationError} onConfirm={vm.confirm} onCancel={vm.cancel}
-      confirmDisabled={(reasonRequired && !vm.reason.trim()) || (evidenceRequired && !vm.evidence.trim()) || (action === "confirm_inactive" && vm.confirmation !== null && vm.runConfirmation.trim() !== vm.runIdentifier(vm.confirmation.item)) || (action === "postpone" && (!vm.postponeAt || new Date(vm.postponeAt).getTime() <= Date.now()))}>
+      confirmDisabled={(reasonRequired && !vm.reason.trim()) || (evidenceRequired && !vm.evidence.trim()) || (runConfirmationRequired && vm.confirmation !== null && vm.runConfirmation.trim() !== vm.runIdentifier(vm.confirmation.item)) || (action === "postpone" && (!vm.postponeAt || new Date(vm.postponeAt).getTime() <= Date.now()))}>
       {action === "approve" && <p className="text-sm">{t("agentTasks.approveHint")}</p>}
       {action === "archive" && <p className="text-sm">{t("agentTasks.archiveHint")}</p>}
       {action === "restore" && <p className="text-sm">{t("agentTasks.restoreHint")}</p>}
-      {action === "authorize_retry" && <p className="text-sm">{t("agentTasks.authorizeRetryHint")}</p>}
+      {action === "authorize_retry" && <p className="text-sm">{t(quotaRetry ? "agentTasks.quotaResumeHint" : "agentTasks.authorizeRetryHint")}</p>}
       {action === "record_investigation" && <p className="text-sm">{t("agentTasks.investigationHint")}</p>}
-      {action === "confirm_inactive" && vm.confirmation && <><p className="text-sm">{t("agentTasks.confirmInactiveHint")}</p>
+      {runConfirmationRequired && vm.confirmation && <>{action === "confirm_inactive" && <p className="text-sm">{t("agentTasks.confirmInactiveHint")}</p>}
         <label className="block space-y-1 text-sm">{t("agentTasks.typeRun")} <code className="break-all font-mono text-xs">{vm.runIdentifier(vm.confirmation.item)}</code>
           <Input autoComplete="off" value={vm.runConfirmation} onChange={e => vm.setRunConfirmation(e.target.value)} className="font-mono max-md:text-base" /></label></>}
       {evidenceRequired && <label className="block space-y-1 text-sm">{t("agentTasks.evidence")}<Input value={vm.evidence} onChange={e => vm.setEvidence(e.target.value)} /></label>}

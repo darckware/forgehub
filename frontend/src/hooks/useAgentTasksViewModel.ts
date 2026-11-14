@@ -44,6 +44,7 @@ type BulkResult = { id: string; status: "success" | "blocked" | "missing" | "sta
 export function workState(item: Demand & { work_state?: string }): string {
   if (item.work_state) return item.work_state;
   if (item.status === "archived") return "archived";
+  if (item.dispatch_status === "waiting_quota") return "waiting";
   if (item.dispatch_status === "failed") return item.agent_run_id && (!item.dispatch_error || item.dispatch_error.toLowerCase().includes("uncertain")) ? "uncertain" : "failed";
   if (["running", "dispatched"].includes(item.dispatch_status ?? "") || (!item.dispatch_status && item.agent_run_id)) return "running";
   if (item.dispatch_status === "completed") return "completed";
@@ -137,7 +138,7 @@ export function useAgentTasksViewModel() {
       if (action === "retry") return apiClient.post(`${url}:reprocess`, {});
       if (action === "reconcile") return apiClient.post(`${url}/reconcile`, {});
       return apiClient.post(`${url}/decision`, { action, reason: reason.trim() || null, evidence_ref: evidence.trim() || null,
-        expected_updated_at: item.updated_at, confirmation: action === "confirm_inactive" ? runConfirmation.trim() : null, matures_at: action === "postpone" ? new Date(postponeAt).toISOString() : null });
+        expected_updated_at: item.updated_at, confirmation: action === "confirm_inactive" || (action === "authorize_retry" && item.dispatch_status === "waiting_quota") ? runConfirmation.trim() : null, matures_at: action === "postpone" ? new Date(postponeAt).toISOString() : null });
     }, onSuccess: async (_, { item, action }) => {
       setConfirmation(null); setNotice(true);
       setSelectedIds(ids => ids.filter(id => id !== item.id));

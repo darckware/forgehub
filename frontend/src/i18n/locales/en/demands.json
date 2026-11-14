@@ -81,7 +81,8 @@
       "needsCorrection": "Awaiting correction",
       "blocked": "Blocked",
       "queuedRetry": "Awaiting retry",
-      "awaitingExecutor": "Awaiting executor"
+      "awaitingExecutor": "Awaiting executor",
+      "waitingQuota": "Awaiting quota reset"
     }
   },
   "sendToOutgoing": {
@@ -247,6 +248,9 @@
     "close": "Close",
     "authority": "Only a real human authorization or decision links to Personal. Waiting for an executor, quota or service does not request another approval. Each message shows up to three labels.",
     "waitUntil": "Next check: {{date}}",
+    "quotaExecutor": "Executor: {{agent}}",
+    "quotaReset": "Quota reset: {{date}}",
+    "quotaResetUnknown": "Reset time not provided by the provider",
     "destinations": {
       "agent_tasks": "Personal · Agent tasks · Approvals",
       "incubations": "Personal · Agent tasks · Incubations",
@@ -271,8 +275,8 @@
         "description": "The work is already authorized and awaits executor capacity or availability. No new approval is needed."
       },
       "quota_unavailable": {
-        "label": "Quota unavailable",
-        "description": "The executor quota is unavailable. This wait does not require new human authorization."
+        "label": "Awaiting quota reset",
+        "description": "The agent has exhausted its quota. The task waits for the same executor and retains existing approvals."
       },
       "executor_busy": {
         "label": "Executor busy",

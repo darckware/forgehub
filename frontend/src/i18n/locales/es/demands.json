@@ -81,7 +81,8 @@
       "needsCorrection": "Pendiente de corrección",
       "blocked": "Bloqueada",
       "queuedRetry": "Pendiente de reintento",
-      "awaitingExecutor": "En espera de ejecutor"
+      "awaitingExecutor": "En espera de ejecutor",
+      "waitingQuota": "Esperando el reinicio de la cuota"
     }
   },
   "sendToOutgoing": {
@@ -247,6 +248,9 @@
     "close": "Cerrar",
     "authority": "Solo una autorización o decisión humana real enlaza a Personal. Esperar ejecutor, cuota o servicio no requiere otra aprobación. Cada mensaje muestra hasta tres etiquetas.",
     "waitUntil": "Próxima comprobación: {{date}}",
+    "quotaExecutor": "Ejecutor: {{agent}}",
+    "quotaReset": "Reinicio de la cuota: {{date}}",
+    "quotaResetUnknown": "El proveedor no informó la hora del reinicio",
     "destinations": {
       "agent_tasks": "Personal · Tareas de los agentes · Aprobaciones",
       "incubations": "Personal · Tareas de los agentes · Incubaciones",
@@ -271,8 +275,8 @@
         "description": "El trabajo ya está autorizado y espera capacidad o disponibilidad del ejecutor. No requiere otra aprobación."
       },
       "quota_unavailable": {
-        "label": "Sin cuota disponible",
-        "description": "La cuota del ejecutor no está disponible. Esta espera no requiere otra autorización humana."
+        "label": "Esperando el reinicio de la cuota",
+        "description": "El agente agotó su cuota. La tarea espera al mismo ejecutor y conserva las aprobaciones existentes."
       },
       "executor_busy": {
         "label": "Ejecutor ocupado",
