@@ -396,7 +396,7 @@ export default function AuditorPage() {
   }
 
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-4 p-6">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4 overflow-y-auto p-6">
       <ConfirmDialog
         open={deleting !== null}
         title={t("auditor.deleteTitle", { name: deleting?.name ?? "" })}
@@ -513,7 +513,7 @@ export default function AuditorPage() {
       )}
 
       {(checks ?? []).length > 0 && (
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <div className="flex flex-1 flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2" aria-label={t("auditor.filters")}>
             <label className="text-xs">{t("auditor.category")} <select className="ml-1 rounded border bg-background p-1" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="all">{t("auditor.all")}</option>{categories.map((category) => <option key={category}>{category}</option>)}</select></label>
             <label className="text-xs">{t("auditor.frequencyLabel")} <select className="ml-1 rounded border bg-background p-1" value={frequencyFilter} onChange={(event) => setFrequencyFilter(event.target.value)}><option value="all">{t("auditor.all")}</option>{AUDIT_FREQUENCIES.map((frequency) => <option key={frequency} value={frequency}>{t(`auditor.frequency.${frequency}`)}</option>)}</select></label>
@@ -531,7 +531,9 @@ export default function AuditorPage() {
               </Button>
             ))}
           </div>
-          <Card className="min-h-0 flex-1 overflow-hidden">
+          {/* A minimum height: the summary, tiers and Athos monitor above can fill the viewport, and
+              a flex-1 list with min-h-0 then shrank to nothing (2026-11-14); the page scrolls instead. */}
+          <Card className="min-h-[28rem] flex-1 overflow-hidden">
           <CardContent className="h-full overflow-auto p-0">
             {formCheck === "new" && (
               <div className="border-b border-border p-4">
