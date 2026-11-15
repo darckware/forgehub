@@ -506,7 +506,8 @@
       "questionsRunning": "Analizando preguntas…",
       "questionsFailed": "Análisis de preguntas no disponible",
       "disabled": "El análisis automático de las tareas está desactivado en esta instalación. El botón analiza solo las preguntas (pestaña Respuestas); las decisiones siguen disponibles.",
-      "lastRun": "Último análisis de las tareas, el {{date}}: {{processed}} de {{total}} verificadas · {{applied}} encaminadas"
+      "lastRun": "Último análisis de las tareas, el {{date}}: {{processed}} de {{total}} verificadas · {{applied}} encaminadas",
+      "nothing": "Nada pendiente que analizar en este ámbito: ninguna tarea, incubación, aprobación o pregunta."
     },
     "instructorContext": "Contexto de instructor",
     "questionBulk": {

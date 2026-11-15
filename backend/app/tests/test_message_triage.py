@@ -273,9 +273,9 @@ async def check_analysis_api(app,agent,run_ids,admin_headers,nonadmin,monkeypatc
         assert (await client.get(settings_path)).status_code==401
         assert (await client.get(settings_path,headers=nonadmin)).status_code==403
         monkeypatch.setattr(settings,"MESSAGE_TRIAGE_ENABLED",False)
-        assert (await client.get(settings_path,headers=admin_headers)).json()=={"enabled":False,"gates_dispatch":False}
+        assert (await client.get(settings_path,headers=admin_headers)).json()["enabled"] is False
         monkeypatch.setattr(settings,"MESSAGE_TRIAGE_ENABLED",True)
-        assert (await client.get(settings_path,headers=admin_headers)).json()=={"enabled":True,"gates_dispatch":True}
+        assert (await client.get(settings_path,headers=admin_headers)).json()["gates_dispatch"] is True
         path="/api/v1/demands/agent-work/analyze"
         assert (await client.post(path,json={})).status_code==401
         assert (await client.post(path,json={},headers=nonadmin)).status_code==403
@@ -674,12 +674,20 @@ async def test_analysis_switches_reported_to_the_screen(triage_db, admin_headers
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         monkeypatch.setattr(settings, "MESSAGE_TRIAGE_ENABLED", False)
         monkeypatch.setattr(settings, "MESSAGE_ANALYSIS_ON_DEMAND_ENABLED", True)
-        got = (await client.get("/api/v1/demands/agent-work/triage-settings", headers=admin_headers)).json()
-        assert got == {"enabled": True, "gates_dispatch": False}
+        got = (await client.get("/api/v1/demands/agent-work/triage-settings", params={"agent_id": str(agent)}, headers=admin_headers)).json()
+        assert got["enabled"] is True and got["gates_dispatch"] is False
+        # What the analysis would take in this agent's scope: one new task here (2026-11-15).
+        before = got["pending_tasks"]
+        row = await message(db, agent)
+        got = (await client.get("/api/v1/demands/agent-work/triage-settings", params={"agent_id": str(agent)}, headers=admin_headers)).json()
+        assert got["pending_tasks"] == before + 1 and isinstance(got["pending_questions"], int)
+        row.status = "archived"
+        await db.commit()
+        got = (await client.get("/api/v1/demands/agent-work/triage-settings", params={"agent_id": str(agent)}, headers=admin_headers)).json()
+        assert got["pending_tasks"] == before
         started = await client.post("/api/v1/demands/agent-work/analyze", json={"agent_id": str(agent)}, headers=admin_headers)
         assert started.status_code == 202, started.text
         run_ids.append(uuid.UUID(started.json()["id"]))
         monkeypatch.setattr(settings, "MESSAGE_ANALYSIS_ON_DEMAND_ENABLED", False)
-        assert (await client.get("/api/v1/demands/agent-work/triage-settings", headers=admin_headers)).json() == \
-            {"enabled": False, "gates_dispatch": False}
+        assert (await client.get("/api/v1/demands/agent-work/triage-settings", headers=admin_headers)).json()["enabled"] is False
         assert (await client.post("/api/v1/demands/agent-work/analyze", json={}, headers=admin_headers)).status_code == 503

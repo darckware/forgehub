@@ -182,6 +182,29 @@ describe("operator deliberation", () => {
     // Only the questions are analysed: no request that could only answer 503.
     await waitFor(() => expect(mocks.post).not.toHaveBeenCalledWith("/api/v1/demands/agent-work/analyze", expect.anything()));
   });
+  it("does not analyse when nothing is pending in the scope (2026-11-15)", async () => {
+    vi.mocked(apiClient.get).mockImplementation(async url => {
+      if (url.endsWith("/triage-settings")) return { enabled: true, pending_tasks: 0, pending_questions: 0 };
+      if (url.includes("/analysis")) return { id: "old", status: "completed", total: 126, processed: 123, applied: 118, created_at: "2026-11-15T03:59:00Z", finished_at: "2026-11-15T04:00:00Z" };
+      return [];
+    });
+    open();
+    expect(await screen.findByText(/Nada pendente para analisar neste escopo/)).toBeInTheDocument();
+    expect(screen.getByText(/Última análise das tarefas, em .+: 123 de 126/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Analisar e encaminhar" })).toBeDisabled();
+  });
+  it("analyses only the part that has something pending", async () => {
+    vi.mocked(apiClient.get).mockImplementation(async url => {
+      if (url.endsWith("/triage-settings")) return { enabled: true, pending_tasks: 0, pending_questions: 2 };
+      if (url.includes("/analysis")) return null;
+      return [];
+    });
+    open();
+    const button = screen.getByRole("button", { name: "Analisar e encaminhar" });
+    await waitFor(() => expect(button).toBeEnabled()); fireEvent.click(button);
+    await waitFor(() => expect(mocks.questionAnalysis).toHaveBeenLastCalledWith(true));
+    expect(mocks.post).not.toHaveBeenCalledWith("/api/v1/demands/agent-work/analyze", expect.anything());
+  });
   it("retry clears a failed start instead of leaving the error on screen", async () => {
     mocks.post.mockRejectedValueOnce(new Error("503"));
     open();

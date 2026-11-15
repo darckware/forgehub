@@ -617,7 +617,9 @@ async def process_next_analysis():
     except asyncio.CancelledError:
         raise
     except Exception:
-        logger.warning("Messages analysis %s deferred; no unverified action applied",run_id)
+        # exc_info: the 2026-11-15 failure (a safety-classifier model answering instead of a chat
+        # model) left only this line, and the cause had to be reconstructed from ForgeRouter.
+        logger.warning("Messages analysis %s deferred; no unverified action applied",run_id,exc_info=True)
         async with AsyncSessionLocal() as db:
             run=await db.scalar(select(MessageAnalysisRun).where(MessageAnalysisRun.id==run_id).with_for_update())
             if run.lease_token==token and run.status=="running" and run.lease_until>now():

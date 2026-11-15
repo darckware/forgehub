@@ -26,10 +26,25 @@ async def analyze(payload:AnalysisRequest,db:AsyncSession=Depends(get_db),admin=
 
 
 @router.get("/agent-work/triage-settings")
-async def triage_settings(admin=Depends(get_current_admin)):
+async def triage_settings(agent_id:uuid.UUID | None=None,context:str | None=None,
+    db:AsyncSession=Depends(get_db),admin=Depends(get_current_admin)):
     """Whether "Analisar e encaminhar" can run here, so the screen can say so up front instead of
-    learning it from a 503 after the click and showing an old run as if it were current (2026-11-15)."""
-    return {"enabled": analysis_enabled(), "gates_dispatch": settings.MESSAGE_TRIAGE_ENABLED}
+    learning it from a 503 after the click and showing an old run as if it were current (2026-11-15).
+
+    Also what there is to analyse in this scope -- the same messages the analysis would take
+    (candidate_query) and the pending questions -- so the button never runs on nothing (Marcelo,
+    2026-11-15: "não faz sentido fazer a análise sem tarefas, incubada, aprovação e resposta")."""
+    from sqlalchemy import func
+    from app.core.message_triage import candidate_query
+    from app.db.models.operations import AgentQuestion
+    try:
+        query=candidate_query(agent_id,context if context not in ("all","") else None)
+    except ValueError as exc:
+        raise HTTPException(422,"Invalid analysis scope") from exc
+    pending_tasks=await db.scalar(select(func.count()).select_from(query.subquery()))
+    pending_questions=await db.scalar(select(func.count(AgentQuestion.id)).where(AgentQuestion.status=="pending"))
+    return {"enabled": analysis_enabled(), "gates_dispatch": settings.MESSAGE_TRIAGE_ENABLED,
+            "pending_tasks": int(pending_tasks or 0), "pending_questions": int(pending_questions or 0)}
 
 
 @router.get("/agent-work/analysis",response_model=AnalysisRunOut | None)

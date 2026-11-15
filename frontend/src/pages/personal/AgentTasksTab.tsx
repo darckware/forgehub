@@ -119,7 +119,7 @@ export function AgentTasksTab() {
       className={`shrink-0 whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 ${vm.tab === tab ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
       onClick={() => vm.setTab(tab)}>{tabLabel(tab)}</button>)}
   </div>;
-  const analysisButton = <Button aria-busy={vm.analysisBusy} disabled={vm.analysisBusy || vm.analysis.loading || (vm.analysis.unavailable && vm.analysis.enabled !== false)} onClick={vm.runAnalysis}>
+  const analysisButton = <Button aria-busy={vm.analysisBusy} disabled={vm.analysisBusy || vm.analysis.loading || vm.nothingToAnalyse || (vm.analysis.unavailable && vm.analysis.enabled !== false)} onClick={vm.runAnalysis}>
     {vm.analysisBusy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}{t("agentTasks.analysis.start")}</Button>;
   // The questions' share of the result, appended to the triage line.
   const questionPart = vm.questionAnalysis.summary ? t("agentTasks.analysis.questions", { count: vm.questionAnalysis.summary.total, total: vm.questionAnalysis.summary.total, archive: vm.questionAnalysis.summary.archive })
@@ -134,6 +134,11 @@ export function AgentTasksTab() {
       <p className="text-xs text-muted-foreground">{t(vm.tab === "answers" ? "agentTasks.analysis.scopeAnswers" : "agentTasks.analysis.scope")}</p>
       <div className="min-h-12 text-sm" aria-live="polite" aria-atomic="true">
         {vm.analysis.loading ? <p role="status">{t("agentTasks.analysis.loading")}</p>
+          // Nothing pending in this scope: no tasks, incubations, approvals or questions to analyse.
+          : vm.nothingToAnalyse && !vm.analysisBusy ? <div role="status" className="space-y-1">
+              <p className="text-muted-foreground">{t("agentTasks.analysis.nothing")}</p>
+              {vm.analysis.run && <p className="text-xs text-muted-foreground">{t("agentTasks.analysis.lastRun", { date: date(vm.analysis.run.finished_at ?? vm.analysis.run.created_at), processed: vm.analysis.run.processed, total: vm.analysis.run.total, applied: vm.analysis.run.applied })}</p>}
+            </div>
           // Off on this installation (MESSAGE_TRIAGE_ENABLED=false): say so, and show the last
           // task analysis only as dated history, never as if it were the current state (2026-11-15).
           : vm.analysis.enabled === false ? <div role="status" className="space-y-1">

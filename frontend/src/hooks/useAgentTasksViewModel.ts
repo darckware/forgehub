@@ -190,10 +190,14 @@ export function useAgentTasksViewModel() {
     // "Analisar e encaminhar": message triage + questions, whatever tab is open.
     // With the task analysis off (MESSAGE_TRIAGE_ENABLED=false) the button still analyses the
     // questions, which need no model; it no longer fires a request that can only answer 503.
+    // Each part runs only when it has something to look at (unknown counts still run).
     runAnalysis: () => {
-      if (analysis.enabled !== false) analysis.start.mutate();
-      if (questionAnalysisRequested) void questionAnalysis.refetch(); else setQuestionAnalysisRequested(true);
+      if (analysis.enabled !== false && analysis.pendingTasks !== 0) analysis.start.mutate();
+      if (analysis.pendingQuestions !== 0) {
+        if (questionAnalysisRequested) void questionAnalysis.refetch(); else setQuestionAnalysisRequested(true);
+      }
     },
+    nothingToAnalyse: analysis.pendingTasks === 0 && analysis.pendingQuestions === 0,
     analysisBusy: analysis.busy || questionAnalysis.isFetching,
     questionAnalysisStaleDays: questionAnalysis.data?.stale_days ?? 14,
     questionAnalysis: { requested: questionAnalysisRequested, loading: questionAnalysis.isFetching, error: questionAnalysis.isError, summary: questionAnalysisSummary },
