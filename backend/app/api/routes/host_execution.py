@@ -340,17 +340,48 @@ def _record_rustdesk_id(script: HostScript):
     return record
 
 
+def _clear_rustdesk_password(script: HostScript):
+    """Drop ForgeHub's active password reference only after click-only mode is verified."""
+
+    async def clear(server_id: uuid.UUID, outcome: dict) -> None:
+        from app.db.base import AsyncSessionLocal
+
+        if not re.search(r"(?m)^RUSTDESK_ACCESS_MODE=click\s*$", outcome.get("stdout") or ""):
+            return
+        async with AsyncSessionLocal() as db:
+            server = await db.get(Server, server_id)
+            if server is None:
+                return
+            previous_ref = server.rustdesk_password_ref
+            server.rustdesk_password_ref = None
+            server.rustdesk_password_encrypted = None
+            db.add(AuditEvent(
+                entity_type="server", entity_id=server_id, event_type="rustdesk_password_removed",
+                actor="forgehub", payload={"script": script.system_key, "previous_secret_ref": previous_ref,
+                                            "access_mode": "click"},
+            ))
+            await db.commit()
+
+    return clear
+
+
 def system_script_hook(script: HostScript, values: dict | None):
     """What a system script records on a machine once it succeeded there:
-    RustDesk install/password change -> the new permanent password and the
-    RustDesk ID, on the machine's row. Never before success, so a failed
-    change can't leave a password on file that the machine doesn't have."""
+    RustDesk install/password change -> the RustDesk ID and, when provided,
+    the new permanent password. Never before success, so a failed change
+    can't leave a password on file that the machine doesn't have."""
     if (script.system_key or "").startswith("rustdesk_get_id:"):
         return _record_rustdesk_id(script)
+    if (script.system_key or "").startswith("rustdesk_password_remove:"):
+        return _clear_rustdesk_password(script)
     if not (script.system_key or "").startswith(("rustdesk_install:", "remote_access_install:", "rustdesk_password:")):
         return None
     password = (values or {}).get("RUSTDESK_PASSWORD")
-    if not password or (values or {}).get("COMPONENTES") == "somente_tailscale":
+    if (values or {}).get("COMPONENTES") == "somente_tailscale":
+        return None
+    if not password:
+        if (script.system_key or "").startswith(("rustdesk_install:", "remote_access_install:")):
+            return _record_rustdesk_id(script)
         return None
 
     async def record(server_id: uuid.UUID, outcome: dict) -> None:

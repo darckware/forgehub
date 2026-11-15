@@ -70,13 +70,82 @@ def test_remote_access_installer_options(platform):
     spec = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == f"remote_access_install:{platform}")
     params = {p["name"]: p for p in validate_parameters(spec["parameters"])}
     assert params["COMPONENTES"]["options"] == ["tailscale_e_rustdesk", "somente_tailscale", "somente_rustdesk"]
-    # Only Tailscale needs no RustDesk password, only RustDesk no auth key.
+    # Tailscale needs an auth key; RustDesk's permanent password is optional.
     assert not params["TAILSCALE_AUTHKEY"]["required"] and not params["RUSTDESK_PASSWORD"]["required"]
     assert ("ROUTER_IP" in params) == (platform == "windows")  # router mode is Windows-only
     text, _ = _render(f"remote_access_install:{platform}", {"COMPONENTES": "somente_tailscale", "TAILSCALE_AUTHKEY": "tskey-x", **_RD_SERVER})
     assert "Validacao" in text
+    assert not params["RUSTDESK_PASSWORD"]["required"]
+    assert "approve-mode" in text and "click" in text
+    assert "Informe a senha permanente do RustDesk" not in text
+    if platform == "windows":
+        assert "Invoke-RustDesk @('--option', 'approve-mode')" in text
+        assert "$approvalMode.Out -ne 'click'" in text
+        assert "Invoke-RustDesk @('--option', 'approve-mode', 'password-click')" in text
+        assert "$approvalMode.Out -ne 'password-click'" in text
+    else:
+        assert "approval_mode=$($SUDO rustdesk --option approve-mode)" in text
+        assert '[ "$approval_mode" = "click" ]' in text
+        assert "$SUDO rustdesk --option approve-mode password-click" in text
+        assert '[ "$approval_mode" = "password-click" ]' in text
     with pytest.raises(ScriptError):
         _render(f"remote_access_install:{platform}", {"COMPONENTES": "tudo", **_RD_SERVER})
+
+
+@pytest.mark.parametrize("platform", ["windows", "linux"])
+def test_rustdesk_install_allows_client_approved_access_without_permanent_password(platform):
+    spec = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == f"rustdesk_install:{platform}")
+    params = {p["name"]: p for p in validate_parameters(spec["parameters"])}
+    assert not params["RUSTDESK_PASSWORD"]["required"]
+
+    text, _ = _render(f"rustdesk_install:{platform}", _RD_SERVER)
+    assert "Informe a senha permanente" not in text
+    assert "approve-mode" in text and "click" in text
+    if platform == "windows":
+        assert "if ($RUSTDESK_PASSWORD)" in text
+        assert "-RustDeskPasswordFile" in text
+        assert "Invoke-RustDesk @('--option', 'approve-mode')" in text
+        assert "$approvalMode.Out -ne 'click'" in text
+        assert "Invoke-RustDesk @('--option', 'approve-mode', 'password-click')" in text
+        assert "$approvalMode.Out -ne 'password-click'" in text
+    else:
+        assert 'if [ -n "$RUSTDESK_PASSWORD" ]' in text
+        assert "$SUDO rustdesk --option approve-mode click" in text
+        assert "approval_mode=$($SUDO rustdesk --option approve-mode)" in text
+        assert '[ "$approval_mode" = "click" ]' in text
+        assert "$SUDO rustdesk --option approve-mode password-click" in text
+        assert '[ "$approval_mode" = "password-click" ]' in text
+
+
+@pytest.mark.parametrize("platform", ["windows", "linux"])
+def test_rustdesk_password_script_adds_password_and_enables_password_or_click_approval(platform):
+    spec = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == f"rustdesk_password:{platform}")
+    assert spec["name"] == "Definir ou trocar senha do RustDesk"
+    text, _ = _render(f"rustdesk_password:{platform}", {"RUSTDESK_PASSWORD": "Nova#Senha2026"})
+    if platform == "windows":
+        assert "Invoke-RustDesk @('--password', $RUSTDESK_PASSWORD)" in text
+        assert "-notmatch '(?m)^Done!$'" in text
+        assert "Invoke-RustDesk @('--option', 'approve-mode', 'password-click')" in text
+        assert "$approvalMode.Out -ne 'password-click'" in text
+    else:
+        assert '$SUDO rustdesk --password "$RUSTDESK_PASSWORD"' in text
+        assert "*Done!*" in text
+        assert "$SUDO rustdesk --option approve-mode password-click" in text
+        assert '[ "$approval_mode" = "password-click" ]' in text
+
+
+@pytest.mark.parametrize("platform", ["windows", "linux"])
+def test_rustdesk_remove_password_script_enforces_client_approval(platform):
+    text, _ = _render(f"rustdesk_password_remove:{platform}", {})
+    assert "RUSTDESK_ACCESS_MODE=click" in text
+    if platform == "windows":
+        assert "Invoke-RustDesk @('--password', '')" in text
+        assert "Invoke-RustDesk @('--option', 'approve-mode', 'click')" in text
+        assert "-ne 'click'" in text
+    else:
+        assert '$SUDO rustdesk --password ""' in text
+        assert "$SUDO rustdesk --option approve-mode click" in text
+        assert '[ "$approval_mode" = "click" ]' in text
 
 
 @pytest.mark.asyncio
@@ -133,6 +202,74 @@ def test_installer_records_rustdesk_password_only_when_rustdesk_installed():
     script = HostScript(system_key="remote_access_install:windows")
     assert exec_routes.system_script_hook(script, {"COMPONENTES": "somente_tailscale", "RUSTDESK_PASSWORD": "x"}) is None
     assert exec_routes.system_script_hook(script, {"COMPONENTES": "somente_rustdesk", "RUSTDESK_PASSWORD": "x"}) is not None
+    assert exec_routes.system_script_hook(script, {"COMPONENTES": "somente_rustdesk"}) is not None
+
+
+def test_rustdesk_password_removal_has_a_success_hook():
+    script = HostScript(system_key="rustdesk_password_remove:windows")
+    assert exec_routes.system_script_hook(script, {}) is not None
+
+
+@pytest.mark.asyncio
+async def test_passwordless_rustdesk_install_still_records_id_without_storing_password(machine):
+    spec = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == "rustdesk_install:windows")
+    script = HostScript(system_key=spec["system_key"])
+    hook = exec_routes.system_script_hook(script, {})
+    assert hook is not None
+
+    await hook(machine.id, {"stdout": "RUSTDESK_ID=123456789\n"})
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, machine.id)
+        assert row.rustdesk_id == "123456789"
+        assert row.rustdesk_password_ref is None
+        assert row.rustdesk_password_encrypted is None
+
+
+@pytest.mark.asyncio
+async def test_rustdesk_password_removal_clears_active_forgevault_reference(machine):
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, machine.id)
+        row.rustdesk_password_ref = "old-rustdesk-secret-ref"
+        row.rustdesk_password_encrypted = "legacy-encrypted-value"
+        await db.commit()
+
+    script = HostScript(system_key="rustdesk_password_remove:windows")
+    hook = exec_routes.system_script_hook(script, {})
+    assert hook is not None
+    await hook(machine.id, {"stdout": "RUSTDESK_ACCESS_MODE=click\n"})
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, machine.id)
+        assert row.rustdesk_password_ref is None
+        assert row.rustdesk_password_encrypted is None
+        event = (await db.execute(select(AuditEvent).where(
+            AuditEvent.entity_id == machine.id, AuditEvent.event_type == "rustdesk_password_removed"
+        ).order_by(AuditEvent.created_at.desc()))).scalars().first()
+        assert event is not None
+        assert event.payload["previous_secret_ref"] == "old-rustdesk-secret-ref"
+
+
+@pytest.mark.asyncio
+async def test_rustdesk_password_removal_preserves_secret_without_click_confirmation(machine):
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, machine.id)
+        row.rustdesk_password_ref = "old-rustdesk-secret-ref"
+        row.rustdesk_password_encrypted = "legacy-encrypted-value"
+        await db.commit()
+
+    script = HostScript(system_key="rustdesk_password_remove:windows")
+    hook = exec_routes.system_script_hook(script, {})
+    await hook(machine.id, {"stdout": "Settings are disabled!\n"})
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, machine.id)
+        assert row.rustdesk_password_ref == "old-rustdesk-secret-ref"
+        assert row.rustdesk_password_encrypted == "legacy-encrypted-value"
+        event = (await db.execute(select(AuditEvent).where(
+            AuditEvent.entity_id == machine.id, AuditEvent.event_type == "rustdesk_password_removed"
+        ))).scalars().first()
+        assert event is None
 
 
 @pytest.mark.parametrize("platform", ["windows", "linux"])

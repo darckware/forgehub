@@ -238,7 +238,7 @@ describe("MachinesCard", () => {
     expect(within(menu).getAllByRole("menuitem").map((i) => i.textContent)).toEqual([
       "Configurar acesso da máquina", "Rotacionar senha", "Rotacionar chave SSH", "Detectar sistemas operacionais",
       "Instalador Darckware Remoto", "Instalar Tailscale", "Instalar RustDesk", "Obter ID do RustDesk",
-      "Liberar RustDesk no firewall", "Trocar senha do RustDesk",
+      "Liberar RustDesk no firewall", "Definir ou trocar senha do RustDesk",
     ]);
     const items = within(menu).getAllByRole("menuitem");
     expect(items[0]).toHaveFocus();

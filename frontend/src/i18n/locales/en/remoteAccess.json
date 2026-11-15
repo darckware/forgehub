@@ -467,7 +467,7 @@
     "rustdesk_firewall": "Allow RustDesk in the firewall",
     "tailscale_install": "Install Tailscale",
     "rustdesk_install": "Install RustDesk",
-    "rustdesk_password": "Change RustDesk password",
+    "rustdesk_password": "Set or change RustDesk password",
     "prepare": "Configure machine access",
     "rotate_login_password": "Rotate password",
     "rotate_ssh_key": "Rotate SSH key",

@@ -118,7 +118,18 @@ fi
 $SUDO rustdesk --option custom-rendezvous-server "$RUSTDESK_ID_SERVER"
 $SUDO rustdesk --option relay-server "$RUSTDESK_RELAY_SERVER"
 $SUDO rustdesk --option key "$RUSTDESK_KEY"
-$SUDO rustdesk --password "$RUSTDESK_PASSWORD" >/dev/null
+if [ -n "$RUSTDESK_PASSWORD" ]; then
+    password_result=$($SUDO rustdesk --password "$RUSTDESK_PASSWORD")
+    case "$password_result" in *Done!*) ;; *) echo "O RustDesk nao confirmou a senha permanente" >&2; exit 1 ;; esac
+    $SUDO rustdesk --option approve-mode password-click
+    approval_mode=$($SUDO rustdesk --option approve-mode)
+    [ "$approval_mode" = "password-click" ] || {{ echo "O RustDesk nao confirmou o modo senha ou clique" >&2; exit 1; }}
+else
+    $SUDO rustdesk --option approve-mode click
+    approval_mode=$($SUDO rustdesk --option approve-mode)
+    [ "$approval_mode" = "click" ] || {{ echo "O RustDesk nao confirmou o modo de aprovacao por clique" >&2; exit 1; }}
+    echo "RustDesk: sem senha permanente; cada conexao precisa ser aprovada na maquina."
+fi
 """
 _SH_RUSTDESK_INSTALL = _SH_RUSTDESK_SETUP + 'echo "RUSTDESK_ID=$($SUDO rustdesk --get-id)"\n'
 
@@ -251,7 +262,7 @@ _RUSTDESK_NETWORK_PARAMS = [
 ]
 _RUSTDESK_PASSWORD_PARAM = {"name": "RUSTDESK_PASSWORD", "label": "Senha permanente do RustDesk", "required": True, "secret": True}
 _RUSTDESK_PASSWORD_OPTIONAL = {**_RUSTDESK_PASSWORD_PARAM, "required": False,
-                               "label": "Senha permanente do RustDesk (quando instalar o RustDesk)"}
+                               "label": "Senha permanente do RustDesk (opcional; sem senha, o usuario precisa aprovar cada conexao)"}
 
 # Local user password change (2026-10-18, Marcelo: "preciso de uma para
 # alteração da senha do usuário do windows ... campo para digitar do login e
@@ -486,10 +497,11 @@ if ($r.ReturnValue -ne 0) { throw "Politica gravada, mas o reinicio do servico f
         "timeout_seconds": 900,
         "description": (
             "Instala o RustDesk (instalador oficial validado pelo darckware-remote), configura o servidor de "
-            "ID/Relay e a Key da Darckware e define a senha permanente. A senha e o ID ficam guardados no "
-            "cadastro da máquina. Requer a máquina conectada à tailnet."
+            "ID/Relay e a Key da Darckware. A senha permanente é opcional; sem ela, a estação exige aprovação "
+            "manual de cada conexão. Quando informada, a senha e o ID ficam guardados no cadastro da máquina. "
+            "Requer a máquina conectada à tailnet."
         ),
-        "parameters": [*_RUSTDESK_NETWORK_PARAMS, _RUSTDESK_PASSWORD_PARAM],
+        "parameters": [*_RUSTDESK_NETWORK_PARAMS, _RUSTDESK_PASSWORD_OPTIONAL],
         "content": _WIN_FETCH_INSTALLER + _WIN_RUSTDESK_CLI + """
 $cfgPath = Join-Path $dir 'config\\deployment.json'
 $cfg = Get-Content -Raw $cfgPath | ConvertFrom-Json
@@ -497,11 +509,36 @@ $cfg.rustdesk.idServer = $RUSTDESK_ID_SERVER
 $cfg.rustdesk.relayServer = $RUSTDESK_RELAY_SERVER
 $cfg.rustdesk.publicKey = $RUSTDESK_KEY
 $cfg | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 $cfgPath
+$installerArgs = @('-NonInteractive', '-InstallRustDesk', '-ConnectivityMode', 'LocalTailscale')
 $sec = New-SecretDir
 try {
-    [IO.File]::WriteAllText((Join-Path $sec 'rd.txt'), $RUSTDESK_PASSWORD)
-    Invoke-Installer @('-NonInteractive', '-InstallRustDesk', '-ConnectivityMode', 'LocalTailscale', '-RustDeskPasswordFile', (Join-Path $sec 'rd.txt'))
+    if ($RUSTDESK_PASSWORD) {
+        $passwordPath = Join-Path $sec 'rd.txt'
+        [IO.File]::WriteAllText($passwordPath, $RUSTDESK_PASSWORD)
+        $installerArgs += @('-RustDeskPasswordFile', $passwordPath)
+    }
+    Invoke-Installer $installerArgs
 } finally { Remove-Item -Recurse -Force $sec -ErrorAction SilentlyContinue }
+if (-not $RUSTDESK_PASSWORD) {
+    $approval = Invoke-RustDesk @('--option', 'approve-mode', 'click')
+    if ($approval.Code -ne 0) { throw 'Nao foi possivel exigir aprovacao local para as conexoes RustDesk' }
+    $approvalMode = Invoke-RustDesk @('--option', 'approve-mode')
+    if ($approvalMode.Code -ne 0 -or $approvalMode.Out -ne 'click') {
+        throw 'O RustDesk nao confirmou o modo de aprovacao por clique'
+    }
+    'RustDesk: sem senha permanente; cada conexao precisa ser aprovada na maquina.'
+} else {
+    $password = Invoke-RustDesk @('--password', $RUSTDESK_PASSWORD)
+    if ($password.Code -ne 0 -or $password.Out -notmatch '(?m)^Done!$') {
+        throw 'O RustDesk nao confirmou a senha permanente'
+    }
+    $approval = Invoke-RustDesk @('--option', 'approve-mode', 'password-click')
+    if ($approval.Code -ne 0) { throw 'Nao foi possivel habilitar acesso por senha ou aprovacao local' }
+    $approvalMode = Invoke-RustDesk @('--option', 'approve-mode')
+    if ($approvalMode.Code -ne 0 -or $approvalMode.Out -ne 'password-click') {
+        throw 'O RustDesk nao confirmou o modo senha ou clique'
+    }
+}
 $id = (Invoke-RustDesk @('--get-id')).Out
 "RUSTDESK_ID=$id"
 """,
@@ -514,10 +551,11 @@ $id = (Invoke-RustDesk @('--get-id')).Out
         "risk": "change",
         "timeout_seconds": 900,
         "description": (
-            "Instala o RustDesk 1.4.9 (Debian/Ubuntu, x86_64), configura o servidor de ID/Relay e a Key e define "
-            "a senha permanente. Só para máquinas com interface gráfica — não instalar em servidor sem tela."
+            "Instala o RustDesk 1.4.9 (Debian/Ubuntu, x86_64) e configura o servidor de ID/Relay e a Key. A senha "
+            "permanente é opcional; sem ela, a estação exige aprovação manual de cada conexão. Só para máquinas "
+            "com interface gráfica — não instalar em servidor sem tela."
         ),
-        "parameters": [*_RUSTDESK_NETWORK_PARAMS, _RUSTDESK_PASSWORD_PARAM],
+        "parameters": [*_RUSTDESK_NETWORK_PARAMS, _RUSTDESK_PASSWORD_OPTIONAL],
         "content": _SH_PRELUDE + _SH_RUSTDESK_INSTALL,
     },
     {
@@ -531,8 +569,9 @@ $id = (Invoke-RustDesk @('--get-id')).Out
             "O instalador darckware-remote com as mesmas opções da tela dele: Tailscale e RustDesk, só "
             "Tailscale ou só RustDesk. Só RustDesk chega ao servidor pela Tailscale desta máquina ou por um host "
             "Tailscale da rede local configurado como roteador de sub-rede (cria a rota do servidor RustDesk via "
-            "o IP dele). No fim valida Tailscale, rota, serviço e portas do RustDesk e mostra o ID. Roda por SSH "
-            "ou colado no PowerShell como Administrador. A senha e o ID do RustDesk ficam no cadastro da máquina."
+            "o IP dele). A senha permanente do RustDesk é opcional; sem ela, cada conexão exige aprovação na "
+            "máquina. No fim valida Tailscale, rota, serviço e portas do RustDesk e mostra o ID. Roda por SSH ou "
+            "colado no PowerShell como Administrador. Quando informada, a senha e o ID ficam no cadastro da máquina."
         ),
         "parameters": [
             _COMPONENTS_PARAM, *_TAILSCALE_PARAMS_OPTIONAL,
@@ -548,7 +587,6 @@ $wantTs = $COMPONENTES -ne 'somente_rustdesk'
 $wantRd = $COMPONENTES -ne 'somente_tailscale'
 $router = $COMPONENTES -eq 'somente_rustdesk' -and $CONEXAO_RUSTDESK -eq 'roteador_subrede'
 if ($wantTs -and -not $TAILSCALE_AUTHKEY) { throw 'Informe a chave de autenticacao da Tailscale' }
-if ($wantRd -and -not $RUSTDESK_PASSWORD) { throw 'Informe a senha permanente do RustDesk' }
 if ($router -and -not ($ROUTER_IP -match '^\\d{1,3}(\\.\\d{1,3}){3}$')) { throw 'Informe o IPv4 do host roteador na rede local' }
 $cfgPath = Join-Path $dir 'config\\deployment.json'
 $cfg = Get-Content -Raw $cfgPath | ConvertFrom-Json
@@ -566,8 +604,12 @@ try {
         $installerArgs += @('-InstallTailscale', '-TailscaleHostname', $hn, '-TailscaleAuthKeyFile', (Join-Path $sec 'ts.txt'))
     }
     if ($wantRd) {
-        [IO.File]::WriteAllText((Join-Path $sec 'rd.txt'), $RUSTDESK_PASSWORD)
-        $installerArgs += @('-InstallRustDesk', '-RustDeskPasswordFile', (Join-Path $sec 'rd.txt'))
+        $installerArgs += '-InstallRustDesk'
+        if ($RUSTDESK_PASSWORD) {
+            $passwordPath = Join-Path $sec 'rd.txt'
+            [IO.File]::WriteAllText($passwordPath, $RUSTDESK_PASSWORD)
+            $installerArgs += @('-RustDeskPasswordFile', $passwordPath)
+        }
         if (-not $wantTs) {
             if ($router) {
                 $installerArgs += @('-ConnectivityMode', 'Router', '-RouterIp', $ROUTER_IP)
@@ -577,6 +619,26 @@ try {
     }
     Invoke-Installer $installerArgs
 } finally { Remove-Item -Recurse -Force $sec -ErrorAction SilentlyContinue }
+if ($wantRd -and -not $RUSTDESK_PASSWORD) {
+    $approval = Invoke-RustDesk @('--option', 'approve-mode', 'click')
+    if ($approval.Code -ne 0) { throw 'Nao foi possivel exigir aprovacao local para as conexoes RustDesk' }
+    $approvalMode = Invoke-RustDesk @('--option', 'approve-mode')
+    if ($approvalMode.Code -ne 0 -or $approvalMode.Out -ne 'click') {
+        throw 'O RustDesk nao confirmou o modo de aprovacao por clique'
+    }
+    'RustDesk: sem senha permanente; cada conexao precisa ser aprovada na maquina.'
+} elseif ($wantRd) {
+    $password = Invoke-RustDesk @('--password', $RUSTDESK_PASSWORD)
+    if ($password.Code -ne 0 -or $password.Out -notmatch '(?m)^Done!$') {
+        throw 'O RustDesk nao confirmou a senha permanente'
+    }
+    $approval = Invoke-RustDesk @('--option', 'approve-mode', 'password-click')
+    if ($approval.Code -ne 0) { throw 'Nao foi possivel habilitar acesso por senha ou aprovacao local' }
+    $approvalMode = Invoke-RustDesk @('--option', 'approve-mode')
+    if ($approvalMode.Code -ne 0 -or $approvalMode.Out -ne 'password-click') {
+        throw 'O RustDesk nao confirmou o modo senha ou clique'
+    }
+}
 
 '=== Validacao'
 $failed = @()
@@ -614,16 +676,16 @@ if ($failed.Count) { throw "Validacao falhou: $($failed -join ', ')" }
         "timeout_seconds": 1200,
         "description": (
             "Tailscale e RustDesk, só Tailscale ou só RustDesk (Tailscale pelo script oficial; RustDesk 1.4.9 "
-            "para Debian/Ubuntu x86_64 com servidor de ID/Relay, Key e senha). No fim valida a Tailscale, as "
-            "portas do servidor RustDesk e mostra o ID. Roda por SSH ou colado num terminal com sudo. RustDesk "
-            "só em máquina com interface gráfica; o modo roteador do darckware-remote existe só no Windows."
+            "para Debian/Ubuntu x86_64 com servidor de ID/Relay e Key). A senha RustDesk é opcional; sem ela, "
+            "cada conexão exige aprovação na máquina. No fim valida a Tailscale, as portas do servidor RustDesk "
+            "e mostra o ID. Roda por SSH ou colado num terminal com sudo. RustDesk só em máquina com interface "
+            "gráfica; o modo roteador do darckware-remote existe só no Windows."
         ),
         "parameters": [_COMPONENTS_PARAM, *_TAILSCALE_PARAMS_OPTIONAL, *_RUSTDESK_NETWORK_PARAMS, _RUSTDESK_PASSWORD_OPTIONAL],
         "content": _SH_PRELUDE + """WANT_TS=1; WANT_RD=1
 [ "$COMPONENTES" != "somente_rustdesk" ] || WANT_TS=0
 [ "$COMPONENTES" != "somente_tailscale" ] || WANT_RD=0
 [ "$WANT_TS" = 0 ] || [ -n "$TAILSCALE_AUTHKEY" ] || { echo "Informe a chave de autenticacao da Tailscale" >&2; exit 2; }
-[ "$WANT_RD" = 0 ] || [ -n "$RUSTDESK_PASSWORD" ] || { echo "Informe a senha permanente do RustDesk" >&2; exit 2; }
 if [ "$WANT_TS" = 1 ]; then
 """ + _SH_TAILSCALE_UP + """fi
 if [ "$WANT_RD" = 1 ]; then
@@ -731,32 +793,99 @@ echo "RUSTDESK_ID=$ID"
     },
     {
         "system_key": "rustdesk_password:windows",
-        "name": "Trocar senha do RustDesk",
+        "name": "Definir ou trocar senha do RustDesk",
         "platform": "windows",
         "category": "rustdesk",
         "risk": "change",
         "timeout_seconds": 120,
-        "description": "Define uma nova senha permanente do RustDesk. A nova senha só é guardada no cadastro se a troca der certo.",
+        "description": (
+            "Define uma senha permanente do RustDesk quando ainda não há uma, ou troca a existente. Habilita "
+            "autenticação por senha ou aprovação local; o cadastro só é atualizado depois de confirmar a operação."
+        ),
         "parameters": [_RUSTDESK_PASSWORD_PARAM],
         "content": "$ErrorActionPreference = 'Stop'\n" + _WIN_RUSTDESK_CLI + """
 $r = Invoke-RustDesk @('--password', $RUSTDESK_PASSWORD)
-if ($r.Code -ne 0) { throw "O RustDesk recusou a troca de senha (codigo $($r.Code))" }
+if ($r.Code -ne 0 -or $r.Out -notmatch '(?m)^Done!$') { throw 'O RustDesk nao confirmou a senha permanente' }
+$approval = Invoke-RustDesk @('--option', 'approve-mode', 'password-click')
+if ($approval.Code -ne 0) { throw 'Nao foi possivel habilitar acesso por senha ou aprovacao local' }
+$approvalMode = Invoke-RustDesk @('--option', 'approve-mode')
+if ($approvalMode.Code -ne 0 -or $approvalMode.Out -ne 'password-click') {
+    throw 'O RustDesk nao confirmou o modo senha ou clique'
+}
 $id = (Invoke-RustDesk @('--get-id')).Out
 "RUSTDESK_ID=$id"
 """,
     },
     {
         "system_key": "rustdesk_password:linux",
-        "name": "Trocar senha do RustDesk",
+        "name": "Definir ou trocar senha do RustDesk",
         "platform": "linux",
         "category": "rustdesk",
         "risk": "change",
         "timeout_seconds": 120,
-        "description": "Define uma nova senha permanente do RustDesk. A nova senha só é guardada no cadastro se a troca der certo.",
+        "description": (
+            "Define uma senha permanente do RustDesk quando ainda não há uma, ou troca a existente. Habilita "
+            "autenticação por senha ou aprovação local; o cadastro só é atualizado depois de confirmar a operação."
+        ),
         "parameters": [_RUSTDESK_PASSWORD_PARAM],
         "content": _SH_PRELUDE + """command -v rustdesk >/dev/null 2>&1 || { echo "O RustDesk nao esta instalado nesta maquina" >&2; exit 2; }
-$SUDO rustdesk --password "$RUSTDESK_PASSWORD" >/dev/null
+password_result=$($SUDO rustdesk --password "$RUSTDESK_PASSWORD")
+case "$password_result" in *Done!*) ;; *) echo "O RustDesk nao confirmou a senha permanente" >&2; exit 1 ;; esac
+$SUDO rustdesk --option approve-mode password-click
+approval_mode=$($SUDO rustdesk --option approve-mode)
+[ "$approval_mode" = "password-click" ] || { echo "O RustDesk nao confirmou o modo senha ou clique" >&2; exit 1; }
 echo "RUSTDESK_ID=$($SUDO rustdesk --get-id)"
+""",
+    },
+    {
+        "system_key": "rustdesk_password_remove:windows",
+        "name": "Remover senha do RustDesk",
+        "platform": "windows",
+        "category": "rustdesk",
+        "risk": "change",
+        "timeout_seconds": 120,
+        "description": (
+            "Remove a senha permanente do RustDesk, define o modo de aprovação somente por clique e confirma "
+            "que cada conexão precisa ser aceita na máquina. Após o sucesso, o cadastro do ForgeHub deixa de "
+            "referenciar a senha anterior. Requer RustDesk instalado e PowerShell como Administrador."
+        ),
+        "parameters": [],
+        "content": _WIN_REQUIRE_ADMIN + _WIN_RUSTDESK_CLI + """
+$removed = Invoke-RustDesk @('--password', '')
+if ($removed.Code -ne 0 -or $removed.Out -notmatch '(?m)^Done!$') {
+    throw 'O RustDesk nao confirmou a remocao da senha permanente'
+}
+$setApproval = Invoke-RustDesk @('--option', 'approve-mode', 'click')
+if ($setApproval.Code -ne 0) { throw 'Nao foi possivel exigir aprovacao local para as conexoes RustDesk' }
+$approvalMode = Invoke-RustDesk @('--option', 'approve-mode')
+if ($approvalMode.Code -ne 0 -or $approvalMode.Out -ne 'click') {
+    throw 'O RustDesk nao confirmou o modo de aprovacao por clique'
+}
+'RUSTDESK_ACCESS_MODE=click'
+'Senha permanente removida; cada conexao precisa ser aprovada na maquina.'
+""",
+    },
+    {
+        "system_key": "rustdesk_password_remove:linux",
+        "name": "Remover senha do RustDesk",
+        "platform": "linux",
+        "category": "rustdesk",
+        "risk": "change",
+        "timeout_seconds": 120,
+        "description": (
+            "Remove a senha permanente do RustDesk, define o modo de aprovação somente por clique e confirma "
+            "que cada conexão precisa ser aceita na máquina. Após o sucesso, o cadastro do ForgeHub deixa de "
+            "referenciar a senha anterior. Requer RustDesk instalado e root ou sudo sem senha."
+        ),
+        "parameters": [],
+        "content": _SH_PRELUDE + """command -v rustdesk >/dev/null 2>&1 || { echo "O RustDesk nao esta instalado nesta maquina" >&2; exit 2; }
+password_result=$($SUDO rustdesk --password "")
+case "$password_result" in *Done!*) ;; *) echo "O RustDesk nao confirmou a remocao da senha permanente" >&2; exit 1 ;; esac
+$SUDO rustdesk --option approve-mode click
+approval_mode=$($SUDO rustdesk --option approve-mode)
+[ "$approval_mode" = "click" ] || { echo "O RustDesk nao confirmou o modo de aprovacao por clique" >&2; exit 1; }
+echo "RUSTDESK_ACCESS_MODE=click"
+echo "Senha permanente removida; cada conexao precisa ser aprovada na maquina."
 """,
     },
 ]
