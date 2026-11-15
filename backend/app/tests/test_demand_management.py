@@ -475,8 +475,9 @@ async def test_queue_and_messages_agree_on_every_failed_row(client, consolidatio
     assert labels[rows["failed_check"].id]["operator_decision"] == "correction"
 
 
-async def test_approvals_queue_leaves_question_blocked_items_to_the_answers_tab(client, consolidation_db, test_suite_agent):
-    """Aprovações lists the operator's decisions once; a blocking question belongs to Respostas."""
+async def test_approvals_queue_lists_only_work_waiting_for_authorization(client, consolidation_db, test_suite_agent):
+    """Aprovações lists only work waiting for authorization: an uncertain/failed run stays in
+    Tarefas -> Sua decisão and a blocking question belongs to Respostas (2026-11-14, Marcelo)."""
     from app.db.models.demand import AgentDemand
     from app.db.models.operations import AgentQuestion
     db, uncertain, _ = consolidation_db
@@ -495,12 +496,17 @@ async def test_approvals_queue_leaves_question_blocked_items_to_the_answers_tab(
     await db.commit()
     try:
         result = await _work(client, label, view="approvals_queue")
-        assert {row["id"] for row in result["items"]} == {str(uncertain.id), str(pending.id)}
-        assert result["counts"]["approvals_queue"] == 2
-        assert result["counts"]["decision"] == 3  # "Sua decisão" in Tarefas still includes the question
+        assert {row["id"] for row in result["items"]} == {str(pending.id)}
+        assert result["counts"]["approvals_queue"] == 1
+        # "Sua decisão" in Tarefas still holds the uncertain run and the question.
+        assert result["counts"]["decision"] == 3
         question.status = "cancelled"
         await db.commit()
-        assert (await _work(client, label, view="approvals_queue"))["counts"]["approvals_queue"] == 2
+        # Without its question the asked task needs no authorization: it does not enter Aprovações.
+        assert (await _work(client, label, view="approvals_queue"))["counts"]["approvals_queue"] == 1
+        pending.approval_status = "approved"
+        await db.commit()
+        assert (await _work(client, label, view="approvals_queue"))["counts"]["approvals_queue"] == 0
     finally:
         await db.execute(delete(AgentQuestion).where(AgentQuestion.id == question.id))
         await db.commit()

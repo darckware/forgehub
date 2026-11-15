@@ -102,12 +102,16 @@ def operator_state_sql():
 
 def view_filter(view, state, *, operator=None, demand=AgentDemand, question=None):
     if view == "approvals_queue":
-        # Pessoal -> Tarefas dos agentes -> Aprovacoes: the operator's decisions
-        # minus the ones waiting on a blocking question, which the Respostas
-        # tab owns (each item is shown once).
+        # Pessoal -> Tarefas dos agentes -> Aprovacoes holds only work waiting for
+        # Marcelo's authorization (2026-11-14, Marcelo: "quando a tarefa precisa de
+        # autorização, precisa entrada na aba aprovação"). A failed or uncertain run
+        # is a decision too, but not an authorization: it stays in Tarefas -> Sua
+        # decisão. A blocking question belongs to Respostas (each item shown once).
         operator = operator_state_sql() if operator is None else operator
         question = blocking_question_sql(demand) if question is None else question
-        return and_(demand.status != "archived", operator == "decision", ~question)
+        return and_(demand.status != "archived", operator == "decision", ~question,
+                    demand.requires_approval.is_(True),
+                    or_(demand.approval_status.is_(None), demand.approval_status == "pending"))
     if view in ("decision","processing","waiting","resolved"):
         operator = operator_state_sql() if operator is None else operator
         return and_(demand.status!="archived",operator==view)
@@ -247,6 +251,7 @@ async def list_agent_work(db, *, view="attention", search="", agent_id=None, con
     # linked freshness expression is evaluated once per filtered demand in
     # each of the count/page queries, regardless of the number of views.
     classified = (select(AgentDemand.id, AgentDemand.status, AgentDemand.origin_type,
+        AgentDemand.requires_approval, AgentDemand.approval_status,
         state.label("work_state"), operator_state_sql().label("operator_state"),
         blocking_question_sql().label("blocked_question"))
         .where(*filters).cte("classified_agent_work").prefix_with("MATERIALIZED", dialect="postgresql"))

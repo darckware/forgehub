@@ -442,11 +442,11 @@
     "tabDescriptions": {
       "tasks": "Todas as tarefas dos agentes, com filtros. Autorize trabalhos, acompanhe a execução e revise os resultados.",
       "incubation": "Decida quais ideias devem virar tarefas, aguardar uma nova data ou ser descartadas.",
-      "approvals": "Tudo o que espera a sua aprovação ou decisão: tarefas, aprovações Moodle, decisões de missão e conclusões de tarefas de projeto.",
+      "approvals": "Só o que espera a sua autorização: tarefas que pedem aprovação, aprovações Moodle, decisões de missão e conclusões de tarefas de projeto. Falhas de execução ficam em Tarefas → Sua decisão.",
       "answers": "Perguntas dos agentes que bloqueiam uma tarefa até você responder."
     },
     "approvalSections": {
-      "queue": "Tarefas aguardando sua decisão ({{count}})",
+      "queue": "Tarefas aguardando sua autorização ({{count}})",
       "moodleCount": "Aprovações Moodle ({{count}})",
       "empty": "Nada aguarda a sua aprovação agora."
     },

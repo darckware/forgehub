@@ -209,7 +209,7 @@ describe("operator deliberation", () => {
 
     fireEvent.click(within(strip).getByRole("tab", { name: "Aprovações (6)" }));
     expect(mocks.demands).toHaveBeenLastCalledWith({ group: "tasks", view: "approvals_queue", page: 1, page_size: 25 }, true);
-    expect(screen.getByText("Tarefas aguardando sua decisão (3)")).toBeInTheDocument();
+    expect(screen.getByText("Tarefas aguardando sua autorização (3)")).toBeInTheDocument();
     expect(screen.getByRole("table")).toBeInTheDocument();
     expect(screen.getByText("Aprovações Moodle (2)")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Aprovações Moodle" })).toBeInTheDocument();

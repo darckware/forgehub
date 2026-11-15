@@ -442,11 +442,11 @@
     "tabDescriptions": {
       "tasks": "Every agent task, with filters. Authorize work, follow execution and review results.",
       "incubation": "Decide which ideas should become tasks, wait for a new date or be discarded.",
-      "approvals": "Everything awaiting your approval or decision: tasks, Moodle approvals, mission decisions and project task completions.",
+      "approvals": "Only what awaits your authorization: tasks that ask for approval, Moodle approvals, mission decisions and project task completions. Failed runs stay in Tasks → Your decision.",
       "answers": "Agent questions that block a task until you answer."
     },
     "approvalSections": {
-      "queue": "Tasks awaiting your decision ({{count}})",
+      "queue": "Tasks awaiting your authorization ({{count}})",
       "moodleCount": "Moodle approvals ({{count}})",
       "empty": "Nothing is awaiting your approval right now."
     },
