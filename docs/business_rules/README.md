@@ -34,12 +34,13 @@ auditoria e testes.
 | Guia | Conteúdo |
 |---|---|
 | [01 — Identidade, acesso e governança](01-identidade-acesso-governanca.md) | Usuários, sessões, perfis, permissões, credenciais de agentes, delegações, aprovações e trilha de auditoria. |
-| [02 — Agentes, Messages e canais](02-agentes-messages-canais.md) | Identidade/runtime, skills, Tasks, Incubações, dispatch, execução, falha, recuperação e comunicação. |
+| [02 — Agentes, Messages e canais](02-agentes-messages-canais.md) | Identidade e runtime dos agentes, skills e canais compartilhados. |
 | [03 — Produtos, projetos e entrega](03-produtos-projetos-entrega.md) | Produtos/versões, planejamento, mudanças, pipelines, tarefas, evidências, artefatos, release e deploy. |
 | [04 — Missões e orquestração](04-missoes-orquestracao.md) | Missões, ciclos, critérios, planos, execução, revisões, autonomia, dependências e limites de coordenação. |
 | [05 — Acesso remoto e manutenção](05-acesso-remoto-manutencao.md) | Máquinas, autorização de agentes, scripts, comandos, arquivos, ForgeVault, pausa e histórico. |
 | [06 — Operações e Auditor](06-operacoes-auditor.md) | Rotinas 24x7, ocorrências, auditorias, frescor de evidência, incidentes e remediação. |
 | [07 — Dados, integrações e atendimento](07-dados-integracoes-atendimento.md) | Banco, documentos, canais, clientes, contatos, automações e integrações operacionais. |
+| [08 — Messages](08-messages.md) | Tipos, incubação, fila e despacho, conclusão, falhas e tentativas, espera por cota, aprovações, retorno, caixa do agente, retenção e tela. |
 
 ## Fontes existentes relacionadas
 

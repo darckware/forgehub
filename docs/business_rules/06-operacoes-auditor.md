@@ -66,5 +66,6 @@ atualizada separadamente.
   Missões e revisões aguardam sem criar outra execução nem trocar executor/revisor.
   Registros históricos já arquivados não são reabertos automaticamente.
 
-Estado desta alteração: implementada em worktree, aguardando revisão final e
-aprovação de integração/publicação; requer a migração `d3f6a8b2c901`.
+Estado: publicada em produção em 14/11/2026 (`fh-29d55f8`, migração `d3f6a8b2c901`).
+As regras de negócio correspondentes do Messages são MSG-039 a MSG-042, no guia
+[08 — Messages](08-messages.md).
