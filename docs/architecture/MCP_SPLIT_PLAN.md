@@ -129,7 +129,8 @@ verificação de que nenhuma citação antiga ficou.
 
 ## 7. Decisões de Marcelo
 
-- **D1.** Os 7 servidores da seção 3, ou menos (por exemplo, juntar `factory` e `missions`)?
+- **D1. Decidido (2026-11-15, Marcelo): 7 servidores**, como na seção 3. Servidor MCP aqui é um programa na
+  mesma VPS que entrega um grupo de ferramentas, não uma máquina.
 - **D2.** A matriz da seção 3, especialmente quem pode `execute_database_query`, reiniciar contêiner e emitir credencial.
 - **D3.** Quanto tempo o `forgehub_all` de compatibilidade fica (proposta: até a última onda + 7 dias).
 - **D4.** Fonte da verdade para "qual agente usa qual MCP": a tabela do ForgeHub (proposta, com a matriz como
