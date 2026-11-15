@@ -438,6 +438,12 @@ class Settings(BaseSettings):
     # asked, even though every integration it could reach is a stub (T.3).
     BACKGROUND_WORKERS_ENABLED: bool = True
     MESSAGE_TRIAGE_ENABLED: bool = False
+    # "Analisar e encaminhar" as an adviser only (Marcelo, 2026-11-15): the button analyses the tasks
+    # when clicked and records a summary and recommendation, but nothing depends on it -- no
+    # analysis is required before a dispatch, there is no background analysis, and a model's
+    # "queue" stays a recommendation (core/message_triage.advisory_only). MESSAGE_TRIAGE_ENABLED
+    # keeps the full design (dispatch gate + background); with it on, this switch adds nothing.
+    MESSAGE_ANALYSIS_ON_DEMAND_ENABLED: bool = False
 
     @property
     def background_workers_enabled(self) -> bool:

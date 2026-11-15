@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.schemas.message_triage import AnalysisRequest, AnalysisRunOut, MessageDeliveryIn
 from app.core.config import settings
 from app.core.deps import get_current_admin
-from app.core.message_triage import enqueue_analysis, register_delivery
+from app.core.message_triage import analysis_enabled, enqueue_analysis, register_delivery
 from app.db.base import get_db
 from app.db.models.message_triage import MessageAnalysisRun
 
@@ -17,7 +17,7 @@ router=APIRouter(prefix="/api/v1/demands",tags=["messages-analysis"])
 
 @router.post("/agent-work/analyze",response_model=AnalysisRunOut,status_code=202)
 async def analyze(payload:AnalysisRequest,db:AsyncSession=Depends(get_db),admin=Depends(get_current_admin)):
-    if not settings.MESSAGE_TRIAGE_ENABLED:
+    if not analysis_enabled():
         raise HTTPException(503,"Contextual analysis is not enabled")
     try:
         return await enqueue_analysis(db,actor=admin.username,agent_id=payload.agent_id,context=payload.context)
@@ -29,7 +29,7 @@ async def analyze(payload:AnalysisRequest,db:AsyncSession=Depends(get_db),admin=
 async def triage_settings(admin=Depends(get_current_admin)):
     """Whether "Analisar e encaminhar" can run here, so the screen can say so up front instead of
     learning it from a 503 after the click and showing an old run as if it were current (2026-11-15)."""
-    return {"enabled": settings.MESSAGE_TRIAGE_ENABLED}
+    return {"enabled": analysis_enabled(), "gates_dispatch": settings.MESSAGE_TRIAGE_ENABLED}
 
 
 @router.get("/agent-work/analysis",response_model=AnalysisRunOut | None)

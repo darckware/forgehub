@@ -273,9 +273,9 @@ async def check_analysis_api(app,agent,run_ids,admin_headers,nonadmin,monkeypatc
         assert (await client.get(settings_path)).status_code==401
         assert (await client.get(settings_path,headers=nonadmin)).status_code==403
         monkeypatch.setattr(settings,"MESSAGE_TRIAGE_ENABLED",False)
-        assert (await client.get(settings_path,headers=admin_headers)).json()=={"enabled":False}
+        assert (await client.get(settings_path,headers=admin_headers)).json()=={"enabled":False,"gates_dispatch":False}
         monkeypatch.setattr(settings,"MESSAGE_TRIAGE_ENABLED",True)
-        assert (await client.get(settings_path,headers=admin_headers)).json()=={"enabled":True}
+        assert (await client.get(settings_path,headers=admin_headers)).json()=={"enabled":True,"gates_dispatch":True}
         path="/api/v1/demands/agent-work/analyze"
         assert (await client.post(path,json={})).status_code==401
         assert (await client.post(path,json={},headers=nonadmin)).status_code==403
@@ -638,3 +638,48 @@ async def test_unscheduled_authorized_wait_recovers_without_analysis_or_event(tr
     await routes.run_scheduled_dispatch_pass(db)
     await routes.run_scheduled_dispatch_pass(db)
     assert starts == [row_id]
+
+
+async def test_on_demand_adviser_never_queues_or_gates_work(triage_db, monkeypatch):
+    """Marcelo, 2026-11-15: "Analisar e encaminhar" runs when clicked and only advises. With the
+    on-demand switch on and the full triage off, a model "queue" stays a recommendation (nothing is
+    scheduled) and no dispatch needs an analysis."""
+    from app.core import message_triage
+    from app.db.models.message_triage import MessageTriageResult
+    db, agent, run_ids = triage_db
+    monkeypatch.setattr(settings, "MESSAGE_TRIAGE_ENABLED", False)
+    monkeypatch.setattr(settings, "MESSAGE_ANALYSIS_ON_DEMAND_ENABLED", True)
+    assert message_triage.analysis_enabled() and message_triage.advisory_only()
+    row = await message(db, agent)
+    row_id = row.id
+    prepared = await prepared_application(db, agent, run_ids, row)
+    assert await message_triage._apply(db, *prepared,
+        advisory(SimpleNamespace(id=row_id), status="processing", category="ready", proposed_action="queue",
+                 recommendation="Pode executar agora."))
+    result = await db.get(MessageTriageResult, row_id, populate_existing=True)
+    assert result.applied_action is None and result.proposed_action == "queue"
+    assert result.operator_state == "waiting" and result.recommendation == "Pode executar agora."
+    row = await db.get(AgentDemand, row_id, populate_existing=True)
+    assert row.scheduled_at is None
+    # The dispatch gate stays with the full triage: a changed, unanalysed message still runs.
+    row.body = "Changed after the analysis"
+    await db.commit()
+    await message_triage.check_admission(db, row)
+
+
+async def test_analysis_switches_reported_to_the_screen(triage_db, admin_headers, monkeypatch):
+    from httpx import ASGITransport, AsyncClient
+    from app.main import app
+    db, agent, run_ids = triage_db
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        monkeypatch.setattr(settings, "MESSAGE_TRIAGE_ENABLED", False)
+        monkeypatch.setattr(settings, "MESSAGE_ANALYSIS_ON_DEMAND_ENABLED", True)
+        got = (await client.get("/api/v1/demands/agent-work/triage-settings", headers=admin_headers)).json()
+        assert got == {"enabled": True, "gates_dispatch": False}
+        started = await client.post("/api/v1/demands/agent-work/analyze", json={"agent_id": str(agent)}, headers=admin_headers)
+        assert started.status_code == 202, started.text
+        run_ids.append(uuid.UUID(started.json()["id"]))
+        monkeypatch.setattr(settings, "MESSAGE_ANALYSIS_ON_DEMAND_ENABLED", False)
+        assert (await client.get("/api/v1/demands/agent-work/triage-settings", headers=admin_headers)).json() == \
+            {"enabled": False, "gates_dispatch": False}
+        assert (await client.post("/api/v1/demands/agent-work/analyze", json={}, headers=admin_headers)).status_code == 503

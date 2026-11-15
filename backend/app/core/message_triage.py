@@ -32,6 +32,16 @@ POLL_SECONDS=30
 SAFE_ERROR="Não foi possível concluir a análise. As tarefas foram preservadas; tente novamente."
 
 
+def analysis_enabled() -> bool:
+    """The task analysis can run: full triage, or on-demand advice only."""
+    return settings.MESSAGE_TRIAGE_ENABLED or settings.MESSAGE_ANALYSIS_ON_DEMAND_ENABLED
+
+
+def advisory_only() -> bool:
+    """On-demand advice without the full triage: the analysis never gates or schedules work."""
+    return settings.MESSAGE_ANALYSIS_ON_DEMAND_ENABLED and not settings.MESSAGE_TRIAGE_ENABLED
+
+
 def now():
     return datetime.now(timezone.utc)
 
@@ -374,6 +384,10 @@ async def _apply(db,run_id,token,message_id,stamp,context_hash,versions,suggesti
             elif state=="resolved":
                 state="waiting"
                 action="none"
+            elif action=="queue" and advisory_only():
+                # Adviser only (2026-11-15): "queue" stays the recommendation shown to the operator;
+                # the analysis never puts work on the execution queue by itself.
+                state="waiting"
             elif action=="queue":
                 # New, already-authorized work only. Failed/partial attempts,
                 # incubations and proposals are never reprocessed by model output.
@@ -646,11 +660,16 @@ async def refresh_native_availability():
 
 
 async def message_triage_loop():
-    if not settings.background_workers_enabled or not settings.MESSAGE_TRIAGE_ENABLED:
+    if not settings.background_workers_enabled or not analysis_enabled():
         return
     offset=0
     while True:
         try:
+            if advisory_only():
+                # On demand only: process the jobs a click queued, never enqueue one by itself.
+                await process_next_analysis()
+                await asyncio.sleep(POLL_SECONDS)
+                continue
             await refresh_native_availability()
             async with AsyncSessionLocal() as db:
                 # A changed linked fact also invalidates a cached decision. Bound
