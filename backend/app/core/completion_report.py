@@ -26,11 +26,13 @@ COMPLETION_CONTRACT = (
 )
 
 # Tolerates the markdown agents wrap lines in (`**STATUS: DONE**`, a list
-# bullet, backticks) and a `| text` evidence note after the status, but nothing
-# else on the line, so prose that merely mentions a status ("STATUS: DONE when
-# tests pass") doesn't count.
+# bullet, backticks) and an evidence note after the status, introduced by `|`
+# or by an em/en dash (`**STATUS: DONE** — Briefing enviado`, how Athos' routines
+# end, 2026-11-15), but nothing else on the line, so prose that merely mentions
+# a status ("STATUS: DONE when tests pass") doesn't count. A plain hyphen stays
+# refused: it reads as prose ("STATUS: DONE - commit abc").
 _STATUS_LINE = re.compile(
-    r"^[\s>*_`#-]*STATUS\s*:\s*[*_`]*\s*(DONE|PARTIAL|BLOCKED)\b[\s*_`.]*(?:\|(.*))?$",
+    r"^[\s>*_`#-]*STATUS\s*:\s*[*_`]*\s*(DONE|PARTIAL|BLOCKED)\b[\s*_`.]*(?:[|\u2014\u2013](.*))?$",
     re.IGNORECASE,
 )
 _STATUS_WORD = re.compile(r"[\s*_`]*(?:DONE|PARTIAL|BLOCKED)\b", re.IGNORECASE)

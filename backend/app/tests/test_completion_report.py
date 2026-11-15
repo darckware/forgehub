@@ -58,6 +58,12 @@ from app.db.models.notification import Notification
     # Prose stays refused, with or without a pipe further along.
     ("STATUS: DONE when tests pass | ok", None),
     ("STATUS: DONE - commit abc", None),
+    # An em/en dash introduces a note like `|` does (Athos' routines, #42297/#42401).
+    ("**STATUS: DONE** — Briefing enviado (rotina #42297)", "DONE"),
+    ("**STATUS: DONE** — Retrospectiva completa para 2026-11-14.", "DONE"),
+    ("STATUS: PARTIAL – falta a revisão", "PARTIAL"),
+    ("STATUS: DONE — PARTIAL", None),
+    ("STATUS: DONE —", None),
 ])
 def test_parse_completion_status(text, expected):
     assert parse_completion_status(text) == expected
