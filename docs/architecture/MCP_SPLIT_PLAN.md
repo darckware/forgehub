@@ -1,6 +1,6 @@
 # Divisão do MCP do ForgeHub — plano
 
-Status: **proposta para revisão** (2026-11-15). Nada foi alterado. A divisão em si foi aprovada por Marcelo
+Status: **decisões D1–D4 tomadas** (2026-11-15). Implementação não iniciada. A divisão em si foi aprovada por Marcelo
 ("aprovado a divisão do mcp forgehub"); este documento detalha *como*, e lista as decisões que ainda são dele.
 
 ## 1. Por que dividir
@@ -134,14 +134,19 @@ verificação de que nenhuma citação antiga ficou.
 - **D2.** A matriz da seção 3, especialmente quem pode `execute_database_query`, reiniciar contêiner e emitir credencial.
 - **D3. Decidido (2026-11-15, Marcelo):** o `forgehub_all` de compatibilidade fica até a última onda + 7 dias,
   e só é removido quando o Auditor não registrar mais chamadas pelos nomes antigos.
-- **D2 em andamento (2026-11-15).** Direção dada por Marcelo para credenciais: a **renovação** da credencial fixa de
-  agente cadastrado e ativo é automática (rotina do ForgeHub, grava no ForgeVault, o agente nunca vê o token), sem
-  aprovação; **emissão nova** (agente novo, sem credencial, vazamento) só o Athos pede e Marcelo aprova na aba
-  Aprovação. Pendentes: validade proposta de 90 dias com renovação 7 dias antes; quem consulta o banco (proposta:
-  Athos, Aegis, Hephaestus) e quem reinicia contêiner (proposta: Athos, Hephaestus). Lacuna L13: hoje
-  `issue_agent_credential` devolve o token em texto ao agente, e as credenciais fixas não têm validade.
-- **D4.** Fonte da verdade para "qual agente usa qual MCP": a tabela do ForgeHub (proposta, com a matriz como
-  dado) ou o registro de MCP do ForgeVault. Hoje são três lugares (L7).
+- **D2. Decidido (2026-11-15, Marcelo).** Credenciais: a **renovação** da credencial fixa de agente cadastrado e
+  ativo é automática (rotina do ForgeHub, grava no ForgeVault, o agente nunca vê o token), validade de 90 dias e
+  renovação 7 dias antes, sem aprovação; **emissão nova** (agente novo, sem credencial, vazamento) só o Athos pede
+  e Marcelo aprova na aba Aprovação (botões no Telegram ficam para depois). Consultar o banco: Athos, Aegis e
+  Hephaestus. Reiniciar contêiner: Athos e Hephaestus. Lacuna L13: hoje `issue_agent_credential` devolve o token
+  em texto ao agente, e as credenciais fixas não têm validade.
+- **D4. Decidido (2026-11-15, Marcelo): a lista oficial fica no ForgeHub e cobre todos os agentes cadastrados;
+  acesso por demanda.** Agente não cadastrado não recebe servidor. Base fixa: todos recebem `forgehub` (núcleo); os
+  que trabalham com projetos, também `forgehub_factory`. O resto (`missions`, `ops`, `registry`, `remote`) é
+  liberado para a tarefa que precisa: em execução despachada, o ForgeHub monta os servidores daquela execução; no
+  Telegram vale a base fixa (mudá-la exige configuração e reinício do gateway). Servidores sensíveis (`ops`,
+  `registry`, `remote`) exigem delegação, como o acesso remoto. O ForgeVault guarda só os segredos. A matriz da
+  seção 3 passa a ser o teto de cada agente, não o que ele recebe sempre.
 
 ## 8. Fora deste plano
 
