@@ -148,5 +148,28 @@
     "openSessions": "Conexiones abiertas",
     "endSessions": "Cerrar conexiones",
     "endError": "No se pudieron cerrar las conexiones."
+  },
+  "mcpAccess": {
+    "title": "Agentes y MCP de ForgeHub",
+    "description": "Qué servidores MCP de ForgeHub recibe cada agente, y cómo se ejecutan para él reiniciar un contenedor y consultar la base de datos directamente. Ningún agente se bloquea: fuera del modo directo, la acción se convierte en una solicitud en la pestaña Aprobación.",
+    "loading": "Cargando",
+    "loadError": "No se pudieron cargar los agentes.",
+    "agent": "Agente",
+    "function": "Función",
+    "noFunction": "sin función",
+    "coreHint": "Messages: siempre activo para todos los agentes",
+    "personalHint": "Solo Maia recibe las herramientas personales de Marcelo",
+    "restart_mode": "Reiniciar contenedor",
+    "query_mode": "Consultar base de datos",
+    "mode": {
+      "direct": "Directo",
+      "approval": "Requiere aprobación"
+    },
+    "suggested": "sugerido por la función",
+    "save": "Guardar",
+    "suggest": "Sugerencia de la función",
+    "discard": "Deshacer",
+    "saveError": "No se pudo guardar. Recargue e intente de nuevo.",
+    "footnote": "Los modos se aplican al instante. Los servidores marcados se aplican a la configuración de los agentes en la migración por oleadas, con reinicio del gateway."
   }
 }

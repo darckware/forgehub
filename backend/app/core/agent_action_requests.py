@@ -13,8 +13,10 @@ reads it with ``list_agent_messages`` / ``get_agent_message``.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -41,18 +43,56 @@ def is_agent_action(demand: AgentDemand) -> bool:
     return (demand.context_area or "").startswith(CONTEXT_PREFIX)
 
 
+_CONTAINER_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,127}$")  # the host-bridge's own rule
+_EXECUTE_TIMEOUT_SECONDS = 90
+
+
+class InvalidActionRequest(ValueError):
+    """Parameters that may not become an approval request."""
+
+
+def validate_params(action: str, params: dict) -> dict:
+    """Only the fields each action uses, each checked, before anything is shown or stored (review F1:
+    a crafted container name could carry a second parameter block into the request text)."""
+    for value in params.values():
+        if isinstance(value, str) and (_BEGIN in value or _END in value):
+            raise InvalidActionRequest("parameters may not contain the request markers")
+    if action == OPS_DEPLOY_RESTART:
+        container = str(params.get("container") or "")
+        if not _CONTAINER_RE.fullmatch(container):
+            raise InvalidActionRequest("invalid container name")
+        return {"container": container}
+    if action == OPS_DATABASE_QUERY:
+        from app.api.routes.database import _INSTANCES
+
+        clean = {key: params[key] for key in ("sql", "instance", "db", "limit", "offset") if key in params}
+        if not isinstance(clean.get("sql"), str) or not clean["sql"].strip():
+            raise InvalidActionRequest("sql is required")
+        clean.setdefault("instance", "forgehub_postgres")
+        if clean["instance"] not in _INSTANCES:
+            raise InvalidActionRequest("unknown database instance")
+        if "db" in clean and not re.fullmatch(r"[a-zA-Z0-9_]{1,63}", str(clean["db"])):
+            raise InvalidActionRequest("invalid database name")
+        return clean
+    raise InvalidActionRequest(f"unknown action {action!r}")
+
+
 def _params_of(demand: AgentDemand) -> dict:
+    """The parameters block: the last one in the body, re-validated before running."""
     body = demand.body or ""
-    start, end = body.find(_BEGIN), body.find(_END)
-    if start < 0 or end < start:
+    end = body.rfind(_END)
+    start = body.rfind(_BEGIN, 0, end) if end >= 0 else -1
+    if start < 0:
         raise ValueError("request parameters missing")
-    return json.loads(body[start + len(_BEGIN):end])
+    action = (demand.context_area or "")[len(CONTEXT_PREFIX):]
+    return validate_params(action, json.loads(body[start + len(_BEGIN):end]))
 
 
 async def request_approval(db: AsyncSession, agent: Agent, action: str, params: dict) -> AgentDemand:
     """The pending approval request for this agent, action and parameters; reused when an identical
     one is still waiting, so a retried tool call never files it twice."""
     context = f"{CONTEXT_PREFIX}{action}"
+    params = validate_params(action, params)
     payload = json.dumps(params, ensure_ascii=False, sort_keys=True)
     label = _LABELS[action].format(**{"container": "?", "instance": "?", "db": "?", **params})
     body = (
@@ -93,17 +133,24 @@ async def request_approval(db: AsyncSession, agent: Agent, action: str, params: 
 async def execute_approved(db: AsyncSession, demand: AgentDemand) -> None:
     """Run an approved agent action and record the outcome on its message."""
     action = (demand.context_area or "")[len(CONTEXT_PREFIX):]
+    # Visible marker before running (review F4): a second approval is refused while it is set, and an
+    # interrupted run (e.g. restarting forgehub-backend itself) is left saying so instead of looking new.
+    demand.dispatch_status = "running"
+    demand.dispatch_error = "Executando a ação aprovada; se continuar assim, a execução foi interrompida."
+    await db.commit()
     now = datetime.now(timezone.utc)
     try:
+        if demand.from_agent_id is None or demand.from_agent_id != demand.target_agent_id:
+            raise ValueError("not an agent action request")
         params = _params_of(demand)
         if action == OPS_DEPLOY_RESTART:
             from app.api.routes.deploy import restart_container
 
-            result = await restart_container(params["container"])
+            result = await asyncio.wait_for(restart_container(params["container"]), _EXECUTE_TIMEOUT_SECONDS)
         elif action == OPS_DATABASE_QUERY:
             from app.api.routes.database import QueryRequest, execute_query
 
-            result = await execute_query(QueryRequest(**params))
+            result = await asyncio.wait_for(execute_query(QueryRequest(**params)), _EXECUTE_TIMEOUT_SECONDS)
             result = result.model_dump() if hasattr(result, "model_dump") else result
         else:
             raise ValueError(f"unknown agent action {action!r}")
@@ -112,8 +159,9 @@ async def execute_approved(db: AsyncSession, demand: AgentDemand) -> None:
         demand.dispatch_result = ("Aprovado e executado pelo ForgeHub.\n\n" + text)[:_MAX_RESULT]
         demand.dispatch_error = None
     except Exception as exc:  # the outcome is recorded either way; never left pending
-        detail = getattr(exc, "detail", None) or str(exc)
-        logger.warning("approved agent action %s on #%s failed: %s", action, demand.number, detail)
+        detail = getattr(exc, "detail", None) or str(exc) or type(exc).__name__
+        # Only the class in the log (review F5): a failed query's message carries its SQL.
+        logger.warning("approved agent action %s on #%s failed: %s", action, demand.number, type(exc).__name__)
         demand.dispatch_status = "failed"
         demand.dispatch_error = f"Aprovado, mas a execução falhou: {detail}"[:2000]
     demand.task_execution_at = now

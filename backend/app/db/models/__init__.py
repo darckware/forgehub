@@ -167,3 +167,4 @@ from app.db.models.message_triage import MessageAnalysisRun, MessageTriageResult
 from app.db.models.worker_observation import WorkerObservation  # noqa: F401
 
 from app.db.models.remote_collaboration import RemoteCollaborationCommand, RemoteCollaborationSession  # noqa: F401
+from app.db.models.agent_mcp_access import AgentMcpAccess  # noqa: F401,E402

@@ -511,6 +511,8 @@ app.include_router(client_ops.router)
 app.include_router(task.router)
 app.include_router(task.responsibility_router)
 app.include_router(agent.router)
+from app.api.routes import agent_mcp_access as agent_mcp_access_routes  # noqa: E402
+app.include_router(agent_mcp_access_routes.router)
 app.include_router(agent_activity.router)
 app.include_router(ai_draft.router)
 app.include_router(mcp_catalog.router)

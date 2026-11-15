@@ -148,5 +148,28 @@
     "openSessions": "Open connections",
     "endSessions": "End connections",
     "endError": "Could not end the connections."
+  },
+  "mcpAccess": {
+    "title": "Agents and ForgeHub MCP",
+    "description": "Which ForgeHub MCP servers each agent gets, and how a container restart and a direct database query run for it. No agent is blocked: outside direct mode the action becomes a request in the Approvals tab.",
+    "loading": "Loading",
+    "loadError": "Could not load the agents.",
+    "agent": "Agent",
+    "function": "Function",
+    "noFunction": "no function",
+    "coreHint": "Messages: always on for every agent",
+    "personalHint": "Only Maia gets Marcelo's personal tools",
+    "restart_mode": "Restart container",
+    "query_mode": "Query database",
+    "mode": {
+      "direct": "Direct",
+      "approval": "Needs approval"
+    },
+    "suggested": "suggested by function",
+    "save": "Save",
+    "suggest": "Function suggestion",
+    "discard": "Undo",
+    "saveError": "Could not save. Reload and try again.",
+    "footnote": "Modes take effect at once. Checked servers are applied to the agents' configuration in the migration waves, with a gateway restart."
   }
 }

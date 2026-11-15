@@ -53,6 +53,10 @@ def dispatch_intent_fingerprint(demand: AgentDemand) -> str:
 
 
 def assert_execution_allowed(demand: AgentDemand) -> None:
+    if (demand.context_area or "").startswith("agent_action:"):
+        # MCP-023: an agent's restart/query request is run by the backend on approval, never by an
+        # agent run (review F3: reprocess used to queue one).
+        raise WorkflowBlocked("An agent action request is run by ForgeHub on approval, never dispatched")
     if demand.status == "archived" or demand.consolidated_into_id is not None:
         raise WorkflowBlocked("Archived or consolidated work cannot be executed; open its current summary")
     if demand.requires_approval and (

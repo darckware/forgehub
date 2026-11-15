@@ -131,7 +131,7 @@ async def agent_action_gate(request: Request, action: str, params: dict[str, str
     from fastapi.responses import JSONResponse
 
     from app.core.agent_action_requests import request_approval
-    from app.core.agent_mcp_actions import OPS_DATABASE_QUERY, within_function
+    from app.core.agent_mcp_actions import OPS_DATABASE_QUERY, mode_for
     from app.core.deps import ActorPrincipal, authorize_action
     from app.db.base import AsyncSessionLocal
 
@@ -140,7 +140,12 @@ async def agent_action_gate(request: Request, action: str, params: dict[str, str
             agent = await caller_agent(request, db)
         except HTTPException as exc:
             return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
-        if agent is None or within_function(agent.department, action):
+        if agent is None:
+            return None
+        from app.db.models.agent_mcp_access import AgentMcpAccess
+
+        access = await db.get(AgentMcpAccess, agent.id)
+        if mode_for(access, agent.department, action) == "direct":
             return None
         try:
             await authorize_action(db, ActorPrincipal("agent", agent.id, agent.name), action)
@@ -154,7 +159,12 @@ async def agent_action_gate(request: Request, action: str, params: dict[str, str
             except ValueError:
                 return JSONResponse({"detail": "Body must be JSON"}, status_code=422)
             values.update({k: body[k] for k in ("sql", "instance", "db", "limit", "offset") if k in body})
-        demand = await request_approval(db, agent, action, values)
+        from app.core.agent_action_requests import InvalidActionRequest
+
+        try:
+            demand = await request_approval(db, agent, action, values)
+        except InvalidActionRequest as exc:
+            return JSONResponse({"detail": {"code": "INVALID_ACTION_REQUEST", "message": str(exc)}}, status_code=422)
         logger.info("agent %s: %s sent for approval as #%s", agent.profile_slug, action, demand.number)
         return JSONResponse({"detail": {
             "code": "APPROVAL_REQUESTED",
