@@ -1341,9 +1341,9 @@ def _assert_pending(question: AgentQuestion) -> None:
 @router.post("/agent-questions", response_model=QuestionOut, status_code=status.HTTP_201_CREATED)
 async def ask_question(
     payload: QuestionAskIn,
-    request: Request,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ) -> QuestionOut:
     """An agent asks Marcelo something (MCP ask_marcelo). Recorded and shown
     in ForgeHub at once; the Telegram message goes out with the next delivery
@@ -1382,12 +1382,12 @@ async def ask_question(
 
 @router.get("/agent-questions", response_model=list[QuestionOut])
 async def list_agent_questions(
-    request: Request,
     agent: str,
     status_filter: str | None = Query(default=None, alias="status"),
     limit: int = Query(default=20, ge=1, le=200),
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ) -> list[QuestionOut]:
     """What an agent asked (or relays). Covers both: the asker checking for
     an answer, and the relay agent finding the #number Marcelo replied to."""

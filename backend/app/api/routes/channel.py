@@ -1561,7 +1561,8 @@ async def promote_channel_task(channel_id: uuid.UUID, task_id: uuid.UUID, db: As
 
 @router.post("/{channel_id}/tasks/propose", response_model=ChatChannelTaskOut, status_code=status.HTTP_201_CREATED)
 async def propose_channel_task(
-    channel_id: uuid.UUID, payload: ChatChannelTaskProposeIn, request: Request, db: AsyncSession = Depends(get_db)
+    channel_id: uuid.UUID, payload: ChatChannelTaskProposeIn, db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ) -> ChatChannelTaskOut:
     """Agent-facing counterpart to create_channel_task (see
     api/schemas/channel.py's ChatChannelTaskProposeIn and

@@ -498,9 +498,9 @@ async def create_demand_and_notify(
 @router.post("/submit", response_model=DemandOut, status_code=status.HTTP_201_CREATED)
 async def submit_demand(
     payload: DemandSubmitIn,
-    request: Request,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ) -> AgentDemand:
     """Public path (see main.py's _PUBLIC_API_PATHS) guarded by the shared
     bridge token -- the same trust boundary the chat bridge and the
@@ -515,9 +515,9 @@ async def submit_demand(
 @router.get("/pending", response_model=list[DemandOut])
 async def list_pending_for_agent(
     agent: str,
-    request: Request,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ) -> list[DemandOut]:
     """Public path (bridge-token, see main.py's _PUBLIC_API_PATHS) for an
     agent's own cron/loop to pull its unprocessed inbox mail. Most Hermes
@@ -613,7 +613,6 @@ async def list_pending_for_agent(
 
 @router.get("/for-agent", response_model=list[DemandOut])
 async def list_for_agent(
-    request: Request,
     agent: str,
     direction: str = "all",
     status_filter: str | None = None,
@@ -624,6 +623,7 @@ async def list_for_agent(
     limit: int = 50,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ) -> list[DemandOut]:
     """An agent's own messages, filtered, **without consuming anything**.
 
@@ -792,9 +792,9 @@ async def _reprocess_demand(demand_id, db, *, commit=True):
 async def receive_incubation(
     demand_id: uuid.UUID,
     agent: str,
-    request: Request,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ) -> AgentDemand:
     """The owning agent takes the thought on: it becomes a Task (2026-08-13).
 
@@ -836,9 +836,9 @@ async def drop_incubation(
     demand_id: uuid.UUID,
     agent: str,
     reason: str,
-    request: Request,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ) -> AgentDemand:
     """The owning agent declines the thought, with a reason (2026-08-13).
 
@@ -1155,9 +1155,9 @@ def _require_bridge_token(x_bridge_token: str | None) -> None:
 async def update_demand_as_agent(
     demand_id: uuid.UUID,
     payload: AgentDemandUpdateIn,
-    request: Request,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ) -> AgentDemand:
     """Bridge-token counterpart to PATCH /{demand_id} (2026-08-15) -- closes
     the MCP's CRUD gap: `list_agent_messages`/`get_agent_message`/
@@ -1207,9 +1207,9 @@ async def update_demand_as_agent(
 async def archive_demand_as_agent(
     demand_id: uuid.UUID,
     agent: str,
-    request: Request,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ) -> AgentDemand:
     """Bridge-token archive (2026-08-15), same ownership boundary as
     update_demand_as_agent -- the other half of the MCP's CRUD gap."""

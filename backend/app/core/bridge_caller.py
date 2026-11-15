@@ -27,16 +27,20 @@ logger = logging.getLogger("forgehub.bridge_caller")
 _STATE_KEY = "bridge_caller_agent"
 
 
-def agent_credential(request: Request) -> str | None:
+def agent_credential(request: Request | None) -> str | None:
+    if request is None:  # a route function called directly (tests, internal callers)
+        return None
     header = request.headers.get("authorization", "")
     token = header[7:].strip() if header.lower().startswith("bearer ") else ""
     return token if token.startswith("agt_") else None
 
 
-async def caller_agent(request: Request, db: AsyncSession) -> Agent | None:
+async def caller_agent(request: Request | None, db: AsyncSession) -> Agent | None:
     """The agent behind the request's ``agt_`` credential, or None when it carries none.
     A credential that is unknown, revoked, expired or of an inactive agent is refused (401):
     a caller that presents an identity must present a valid one."""
+    if request is None:
+        return None
     if hasattr(request.state, _STATE_KEY):
         return getattr(request.state, _STATE_KEY)
     token = agent_credential(request)
@@ -69,13 +73,13 @@ def _same_agent(agent: Agent, claimed: str | None) -> bool:
     }
 
 
-async def assert_acts_as(request: Request, db: AsyncSession, claimed: str | None) -> Agent | None:
+async def assert_acts_as(request: Request | None, db: AsyncSession, claimed: str | None) -> Agent | None:
     """Refuse a request that names an agent other than the authenticated one. Returns the
     authenticated agent (None for a bridge-token-only call, still accepted in 2a)."""
     agent = await caller_agent(request, db)
     if agent is not None and not _same_agent(agent, claimed):
         logger.warning("agent %s tried to act as %r on %s %s", agent.profile_slug, claimed,
-                       request.method, request.url.path)
+                       request.method, request.url.path)  # agent is None whenever request is None
         raise HTTPException(status_code=403, detail={
             "code": "AGENT_IMPERSONATION",
             "message": f"This credential belongs to {agent.profile_slug or agent.name}; "
