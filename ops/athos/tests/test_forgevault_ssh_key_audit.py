@@ -140,8 +140,9 @@ def test_the_name_predicate_on_a_real_postgres():
 
 
 def test_acknowledged_reads_are_exact_row_ids():
-    assert len(audit.ACKNOWLEDGED_READS) == 7
-    assert len(set(audit.ACKNOWLEDGED_READS)) == 7
+    # 7 aramis activation reads (2026-11-12) + 1 porthus metadata read (2026-11-14, question #157)
+    assert len(audit.ACKNOWLEDGED_READS) == 8
+    assert len(set(audit.ACKNOWLEDGED_READS)) == 8
     for row_id in audit.ACKNOWLEDGED_READS:
         assert len(row_id) == 36 and row_id.count("-") == 4
     assert "NOT acknowledged GROUP BY" in audit.QUERY

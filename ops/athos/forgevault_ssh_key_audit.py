@@ -23,6 +23,11 @@ exception covers exactly those reads and nothing that happens later. The 7 reads
 2026-11-08 23:49:48Z were the restricted-secret activation of the 4b6ef28 publication, which he
 asked for (Marcelo, 2026-11-12: "sim, fui eu que pedi, pode registrar"). Record in the
 Foundation: 47_migrations/2026-11-12-eco060-acknowledged-activation-reads.md.
+
+The read by `porthus` on 2026-11-14 03:04:57Z was a `secret.metadata` call (name, provider and
+description; ForgeVault logs it as SECRET_READ, while a value is SECRET_REVEAL) during an audit
+investigation; no value left the vault (Marcelo approved the exact exception, 2026-11-14, question
+#157). Record: 47_migrations/2026-11-14-eco060-porthus-metadata-read.md.
 """
 from __future__ import annotations
 
@@ -47,6 +52,8 @@ ACKNOWLEDGED_READS = (
     "0af727c4-0551-464b-bc1d-cd5d493a6000",  # ..._SRV_APP02_SSH_KEY
     "f9cfc909-c67b-4e9b-9364-6f212627d820",  # ..._SRV_SUP_SSH_KEY
     "7b7fba32-d3fc-4b7b-821e-8bdbb1d45b7e",  # ..._VMI3547248_SSH_KEY
+    # porthus, 2026-11-14 03:04:57Z, secret.metadata only (no value), question #157
+    "231c3178-b30e-4f02-ad87-c63b0917ada9",  # WS_SEM_CLIENTE_SRV_APP02_DC920762C599_SSH_KEY
 )
 
 # :marker, :allowed and :acknowledged are bound by psql, never formatted into the text.
