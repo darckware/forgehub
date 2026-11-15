@@ -133,7 +133,9 @@ async def classify_messages(db, demands):
                 summary += ' O provedor não informou o horário de reset; não haverá tentativa automática.'
             info = _metadata(['awaiting_executor', 'quota_unavailable'], summary,
                              wait='quota', until=row.quota_reset_at)
-        elif pending_authorization:
+        # A finished run asks for no authorization: e.g. a Moodle approval that expired after the
+        # approved run completed kept labeling it 'authorization_pending' (2026-11-14).
+        elif pending_authorization and row.dispatch_status != 'completed':
             info = _metadata(['authorization_pending'], 'O conteúdo atual precisa de autorização.',
                              decision='authorization', destination=destination)
         elif row.id in questions:

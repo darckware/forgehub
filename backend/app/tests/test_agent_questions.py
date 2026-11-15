@@ -278,8 +278,13 @@ async def test_cancel_requires_a_reason_audits_and_tells_the_asker(client, agent
         assert task.reply_to_id == blocked_id
         assert task.target_agent_id == asker.id and task.from_agent_id == relay.id
         assert "O perfil já foi arquivado por outra via." in task.body
-        assert "Nenhuma resposta virá" in task.body and "STATUS: BLOCKED" in task.body
-        assert task.origin_type == "task"
+        # A cancellation is news, not work (2026-11-14): an incubation the asker owns and decides,
+        # never a Task whose only outcome was STATUS: BLOCKED -> failure -> failure check.
+        assert "Nenhuma resposta virá" in task.body and "STATUS: BLOCKED" not in task.body
+        assert task.origin_type == "incubation" and task.incubation_owner_id == asker.id
+        assert task.incubation_state == "incubating" and task.matures_at is not None
+        assert task.scheduled_at is None and task.dispatch_status is None and task.task_execution_id is None
+        assert task.working_path == "/tmp"
 
     assert (await client.post(url, json={"reason": "de novo"})).status_code == 409
     answered = await _ask(client, asker)
@@ -315,6 +320,7 @@ async def test_bulk_cancel_archives_each_and_reports_per_id(client, agents, neve
             assert row.status == "cancelled"
             task = await db.get(AgentDemand, uuid.UUID(by_id[q["id"]]["reply_demand_id"]))
             assert task.subject == f"[Pergunta #{q['number']} cancelada]" and task.target_agent_id == asker.id
+            assert task.origin_type == "incubation" and task.scheduled_at is None
             assert "Perguntas antigas, já resolvidas." in task.body
             event = (await db.execute(select(AuditEvent).where(AuditEvent.entity_type == "agent_question",
                 AuditEvent.entity_id == row.id))).scalar_one()

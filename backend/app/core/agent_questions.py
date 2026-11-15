@@ -284,7 +284,9 @@ def compose_cancellation_message(question: AgentQuestion, reason: str) -> str:
         "## Motivo",
         reason.strip(),
         "",
-        "Nenhuma resposta virá: siga sem ela se for possível, ou encerre reportando STATUS: BLOCKED.",
+        "Nenhuma resposta virá. Isto é um aviso, não uma tarefa: decida esta incubação.",
+        "- **Receber** (`receive_incubation`), se dá para seguir sem a resposta: ela vira uma Task sua.",
+        "- **Descartar com motivo** (`drop_incubation`), se o trabalho não segue sem ela.",
     ])
 
 
@@ -296,10 +298,10 @@ async def record_cancellation(db: AsyncSession, question: AgentQuestion, reason:
     question is still closed and audited (`asker_notified: false`); None is
     returned instead of the task.
 
-    Same continuation path as an answer (a Messages task to the asker with
-    reply_to_id = the blocked message, the same attempt handling), so the
-    blocked work never resumes silently: the agent reads why no answer is
-    coming. Anything but a pending question is a 409.
+    The asker gets an incubation it owns (``_notify_asker_cancelled``), linked by
+    reply_to_id to the blocked message: it learns why no answer is coming and
+    decides whether to go on without it. Unlike an answer, nothing runs and no
+    task attempt is created (2026-11-14). Anything but a pending question is a 409.
     """
     from app.core.dispatch_targets import DISPATCH_ADMISSION_LOCK
     from app.db.models.governance import AuditEvent
@@ -323,9 +325,49 @@ async def record_cancellation(db: AsyncSession, question: AgentQuestion, reason:
     if not asker_active:
         await db.commit()
         return None
-    return await _continue_asker(db, question, subject=f"[Pergunta #{question.number} cancelada]",
-        message=compose_cancellation_message(question, reason), by=by, now=datetime.now(timezone.utc),
-        notice=f"Pergunta #{question.number} arquivada sem resposta", event_key=f"agent-question-cancelled:{question.id}")
+    return await _notify_asker_cancelled(db, question, reason, asker=asker, by=by)
+
+
+async def _notify_asker_cancelled(db: AsyncSession, question: AgentQuestion, reason: str, *, asker: Agent,
+                                  by: str) -> AgentDemand:
+    """The asker learns that no answer is coming, as an incubation it owns (2026-11-14, Marcelo: Messages
+    carries communication, files, tasks and requested feedback; "podemos criar demandas sem execução
+    (incubação)"). A cancellation is news, not work: it was a Task whose only possible outcome was
+    STATUS: BLOCKED, so every cancelled question became a failure, a failure check and an operator
+    decision. The incubation never runs; its owner receives it (it becomes a Task, with the blocked
+    message's working path and project) or drops it with a reason. Caller has locked the question."""
+    from app.api.routes.demand import create_demand_and_notify
+    from app.api.schemas.demand import DemandSubmitIn
+
+    now = datetime.now(timezone.utc)
+    sender = (await db.get(Agent, question.relay_agent_id) if question.relay_agent_id else None) or asker
+    demand = await create_demand_and_notify(
+        db,
+        DemandSubmitIn(
+            from_agent=sender.profile_slug or sender.name,
+            from_agent_id=sender.id,
+            target_agent_id=asker.id,
+            subject=f"[Pergunta #{question.number} cancelada]"[:255],
+            body=compose_cancellation_message(question, reason),
+            origin_type="incubation",
+        ),
+        commit=False,
+        notify=False,
+    )
+    demand.reply_to_id = question.origin_demand_id
+    source = await db.get(AgentDemand, question.origin_demand_id) if question.origin_demand_id else None
+    if source is not None:
+        demand.working_path = source.working_path
+        demand.project_id = source.project_id
+        demand.context_area = source.context_area
+    question.reply_demand_id = demand.id
+    db.add(Notification(source="system", severity="info",
+        title=f"Pergunta #{question.number} arquivada sem resposta",
+        message=f"{asker.name}: {question.question[:200]}",
+        event_key=f"agent-question-cancelled:{question.id}", occurred_at=now))
+    await db.commit()
+    await db.refresh(demand)
+    return demand
 
 
 async def _continue_asker(db: AsyncSession, question: AgentQuestion, *, subject: str, message: str, by: str,

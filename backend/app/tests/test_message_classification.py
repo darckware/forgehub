@@ -73,6 +73,18 @@ async def test_pending_authorization_precedes_quota_rejected_not_a_new_decision(
     assert result[rejected.id]['execution_wait_reason'] is None
 
 
+async def test_completed_run_is_not_labeled_as_awaiting_authorization(classification_db):
+    """A run that finished asks for no authorization, even if its approval no longer matches
+    (2026-11-14: a Moodle approval expired after its run completed and kept the label)."""
+    db, agent = classification_db
+    done = await work(db, agent, requires_approval=True, approval_status='approved',
+                      approved_content_hash='stale', dispatch_status='completed')
+    result = await classify(db, done)
+    assert 'authorization_pending' not in result[done.id]['message_labels']
+    assert result[done.id]['message_labels'] == ['completed']
+    assert result[done.id]['operator_decision'] is None
+
+
 async def test_quota_unassigned_and_expired_quota(classification_db):
     db, agent = classification_db
     row = await work(db, agent)
