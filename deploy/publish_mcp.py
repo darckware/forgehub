@@ -36,7 +36,10 @@ ENTRYPOINTS = ("backend/app/mcp/factory_server.py", "host-bridge/forgehub_messag
 
 
 def _git(*args: str) -> bytes:
-    return subprocess.run(["git", "-C", str(REPO), *args], check=True, capture_output=True).stdout
+    result = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True)
+    if result.returncode:
+        raise SystemExit(f"git {args[0]} failed: {result.stderr.decode(errors='replace').strip()}")
+    return result.stdout
 
 
 def status() -> dict:
@@ -61,10 +64,10 @@ def publish(ref: str) -> dict:
             with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
                 tar.extractall(staging, filter="data")
             for entry in ENTRYPOINTS:
-                path = staging / entry
-                if not path.is_file():
+                if not (staging / entry).is_file():
                     raise SystemExit(f"{entry} missing at {commit[:12]}")
-                compile(path.read_text(encoding="utf-8"), str(path), "exec")  # SyntaxError: never switched to
+            for path in sorted(staging.rglob("*.py")):  # SyntaxError anywhere: never switched to
+                compile(path.read_text(encoding="utf-8"), str(path), "exec")
             (staging / "release.json").write_text(json.dumps({
                 "commit": commit,
                 "published_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

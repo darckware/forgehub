@@ -64,3 +64,19 @@ def test_a_commit_that_does_not_compile_is_never_switched_to(repo):
     with pytest.raises(Exception):
         m.publish('HEAD')
     assert os.readlink(m.MCP_HOME / 'current') == before
+
+
+def test_unknown_commit_says_why(repo):
+    with pytest.raises(SystemExit, match='git rev-parse failed'):
+        m.publish('no-such-ref')
+    assert not (m.MCP_HOME / 'current').exists()
+
+
+def test_a_broken_helper_module_is_never_published(repo):
+    (repo / 'backend/app/mcp/helper.py').write_text('def broken(:\n')
+    _git(repo, 'add', '.')
+    _git(repo, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'helper')
+    with pytest.raises(SyntaxError):
+        m.publish('HEAD')
+    assert not (m.MCP_HOME / 'current').exists()
+    assert not list((m.MCP_HOME / 'releases').glob('*.tmp'))

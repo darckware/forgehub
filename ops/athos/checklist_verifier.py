@@ -1545,7 +1545,8 @@ def mcp_source_findings(hermes: Path = HERMES, codex: Path = Path("/root/.codex/
             if isinstance(entry, dict):
                 findings += _mcp_entry_findings(directory.name, name, entry)
         wrapper = directory / "mcp/forgehub.py"
-        if wrapper.is_file() and "/root/.forgehub/mcp/current/" not in wrapper.read_text(encoding="utf-8"):
+        if wrapper.is_file() and not re.search(r'^ROOT\s*=\s*Path\(["']/root/\.forgehub/mcp/current/',
+                                                wrapper.read_text(encoding="utf-8"), re.MULTILINE):
             findings.append(f"{directory.name}: mcp/forgehub.py loads ForgeHub MCP code from outside {current}")
     if codex.is_file():
         for name, entry in (tomllib.loads(codex.read_text(encoding="utf-8")).get("mcp_servers") or {}).items():
@@ -1562,6 +1563,7 @@ def check_versioned_runtime_sources() -> Result:
     import json
 
     findings: list[str] = []
+    run(["git", "-C", str(FORGEHUB), "fetch", "-q", "origin", "main"], timeout=20)  # stale ref = stale answer
     shown = run(["git", "-C", str(FORGEHUB), "show", f"origin/main:{FLAGS_FILE}"])
     if shown.returncode:
         findings.append(f"{FLAGS_FILE} not readable on origin/main")

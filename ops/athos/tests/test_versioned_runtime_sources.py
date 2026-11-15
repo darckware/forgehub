@@ -73,3 +73,11 @@ def test_checkout_pinned_release_and_missing_current_are_reported(tmp_path):
     assert any(f.startswith('maia: mcp/forgehub.py loads') for f in findings)
     assert any(f.startswith("agy: MCP 'forgehub_dispatched'") for f in findings)
     assert not any('moodle' in f for f in findings)
+
+
+def test_maia_wrapper_must_load_from_current_not_merely_mention_it(tmp_path):
+    _profile(tmp_path, 'maia', ['uv', 'run', '/root/.hermes/profiles/maia/mcp/forgehub.py'],
+             wrapper='# moved to /root/.forgehub/mcp/current/ later\n'
+                     'ROOT = Path("/root/.forgehub/releases/old/backend/app/mcp")\n')
+    findings = v.mcp_source_findings(tmp_path, tmp_path / 'none.toml', tmp_path / 'none.json', _current(tmp_path))
+    assert findings == ['maia: mcp/forgehub.py loads ForgeHub MCP code from outside ' + str(tmp_path / 'mcp/current')]
