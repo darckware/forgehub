@@ -783,8 +783,11 @@ async def delete_cleanup_category(
         if src.startswith("/profiles/"):
             src = f"/root/.hermes{src}"
         dest_path = f"{dest}/{i:04d}_{Path(src).name}"
-        mv_parts.append(f"mv -- {shlex.quote(src)} {shlex.quote(dest_path)} 2>/dev/null")
-    command = f"mkdir -p {shlex.quote(dest)} && " + " ; ".join(mv_parts)
+        mv_parts.append(f"mv -- {shlex.quote(src)} {shlex.quote(dest_path)}")
+    # Fail on the first file that cannot be moved. A semicolon-separated
+    # command reports only the last mv's status, which could falsely tell the
+    # UI that the whole category was cleared while earlier files remained.
+    command = f"set -e\nmkdir -p {shlex.quote(dest)}\n" + "\n".join(mv_parts)
     data = await _bridge("POST", "/v1/exec", timeout_seconds=90.0, json={"command": command, "timeout_seconds": 60})
     if data["exit_code"] != 0:
         raise HTTPException(

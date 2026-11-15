@@ -7,6 +7,7 @@ test_demand.py's test_notify_telegram_proxies_to_bridge.
 import uuid
 from pathlib import Path
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
@@ -573,3 +574,62 @@ async def test_backup_delete_moves_selected_items_to_trash(client: AsyncClient, 
     move = next(c[2]["command"] for c in FakeBridgeClient.calls if c[2]["command"].startswith("mkdir -p"))
     assert f"{sc.TRASH_ROOT}/cleanup-manual/backups/" in move
     assert "mv -- /root/backup/forgehub-20260907 " in move and "rm " not in move
+
+
+async def test_cleanup_category_reports_a_move_failure_instead_of_false_success(monkeypatch, tmp_path):
+    import asyncio
+    import os
+
+    from fastapi import HTTPException
+    from app.api.routes import system_control as sc
+
+    blocked_file = tmp_path / "blocked.log"
+    later_file = tmp_path / "later.log"
+    blocked_file.write_text("cannot move")
+    later_file.write_text("must not be attempted after a failure")
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_mv = fake_bin / "mv"
+    fake_mv.write_text(
+        "#!/bin/sh\n"
+        "case \"$2\" in *blocked.log) echo 'simulated permission denied' >&2; exit 13;; esac\n"
+        "exec /bin/mv \"$@\"\n"
+    )
+    fake_mv.chmod(0o755)
+
+    monkeypatch.setattr(sc, "TRASH_ROOT", str(tmp_path / "trash"))
+
+    async def scanned_categories(_db):
+        return {
+            "Error logs": [
+                {"path": str(blocked_file), "name": blocked_file.name, "size": 11, "mtime": ""},
+                {"path": str(later_file), "name": later_file.name, "size": 33, "mtime": ""},
+            ]
+        }
+
+    async def local_bridge(_method, _path, *, timeout_seconds=60.0, **kwargs):
+        process = await asyncio.create_subprocess_shell(
+            kwargs["json"]["command"],
+            executable="/bin/sh",
+            env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"},
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await process.communicate()
+        return {
+            "exit_code": process.returncode,
+            "stdout": stdout.decode(),
+            "stderr": stderr.decode(),
+        }
+
+    monkeypatch.setattr(sc, "_cleanup_scan_groups", scanned_categories)
+    monkeypatch.setattr(sc, "_bridge", local_bridge)
+
+    with pytest.raises(HTTPException) as failure:
+        await sc.delete_cleanup_category("Error logs", _admin=None, db=None)
+
+    assert failure.value.status_code == 500
+    assert "simulated permission denied" in failure.value.detail
+    assert blocked_file.exists()
+    assert later_file.exists()

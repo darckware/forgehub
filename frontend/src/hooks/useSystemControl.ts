@@ -231,11 +231,11 @@ export function useDeleteCleanupCategory() {
   return useMutation<CleanupDeleteResult, Error, string>({
     mutationFn: (category: string) =>
       apiClient.post("/api/v1/system-control/cleanup-scan/delete", undefined, { params: { category } }),
-    // Not awaited -- see useRunCleanup's comment: cleanup-scan's own rescan
-    // (not this delete) was what made the confirm dialog's spinner sit for
-    // 10s+ looking like the click had done nothing.
-    onSuccess: () => {
+    // A failed move can follow earlier successful moves, so refresh both the
+    // card inventory and recoverable-trash totals on every outcome.
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["system-control", "cleanup-scan"] });
+      void queryClient.invalidateQueries({ queryKey: ["system-control", "trash-status"] });
     },
   });
 }
