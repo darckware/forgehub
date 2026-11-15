@@ -1577,6 +1577,22 @@ async def terminal_command(server_id: uuid.UUID, db: AsyncSession = Depends(get_
 STATION_LOGIN = "darckware"
 
 
+@router.get("/{server_id}/preparation/diagnostic")
+async def get_host_diagnostic(server_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+                              admin: User = Depends(get_current_admin)) -> dict[str, str]:
+    """Return a static local diagnostic; no SSH, Vault access or preparation changes."""
+    from app.core.system_scripts import SYSTEM_SCRIPTS
+
+    server = await db.get(Server, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if server.os_family not in ("windows", "linux"):
+        raise HTTPException(status_code=422, detail="Diagnostics support Windows and Linux")
+    spec = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == f"ssh_diagnostic:{server.os_family}")
+    return {"script": spec["content"], "os_family": server.os_family,
+            "language": "powershell" if server.os_family == "windows" else "sh"}
+
+
 def _lock_admin_script(os_family: str, admin_user: str) -> str:
     if os_family == "windows":
         return f"Disable-LocalUser -Name '{admin_user}'; (Get-LocalUser -Name '{admin_user}').Enabled"

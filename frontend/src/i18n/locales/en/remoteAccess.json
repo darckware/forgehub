@@ -393,7 +393,22 @@
     "hidePassword": "Hide password",
     "recover": "Recover pending instructions",
     "copyFailed": "Could not copy. Select the script and copy it manually.",
-    "needsReconfiguration": "Reconfiguration required"
+    "needsReconfiguration": "Reconfiguration required",
+    "diagnostic": {
+      "open": "Diagnose access",
+      "hide": "Hide diagnostic",
+      "title": "Local SSH access diagnostic",
+      "help": "Read only: checks the SSH server, service, network and darckware account. It does not install or change settings, or display passwords or keys. Works while verification is pending.",
+      "loading": "Loading diagnostic…",
+      "loadFailed": "Could not load the diagnostic. Try again.",
+      "retry": "Try again",
+      "openLocally": "Open the workstation through RustDesk or access it in person.",
+      "windows": "Open PowerShell as administrator, paste the script below and press Enter.",
+      "linux": "Save the script as diagnostico-ssh.sh and run in the terminal: sudo sh diagnostico-ssh.sh",
+      "sendOutput": "Send the complete output, from the beginning through FIM_DO_DIAGNOSTICO, for analysis. The diagnostic does not verify or activate access.",
+      "copy": "Copy diagnostic",
+      "scriptLabel": "Local diagnostic script"
+    }
   },
   "policy": {
     "title": "Tailnet policy (ACL)",

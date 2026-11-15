@@ -178,6 +178,13 @@ activates the candidate credentials. A failed verification retains the pending s
 and existing active access. Each machine owns a password and SSH key in ForgeVault;
 the password source selector never reveals a stored credential to the browser.
 
+Pending access configuration exposes “Diagnosticar acesso” in the same panel's
+footer. Expand local Windows/Linux diagnostic instructions inline, without a
+nested dialog or SSH execution. Script loading has an explicit retry, copy has
+success and manual-copy fallback, and changing machines clears the disclosure.
+Keep scripts in their own keyboard-scrollable region and let footer actions wrap
+at 390 px. Diagnostic output never activates or changes pending credentials.
+
 
 ## External agent quota waits (2026-11-14)
 

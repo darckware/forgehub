@@ -7,7 +7,7 @@
  * usePreparationViewModel. */
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, Copy, Loader2, ShieldCheck, Wrench } from "lucide-react";
+import { Check, Copy, Loader2, ShieldCheck, Stethoscope, Wrench } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ import { Select } from "@/components/ui/select";
 import { SidePanel } from "@/components/ui/side-panel";
 import { usePreparationViewModel } from "@/hooks/usePreparationViewModel";
 import { SshPortField } from "@/pages/servers/SshPortField";
+import { PreparationDiagnostic } from "./PreparationDiagnostic";
 
 export function PrepareDialog({ onClose, onExecution, initialServerId }: {
   onClose: () => void;
@@ -29,11 +30,15 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
   const busy = vm.status === "submitting" || vm.validating;
   const [showPassword, setShowPassword] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
+  const [diagnosticServerId, setDiagnosticServerId] = useState<string | null>(null);
+  const diagnosticOpen = diagnosticServerId === vm.serverId;
+  const supportsDiagnostic = vm.candidates.some((machine) => machine.id === vm.serverId);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     setShowPassword(false);
     setCopied(false);
     setCopyFailed(false);
+    setDiagnosticServerId(null);
     return () => { if (copyTimer.current) clearTimeout(copyTimer.current); };
   }, [vm.serverId]);
 
@@ -49,6 +54,12 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
       footer={
         <div className="flex w-full flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={busy} className="cursor-pointer">{t("prepare.close")}</Button>
+          {supportsDiagnostic && <Button type="button" variant="outline" size="sm" disabled={busy}
+            aria-expanded={diagnosticOpen} aria-controls={diagnosticOpen ? "preparation-diagnostic" : undefined}
+            onClick={() => setDiagnosticServerId(diagnosticOpen ? null : vm.serverId)} className="cursor-pointer gap-1.5 max-md:h-auto max-md:min-h-9 max-md:whitespace-normal">
+            <Stethoscope className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            {t(diagnosticOpen ? "prepare.diagnostic.hide" : "prepare.diagnostic.open")}
+          </Button>}
           {vm.pending && !vm.validated && !vm.result?.script && (
             <Button type="button" size="sm" variant="outline" onClick={vm.recover} disabled={busy} className="cursor-pointer">
               {t("prepare.recover")}
@@ -89,6 +100,8 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
         {vm.selected && !vm.candidates.some((machine) => machine.id === vm.selected?.id) && <p role="status" className="text-xs text-amber-500">{t("prepare.noCandidates")}</p>}
         {!vm.selected && vm.candidates.length === 0 && <p className="text-xs text-muted-foreground">{t("prepare.noCandidates")}</p>}
       </div>
+
+      {diagnosticOpen && supportsDiagnostic && <PreparationDiagnostic key={vm.serverId} serverId={vm.serverId} />}
 
       {!vm.pending && !vm.validated && <>
       <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t("prepare.mode")}>

@@ -264,6 +264,23 @@ export function useRecoverPreparation() {
 
 export interface HostPreparationValidation { ok: boolean; detail?: string }
 
+export interface HostPreparationDiagnostic {
+  os_family: "windows" | "linux";
+  language: "powershell" | "sh";
+  script: string;
+}
+
+/** Fetches local instructions only; never opens a connection to the machine. */
+export function usePreparationDiagnostic(serverId: string) {
+  return useQuery<HostPreparationDiagnostic>({
+    queryKey: ["preparation-diagnostic", serverId],
+    queryFn: ({ signal }) => apiClient.get(`/api/v1/servers/${serverId}/preparation/diagnostic`, { signal }),
+    retry: false,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+  });
+}
+
 /** Validate the staged key as darckware before activating this machine. */
 export function useValidatePreparation() {
   const qc = useQueryClient();

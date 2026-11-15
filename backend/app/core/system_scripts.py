@@ -21,6 +21,7 @@ the new password on the machine (see host_execution.py).
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -1119,6 +1120,20 @@ if (-not $ok) { throw "Porta $($ALVO_HOST):$($ALVO_PORTA): SEM resposta em $TEMP
     },
 ]
 SYSTEM_SCRIPTS += MONITORING_SCRIPTS
+
+# The exact same assets can be run locally when SSH is not ready yet.
+for _platform, _extension in (("windows", "ps1"), ("linux", "sh")):
+    SYSTEM_SCRIPTS.append({
+        "system_key": f"ssh_diagnostic:{_platform}",
+        "name": f"Diagnóstico do SSH ({'Windows' if _platform == 'windows' else 'Linux'})",
+        "platform": _platform,
+        "category": "acesso_remoto",
+        "risk": "read",
+        "timeout_seconds": 120,
+        "description": "Somente leitura: verifica servidor SSH, serviço, portas, Tailscale, conta darckware e metadados das chaves. Pode ser copiado e executado localmente quando o SSH não conecta. Não mostra senhas, chaves ou logs de autenticação.",
+        "parameters": [],
+        "content": (Path(__file__).parent / "script_assets" / f"diagnose_ssh.{_extension}").read_text(encoding="utf-8"),
+    })
 
 # How the library groups the scripts (2026-10-19, Marcelo: "os scripts precisam
 # serem classificados. Exemplo: tailscale, rustdesk, criação de conta,

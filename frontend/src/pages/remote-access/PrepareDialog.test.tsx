@@ -12,7 +12,7 @@ const machine = (id: string, name: string, os: string, admin: string | null = nu
   id, name, os_family: os, kind, admin_user: admin, remote_user: admin, darckware_client_name: "Gatling", group_ids: [],
 });
 
-function renderDialog(customMachines?: unknown[], initialServerId?: string) {
+function renderDialog(customMachines?: unknown[], initialServerId?: string, diagnostic?: () => Promise<unknown>) {
   vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
     if (url === "/api/v1/servers") {
       return customMachines ?? [machine("w1", "gat-adm-pc01", "windows", "administrador"), machine("w2", "desk", "windows"),
@@ -22,6 +22,7 @@ function renderDialog(customMachines?: unknown[], initialServerId?: string) {
       return { entries: [{ server_id: "w1", readiness: "not_prepared", status: "not_prepared" }, { server_id: "w2", readiness: "ready" },
         { server_id: "s1", readiness: "not_prepared", status: "not_prepared" }] } as never;
     }
+    if (url.endsWith("/preparation/diagnostic")) return await diagnostic?.() as never;
     return [] as never;
   });
   const onExecution = vi.fn();
@@ -156,6 +157,56 @@ describe("PrepareDialog", () => {
     expect(await screen.findByText("staged-existing-script")).toBeInTheDocument();
     expect(apiClient.post).toHaveBeenCalledExactlyOnceWith("/api/v1/servers/pending/preparation/pending");
     expect(screen.getByRole("button", { name: "Validar acesso" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["windows", "powershell", /PowerShell como administrador/],
+    ["linux", "sh", /sudo sh diagnostico-ssh.sh/],
+  ])("opens the local %s diagnostic while access is pending, without executing SSH", async (os, language, instructions) => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    renderDialog([{ ...machine("pending", "station-pending", os), preparation_pending: true }], "pending",
+      async () => ({ script: "diagnostic-read-only", language, os_family: os }));
+    await screen.findByRole("option", { name: /station-pending/ });
+    expect(apiClient.get).not.toHaveBeenCalledWith("/api/v1/servers/pending/preparation/diagnostic", expect.anything());
+    fireEvent.click(screen.getByRole("button", { name: "Diagnosticar acesso" }));
+    expect(await screen.findByText("diagnostic-read-only")).toBeInTheDocument();
+    expect(screen.getByText(instructions)).toBeInTheDocument();
+    expect(screen.getByText(/Envie a saída completa/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Validar acesso" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Copiar diagnóstico" }));
+    await screen.findByRole("button", { name: "Copiado" });
+    expect(writeText).toHaveBeenCalledExactlyOnceWith("diagnostic-read-only");
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
+
+  it("offers retry after a diagnostic failure and manual copy after clipboard rejection", async () => {
+    const diagnostic = vi.fn().mockRejectedValueOnce(new Error("unavailable"))
+      .mockResolvedValue({ script: "local-diagnostic", language: "sh", os_family: "linux" });
+    Object.defineProperty(navigator, "clipboard", { configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) } });
+    renderDialog([machine("l1", "linux-station", "linux")], "l1", diagnostic);
+    await screen.findByRole("option", { name: /linux-station/ });
+    fireEvent.click(screen.getByRole("button", { name: "Diagnosticar acesso" }));
+    expect(await screen.findByText(/Não foi possível carregar o diagnóstico/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+    expect(await screen.findByText("local-diagnostic")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Copiar diagnóstico" }));
+    expect(await screen.findByText(/Selecione o script e copie manualmente/)).toBeInTheDocument();
+  });
+
+  it("hides the diagnostic and ignores its late response after switching machines", async () => {
+    let resolve!: (value: unknown) => void;
+    const diagnostic = new Promise((done) => { resolve = done; });
+    renderDialog([machine("w1", "windows-station", "windows"), machine("l1", "linux-station", "linux")], "w1", () => diagnostic);
+    await screen.findByRole("option", { name: /windows-station/ });
+    fireEvent.click(screen.getByRole("button", { name: "Diagnosticar acesso" }));
+    expect(await screen.findByText("Carregando diagnóstico…")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Máquina"), { target: { value: "l1" } });
+    resolve({ script: "stale-windows-script", language: "powershell", os_family: "windows" });
+    await vi.waitFor(() => expect(screen.queryByText("Carregando diagnóstico…")).not.toBeInTheDocument());
+    expect(screen.queryByText("stale-windows-script")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Diagnosticar acesso" })).toHaveAttribute("aria-expanded", "false");
   });
 
 });

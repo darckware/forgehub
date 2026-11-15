@@ -393,7 +393,22 @@
     "hidePassword": "Ocultar contraseña",
     "recover": "Recuperar instrucciones pendientes",
     "copyFailed": "No se pudo copiar. Seleccione el script y cópielo manualmente.",
-    "needsReconfiguration": "Reconfiguración necesaria"
+    "needsReconfiguration": "Reconfiguración necesaria",
+    "diagnostic": {
+      "open": "Diagnosticar acceso",
+      "hide": "Ocultar diagnóstico",
+      "title": "Diagnóstico local del acceso SSH",
+      "help": "Solo lectura: comprueba el servidor SSH, el servicio, la red y la cuenta darckware. No instala ni cambia ajustes y no muestra contraseñas ni claves. Funciona con la verificación pendiente.",
+      "loading": "Cargando diagnóstico…",
+      "loadFailed": "No se pudo cargar el diagnóstico. Inténtalo de nuevo.",
+      "retry": "Intentar de nuevo",
+      "openLocally": "Abre la estación mediante RustDesk o accede a ella presencialmente.",
+      "windows": "Abre PowerShell como administrador, pega el script de abajo y pulsa Intro.",
+      "linux": "Guarda el script como diagnostico-ssh.sh y ejecuta en la terminal: sudo sh diagnostico-ssh.sh",
+      "sendOutput": "Envía la salida completa, desde el inicio hasta FIM_DO_DIAGNOSTICO, para analizarla. El diagnóstico no verifica ni activa el acceso.",
+      "copy": "Copiar diagnóstico",
+      "scriptLabel": "Script de diagnóstico local"
+    }
   },
   "policy": {
     "title": "Política de la tailnet (ACL)",

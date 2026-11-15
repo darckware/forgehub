@@ -88,6 +88,44 @@ def _resp(payload, code=200):
     return httpx.Response(code, json=payload, request=httpx.Request("POST", "http://bridge"))
 
 
+@pytest.mark.parametrize("platform,language", [("windows", "powershell"), ("linux", "sh")])
+async def test_diagnostic_download_needs_no_ssh_or_pending_secrets(client, station, platform, language):
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, station.id)
+        row.os_family = platform
+        row.pending_ssh_key_ref = "candidate-must-stay-pending"
+        row.access_enabled = False  # Local diagnostics remain useful when access is disabled.
+        await db.commit()
+    with (patch.object(server_routes, "call_bridge_exec_as", AsyncMock()) as remote,
+          patch.object(server_routes, "vault_reveal", AsyncMock()) as vault):
+        response = await client.get(f"/api/v1/servers/{station.id}/preparation/diagnostic")
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["os_family"] == platform and body["language"] == language
+        assert "FORGEHUB_SSH_DIAGNOSTIC_V1" in body["script"]
+        assert "candidate-must-stay-pending" not in response.text
+        remote.assert_not_called()
+        vault.assert_not_called()
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, station.id)
+        assert row.pending_ssh_key_ref == "candidate-must-stay-pending"
+        assert row.remote_user == "administrador"
+
+
+async def test_diagnostic_download_validates_machine_and_platform(client, station):
+    assert (await client.get(f"/api/v1/servers/{uuid.uuid4()}/preparation/diagnostic")).status_code == 404
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, station.id)
+        row.os_family = "macos"
+        await db.commit()
+    assert (await client.get(f"/api/v1/servers/{station.id}/preparation/diagnostic")).status_code == 422
+
+
+async def test_diagnostic_download_requires_admin(client, station, auth_headers):
+    response = await client.get(f"/api/v1/servers/{station.id}/preparation/diagnostic", headers=auth_headers)
+    assert response.status_code == 403
+
+
 VAULT: dict[str, str] = {}
 
 
