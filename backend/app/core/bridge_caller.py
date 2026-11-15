@@ -120,3 +120,33 @@ def log_bridge_only_call(request: Request) -> None:
         _last_logged.clear()
     _last_logged[key] = now
     logger.info("bridge-token call without agent credential: %s %s", request.method, request.url.path)
+
+
+async def agent_action_denial(request: Request, action: str):
+    """Middleware gate for the sensitive MCP routes (Fase 2b, ``core/agent_mcp_actions.py``): the
+    agent behind the request's ``agt_`` credential must hold an active delegation for ``action``.
+    Returns the refusal response, or None to let the request through."""
+    from fastapi.responses import JSONResponse
+
+    from app.core.deps import ActorPrincipal, authorize_action
+    from app.db.base import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        try:
+            agent = await caller_agent(request, db)
+        except HTTPException as exc:
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        if agent is None:
+            return None
+        try:
+            await authorize_action(db, ActorPrincipal("agent", agent.id, agent.name), action)
+        except HTTPException:
+            logger.warning("agent %s has no delegation for %s on %s %s", agent.profile_slug, action,
+                           request.method, request.url.path)
+            return JSONResponse({"detail": {
+                "code": "AGENT_DELEGATION_REQUIRED",
+                "message": f"{agent.profile_slug or agent.name} has no active delegation for {action}; "
+                           "an admin grants it in Governance (authority delegations).",
+                "action": action,
+            }}, status_code=403)
+    return None
