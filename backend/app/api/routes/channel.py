@@ -27,7 +27,7 @@ import uuid
 from typing import Any, AsyncIterator
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1561,7 +1561,7 @@ async def promote_channel_task(channel_id: uuid.UUID, task_id: uuid.UUID, db: As
 
 @router.post("/{channel_id}/tasks/propose", response_model=ChatChannelTaskOut, status_code=status.HTTP_201_CREATED)
 async def propose_channel_task(
-    channel_id: uuid.UUID, payload: ChatChannelTaskProposeIn, db: AsyncSession = Depends(get_db)
+    channel_id: uuid.UUID, payload: ChatChannelTaskProposeIn, request: Request, db: AsyncSession = Depends(get_db)
 ) -> ChatChannelTaskOut:
     """Agent-facing counterpart to create_channel_task (see
     api/schemas/channel.py's ChatChannelTaskProposeIn and
@@ -1580,6 +1580,9 @@ async def propose_channel_task(
     from app.api.routes.demand import _get_agent_by_slug_or_404
 
     await _get_channel_or_404(db, channel_id)
+    from app.core.bridge_caller import assert_acts_as
+
+    await assert_acts_as(request, db, payload.acting_agent_slug)
     acting_agent = await _get_agent_by_slug_or_404(db, payload.acting_agent_slug)
     assignee_agent = await _get_agent_by_slug_or_404(db, payload.assignee_agent_slug)
 

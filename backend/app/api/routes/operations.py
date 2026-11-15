@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
@@ -59,6 +59,7 @@ from app.api.schemas.operations import (
     RoutineRunOut,
     RoutineUpdate,
 )
+from app.core.bridge_caller import assert_acts_as
 from app.core import agent_questions
 from app.core.briefing_evidence import BRIEFING_ACTION_CONTRACT, BRIEFING_TITLE
 from app.core.operations_evolution import execution_signals
@@ -1340,6 +1341,7 @@ def _assert_pending(question: AgentQuestion) -> None:
 @router.post("/agent-questions", response_model=QuestionOut, status_code=status.HTTP_201_CREATED)
 async def ask_question(
     payload: QuestionAskIn,
+    request: Request,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> QuestionOut:
@@ -1347,6 +1349,7 @@ async def ask_question(
     in ForgeHub at once; the Telegram message goes out with the next delivery
     pass (every minute), or at 07:00 when asked in the quiet window."""
     _require_bridge(x_bridge_token)
+    await assert_acts_as(request, db, payload.agent)
     asker = await _agent_by_slug_or_404(db, payload.agent)
     from app.core.command_receipts import begin_command, record_command, request_hash
     from app.core.deps import ActorPrincipal
@@ -1379,6 +1382,7 @@ async def ask_question(
 
 @router.get("/agent-questions", response_model=list[QuestionOut])
 async def list_agent_questions(
+    request: Request,
     agent: str,
     status_filter: str | None = Query(default=None, alias="status"),
     limit: int = Query(default=20, ge=1, le=200),
@@ -1388,6 +1392,7 @@ async def list_agent_questions(
     """What an agent asked (or relays). Covers both: the asker checking for
     an answer, and the relay agent finding the #number Marcelo replied to."""
     _require_bridge(x_bridge_token)
+    await assert_acts_as(request, db, agent)
     who = await _agent_by_slug_or_404(db, agent)
     query = select(AgentQuestion).where(
         (AgentQuestion.agent_id == who.id) | (AgentQuestion.relay_agent_id == who.id)

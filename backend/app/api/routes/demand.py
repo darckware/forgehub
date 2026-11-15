@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +38,7 @@ from app.api.schemas.demand import (
     DemandDecisionIn,
     DemandBulkIn,
 )
+from app.core.bridge_caller import assert_acts_as
 from app.core import conversions
 from app.core.instructor_group import GROUP_CHANNEL, is_sti_approval, run_toolsets
 from app.core.agent_runs import AgentRunDispatchError, dispatch_agent_run, poll_agent_run
@@ -497,6 +498,7 @@ async def create_demand_and_notify(
 @router.post("/submit", response_model=DemandOut, status_code=status.HTTP_201_CREATED)
 async def submit_demand(
     payload: DemandSubmitIn,
+    request: Request,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> AgentDemand:
@@ -506,12 +508,14 @@ async def submit_demand(
     a demand with a plain curl (no user JWT available to a cron/agent)."""
     if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid bridge token")
+    await assert_acts_as(request, db, payload.from_agent)
     return await create_demand_and_notify(db, payload)
 
 
 @router.get("/pending", response_model=list[DemandOut])
 async def list_pending_for_agent(
     agent: str,
+    request: Request,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> list[DemandOut]:
@@ -537,6 +541,7 @@ async def list_pending_for_agent(
     and archived in the same call so nothing can run it (2026-11-13)."""
     if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid bridge token")
+    await assert_acts_as(request, db, agent)
     resolved = await _get_agent_by_slug_or_404(db, agent)
     from app.db.models.moodle_approval import MoodleApproval
     now = datetime.now(timezone.utc)
@@ -608,6 +613,7 @@ async def list_pending_for_agent(
 
 @router.get("/for-agent", response_model=list[DemandOut])
 async def list_for_agent(
+    request: Request,
     agent: str,
     direction: str = "all",
     status_filter: str | None = None,
@@ -640,6 +646,7 @@ async def list_for_agent(
     /submit and /pending -- an agent has no user JWT."""
     if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid bridge token")
+    await assert_acts_as(request, db, agent)
     if direction not in {"all", "incoming", "outgoing"}:
         raise HTTPException(
             status_code=400, detail="direction must be one of: all, incoming, outgoing"
@@ -785,6 +792,7 @@ async def _reprocess_demand(demand_id, db, *, commit=True):
 async def receive_incubation(
     demand_id: uuid.UUID,
     agent: str,
+    request: Request,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> AgentDemand:
@@ -803,6 +811,7 @@ async def receive_incubation(
     starting."""
     if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid bridge token")
+    await assert_acts_as(request, db, agent)
     demand = await _get_owned_incubation_or_error(db, demand_id, agent)
 
     if demand.target_agent_id is None or demand.from_agent_id is None:
@@ -827,6 +836,7 @@ async def drop_incubation(
     demand_id: uuid.UUID,
     agent: str,
     reason: str,
+    request: Request,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> AgentDemand:
@@ -840,6 +850,7 @@ async def drop_incubation(
     considered and declined."""
     if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid bridge token")
+    await assert_acts_as(request, db, agent)
     if not reason.strip():
         raise HTTPException(400, "A drop needs a reason -- say why this thought isn't worth taking on")
     demand = await _get_owned_incubation_or_error(db, demand_id, agent)
@@ -1144,6 +1155,7 @@ def _require_bridge_token(x_bridge_token: str | None) -> None:
 async def update_demand_as_agent(
     demand_id: uuid.UUID,
     payload: AgentDemandUpdateIn,
+    request: Request,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> AgentDemand:
@@ -1156,6 +1168,7 @@ async def update_demand_as_agent(
     `receive_incubation`/`drop_incubation` already draw (403, not a silent
     no-op, so a caller can tell "not mine" from "nothing changed")."""
     _require_bridge_token(x_bridge_token)
+    await assert_acts_as(request, db, payload.agent)
     demand = await _get_demand_or_404(db, demand_id, lock=True)
     from app.db.models.moodle_approval import MoodleApproval
     if await db.scalar(select(MoodleApproval.id).where(MoodleApproval.message_id == demand.id)):
@@ -1194,12 +1207,14 @@ async def update_demand_as_agent(
 async def archive_demand_as_agent(
     demand_id: uuid.UUID,
     agent: str,
+    request: Request,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> AgentDemand:
     """Bridge-token archive (2026-08-15), same ownership boundary as
     update_demand_as_agent -- the other half of the MCP's CRUD gap."""
     _require_bridge_token(x_bridge_token)
+    await assert_acts_as(request, db, agent)
     demand = await _get_demand_or_404(db, demand_id, lock=True)
     caller = await _get_agent_by_slug_or_404(db, agent)
     if demand.from_agent_id != caller.id:

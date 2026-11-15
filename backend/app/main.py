@@ -293,6 +293,9 @@ def is_agent_command_path(method: str, path: str) -> bool:
             or remote_file_transfer)
 
 
+from app.core.bridge_caller import log_bridge_only_call  # noqa: E402
+
+
 class RequireAuthMiddleware(BaseHTTPMiddleware):
     """Almost none of the domain routers were wired up with their own auth
     dependency (only users.py/auth.py were) -- this was fine while the app
@@ -350,6 +353,7 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
         if channels_bridge_path:
             bridge_token = request.headers.get("x-bridge-token")
             if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
+                log_bridge_only_call(request)
                 return await call_next(request)
         # Same trust boundary as channels_bridge_path above -- read-only,
         # non-secret roster/skills data (2026-08-06, backs the
@@ -371,6 +375,7 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
         if agents_bridge_path:
             bridge_token = request.headers.get("x-bridge-token")
             if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
+                log_bridge_only_call(request)
                 return await call_next(request)
         # Same trust boundary again (2026-08-15) -- dynamic demand actions
         demands_bridge_action = path.startswith("/api/v1/demands/") and (
@@ -383,6 +388,7 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
         if demands_bridge_action:
             bridge_token = request.headers.get("x-bridge-token")
             if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
+                log_bridge_only_call(request)
                 return await call_next(request)
 
         # Agents asking Marcelo (MCP ask_marcelo / list_my_questions /
@@ -395,6 +401,7 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
         if is_agent_questions_path:
             bridge_token = request.headers.get("x-bridge-token")
             if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
+                log_bridge_only_call(request)
                 return await call_next(request)
 
         # System operations via bridge token (system-control, backups, audit, deploy, database query)
@@ -410,6 +417,7 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
         if is_system_bridge_path:
             bridge_token = request.headers.get("x-bridge-token")
             if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
+                log_bridge_only_call(request)
                 return await call_next(request)
 
         # Agent tool catalog via ForgeHub Messages MCP. The MCP bridge already
@@ -421,6 +429,7 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
         if is_tools_bridge_path:
             bridge_token = request.headers.get("x-bridge-token")
             if bridge_token and settings.CHAT_BRIDGE_TOKEN and bridge_token == settings.CHAT_BRIDGE_TOKEN:
+                log_bridge_only_call(request)
                 return await call_next(request)
         payload = decode_access_token(token) if token else None
         if payload is None or payload.get("purpose") == "totp_pending":
