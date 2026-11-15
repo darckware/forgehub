@@ -126,3 +126,21 @@ async def test_edit_and_archive_only_as_oneself(client, agents):
     archive = await client.post(f"/api/v1/demands/{demand_id}/agent-archive", params={"agent": agents["alice"]},
                                 headers=_headers(agents["tokens"]["alice"]))
     assert archive.status_code == 200, archive.text
+
+
+async def test_from_agent_id_cannot_name_another_agent(client, agents):
+    """Review F1: /demands/submit uses from_agent_id before the slug."""
+    async with AsyncSessionLocal() as db:
+        alice = await db.get(Agent, agents["ids"][0])
+    body = {**_message(agents["bob"], agents["alice"]), "from_agent_id": str(alice.id)}
+    response = await client.post("/api/v1/demands/submit", json=body, headers=_headers(agents["tokens"]["bob"]))
+    assert response.status_code == 403, response.text
+    assert response.json()["detail"]["code"] == "AGENT_IMPERSONATION"
+
+
+async def test_only_the_exact_slug_counts(client, agents):
+    """Review F4: a name or another case could match here and resolve someone else in the route."""
+    for claimed in (agents["alice"].upper(), f"Id Alice {agents['alice'].split('-')[-1]}"):
+        response = await client.get("/api/v1/demands/pending", params={"agent": claimed},
+                                    headers=_headers(agents["tokens"]["alice"]))
+        assert response.status_code == 403, (claimed, response.text)

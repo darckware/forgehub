@@ -508,7 +508,7 @@ async def submit_demand(
     a demand with a plain curl (no user JWT available to a cron/agent)."""
     if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid bridge token")
-    await assert_acts_as(request, db, payload.from_agent)
+    await assert_acts_as(request, db, payload.from_agent, payload.from_agent_id)
     return await create_demand_and_notify(db, payload)
 
 

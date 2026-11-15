@@ -99,6 +99,25 @@ def _bridge_token() -> str:
     )
 
 
+def _identity_headers() -> dict[str, str]:
+    """The calling agent's own agt_ credential, sent with every call (MCP split plan, Fase 2a):
+    ForgeHub then knows who is calling and refuses a request that names another agent.
+
+    A dispatched run's credential file wins; otherwise the profile's FORGEHUB_AGENT_TOKEN, the
+    same credential the Software Factory tools already send. Identity grants nothing by itself:
+    maintenance still needs the dispatch file (``_maintenance_token``) and its own checks.
+    Without a credential the call goes on the bridge token alone, as before. Never logged."""
+    token = ""
+    path = os.environ.get("FORGEHUB_AGENT_TOKEN_FILE") or os.environ.get("XDG_FORGEHUB_AGENT_TOKEN_FILE", "")
+    if path:
+        try:
+            token = Path(path).read_text().strip()
+        except OSError:
+            token = ""
+    token = token or os.environ.get("FORGEHUB_AGENT_TOKEN", "").strip()
+    return {"Authorization": f"Bearer {token}"} if token.startswith("agt_") else {}
+
+
 async def _call(method: str, path: str, *, timeout_seconds: float = 60.0, **kwargs: Any) -> Any:
     """One request against ForgeHub, with the token attached and HTTP errors
     turned into a ForgeHubError carrying the API's own `detail`.
@@ -108,7 +127,8 @@ async def _call(method: str, path: str, *, timeout_seconds: float = 60.0, **kwar
     of them drifted into three slightly different error strings.
     """
     async with httpx.AsyncClient(
-        base_url=BASE_URL, headers={"X-Bridge-Token": _bridge_token()}, timeout=timeout_seconds
+        base_url=BASE_URL, headers={"X-Bridge-Token": _bridge_token(), **_identity_headers()},
+        timeout=timeout_seconds,
     ) as client:
         try:
             response = await client.request(method, path, **kwargs)

@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request
@@ -67,28 +69,54 @@ async def caller_agent(request: Request | None, db: AsyncSession) -> Agent | Non
 
 
 def _same_agent(agent: Agent, claimed: str | None) -> bool:
-    value = (claimed or "").strip().lower()
-    return bool(value) and value in {
-        (agent.profile_slug or "").strip().lower(), (agent.name or "").strip().lower(), str(agent.id),
-    }
+    """Exactly the slug the routes resolve by (``Agent.profile_slug ==``): a name or a different
+    case could match one agent here and resolve another in the route (review F4)."""
+    return bool(agent.profile_slug) and (claimed or "").strip() == agent.profile_slug
 
 
-async def assert_acts_as(request: Request | None, db: AsyncSession, claimed: str | None) -> Agent | None:
-    """Refuse a request that names an agent other than the authenticated one. Returns the
-    authenticated agent (None for a bridge-token-only call, still accepted in 2a)."""
+def _refuse(request: Request, agent: Agent, claimed: object) -> HTTPException:
+    logger.warning("agent %s tried to act as %r on %s %s", agent.profile_slug, claimed,
+                   request.method, request.url.path)
+    return HTTPException(status_code=403, detail={
+        "code": "AGENT_IMPERSONATION",
+        "message": f"This credential belongs to {agent.profile_slug or agent.name}; "
+                   "a request may only act as the agent that authenticated it.",
+    })
+
+
+async def assert_acts_as(request: Request | None, db: AsyncSession, claimed: str | None,
+                         claimed_id: uuid.UUID | None = None) -> Agent | None:
+    """Refuse a request that names an agent other than the authenticated one, by slug and,
+    when the request also carries one, by id (review F1: ``from_agent_id`` wins over the slug
+    in /demands/submit). Returns the authenticated agent; None for a bridge-token-only call,
+    still accepted in 2a and logged."""
     agent = await caller_agent(request, db)
-    if agent is not None and not _same_agent(agent, claimed):
-        logger.warning("agent %s tried to act as %r on %s %s", agent.profile_slug, claimed,
-                       request.method, request.url.path)  # agent is None whenever request is None
-        raise HTTPException(status_code=403, detail={
-            "code": "AGENT_IMPERSONATION",
-            "message": f"This credential belongs to {agent.profile_slug or agent.name}; "
-                       "a request may only act as the agent that authenticated it.",
-        })
+    if agent is None:
+        if request is not None:
+            log_bridge_only_call(request)
+        return None
+    if not _same_agent(agent, claimed):
+        raise _refuse(request, agent, claimed)
+    if claimed_id is not None and claimed_id != agent.id:
+        raise _refuse(request, agent, str(claimed_id))
     return agent
 
 
+# One line per (method, path) per hour: enough to know what still calls without a credential
+# (2d readiness) without a line for every inbox poll (review F6).
+_LOG_EVERY_SECONDS = 3600
+_last_logged: dict[tuple[str, str], float] = {}
+
+
 def log_bridge_only_call(request: Request) -> None:
-    """Middleware hook: a bridge-token call that carries no agent credential (2d readiness)."""
-    if agent_credential(request) is None:
-        logger.info("bridge-token call without agent credential: %s %s", request.method, request.url.path)
+    """A bridge-token call that carries no agent credential."""
+    if agent_credential(request) is not None:
+        return
+    key = (request.method, request.url.path)
+    now = time.monotonic()
+    if now - _last_logged.get(key, -_LOG_EVERY_SECONDS) < _LOG_EVERY_SECONDS:
+        return
+    if len(_last_logged) > 5000:
+        _last_logged.clear()
+    _last_logged[key] = now
+    logger.info("bridge-token call without agent credential: %s %s", request.method, request.url.path)

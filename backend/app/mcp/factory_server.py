@@ -58,6 +58,18 @@ get_workspace_browser_capabilities = messages.get_workspace_browser_capabilities
 task_browser = messages.task_browser
 get_task_context = messages.get_task_context
 propose_verified_learning = messages.propose_verified_learning
+# Remote-access tools: defined once, in the Messages module (MCP split plan, Fase 1). These names
+# keep `factory_server.<tool>` working for callers and tests that import them from here.
+list_maintenance_machines = messages.list_maintenance_machines
+list_maintenance_scripts = messages.list_maintenance_scripts
+run_maintenance_script = messages.run_maintenance_script
+run_remote_command = messages.run_remote_command
+upload_remote_file = messages.upload_remote_file
+download_remote_file = messages.download_remote_file
+get_maintenance_execution = messages.get_maintenance_execution
+propose_maintenance_script = messages.propose_maintenance_script
+get_maintenance_proposal = messages.get_maintenance_proposal
+run_approved_maintenance_proposal = messages.run_approved_maintenance_proposal
 BASE_URL = os.environ.get("FORGEHUB_API_URL", "http://localhost:8000").rstrip("/")
 
 
