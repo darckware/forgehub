@@ -112,9 +112,21 @@ async def test_a_stale_screen_is_refused(client, setup):
     first = await client.put(url, headers=_jwt(setup["admin"]),
                              json={"servers": [], "restart_mode": "approval", "query_mode": "approval"})
     stale = first.json()["updated_at"]
-    await client.put(url, headers=_jwt(setup["admin"]),
-                     json={"servers": ["forgehub_ops"], "restart_mode": "approval", "query_mode": "approval"})
+    second = await client.put(url, headers=_jwt(setup["admin"]),
+                              json={"servers": ["forgehub_ops"], "restart_mode": "approval", "query_mode": "approval",
+                                    "expected_updated_at": stale})
+    assert second.status_code == 200, second.text
     again = await client.put(url, headers=_jwt(setup["admin"]),
                              json={"servers": [], "restart_mode": "direct", "query_mode": "direct",
                                    "expected_updated_at": stale})
+    assert again.status_code == 409, again.text
+
+
+
+async def test_a_screen_that_saw_no_row_cannot_overwrite_a_saved_one(client, setup):
+    """Review 3: the first save sends no expected_updated_at; if someone saved meanwhile, 409."""
+    url = f"/api/v1/mcp-access/{setup['agent_id']}"
+    body = {"servers": [], "restart_mode": "approval", "query_mode": "approval"}
+    assert (await client.put(url, headers=_jwt(setup["admin"]), json=body)).status_code == 200
+    again = await client.put(url, headers=_jwt(setup["admin"]), json=body)
     assert again.status_code == 409, again.text

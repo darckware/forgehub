@@ -213,6 +213,8 @@ async def decide_demand(db, demand, payload, *, actor):
         # Authorizing a new budget does not execute. Explicit approval queues it.
         demand.scheduled_at = None
     elif payload.action == "approve":
+        if (demand.context_area or "").startswith("agent_action:") and demand.approval_status == "approved":
+            raise WorkflowBlocked("This request was already approved and run; see its result")
         if demand.dispatch_status is not None:
             raise WorkflowBlocked("Reconcile or reprocess the failed execution separately before release")
         from app.core.quota_wait import is_factory_quota_continuation

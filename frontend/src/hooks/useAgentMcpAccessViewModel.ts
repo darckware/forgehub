@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api";
+import { useAuthStore } from "@/store/authStore";
 
 /** Agentes e MCP do ForgeHub (business rules MCP-005, MCP-023): which ForgeHub MCP servers each
  * agent gets, and whether a container restart / direct database query runs at once or goes to
@@ -69,9 +70,11 @@ export function useAgentMcpAccessViewModel(): AgentMcpAccessViewModel {
   const queryClient = useQueryClient();
   const [drafts, setDrafts] = useState<Record<string, AgentMcpAccessDraft>>({});
   const [saveError, setSaveError] = useState<{ agentId: string; message: string } | null>(null);
+  const admin = useAuthStore((s) => Boolean(s.user?.is_admin));
   const catalog = useQuery({
     queryKey: MCP_ACCESS_KEY,
     queryFn: () => apiClient.get<AgentMcpAccessCatalog>("/api/v1/mcp-access"),
+    enabled: admin,
   });
 
   const stored = (row: AgentMcpAccessRow): AgentMcpAccessDraft => ({
@@ -80,8 +83,10 @@ export function useAgentMcpAccessViewModel(): AgentMcpAccessViewModel {
     query_mode: row.query_mode,
   });
   const draftOf = (row: AgentMcpAccessRow) => drafts[row.agent_id] ?? stored(row);
-  const update = (row: AgentMcpAccessRow, change: Partial<AgentMcpAccessDraft>) =>
+  const update = (row: AgentMcpAccessRow, change: Partial<AgentMcpAccessDraft>) => {
+    setSaveError((error) => (error?.agentId === row.agent_id ? null : error));
     setDrafts((current) => ({ ...current, [row.agent_id]: { ...draftOf(row), ...change } }));
+  };
 
   const mutation = useMutation({
     mutationFn: (row: AgentMcpAccessRow) =>
@@ -98,8 +103,11 @@ export function useAgentMcpAccessViewModel(): AgentMcpAccessViewModel {
       });
       return queryClient.invalidateQueries({ queryKey: MCP_ACCESS_KEY });
     },
-    onError: (error, row) =>
-      setSaveError({ agentId: row.agent_id, message: error instanceof Error ? error.message : String(error) }),
+    onError: (error, row) => {
+      setSaveError({ agentId: row.agent_id, message: error instanceof Error ? error.message : String(error) });
+      // A 409 means someone saved it meanwhile: reload so the next save compares with the current row.
+      return queryClient.invalidateQueries({ queryKey: MCP_ACCESS_KEY });
+    },
   });
 
   return {
@@ -120,12 +128,14 @@ export function useAgentMcpAccessViewModel(): AgentMcpAccessViewModel {
         restart_mode: row.suggested.restart_mode,
         query_mode: row.suggested.query_mode,
       }),
-    discard: (row) =>
+    discard: (row) => {
+      setSaveError((error) => (error?.agentId === row.agent_id ? null : error));
       setDrafts((current) => {
         const next = { ...current };
         delete next[row.agent_id];
         return next;
-      }),
+      });
+    },
     save: (row) => mutation.mutate(row),
     savingId: mutation.isPending ? (mutation.variables?.agent_id ?? null) : null,
     saveError,

@@ -133,6 +133,15 @@ async def test_approving_runs_it_and_records_the_outcome(client, make_agent):
         assert decided.scheduled_at is None and decided.agent_run_id is None  # no agent run
         assert decided.task_execution_at is not None
         assert decided.dispatch_result or decided.dispatch_error
+        # Never marked as an agent run in flight (review HIGH 1), and never run twice.
+        assert decided.dispatch_status != "running"
+        from app.core.demand_workflow import WorkflowBlocked
+        try:
+            await decide_demand(db, decided, DemandDecisionIn(action="approve", reason="de novo"), actor="test")
+        except WorkflowBlocked:
+            pass
+        else:
+            raise AssertionError("an approved agent action must not run twice")
 
 
 async def test_rejecting_runs_nothing(client, make_agent):

@@ -45,6 +45,8 @@ def is_agent_action(demand: AgentDemand) -> bool:
 
 _CONTAINER_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,127}$")  # the host-bridge's own rule
 _EXECUTE_TIMEOUT_SECONDS = 90
+EXECUTING_MARKER = ("Executando a ação aprovada. Se esta mensagem continuar assim, a execução foi interrompida: "
+                    "confira o resultado antes de pedir de novo.")
 
 
 class InvalidActionRequest(ValueError):
@@ -133,10 +135,11 @@ async def request_approval(db: AsyncSession, agent: Agent, action: str, params: 
 async def execute_approved(db: AsyncSession, demand: AgentDemand) -> None:
     """Run an approved agent action and record the outcome on its message."""
     action = (demand.context_area or "")[len(CONTEXT_PREFIX):]
-    # Visible marker before running (review F4): a second approval is refused while it is set, and an
-    # interrupted run (e.g. restarting forgehub-backend itself) is left saying so instead of looking new.
-    demand.dispatch_status = "running"
-    demand.dispatch_error = "Executando a ação aprovada; se continuar assim, a execução foi interrompida."
+    # Visible marker before running. Not dispatch_status="running": that would count as the agent's
+    # run in flight (dispatch slots, live board) and block every way out if this process died mid-run,
+    # e.g. when the approved action restarts forgehub-backend itself. A second approval is refused by
+    # decide_demand (already approved); an interrupted run stays readable and can be archived.
+    demand.dispatch_error = EXECUTING_MARKER
     await db.commit()
     now = datetime.now(timezone.utc)
     try:
@@ -158,6 +161,12 @@ async def execute_approved(db: AsyncSession, demand: AgentDemand) -> None:
         demand.dispatch_status = "completed"
         demand.dispatch_result = ("Aprovado e executado pelo ForgeHub.\n\n" + text)[:_MAX_RESULT]
         demand.dispatch_error = None
+    except TimeoutError:
+        # The bridge may still have done it (a restart already sent is not undone): unknown, not failed.
+        logger.warning("approved agent action %s on #%s timed out", action, demand.number)
+        demand.dispatch_status = "failed"
+        demand.dispatch_error = (f"Aprovado, mas sem resposta em {_EXECUTE_TIMEOUT_SECONDS} s: o resultado é "
+                                 "desconhecido. Confira antes de pedir de novo.")
     except Exception as exc:  # the outcome is recorded either way; never left pending
         detail = getattr(exc, "detail", None) or str(exc) or type(exc).__name__
         # Only the class in the log (review F5): a failed query's message carries its SQL.

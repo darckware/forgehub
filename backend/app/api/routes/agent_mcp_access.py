@@ -17,6 +17,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.agent_mcp_actions import CORE_SERVER, OPTIONAL_SERVERS, PERSONAL_SERVER, function_defaults
@@ -103,7 +104,9 @@ async def save_mcp_access(
         raise HTTPException(422, {"code": "PERSONAL_NOT_ALLOWED",
                                   "message": "Only the Maia gets Marcelo's personal tools."})
     access = await db.get(AgentMcpAccess, agent_id)
-    if access is not None and payload.expected_updated_at is not None and access.updated_at != payload.expected_updated_at:
+    # A screen that saw no saved row sends no expected_updated_at: if one exists now, someone saved it
+    # meanwhile (review 3).
+    if access is not None and (payload.expected_updated_at is None or access.updated_at != payload.expected_updated_at):
         raise HTTPException(409, {"code": "MCP_ACCESS_CHANGED", "message": "Changed since loaded; reload the screen."})
     servers = [s for s in OPTIONAL_SERVERS if s in set(payload.servers)]
     before = None if access is None else {
@@ -118,6 +121,10 @@ async def save_mcp_access(
     access.updated_by = admin.username
     db.add(AuditEvent(entity_type="agent_mcp_access", entity_id=agent_id, event_type="agent_mcp_access_saved",
                       actor=admin.username, payload={"agent": agent.profile_slug, "before": before, "after": after}))
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:  # two first saves at once
+        await db.rollback()
+        raise HTTPException(409, {"code": "MCP_ACCESS_CHANGED", "message": "Changed since loaded; reload the screen."}) from None
     await db.refresh(access)
     return _out(agent, access)
