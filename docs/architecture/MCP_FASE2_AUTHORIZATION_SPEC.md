@@ -27,17 +27,20 @@ Status: **decisões A, B e C tomadas** (2026-11-15). Implementação não inicia
 
 1. **Toda ferramenta chama o backend como o agente** (`Authorization: Bearer agt_…`). O backend sabe quem é.
 2. **O remetente é quem autenticou**: uma mensagem nunca sai em nome de outro agente.
-3. **Ações sensíveis exigem delegação** (`AuthorityDelegation`, a mesma do acesso remoto), concedida por um admin:
+3. **Ações sensíveis exigem delegação** (`AuthorityDelegation`, a mesma do acesso remoto), concedida por um admin.
+   **D2 ajustada ao uso real (Marcelo, 2026-11-15: "ajustar por demandas", "manter os direitos já adquiridos").** A
+   tabela abaixo é a D2 original somada ao que cada agente de fato usou nos 30 dias anteriores (eventos de atividade).
+   Concedido em 2026-11-15, validade de 1 ano. Uma permissão nova se pede pelo Athos, com aprovação do Marcelo:
 
 | Ação (delegação) | Ferramentas | Quem recebe (D2) |
 |---|---|---|
-| `ops.read` | `get_system_status`, `list_system_backups`, `list_audit_checks`, `list_deploy_containers`, `get_container_logs`, `list_managed_servers`, `list_routines`, `list_routine_runs` | **Athos, Aegis, Hephaestus** (decisão B) |
-| `ops.audit.run` | `run_audit_checks` | Athos, Aegis |
+| `ops.read` | `get_system_status`, `list_system_backups`, `list_audit_checks`, `list_deploy_containers`, `get_container_logs`, `list_managed_servers`, `list_routines`, `list_routine_runs` | **Athos, Aegis, Hephaestus, Scriba, Mnemosyne, Daedalus** |
+| `ops.audit.run` | `run_audit_checks` | Athos, Aegis, **Hephaestus, Scriba** |
 | `ops.backup.run` | `run_system_backup` | Athos, Hephaestus |
 | `ops.deploy.restart` | `restart_deploy_container` | **Athos, Hephaestus** |
-| `ops.database.query` | `execute_database_query` | **Athos, Aegis, Hephaestus** |
+| `ops.database.query` | `execute_database_query` | **Athos, Aegis, Hephaestus, Mnemosyne** |
 | `operations.routines.manage` (já existe) | `create/update/delete_routine`, `run_routine_now` | como hoje |
-| `registry.read` | `list_skills`, `list_agent_tools`, `get_agent_profile_file`, `list_agent_credentials` (só metadados) | Athos, Aegis, Themis |
+| `registry.read` | `list_skills`, `list_agent_tools`, `get_agent_profile_file`, `list_agent_credentials` (só metadados) | Athos, Aegis, Themis, **Hephaestus** |
 | `registry.manage` | skills, perfis, ferramentas de agente, `sync_hermes_agents` | Athos |
 | `registry.credential.request` | `issue_agent_credential` → **pede**, não emite | **Athos** |
 

@@ -147,7 +147,10 @@ verificação de que nenhuma citação antiga ficou.
   ativo é automática (rotina do ForgeHub, grava no ForgeVault, o agente nunca vê o token), validade de 90 dias e
   renovação 7 dias antes, sem aprovação; **emissão nova** (agente novo, sem credencial, vazamento) só o Athos pede
   e Marcelo aprova na aba Aprovação (botões no Telegram ficam para depois). Consultar o banco: Athos, Aegis e
-  Hephaestus. Reiniciar contêiner: Athos e Hephaestus. Lacuna L13: hoje `issue_agent_credential` devolve o token
+  Hephaestus. Reiniciar contêiner: Athos e Hephaestus. **Ajuste ao uso real (2026-11-15, Marcelo: "ajustar por demandas", "manter os
+  direitos já adquiridos"):** somou-se o que cada agente usou nos 30 dias anteriores. Ver status também para
+  Scriba, Mnemosyne e Daedalus; rodar o Auditor também para Hephaestus e Scriba; consultar o banco também para
+  Mnemosyne; ver o registro também para Hephaestus. Tabela completa: especificação da Fase 2, seção 2. Lacuna L13: hoje `issue_agent_credential` devolve o token
   em texto ao agente, e as credenciais fixas não têm validade.
 - **D4. Decidido (2026-11-15, Marcelo): a lista oficial fica no ForgeHub e cobre todos os agentes cadastrados;
   acesso por demanda.** Agente não cadastrado não recebe servidor. Base fixa: todos recebem `forgehub` (núcleo); os
