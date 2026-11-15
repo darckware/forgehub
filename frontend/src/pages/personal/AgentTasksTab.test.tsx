@@ -150,21 +150,46 @@ describe("operator deliberation", () => {
       return [];
     });
     open(); expect(await screen.findByText(/26 de 90/)).toBeInTheDocument();
-    expect(await screen.findByText(/Análise concluída · 90 de 90/, {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(await screen.findByText(/Análise concluída em .+ · 90 de 90/, {}, { timeout: 4000 })).toBeInTheDocument();
     expect(polls).toBe(2);
     expect(screen.getByRole("button", { name: "Analisar e encaminhar" })).toBeEnabled();
   });
   it("refreshes work after analysis completes and reports an empty scope honestly", async () => {
     const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries");
     vi.mocked(apiClient.get).mockImplementation(async url => url.includes("/analysis") ? { id: "empty-job", status: "completed", total: 0, processed: 0, applied: 0 } : []);
-    open(); expect(await screen.findByText(/Análise concluída · 0 de 0/)).toBeInTheDocument();
+    open(); expect(await screen.findByText(/Análise concluída em .+ · 0 de 0/)).toBeInTheDocument();
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["demands"] })));
   });
   it("shows an unavailable analysis service without suppressing operator decisions", async () => {
     vi.mocked(apiClient.get).mockImplementation(async url => { if (url.includes("/analysis")) throw new Error("503"); return []; });
-    open(); expect(await screen.findByText(/Análise indisponível/)).toBeInTheDocument();
+    open(); expect(await screen.findByText(/Não foi possível consultar ou iniciar a análise das tarefas/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Analisar e encaminhar" })).toBeDisabled();
     expect(screen.getByRole("button", { name: /Revisar backup/ })).toBeInTheDocument();
+  });
+  it("says the task analysis is off and shows the last run only as dated history (2026-11-15)", async () => {
+    vi.mocked(apiClient.get).mockImplementation(async url => {
+      if (url.endsWith("/triage-settings")) return { enabled: false };
+      if (url.includes("/analysis")) return { id: "old", status: "completed", total: 17, processed: 17, applied: 6, created_at: "2026-11-09T14:24:00Z", finished_at: "2026-11-09T14:25:00Z" };
+      return [];
+    });
+    open();
+    expect(await screen.findByText(/análise automática das tarefas está desligada/)).toBeInTheDocument();
+    expect(screen.getByText(/Última análise das tarefas, em .+: 17 de 17 verificadas · 6 encaminhadas/)).toBeInTheDocument();
+    expect(screen.queryByText(/^Análise concluída/)).not.toBeInTheDocument();
+    const button = screen.getByRole("button", { name: "Analisar e encaminhar" });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    // Only the questions are analysed: no request that could only answer 503.
+    await waitFor(() => expect(mocks.post).not.toHaveBeenCalledWith("/api/v1/demands/agent-work/analyze", expect.anything()));
+  });
+  it("retry clears a failed start instead of leaving the error on screen", async () => {
+    mocks.post.mockRejectedValueOnce(new Error("503"));
+    open();
+    const button = screen.getByRole("button", { name: "Analisar e encaminhar" });
+    await waitFor(() => expect(button).toBeEnabled()); fireEvent.click(button);
+    expect(await screen.findByText(/Não foi possível consultar ou iniciar/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+    await waitFor(() => expect(screen.queryByText(/Não foi possível consultar ou iniciar/)).not.toBeInTheDocument());
   });
   it("presents a readable source and recommendation for waiting work", () => {
     mocks.demands.mockReturnValue({ data: { items: [item({ operator_state: "waiting", display_context: "CoreTI · Atendimento", analysis: { summary: "A execução aguarda capacidade", reason: "Janela indisponível", recommendation: "Aguardar a próxima janela" }, dispatch_status: "failed", requires_approval: false, allowed_actions: ["archive"] } as Partial<Demand>)], total: 1, page: 1, counts: {}, contexts: [] } });

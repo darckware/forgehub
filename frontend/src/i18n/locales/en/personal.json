@@ -494,17 +494,19 @@
       "start": "Analyze and route",
       "scope": "Analyzes everything pending in Agent tasks: tasks and incubations for the selected agent and context (including other pages) and every pending question. Search and dates don't limit the analysis.",
       "loading": "Checking previous analysis…",
-      "unavailable": "Analysis is unavailable. Refresh its status before trying again. Decisions remain available.",
+      "unavailable": "The task analysis could not be read or started. Decisions remain available.",
       "failed": "Analysis could not finish. You can try again.",
       "ready": "Ready to analyze pending work in this scope.",
       "queued": "Analysis queued · {{processed}} of {{total}} checked",
       "running": "Analyzing · {{processed}} of {{total}} checked · {{applied}} routed",
-      "completed": "Analysis completed · {{processed}} of {{total}} checked · {{applied}} routed",
+      "completed": "Analysis finished on {{date}} · {{processed}} of {{total}} checked · {{applied}} routed",
       "scopeAnswers": "On this tab: classifies each pending question as \"needs an answer\" or \"suggested to archive\", with the reason. Nothing is archived without your confirmation. Tasks and incubations are analyzed too.",
       "questions_one": "{{total}} question analyzed · {{archive}} suggested to archive",
       "questions_other": "{{total}} questions analyzed · {{archive}} suggested to archive",
       "questionsRunning": "Analyzing questions…",
-      "questionsFailed": "Question analysis unavailable"
+      "questionsFailed": "Question analysis unavailable",
+      "disabled": "Automatic task analysis is turned off on this installation. The button analyses only the questions (Answers tab); decisions remain available.",
+      "lastRun": "Last task analysis, on {{date}}: {{processed}} of {{total}} checked · {{applied}} routed"
     },
     "instructorContext": "Instructor context",
     "questionBulk": {

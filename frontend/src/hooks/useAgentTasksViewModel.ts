@@ -188,8 +188,10 @@ export function useAgentTasksViewModel() {
     moodlePending,
 
     // "Analisar e encaminhar": message triage + questions, whatever tab is open.
+    // With the task analysis off (MESSAGE_TRIAGE_ENABLED=false) the button still analyses the
+    // questions, which need no model; it no longer fires a request that can only answer 503.
     runAnalysis: () => {
-      analysis.start.mutate();
+      if (analysis.enabled !== false) analysis.start.mutate();
       if (questionAnalysisRequested) void questionAnalysis.refetch(); else setQuestionAnalysisRequested(true);
     },
     analysisBusy: analysis.busy || questionAnalysis.isFetching,

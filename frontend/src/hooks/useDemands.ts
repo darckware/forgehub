@@ -220,6 +220,12 @@ export function useAgentWorkAnalysis(scope: { agent_id?: string; context?: strin
     queryKey: key, enabled, retry: false,
     queryFn: ({ signal }) => apiClient.get<AnalysisRun | null>("/api/v1/demands/agent-work/analysis", { params: scope, signal }),
   });
+  // Whether "Analisar e encaminhar" can run at all (MESSAGE_TRIAGE_ENABLED). Unknown (still loading
+  // or the read failed) is not "off": the button keeps working and a 503 is still reported.
+  const settings = useQuery({
+    queryKey: [...demandKeys.all, "analysis-settings"], enabled, retry: false, staleTime: 60_000,
+    queryFn: ({ signal }) => apiClient.get<{ enabled: boolean }>("/api/v1/demands/agent-work/triage-settings", { signal }),
+  });
   const id = latest.data?.id;
   const job = useQuery({
     queryKey: [...demandKeys.all, "analysis-run", id], enabled: enabled && Boolean(id), retry: false,
@@ -240,8 +246,11 @@ export function useAgentWorkAnalysis(scope: { agent_id?: string; context?: strin
     onSuccess: result => { client.setQueryData([...demandKeys.all, "analysis-run", result.id], result); client.setQueryData(key, result); },
   });
   return { run, start, loading: latest.isLoading, unavailable: latest.isError || job.isError, error: start.error ?? job.error ?? latest.error,
+    enabled: settings.data?.enabled,
     busy: start.isPending || ["queued", "running"].includes(run?.status ?? ""),
-    refresh: () => { void latest.refetch(); if (id) void job.refetch(); } };
+    // Clears the failed click too: refetching the reads alone left the start error, and with it
+    // the "unavailable" message, on screen forever (2026-11-15).
+    refresh: () => { start.reset(); void settings.refetch(); void latest.refetch(); if (id) void job.refetch(); } };
 }
 
 /** Entrada (2026-07-27, Marcelo: "a message é como se fosse uma carta, ela

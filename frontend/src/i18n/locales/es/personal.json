@@ -494,17 +494,19 @@
       "start": "Analizar y encaminar",
       "scope": "Analiza todo lo pendiente en Tareas de los agentes: tareas e incubaciones del agente y contexto seleccionados (incluidas otras páginas) y todas las preguntas pendientes. La búsqueda y las fechas no limitan el análisis.",
       "loading": "Consultando el análisis anterior…",
-      "unavailable": "Análisis no disponible. Actualiza su estado antes de intentarlo otra vez. Las decisiones siguen disponibles.",
+      "unavailable": "No fue posible consultar ni iniciar el análisis de las tareas. Las decisiones siguen disponibles.",
       "failed": "El análisis no pudo completarse. Puedes intentarlo de nuevo.",
       "ready": "Listo para analizar los pendientes de este ámbito.",
       "queued": "Análisis en cola · {{processed}} de {{total}} comprobadas",
       "running": "Analizando · {{processed}} de {{total}} comprobadas · {{applied}} encaminadas",
-      "completed": "Análisis completado · {{processed}} de {{total}} comprobadas · {{applied}} encaminadas",
+      "completed": "Análisis concluido el {{date}} · {{processed}} de {{total}} verificadas · {{applied}} encaminadas",
       "scopeAnswers": "En esta pestaña: clasifica cada pregunta pendiente como \"necesita respuesta\" o \"sugerida para archivar\", con el motivo. Nada se archiva sin tu confirmación. Las tareas e incubaciones también se analizan.",
       "questions_one": "{{total}} pregunta analizada · {{archive}} sugerida(s) para archivar",
       "questions_other": "{{total}} preguntas analizadas · {{archive}} sugeridas para archivar",
       "questionsRunning": "Analizando preguntas…",
-      "questionsFailed": "Análisis de preguntas no disponible"
+      "questionsFailed": "Análisis de preguntas no disponible",
+      "disabled": "El análisis automático de las tareas está desactivado en esta instalación. El botón analiza solo las preguntas (pestaña Respuestas); las decisiones siguen disponibles.",
+      "lastRun": "Último análisis de las tareas, el {{date}}: {{processed}} de {{total}} verificadas · {{applied}} encaminadas"
     },
     "instructorContext": "Contexto de instructor",
     "questionBulk": {

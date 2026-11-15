@@ -268,6 +268,14 @@ async def test_analysis_api_is_admin_only_and_feature_gated(triage_db, admin_hea
 async def check_analysis_api(app,agent,run_ids,admin_headers,nonadmin,monkeypatch):
     from httpx import ASGITransport, AsyncClient
     async with AsyncClient(transport=ASGITransport(app=app),base_url="http://test") as client:
+        # The screen reads the switch up front (2026-11-15): admin only, mirrors MESSAGE_TRIAGE_ENABLED.
+        settings_path="/api/v1/demands/agent-work/triage-settings"
+        assert (await client.get(settings_path)).status_code==401
+        assert (await client.get(settings_path,headers=nonadmin)).status_code==403
+        monkeypatch.setattr(settings,"MESSAGE_TRIAGE_ENABLED",False)
+        assert (await client.get(settings_path,headers=admin_headers)).json()=={"enabled":False}
+        monkeypatch.setattr(settings,"MESSAGE_TRIAGE_ENABLED",True)
+        assert (await client.get(settings_path,headers=admin_headers)).json()=={"enabled":True}
         path="/api/v1/demands/agent-work/analyze"
         assert (await client.post(path,json={})).status_code==401
         assert (await client.post(path,json={},headers=nonadmin)).status_code==403

@@ -25,6 +25,13 @@ async def analyze(payload:AnalysisRequest,db:AsyncSession=Depends(get_db),admin=
         raise HTTPException(422,"Invalid analysis scope") from exc
 
 
+@router.get("/agent-work/triage-settings")
+async def triage_settings(admin=Depends(get_current_admin)):
+    """Whether "Analisar e encaminhar" can run here, so the screen can say so up front instead of
+    learning it from a 503 after the click and showing an old run as if it were current (2026-11-15)."""
+    return {"enabled": settings.MESSAGE_TRIAGE_ENABLED}
+
+
 @router.get("/agent-work/analysis",response_model=AnalysisRunOut | None)
 async def latest(agent_id:uuid.UUID | None=None,context:str | None=None,
     db:AsyncSession=Depends(get_db),admin=Depends(get_current_admin)):

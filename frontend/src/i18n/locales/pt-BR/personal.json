@@ -494,17 +494,19 @@
       "start": "Analisar e encaminhar",
       "scope": "Analisa todas as pendências das Tarefas dos agentes: tarefas e incubações do agente e contexto selecionados (incluindo outras páginas) e todas as perguntas pendentes. A busca e as datas não limitam a análise.",
       "loading": "Consultando análise anterior…",
-      "unavailable": "Análise indisponível. Atualize o estado antes de tentar novamente. As decisões continuam disponíveis.",
+      "unavailable": "Não foi possível consultar ou iniciar a análise das tarefas. As decisões continuam disponíveis.",
       "failed": "A análise não foi concluída. Você pode tentar novamente.",
       "ready": "Pronto para analisar as pendências neste escopo.",
       "queued": "Análise na fila · {{processed}} de {{total}} verificadas",
       "running": "Analisando · {{processed}} de {{total}} verificadas · {{applied}} encaminhadas",
-      "completed": "Análise concluída · {{processed}} de {{total}} verificadas · {{applied}} encaminhadas",
+      "completed": "Análise concluída em {{date}} · {{processed}} de {{total}} verificadas · {{applied}} encaminhadas",
       "scopeAnswers": "Nesta aba: classifica cada pergunta pendente como \"precisa de resposta\" ou \"sugerida para arquivar\", com o motivo. Nada é arquivado sem a sua confirmação. As tarefas e incubações são analisadas junto.",
       "questions_one": "{{total}} pergunta analisada · {{archive}} sugerida(s) para arquivar",
       "questions_other": "{{total}} perguntas analisadas · {{archive}} sugeridas para arquivar",
       "questionsRunning": "Analisando perguntas…",
-      "questionsFailed": "Análise das perguntas indisponível"
+      "questionsFailed": "Análise das perguntas indisponível",
+      "disabled": "A análise automática das tarefas está desligada nesta instalação. O botão analisa só as perguntas (aba Respostas); as decisões continuam disponíveis.",
+      "lastRun": "Última análise das tarefas, em {{date}}: {{processed}} de {{total}} verificadas · {{applied}} encaminhadas"
     },
     "instructorContext": "Contexto de instrutor",
     "questionBulk": {
