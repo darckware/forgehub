@@ -617,3 +617,22 @@ def test_log_file_mode_drops_cron_lines(tmp_path):
     done = subprocess.run(["sh", "-s"], input=text, capture_output=True, text=True, timeout=10)
     assert done.returncode == 0, done.stderr
     assert done.stdout == "Nov 11 10:00:04 h systemd[1]: Started nginx.service\n"
+
+
+@pytest.mark.parametrize("key", ["rustdesk_install:windows", "remote_access_install:windows"])
+def test_windows_rustdesk_server_is_applied_by_forgehub_after_the_installer(key):
+    """2026-11-15: the public installer stopped at its service wait and never configured the server
+    (blank ID/Relay/Key). ForgeHub now ensures the service and applies the server itself, before the ID."""
+    content = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == key)["content"]
+    ensure = content.index("\nEnsure-RustDeskService") if "\nEnsure-RustDeskService" in content else content.index("    Ensure-RustDeskService")
+    server = content.index("Set-RustDeskServer\n", ensure)
+    assert content.index("Invoke-Installer $installerArgs") < ensure < server < content.index("'--get-id'", server)
+    assert "'--install-service'" in content
+    for option in ("custom-rendezvous-server", "relay-server", "'key'"):
+        assert option in content
+    assert "NAO foi configurado" in content  # a failure says the Darckware server is missing
+
+
+def test_a_tailscale_failure_still_fails_the_combined_install():
+    content = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == "remote_access_install:windows")["content"]
+    assert 'if ($installerError -and $wantTs) { throw' in content

@@ -89,6 +89,42 @@ _WIN_RUSTDESK_CLI = """function Invoke-RustDesk([string[]]$RdArgs) {
     if (-not $p.WaitForExit(60000)) { $p.Kill(); throw 'O RustDesk nao respondeu' }
     return [pscustomobject]@{ Code = $p.ExitCode; Out = $out.Trim() }
 }
+# The Darckware server (ID/Relay/Key) is applied here, from ForgeVault, never by the public installer
+# repository; and the service is ensured here too, because the installer gives up waiting for it and
+# then never reaches its own configuration step (2026-11-15: blank ID/Relay/Key on a station).
+function Ensure-RustDeskService {
+    $svc = Get-Service -Name 'RustDesk' -ErrorAction SilentlyContinue
+    if (-not $svc) {
+        $null = Invoke-RustDesk @('--install-service')
+        $deadline = (Get-Date).AddSeconds(120)
+        while (-not ($svc = Get-Service -Name 'RustDesk' -ErrorAction SilentlyContinue)) {
+            if ((Get-Date) -ge $deadline) {
+                throw 'O servico do RustDesk nao foi registrado: o servidor da Darckware NAO foi configurado nesta maquina'
+            }
+            Start-Sleep -Seconds 2
+        }
+    }
+    if ($svc.Status -ne 'Running') { Start-Service -Name 'RustDesk' }
+    $deadline = (Get-Date).AddSeconds(60)
+    while ((Get-Service -Name 'RustDesk').Status -ne 'Running') {
+        if ((Get-Date) -ge $deadline) { throw 'O servico do RustDesk nao entrou em execucao' }
+        Start-Sleep -Seconds 2
+    }
+    'RustDesk: servico em execucao'
+}
+function Set-RustDeskServer {
+    foreach ($pair in @(@('custom-rendezvous-server', $RUSTDESK_ID_SERVER), @('relay-server', $RUSTDESK_RELAY_SERVER), @('key', $RUSTDESK_KEY))) {
+        $result = Invoke-RustDesk @('--option', $pair[0], $pair[1])
+        if ($result.Code -ne 0) { throw "O RustDesk recusou a configuracao $($pair[0])" }
+    }
+    foreach ($pair in @(@('custom-rendezvous-server', $RUSTDESK_ID_SERVER), @('relay-server', $RUSTDESK_RELAY_SERVER))) {
+        $current = Invoke-RustDesk @('--option', $pair[0])
+        if ($current.Code -ne 0 -or $current.Out -ne $pair[1]) {
+            throw "O RustDesk nao confirmou $($pair[0]): o servidor da Darckware NAO esta configurado"
+        }
+    }
+    "RustDesk: servidor da Darckware configurado ($RUSTDESK_ID_SERVER)"
+}
 """
 
 _SH_PRELUDE = """set -e
@@ -517,8 +553,14 @@ try {
         [IO.File]::WriteAllText($passwordPath, $RUSTDESK_PASSWORD)
         $installerArgs += @('-RustDeskPasswordFile', $passwordPath)
     }
-    Invoke-Installer $installerArgs
+    try { Invoke-Installer $installerArgs } catch {
+        # The installer may stop at its service wait, before configuring anything; finish it below.
+        if (-not (Test-Path (Join-Path $env:ProgramFiles 'RustDesk\\rustdesk.exe'))) { throw }
+        "Aviso do instalador: $($_.Exception.Message) -- o ForgeHub conclui o servico e a configuracao."
+    }
 } finally { Remove-Item -Recurse -Force $sec -ErrorAction SilentlyContinue }
+Ensure-RustDeskService
+Set-RustDeskServer
 if (-not $RUSTDESK_PASSWORD) {
     $approval = Invoke-RustDesk @('--option', 'approve-mode', 'click')
     if ($approval.Code -ne 0) { throw 'Nao foi possivel exigir aprovacao local para as conexoes RustDesk' }
@@ -617,8 +659,19 @@ try {
             } else { $installerArgs += @('-ConnectivityMode', 'LocalTailscale') }
         }
     }
-    Invoke-Installer $installerArgs
+    $installerError = $null
+    try { Invoke-Installer $installerArgs } catch {
+        # Tolerated only to finish RustDesk below; a Tailscale part still fails the run at the end.
+        if (-not ($wantRd -and (Test-Path (Join-Path $env:ProgramFiles 'RustDesk\\rustdesk.exe')))) { throw }
+        $installerError = $_.Exception.Message
+        "Aviso do instalador: $installerError -- o ForgeHub conclui o servico e a configuracao do RustDesk."
+    }
 } finally { Remove-Item -Recurse -Force $sec -ErrorAction SilentlyContinue }
+if ($wantRd) {
+    Ensure-RustDeskService
+    Set-RustDeskServer
+}
+if ($installerError -and $wantTs) { throw "O instalador da Darckware falhou: $installerError" }
 if ($wantRd -and -not $RUSTDESK_PASSWORD) {
     $approval = Invoke-RustDesk @('--option', 'approve-mode', 'click')
     if ($approval.Code -ne 0) { throw 'Nao foi possivel exigir aprovacao local para as conexoes RustDesk' }
