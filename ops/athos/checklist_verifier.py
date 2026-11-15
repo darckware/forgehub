@@ -1545,7 +1545,7 @@ def mcp_source_findings(hermes: Path = HERMES, codex: Path = Path("/root/.codex/
             if isinstance(entry, dict):
                 findings += _mcp_entry_findings(directory.name, name, entry)
         wrapper = directory / "mcp/forgehub.py"
-        if wrapper.is_file() and not re.search(r'^ROOT\s*=\s*Path\(["']/root/\.forgehub/mcp/current/',
+        if wrapper.is_file() and not re.search(r"^ROOT\s*=\s*Path\([\"']/root/\.forgehub/mcp/current/",
                                                 wrapper.read_text(encoding="utf-8"), re.MULTILINE):
             findings.append(f"{directory.name}: mcp/forgehub.py loads ForgeHub MCP code from outside {current}")
     if codex.is_file():
