@@ -61,3 +61,22 @@ def test_every_call_carries_both_tokens(monkeypatch):
     assert asyncio.run(m._call('GET', '/api/v1/agents')) == {'ok': True}
     assert seen['authorization'] == 'Bearer agt_me'
     assert seen['x-bridge-token'] == 'bridge-secret'
+
+
+def test_approval_requested_is_never_reported_as_done(monkeypatch):
+    """MCP-023: a restart or query outside the agent's function comes back 202 APPROVAL_REQUESTED."""
+    m = load()
+    monkeypatch.setenv('FORGEHUB_BRIDGE_TOKEN', 'bridge-secret')
+    body = {'detail': {'code': 'APPROVAL_REQUESTED', 'message': 'pedido #7 enviado para aprovação', 'message_number': 7}}
+    real_client = httpx.AsyncClient
+
+    def client(**kwargs):
+        return real_client(transport=httpx.MockTransport(lambda r: httpx.Response(202, json=body)), **kwargs)
+
+    monkeypatch.setattr(m.httpx, 'AsyncClient', client)
+    try:
+        asyncio.run(m._call('POST', '/api/v1/deploy/containers/x/restart'))
+    except m.ForgeHubError as exc:
+        assert 'pedido #7' in str(exc)
+    else:
+        raise AssertionError('an approval request must not read as success')

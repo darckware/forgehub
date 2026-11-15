@@ -295,7 +295,7 @@ def is_agent_command_path(method: str, path: str) -> bool:
 
 from app.core.bridge_caller import log_bridge_only_call  # noqa: E402
 from app.core.agent_mcp_actions import required_action  # noqa: E402
-from app.core.bridge_caller import agent_action_denial  # noqa: E402
+from app.core.bridge_caller import agent_action_gate  # noqa: E402
 
 
 class RequireAuthMiddleware(BaseHTTPMiddleware):
@@ -316,11 +316,11 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
         auth_header = request.headers.get("authorization", "")
         token = auth_header[7:] if auth_header.lower().startswith("bearer ") else None
         agent_command_path = is_agent_command_path(request.method, path)
-        gated_action = required_action(request.method, path)
-        if gated_action and token and token.startswith("agt_"):
-            denial = await agent_action_denial(request, gated_action)
-            if denial is not None:
-                return denial
+        gated = required_action(request.method, path)
+        if gated and token and token.startswith("agt_"):
+            redirected = await agent_action_gate(request, *gated)
+            if redirected is not None:
+                return redirected
         if token and token.startswith("agt_") and agent_command_path:
             from sqlalchemy import select
             from app.db.base import AsyncSessionLocal

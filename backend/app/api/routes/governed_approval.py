@@ -36,7 +36,7 @@ ROUTINES_MANAGE_ACTION = "operations.routines.manage"
 # 2026-11-13: the isolated task browser (TASK_BROWSER_ENABLED) has its own
 # action instead of borrowing planning.execution.dispatch; admin-granted only.
 TASK_BROWSER_ACTION = "task.browser.execute"
-# 2026-11-15 (MCP split Fase 2b, D2): the sensitive ForgeHub MCP routes; admin-granted only.
+# 2026-11-15 (MCP split Fase 2b): restart/database query outside an agent's function; admin-granted only.
 from app.core.agent_mcp_actions import AGENT_MCP_ACTIONS  # noqa: E402
 DELEGABLE_ACTIONS = (*SENSITIVE_ACTIONS, REMOTE_EXECUTE_ACTION, ROUTINES_MANAGE_ACTION, TASK_BROWSER_ACTION,
                      *AGENT_MCP_ACTIONS)
@@ -162,7 +162,7 @@ async def grant_delegation(
     if TASK_BROWSER_ACTION in payload.allowed_actions and not principal.is_admin:
         raise HTTPException(403, "Only a human admin grants task browser execution")
     if set(AGENT_MCP_ACTIONS) & set(payload.allowed_actions) and not principal.is_admin:
-        raise HTTPException(403, "Only a human admin grants ForgeHub operations and registry access")
+        raise HTTPException(403, "Only a human admin grants container restarts and database queries")
     for action in payload.allowed_actions:
         await authorize_action(db, principal, action, product_id=payload.product_id, project_id=payload.project_id)
     agent = await db.get(Agent, payload.grantee_agent_id)

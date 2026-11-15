@@ -122,12 +122,16 @@ def log_bridge_only_call(request: Request) -> None:
     logger.info("bridge-token call without agent credential: %s %s", request.method, request.url.path)
 
 
-async def agent_action_denial(request: Request, action: str):
-    """Middleware gate for the sensitive MCP routes (Fase 2b, ``core/agent_mcp_actions.py``): the
-    agent behind the request's ``agt_`` credential must hold an active delegation for ``action``.
-    Returns the refusal response, or None to let the request through."""
+async def agent_action_gate(request: Request, action: str, params: dict[str, str]):
+    """Middleware hook for the two actions that may need approval (Fase 2b, MCP-023): nothing is ever
+    refused. Inside the agent's function, or with an admin delegation, the call goes through (None).
+    Otherwise it becomes an approval request and the agent is told where its result will be."""
+    import json
+
     from fastapi.responses import JSONResponse
 
+    from app.core.agent_action_requests import request_approval
+    from app.core.agent_mcp_actions import OPS_DATABASE_QUERY, within_function
     from app.core.deps import ActorPrincipal, authorize_action
     from app.db.base import AsyncSessionLocal
 
@@ -136,17 +140,27 @@ async def agent_action_denial(request: Request, action: str):
             agent = await caller_agent(request, db)
         except HTTPException as exc:
             return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
-        if agent is None:
+        if agent is None or within_function(agent.department, action):
             return None
         try:
             await authorize_action(db, ActorPrincipal("agent", agent.id, agent.name), action)
+            return None
         except HTTPException:
-            logger.warning("agent %s has no delegation for %s on %s %s", agent.profile_slug, action,
-                           request.method, request.url.path)
-            return JSONResponse({"detail": {
-                "code": "AGENT_DELEGATION_REQUIRED",
-                "message": f"{agent.profile_slug or agent.name} has no active delegation for {action}; "
-                           "an admin grants it in Governance (authority delegations).",
-                "action": action,
-            }}, status_code=403)
-    return None
+            pass
+        values = dict(params)
+        if action == OPS_DATABASE_QUERY:
+            try:
+                body = json.loads(await request.body() or b"{}")
+            except ValueError:
+                return JSONResponse({"detail": "Body must be JSON"}, status_code=422)
+            values.update({k: body[k] for k in ("sql", "instance", "db", "limit", "offset") if k in body})
+        demand = await request_approval(db, agent, action, values)
+        logger.info("agent %s: %s sent for approval as #%s", agent.profile_slug, action, demand.number)
+        return JSONResponse({"detail": {
+            "code": "APPROVAL_REQUESTED",
+            "message": f"Fora da função de {agent.profile_slug}: pedido #{demand.number} enviado para aprovação do "
+                       "Marcelo. Aprovado, o ForgeHub executa e grava o resultado nessa mensagem "
+                       "(get_agent_message). Não repita a chamada.",
+            "message_number": demand.number,
+            "action": action,
+        }}, status_code=202)

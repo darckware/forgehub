@@ -146,7 +146,13 @@ async def _call(method: str, path: str, *, timeout_seconds: float = 60.0, **kwar
             # Connection refused/timeout: the deploy being down is an operator
             # fact, not a tool misuse, and must not read as an empty inbox.
             raise ForgeHubError(f"Could not reach ForgeHub at {BASE_URL}: {exc}") from exc
-        return response.json()
+        data = response.json()
+        # MCP-023: an action outside the agent's function went to Marcelo's approval instead of
+        # running. It is not a success, so no tool may report it as done.
+        detail = data.get("detail") if response.status_code == 202 and isinstance(data, dict) else None
+        if isinstance(detail, dict) and detail.get("code") == "APPROVAL_REQUESTED":
+            raise ForgeHubError(detail.get("message") or "Sent for Marcelo's approval")
+        return data
 
 
 def _resolve_agent(agent: str | None) -> str:

@@ -1,48 +1,37 @@
-"""MCP split Fase 2b: which delegation each sensitive MCP route needs (business rule MCP-023)."""
+"""MCP split Fase 2b (MCP-023): only a restart and a direct database query can need approval, and only
+outside the functions that do that work. Nothing is refused."""
 import pytest
 
-from app.core.agent_mcp_actions import required_action
-
-AGENT = "6f1c9a52-0000-4000-8000-000000000001"
+from app.core.agent_mcp_actions import required_action, within_function
 
 
-@pytest.mark.parametrize("method, path, action", [
-    ("GET", "/api/v1/system-stats", "ops.read"),
-    ("GET", "/api/v1/system-control/backups", "ops.read"),
-    ("POST", "/api/v1/system-control/backups/run", "ops.backup.run"),
-    ("GET", "/api/v1/deploy/containers", "ops.read"),
-    ("GET", "/api/v1/deploy/containers/forgehub-backend/logs", "ops.read"),
-    ("POST", "/api/v1/deploy/containers/forgehub-backend/restart", "ops.deploy.restart"),
-    ("GET", "/api/v1/audit/checks", "ops.read"),
-    ("POST", "/api/v1/audit/run", "ops.audit.run"),
-    ("POST", f"/api/v1/audit/checks/{AGENT}/run", "ops.audit.run"),
-    ("GET", "/api/v1/servers", "ops.read"),
-    ("POST", "/api/v1/database/query", "ops.database.query"),
-    ("POST", f"/api/v1/agents/{AGENT}/credentials", "registry.credential.request"),
-    ("GET", f"/api/v1/agents/{AGENT}/credentials", "registry.read"),
-    ("DELETE", f"/api/v1/agents/{AGENT}/credentials/{AGENT}", "registry.manage"),
-    ("GET", f"/api/v1/agents/{AGENT}/profile-files/SOUL.md", "registry.read"),
-    ("PUT", f"/api/v1/agents/{AGENT}/profile-files/SOUL.md", "registry.manage"),
-    ("POST", f"/api/v1/agents/{AGENT}/skills", "registry.manage"),
-    ("DELETE", f"/api/v1/agents/{AGENT}/skills/{AGENT}", "registry.manage"),
-    ("POST", "/api/v1/agents/sync/hermes-foundation", "registry.manage"),
-    ("GET", "/api/v1/tools", "registry.read"),
-    ("POST", "/api/v1/tools/scan", "registry.manage"),
-    ("PATCH", f"/api/v1/tools/{AGENT}", "registry.manage"),
-])
-def test_sensitive_routes_map_to_their_action(method, path, action):
-    assert required_action(method, path) == action
+def test_the_two_actions():
+    assert required_action("POST", "/api/v1/deploy/containers/forgehub-backend/restart") == (
+        "ops.deploy.restart", {"container": "forgehub-backend"})
+    assert required_action("POST", "/api/v1/database/query") == ("ops.database.query", {})
 
 
 @pytest.mark.parametrize("method, path", [
-    ("POST", "/api/v1/demands/submit"),                 # Messages: core server, never gated
-    ("GET", "/api/v1/demands/pending"),
-    ("GET", "/api/v1/agents"),                          # roster
-    ("GET", "/api/v1/agents/skills"),                   # skills catalog, read by list_agent_skills
-    ("GET", f"/api/v1/agents/{AGENT}/skills"),
-    ("POST", "/api/v1/operations/agent-questions"),
-    ("GET", "/api/v1/servers/readiness"),               # not the bridge-exposed list
-    ("GET", "/api/v1/audit-something-else"),
+    ("POST", "/api/v1/demands/submit"), ("GET", "/api/v1/demands/pending"), ("GET", "/api/v1/agents"),
+    ("GET", "/api/v1/system-stats"), ("GET", "/api/v1/audit/checks"), ("POST", "/api/v1/audit/run"),
+    ("GET", "/api/v1/deploy/containers"), ("GET", "/api/v1/deploy/containers/x/logs"),
+    ("POST", "/api/v1/system-control/backups/run"), ("GET", "/api/v1/servers"),
+    ("GET", "/api/v1/agents/x/credentials"), ("POST", "/api/v1/agents/x/skills"), ("GET", "/api/v1/tools"),
+    ("GET", "/api/v1/database/query"),
 ])
-def test_core_and_unrelated_routes_are_not_gated(method, path):
+def test_everything_else_is_free_for_every_agent(method, path):
     assert required_action(method, path) is None
+
+
+@pytest.mark.parametrize("department, action, expected", [
+    ("Executive Orchestration", "ops.deploy.restart", True),
+    ("Platform & Operations", "ops.deploy.restart", True),
+    ("Security & Assurance", "ops.deploy.restart", False),
+    ("Security & Assurance", "ops.database.query", True),
+    ("Knowledge & Context", "ops.database.query", True),
+    ("Documentation", "ops.database.query", False),
+    (None, "ops.database.query", False),
+    ("Marketing", "ops.deploy.restart", False),
+])
+def test_function_decides(department, action, expected):
+    assert within_function(department, action) is expected

@@ -222,7 +222,10 @@ async def decide_demand(db, demand, payload, *, actor):
         demand.requires_approval = True
         demand.approval_status = "approved"
         demand.approved_content_hash = approval_fingerprint(demand)
-        if not (demand.failure_check_source_id is not None and demand.scheduled_at and demand.scheduled_at > now):
+        from app.core.agent_action_requests import is_agent_action
+        if is_agent_action(demand):
+            demand.scheduled_at = None  # the backend runs it below, never an agent run
+        elif not (demand.failure_check_source_id is not None and demand.scheduled_at and demand.scheduled_at > now):
             demand.scheduled_at = now
     elif payload.action == "reject":
         if demand.dispatch_status == "completed":
@@ -265,7 +268,12 @@ async def decide_demand(db, demand, payload, *, actor):
     await db.commit()
     await db.refresh(demand)
     if payload.action == "approve":
-        wake_scheduled_dispatch()
+        from app.core.agent_action_requests import execute_approved, is_agent_action
+        if is_agent_action(demand):
+            await execute_approved(db, demand)
+            await db.refresh(demand)
+        else:
+            wake_scheduled_dispatch()
     elif payload.action == "reject":
         await _tell_group_rejected(demand)
     return demand
