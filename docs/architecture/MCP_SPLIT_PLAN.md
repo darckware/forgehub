@@ -132,7 +132,14 @@ verificação de que nenhuma citação antiga ficou.
 - **D1. Decidido (2026-11-15, Marcelo): 7 servidores**, como na seção 3. Servidor MCP aqui é um programa na
   mesma VPS que entrega um grupo de ferramentas, não uma máquina.
 - **D2.** A matriz da seção 3, especialmente quem pode `execute_database_query`, reiniciar contêiner e emitir credencial.
-- **D3.** Quanto tempo o `forgehub_all` de compatibilidade fica (proposta: até a última onda + 7 dias).
+- **D3. Decidido (2026-11-15, Marcelo):** o `forgehub_all` de compatibilidade fica até a última onda + 7 dias,
+  e só é removido quando o Auditor não registrar mais chamadas pelos nomes antigos.
+- **D2 em andamento (2026-11-15).** Direção dada por Marcelo para credenciais: a **renovação** da credencial fixa de
+  agente cadastrado e ativo é automática (rotina do ForgeHub, grava no ForgeVault, o agente nunca vê o token), sem
+  aprovação; **emissão nova** (agente novo, sem credencial, vazamento) só o Athos pede e Marcelo aprova na aba
+  Aprovação. Pendentes: validade proposta de 90 dias com renovação 7 dias antes; quem consulta o banco (proposta:
+  Athos, Aegis, Hephaestus) e quem reinicia contêiner (proposta: Athos, Hephaestus). Lacuna L13: hoje
+  `issue_agent_credential` devolve o token em texto ao agente, e as credenciais fixas não têm validade.
 - **D4.** Fonte da verdade para "qual agente usa qual MCP": a tabela do ForgeHub (proposta, com a matriz como
   dado) ou o registro de MCP do ForgeVault. Hoje são três lugares (L7).
 
