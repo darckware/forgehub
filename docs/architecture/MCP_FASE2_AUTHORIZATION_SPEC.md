@@ -1,6 +1,6 @@
 # MCP do ForgeHub — Fase 2: autorização no servidor
 
-Status: **especificação para revisão** (2026-11-15). Faz parte do [plano de divisão do MCP](MCP_SPLIT_PLAN.md)
+Status: **decisões A, B e C tomadas** (2026-11-15). Implementação não iniciada. Faz parte do [plano de divisão do MCP](MCP_SPLIT_PLAN.md)
 (lacunas L1, L9, L13). Decisões que valem aqui: D2 e D4 do plano.
 
 ## 1. Como é hoje (verificado no código)
@@ -31,7 +31,7 @@ Status: **especificação para revisão** (2026-11-15). Faz parte do [plano de d
 
 | Ação (delegação) | Ferramentas | Quem recebe (D2) |
 |---|---|---|
-| `ops.read` | `get_system_status`, `list_system_backups`, `list_audit_checks`, `list_deploy_containers`, `get_container_logs`, `list_managed_servers`, `list_routines`, `list_routine_runs` | agentes com o servidor `forgehub_ops` |
+| `ops.read` | `get_system_status`, `list_system_backups`, `list_audit_checks`, `list_deploy_containers`, `get_container_logs`, `list_managed_servers`, `list_routines`, `list_routine_runs` | **Athos, Aegis, Hephaestus** (decisão B) |
 | `ops.audit.run` | `run_audit_checks` | Athos, Aegis |
 | `ops.backup.run` | `run_system_backup` | Athos, Hephaestus |
 | `ops.deploy.restart` | `restart_deploy_container` | **Athos, Hephaestus** |
@@ -89,9 +89,9 @@ nenhuma chamada de agente ainda usa a ponte.
   identidade de serviço própria (`service:forgehub-credentials`), usada só pelo host-bridge, com permissão apenas de
   `admin.secret.rotate` nos segredos `FORGEHUB_AGENT_TOKEN` desses agentes; sem passo manual. Agente não cadastrado,
   inativo ou retirado não é renovado.
-- **B. `ops.read` sem delegação?**
-  - Proposta: exigir delegação também para leitura, coerente com D4 (servidor sensível só com delegação).
-  - Alternativa: leitura livre para quem tem o servidor `forgehub_ops`.
+- **B. Decidido (2026-11-15, Marcelo): olhar também exige permissão.** `ops.read` é uma delegação como as
+  outras; quem não a tem não vê status, logs, checagens nem backups, mesmo com o servidor `forgehub_ops` configurado.
+  Recebem `ops.read`: Athos, Aegis e Hephaestus.
 - **C. Decidido junto com A:** as 14 credenciais sem validade recebem 90 dias a partir da publicação do 2c e
   entram na renovação automática.
 
