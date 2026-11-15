@@ -41,6 +41,7 @@ auditoria e testes.
 | [06 — Operações e Auditor](06-operacoes-auditor.md) | Rotinas 24x7, ocorrências, auditorias, frescor de evidência, incidentes e remediação. |
 | [07 — Dados, integrações e atendimento](07-dados-integracoes-atendimento.md) | Banco, documentos, canais, clientes, contatos, automações e integrações operacionais. |
 | [08 — Messages](08-messages.md) | Tipos, incubação, fila e despacho, conclusão, falhas e tentativas, espera por cota, aprovações, retorno, caixa do agente, retenção e tela. |
+| [09 — MCP do ForgeHub](09-mcp.md) | Os 7 servidores e a quem pertence cada ferramenta, código publicado, chaves da produção, identidade do agente, delegações e credenciais. |
 
 ## Fontes existentes relacionadas
 
