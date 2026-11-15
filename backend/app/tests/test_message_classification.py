@@ -314,3 +314,15 @@ async def test_incubation_owner_decision_is_not_operator_decision(classification
     assert current['operator_decision'] is None
     assert current['operator_destination'] is None
     assert 'decision_pending' not in current['message_labels']
+
+
+async def test_adviser_queue_recommendation_is_not_shown_as_pending_analysis(classification_db):
+    # MSG-057: in adviser mode a model "queue" is stored as waiting + queue (nothing scheduled);
+    # the task was analysed, so it must not read "Aguarda análise".
+    db, agent = classification_db
+    row = await work(db, agent)
+    cached = await cache_analysis(db, row, category='ready')
+    cached.proposed_action = 'queue'
+    await db.commit()
+    labels = (await classify(db, row))[row.id]['message_labels']
+    assert labels == ['ready'] and 'analysis_pending' not in labels

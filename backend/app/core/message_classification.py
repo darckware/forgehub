@@ -199,6 +199,10 @@ async def classify_messages(db, demands):
                                  analysis.summary)
             elif analysis and analysis.operator_state == 'processing' and analysis.proposed_action == 'queue':
                 info = _metadata(['ready'], 'A tarefa passou pela análise; os controles de despacho continuam obrigatórios.')
+            elif analysis and analysis.proposed_action == 'queue':
+                # Adviser mode (MSG-057): the analysis recommends running it but schedules nothing,
+                # so the result is stored as "waiting" + "queue" -- already analysed, not pending.
+                info = _metadata(['ready'], 'A análise recomenda executar; quem coloca na fila é você ou o agendamento.')
             else:
                 info = _metadata(['analysis_pending'], 'Aguarda análise do conteúdo e das condições atuais.')
         # Same rule as demand_management.human_failure_sql, applied after the

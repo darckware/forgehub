@@ -667,8 +667,9 @@ async def message_triage_loop():
         try:
             if advisory_only():
                 # On demand only: process the jobs a click queued, never enqueue one by itself.
-                await process_next_analysis()
-                await asyncio.sleep(POLL_SECONDS)
+                # Drain back to back; sleep only when nothing is waiting.
+                if not await process_next_analysis():
+                    await asyncio.sleep(POLL_SECONDS)
                 continue
             await refresh_native_availability()
             async with AsyncSessionLocal() as db:
