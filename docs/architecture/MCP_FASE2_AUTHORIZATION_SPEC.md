@@ -85,17 +85,15 @@ nenhuma chamada de agente ainda usa a ponte.
 
 ## 4. Decisões abertas
 
-- **A. Quem grava a credencial nova no ForgeVault.**
-  - Proposta: uma identidade de serviço nova, `service:forgehub-credentials`, que só pode rodar
-    `admin.secret.rotate` nos segredos `FORGEHUB_AGENT_TOKEN` dos agentes (um `grant_access` por segredo).
-  - Ela é usada só pelo host-bridge, como já acontece com `forgehub-remote-access`.
-  - Alternativa: Marcelo cola o token novo à mão a cada 90 dias (não recomendado).
+- **A. Decidido (2026-11-15, Marcelo): renovação automática para os agentes cadastrados no ForgeHub.** Uma
+  identidade de serviço própria (`service:forgehub-credentials`), usada só pelo host-bridge, com permissão apenas de
+  `admin.secret.rotate` nos segredos `FORGEHUB_AGENT_TOKEN` desses agentes; sem passo manual. Agente não cadastrado,
+  inativo ou retirado não é renovado.
 - **B. `ops.read` sem delegação?**
   - Proposta: exigir delegação também para leitura, coerente com D4 (servidor sensível só com delegação).
   - Alternativa: leitura livre para quem tem o servidor `forgehub_ops`.
-- **C. Prazo das credenciais de hoje.**
-  - Proposta: na publicação do 2c, as 14 sem validade recebem 90 dias a partir daquele dia, e a rotina passa a
-    renová-las.
+- **C. Decidido junto com A:** as 14 credenciais sem validade recebem 90 dias a partir da publicação do 2c e
+  entram na renovação automática.
 
 ## 5. Volta atrás
 
