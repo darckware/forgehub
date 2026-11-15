@@ -331,7 +331,7 @@ class TailnetSyncEntry(BaseModel):
     # "created" -- imported now as a workstation; "updated" -- name (and a
     # workstation's IP) refreshed on the linked row; "linked" -- an unlinked
     # row matched by tailnet IP or name got the node ID; "unchanged";
-    # "available" -- in the tailnet, not in the inventory, not imported.
+    # "available" is retained as a compatibility value for clients.
     outcome: Literal["created", "updated", "linked", "unchanged", "available"]
     server_id: uuid.UUID | None = None
     # Client suggested by a "tag:client-<slug>" tag. Only a suggestion: never
@@ -341,8 +341,8 @@ class TailnetSyncEntry(BaseModel):
 
 class TailnetSyncResult(BaseModel):
     entries: list[TailnetSyncEntry]
-    # Linked rows whose node is no longer in the tailnet. Reported, never
-    # deleted -- a device that left the tailnet still has history here.
+    # Rows removed because their device is absent from the successfully read
+    # tailnet. The sync writes a server_deleted audit event for each one.
     missing_server_ids: list[uuid.UUID] = Field(default_factory=list)
 
 

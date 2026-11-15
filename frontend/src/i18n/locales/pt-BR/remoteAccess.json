@@ -262,7 +262,9 @@
       "created": "{{count}} nova(s)",
       "linked": "{{count}} vinculada(s)",
       "updated": "{{count}} atualizada(s)",
-      "missing": "{{count}} fora da tailnet (mantidas)",
+      "missing": "{{count}} removida(s), não encontrada(s) na tailnet",
+      "createdDetails": "Máquinas adicionadas com IP e tags da Tailscale",
+      "noTags": "sem tags",
       "nothing": "Nada mudou na tailnet.",
       "failed": "Não foi possível ler a tailnet para sincronizar.",
       "available": "{{count}} disponível(is) para importar"

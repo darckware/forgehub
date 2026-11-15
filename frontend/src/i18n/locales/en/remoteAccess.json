@@ -262,7 +262,9 @@
       "created": "{{count}} new",
       "linked": "{{count}} linked",
       "updated": "{{count}} updated",
-      "missing": "{{count}} left the tailnet (kept)",
+      "missing": "{{count}} removed because they are absent from the tailnet",
+      "createdDetails": "Machines added with Tailscale IPs and tags",
+      "noTags": "no tags",
       "nothing": "Nothing changed in the tailnet.",
       "failed": "Could not read the tailnet to sync.",
       "available": "{{count}} available to import"

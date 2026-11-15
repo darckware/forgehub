@@ -411,6 +411,18 @@ export function MachinesCard({ quickActions }: { quickActions?: QuickActions } =
         </div>
 
         {syncSummary && <p role="status" className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">{syncSummary}</p>}
+        {!!vm.syncResult?.entries.some((entry) => entry.outcome === "created") && (
+          <div className="rounded-md border border-border bg-muted/20 p-3" aria-label={t("workstations.sync.createdDetails")}>
+            <p className="mb-2 text-xs font-medium">{t("workstations.sync.createdDetails")}</p>
+            <ul className="space-y-1 text-xs text-muted-foreground">
+              {vm.syncResult.entries.filter((entry) => entry.outcome === "created").map((entry) => (
+                <li key={entry.node_id}>
+                  <span className="font-medium text-foreground">{entry.name}</span> · {entry.tailscale_ipv4 ?? "—"} · {entry.tags.length ? entry.tags.join(", ") : t("workstations.sync.noTags")}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {vm.syncError && <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs">{t("workstations.sync.failed")}</p>}
         {vm.testResult && (
           <p role="status" className={`rounded-md border px-3 py-2 text-xs ${vm.testResult.success ? "border-emerald-500/40 bg-emerald-500/10" : "border-destructive/40 bg-destructive/10"}`}>

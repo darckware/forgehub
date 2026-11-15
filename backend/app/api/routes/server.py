@@ -338,15 +338,15 @@ async def sync_from_tailnet(
     A peer already linked by node ID gets its tailnet name refreshed (and, for
     a workstation, its address -- a server keeps the address it is reached by,
     e.g. SEMED's 172.15.x); an unlinked row with the same tailnet IP or the
-    same name gets linked. Anything else is reported as "available" and only
-    becomes a workstation when its node ID is sent in `import_node_ids` -- so
-    a device someone deleted, or one that isn't a client machine (an admin's
-    own notebook), is never recreated behind their back. Client, OS, groups
-    and login are never overwritten. A "tag:client-<slug>" tag is a
-    suggestion only. Nothing is deleted: a linked device that left the tailnet
-    is listed in `missing_server_ids`.
+    same name gets linked. New Windows/Linux/macOS peers are registered as
+    workstations with their Tailscale name, IP and tags. Rows whose devices
+    are absent from a successful tailnet inventory are removed and audited;
+    offline peers remain because the Tailscale API still lists them. Client,
+    OS, groups and login on matched rows are never overwritten. A
+    "tag:client-<slug>" tag is a suggestion only.
     """
-    to_import = set(payload.import_node_ids) if payload else set()
+    # `import_node_ids` remains accepted for compatibility; every compatible
+    # tailnet machine is now registered during sync.
     tailnet = await fetch_tailnet_status()
     if tailnet.server.state == "unavailable":
         raise HTTPException(status_code=502, detail="Tailnet status is unavailable")
@@ -365,10 +365,10 @@ async def sync_from_tailnet(
         return None
 
     for peer in tailnet.peers:
+        seen_nodes.add(peer.id)
         family = _TAILNET_OS_FAMILY.get((peer.os or "").lower())
         if family is None or not peer.tailscale_ipv4:
             continue
-        seen_nodes.add(peer.id)
         display = peer.name or peer.hostname or peer.id
         names = {n.lower() for n in (peer.name, peer.hostname) if n}
         server = by_node.get(peer.id)
@@ -388,7 +388,7 @@ async def sync_from_tailnet(
             if server.kind == "workstation":
                 server.ip_address = peer.tailscale_ipv4
             outcome = "linked"
-        elif peer.id in to_import:
+        else:
             server = Server(
                 name=_unique_name(display, taken_names),
                 ip_address=peer.tailscale_ipv4,
@@ -402,8 +402,6 @@ async def sync_from_tailnet(
             db.add(server)
             await db.flush()
             outcome = "created"
-        else:
-            outcome = "available"
         tag = next((t for t in peer.tags if t.startswith(_CLIENT_TAG_PREFIX)), None)
         entries.append(
             TailnetSyncEntry(
@@ -418,8 +416,23 @@ async def sync_from_tailnet(
                 suggested_client_tag=tag[len(_CLIENT_TAG_PREFIX):] if tag else None,
             )
         )
+    present_server_ids = {e.server_id for e in entries if e.server_id is not None}
+    present_names = {n.lower() for p in tailnet.peers for n in (p.name, p.hostname) if n}
+    present_ips = {p.tailscale_ipv4 for p in tailnet.peers if p.tailscale_ipv4}
+    present_server_ids.update(
+        s.id for s in servers
+        if s.tailnet_node_id in seen_nodes
+        or (not s.tailnet_node_id and (s.ip_address in present_ips or s.name.lower() in present_names))
+    )
+    stale = [s for s in servers if s.id not in present_server_ids]
+    missing = []
+    for server in stale:
+        missing.append(server.id)
+        db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="server_deleted",
+                          actor=_admin.username, payload={"reason": "tailnet_sync_device_absent",
+                          "name": server.name, "ip_address": server.ip_address}))
+        await db.delete(server)
     await db.commit()
-    missing = [s.id for node, s in by_node.items() if node not in seen_nodes]
     return TailnetSyncResult(entries=entries, missing_server_ids=missing)
 
 
