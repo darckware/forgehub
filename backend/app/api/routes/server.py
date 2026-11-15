@@ -1661,8 +1661,28 @@ async def _validate_preparation(db: AsyncSession, server_id: uuid.UUID, actor: s
         # Transport details may include connection credentials. Keep the
         # candidate recoverable and never forward the exception to the browser.
         result = {"failure": "connection", "exit_code": 1, "stdout": ""}
-    ok = (not result.get("failure") and result.get("exit_code") == 0
-          and _is_machine_login(result.get("stdout") or "", os_family))
+    failure = result.get("failure")
+    identity = result.get("stdout") or ""
+    identity_matches = _is_machine_login(identity, os_family)
+    ok = not failure and result.get("exit_code") == 0 and identity_matches
+    if ok:
+        failure_reason = None
+        detail = None
+    elif failure == "auth":
+        failure_reason = "key_rejected"
+        detail = "O SSH recusou a chave pendente. Reaplique as instruções pendentes nesta máquina e tente validar novamente."
+    elif failure == "connection":
+        failure_reason = "connection"
+        detail = "O ForgeHub não conseguiu concluir a conexão SSH com esta máquina na porta configurada. Confira o sshd e a rota Tailscale."
+    elif failure == "timeout" or result.get("timed_out"):
+        failure_reason = "timeout"
+        detail = "A conexão SSH expirou antes de concluir a validação."
+    elif failure == "command" or result.get("exit_code") != 0:
+        failure_reason = "command"
+        detail = "A chave SSH foi aceita, mas o comando de identificação da conta falhou."
+    else:
+        failure_reason = "identity_mismatch"
+        detail = "A chave SSH foi aceita, mas a identidade retornada não corresponde à conta local darckware."
     server = await _locked_machine(db, server_id)
     if (server.pending_ssh_key_ref != ref or server.preparation_validation_until != lease
             or (server.pending_public_key_encrypted, server.pending_login_password_ref, server.pending_ssh_port) != snapshot):
@@ -1673,7 +1693,8 @@ async def _validate_preparation(db: AsyncSession, server_id: uuid.UUID, actor: s
         raise HTTPException(status_code=409, detail="Machine changed during verification")
     db.add(AuditEvent(entity_type="server", entity_id=server.id,
                      event_type="preparation_verified" if ok else "preparation_verification_failed",
-                     actor=actor, payload={"candidate_key_ref": ref, "ok": ok}))
+                     actor=actor, payload={"candidate_key_ref": ref, "ok": ok,
+                                           "failure_reason": failure_reason}))
     if ok:
         await assert_key_unique(db, server.id, public_key=public_key, key_ref=ref)
         server.access_verified_at = datetime.now(timezone.utc)
@@ -1687,7 +1708,7 @@ async def _validate_preparation(db: AsyncSession, server_id: uuid.UUID, actor: s
         server.pending_ssh_key_ref = server.pending_public_key_encrypted = None
         server.pending_login_password_ref = server.pending_ssh_port = None
     await db.commit()
-    return HostPreparationValidation(ok=ok, detail=None if ok else "Candidate key did not authenticate exactly as darckware; active access preserved")
+    return HostPreparationValidation(ok=ok, detail=detail)
 
 
 @router.post("/{server_id}/preparation/pending", response_model=HostPreparationOut)
@@ -1811,7 +1832,8 @@ async def prepare_host(server_id: uuid.UUID, payload: HostPreparationRequest | N
 
     execution = await launch_execution(db, servers=[server], command=script, shell=language,
         timeout_seconds=900, actor=admin.username, target_summary=server.name,
-        secrets=[password, admin_password], executor=executor, script_label="Preparar máquina")
+        secrets=[password, admin_password], executor=executor, script_label="Preparar máquina",
+        login_given=True)
     return HostPreparationOut(server_id=server.id, os_family=os_family, language=language,
         public_key=public_key, key_created=True, key_path="", execution_id=execution.id)
 
