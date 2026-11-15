@@ -506,7 +506,8 @@
       "questionsRunning": "Analyzing questions…",
       "questionsFailed": "Question analysis unavailable",
       "disabled": "Automatic task analysis is turned off on this installation. The button analyses only the questions (Answers tab); decisions remain available.",
-      "lastRun": "Last task analysis, on {{date}}: {{processed}} of {{total}} checked · {{applied}} routed"
+      "lastRun": "Last task analysis, on {{date}}: {{processed}} of {{total}} checked · {{applied}} routed",
+      "nothing": "Nothing pending to analyse in this scope: no tasks, incubations, approvals or questions."
     },
     "instructorContext": "Instructor context",
     "questionBulk": {

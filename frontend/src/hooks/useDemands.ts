@@ -222,9 +222,12 @@ export function useAgentWorkAnalysis(scope: { agent_id?: string; context?: strin
   });
   // Whether "Analisar e encaminhar" can run at all (MESSAGE_TRIAGE_ENABLED). Unknown (still loading
   // or the read failed) is not "off": the button keeps working and a 503 is still reported.
+  // Also what there is to analyse in this scope (tasks/incubations the analysis would take, and the
+  // pending questions): the button never runs on nothing (2026-11-15).
   const settings = useQuery({
-    queryKey: [...demandKeys.all, "analysis-settings"], enabled, retry: false, staleTime: 60_000,
-    queryFn: ({ signal }) => apiClient.get<{ enabled: boolean }>("/api/v1/demands/agent-work/triage-settings", { signal }),
+    queryKey: [...demandKeys.all, "analysis-settings", scope], enabled, retry: false, refetchInterval: 30_000,
+    queryFn: ({ signal }) => apiClient.get<{ enabled: boolean; pending_tasks?: number; pending_questions?: number }>(
+      "/api/v1/demands/agent-work/triage-settings", { params: scope, signal }),
   });
   const id = latest.data?.id;
   const job = useQuery({
@@ -247,6 +250,7 @@ export function useAgentWorkAnalysis(scope: { agent_id?: string; context?: strin
   });
   return { run, start, loading: latest.isLoading, unavailable: latest.isError || job.isError, error: start.error ?? job.error ?? latest.error,
     enabled: settings.data?.enabled,
+    pendingTasks: settings.data?.pending_tasks, pendingQuestions: settings.data?.pending_questions,
     busy: start.isPending || ["queued", "running"].includes(run?.status ?? ""),
     // Clears the failed click too: refetching the reads alone left the start error, and with it
     // the "unavailable" message, on screen forever (2026-11-15).
