@@ -89,7 +89,10 @@ A divisão sozinha não resolve L1: um filtro na configuração do cliente não 
 
 Cada fase é publicada e verificada antes da próxima; nenhuma derruba um agente.
 
-**Fase 0. Pré-requisitos** (pequenos, independentes):
+**Fase 0. Pré-requisitos — CONCLUÍDA (2026-11-15, `da37a121`, release `fh-da37a12`).** Chaves da produção em
+`deploy/production-flags.env` (carregado pelo `docker-compose.yml`); MCP publicado por `deploy/publish_mcp.py` em
+`/root/.forgehub/mcp/current`, usado por 10 perfis Hermes, a Maia, o Codex, o agy e as execuções despachadas;
+Auditor ECO-072 (diária) passando. Itens originais:
 1. L6: arquivo versionado com as chaves da produção, lido por todo processo de publicação, mais checagem que
    compara com o contêiner em execução.
 2. L4/L3: os agentes passam a rodar o MCP de um caminho de release estável (`/root/.forgehub/mcp/current` →
