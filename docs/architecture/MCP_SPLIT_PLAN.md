@@ -99,7 +99,13 @@ Auditor ECO-072 (diária) passando. Itens originais:
    release publicada), atualizado pelo script de publicação; a Maia passa a usar o mesmo.
 3. L11: inventário de toda citação `mcp__forgehub__*` (perfis, skills, memórias, rotinas, hooks).
 
-**Fase 1. Código.** Pacote com cliente comum e um arquivo por servidor; L2 resolvida (uma cópia). Um servidor
+**Fase 1. Código — PRONTA (2026-11-15, branch `feat/mcp-split-fase1`).** `backend/app/mcp/server_map.py` diz a
+qual servidor cada ferramenta pertence; `backend/app/mcp/serve.py <servidor>` monta o servidor a partir do catálogo
+combinado, com os mesmos objetos de ferramenta (nada é copiado). Contagem: forgehub 22, factory 30 (28 + 2 do
+navegador, opcionais), missions 23 (22 + 1 opcional), ops 16, registry 14, remote 10, personal 41 (Maia); `forgehub_all`
+= o catálogo inteiro, igual ao `factory_server.py`. As 10 cópias mortas do acesso remoto saíram do `factory_server.py`
+(a versão viva sempre foi a de `forgehub_messages_mcp.py`, registrada primeiro). Teste de contrato:
+`backend/tests_unit/test_mcp_server_map.py`. Plano original: Pacote com cliente comum e um arquivo por servidor; L2 resolvida (uma cópia). Um servidor
 `forgehub_all`, temporário, expõe tudo para compatibilidade. Teste de contrato: cada ferramenta pertence a
 exatamente um servidor, nenhuma duplicada, nenhuma órfã (L12).
 
