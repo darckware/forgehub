@@ -1473,6 +1473,110 @@ def check_whatsapp_no_commands() -> Result:
     return _findings_result(findings, "No WhatsApp entry accepts commands; one adapter per WhatsApp session")
 
 
+
+# ------------------------------------------- versioned production switches and MCP code (ECO-072)
+# MCP split plan, Fase 0 (Marcelo, 2026-11-15). A deploy from another session started the backend
+# without the production switches (the on-demand Messages analysis went off), and agents ran the
+# MCP from the main checkout, which changes with every branch switch, or from a pinned old copy.
+MCP_CURRENT = Path("/root/.forgehub/mcp/current")
+FLAGS_FILE = "deploy/production-flags.env"
+MCP_SCRIPT_MARKERS = ("factory_server.py", "forgehub_messages_mcp.py", "/mcp/forgehub.py")
+
+
+def _parse_env(text: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def _same_value(a: str, b: str) -> bool:
+    truthy = {"1", "true", "yes", "on"}
+    if a.lower() in truthy | {"0", "false", "no", "off"}:
+        return (a.lower() in truthy) == (b.lower() in truthy)
+    return a == b
+
+
+def production_flag_findings(expected: dict[str, str], running_env: list[str]) -> list[str]:
+    running = _parse_env("\n".join(running_env))
+    findings = []
+    for key, value in sorted(expected.items()):
+        if key not in running:
+            findings.append(f"forgehub-backend: {key} not set (expected {value})")
+        elif not _same_value(running[key], value):
+            findings.append(f"forgehub-backend: {key}={running[key]} (expected {value})")
+    return findings
+
+
+def _mcp_entry_findings(label: str, name: str, entry: dict) -> list[str]:
+    text = " ".join(str(part) for part in [entry.get("command", ""), *(entry.get("args") or [])])
+    if not any(marker in text for marker in MCP_SCRIPT_MARKERS):
+        return []
+    if "/root/.forgehub/mcp/current/" in text or "/profiles/maia/mcp/forgehub.py" in text:
+        return []
+    return [f"{label}: MCP '{name}' runs {text.split()[-1]} instead of {MCP_CURRENT}"]
+
+
+def mcp_source_findings(hermes: Path = HERMES, codex: Path = Path("/root/.codex/config.toml"),
+                        agy: Path = Path("/root/.gemini/config/mcp_config.json"),
+                        current: Path = MCP_CURRENT) -> list[str]:
+    import json
+    import tomllib
+
+    import yaml
+
+    findings: list[str] = []
+    if not (current.is_symlink() and (current / "backend/app/mcp/factory_server.py").is_file()):
+        findings.append(f"{current} missing or incomplete (publish with deploy/publish_mcp.py)")
+    profiles = hermes / "profiles"
+    for directory in sorted(profiles.iterdir()) if profiles.is_dir() else []:
+        config_path = directory / "config.yaml"
+        if not config_path.is_file() or (directory / "gateway.parked").exists():
+            continue
+        try:
+            config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError) as exc:
+            findings.append(f"{directory.name}: config.yaml unreadable ({type(exc).__name__})")
+            continue
+        for name, entry in (config.get("mcp_servers") or {}).items():
+            if isinstance(entry, dict):
+                findings += _mcp_entry_findings(directory.name, name, entry)
+        wrapper = directory / "mcp/forgehub.py"
+        if wrapper.is_file() and "/root/.forgehub/mcp/current/" not in wrapper.read_text(encoding="utf-8"):
+            findings.append(f"{directory.name}: mcp/forgehub.py loads ForgeHub MCP code from outside {current}")
+    if codex.is_file():
+        for name, entry in (tomllib.loads(codex.read_text(encoding="utf-8")).get("mcp_servers") or {}).items():
+            findings += _mcp_entry_findings("codex", name, entry)
+    if agy.is_file():
+        for name, entry in (json.loads(agy.read_text(encoding="utf-8")).get("mcpServers") or {}).items():
+            findings += _mcp_entry_findings("agy", name, entry)
+    return findings
+
+
+def check_versioned_runtime_sources() -> Result:
+    """ECO-072: production switches match deploy/production-flags.env on origin/main, and every
+    agent runs the published ForgeHub MCP code (/root/.forgehub/mcp/current)."""
+    import json
+
+    findings: list[str] = []
+    shown = run(["git", "-C", str(FORGEHUB), "show", f"origin/main:{FLAGS_FILE}"])
+    if shown.returncode:
+        findings.append(f"{FLAGS_FILE} not readable on origin/main")
+    else:
+        inspected = run(["docker", "inspect", "forgehub-backend", "--format", "{{json .Config.Env}}"])
+        if inspected.returncode:
+            findings.append("forgehub-backend not inspectable")
+        else:
+            findings += production_flag_findings(_parse_env(shown.stdout), json.loads(inspected.stdout))
+    try:
+        findings += mcp_source_findings()
+    except Exception as exc:
+        findings.append(f"MCP sources not verified: {type(exc).__name__}")
+    return _findings_result(findings, "Production switches match deploy/production-flags.env; every agent runs the published ForgeHub MCP")
+
 def check_module_health(name: str) -> Result:
     # Release source first; deployed profile scripts may load the helper next
     # to themselves. No dependency on an accidentally installed older profile.
@@ -1582,6 +1686,7 @@ CHECKS = {
     "ECO-069": check_agent_memory_currency,
     "ECO-070": check_agent_profile_files,
     "ECO-071": check_whatsapp_no_commands,
+    "ECO-072": check_versioned_runtime_sources,
 }
 
 

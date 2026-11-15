@@ -11,6 +11,8 @@ services:
     restart: unless-stopped
     env_file:
       - ./.env
+      # Feature switches, versioned (no secrets); loaded after .env so they win.
+      - ./deploy/production-flags.env
     environment:
       # .env's POSTGRES_HOST/PORT (localhost:5433) are for host-side dev,
       # where the DB is reached via its published port. Inside this

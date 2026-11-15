@@ -1352,6 +1352,11 @@ class AgentRunRequest(BaseModel):
 # never reaches the profile's `forgehub` MCP. `XDG_*` is on that list, which spares
 # editing every profile. An update that closes it fails safe: the tool refuses.
 HERMES_RUN_CREDENTIAL_ENV = "XDG_FORGEHUB_AGENT_TOKEN_FILE"
+# The Messages MCP that dispatched runs load: the published copy (deploy/publish_mcp.py), never
+# the main checkout, which changes whenever a session switches branches (MCP split plan, L4).
+MESSAGES_MCP_SCRIPT = os.environ.get(
+    "FORGEHUB_MESSAGES_MCP", "/root/.forgehub/mcp/current/host-bridge/forgehub_messages_mcp.py"
+)
 
 
 def _agent_run_command(req: AgentRunRequest, project_dir: Path, credential_path: str | None = None) -> tuple[list[str], dict[str, str]]:
@@ -1504,7 +1509,7 @@ def _ensure_agy_messages_mcp(config_path: Path | None = None):
     """
     # resolve(): os.replace on a symlink would swap the link, not the real file.
     path = (config_path or Path("/root/.gemini/config/mcp_config.json")).resolve()
-    entry = {"command": "uv", "args": ["run", "/root/project/forgehub/host-bridge/forgehub_messages_mcp.py"]}
+    entry = {"command": "uv", "args": ["run", MESSAGES_MCP_SCRIPT]}
     with _agy_mcp_lock:
         source = path.read_bytes().decode("utf-8") if path.exists() else "{}"
         document = json.loads(source)
@@ -1580,7 +1585,7 @@ def _messages_mcp_config(agent_slug: str | None, credential_path: str | None = N
         "mcpServers": {
             "forgehub": {
                 "command": "uv",
-                "args": ["run", "/root/project/forgehub/host-bridge/forgehub_messages_mcp.py"],
+                "args": ["run", MESSAGES_MCP_SCRIPT],
                 "env": {
                     "FORGEHUB_API_URL": "http://localhost:8000",
                     "FORGEHUB_AGENT_SLUG": slug,
