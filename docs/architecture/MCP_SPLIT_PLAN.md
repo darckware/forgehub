@@ -109,10 +109,13 @@ navegador, opcionais), missions 23 (22 + 1 opcional), ops 16, registry 14, remot
 `forgehub_all`, temporário, expõe tudo para compatibilidade. Teste de contrato: cada ferramenta pertence a
 exatamente um servidor, nenhuma duplicada, nenhuma órfã (L12).
 
-**Fase 2. Autorização** (seção 4). Credencial própria em todos os servidores; delegações novas no backend;
+**Fase 2. Autorização** (seção 4). **Revista em 2026-11-15:** 2a (identidade) e 2b (aprovação, nunca recusa) em produção;
+2c (credenciais) e 2d (corte do token da ponte) não serão feitos agora, por decisão de Marcelo, para não bloquear agentes
+nem o sistema. No lugar, auditoria (aba Atividade) e limite só para Lara e Maia (ECO-073). Credencial própria em todos os servidores; delegações novas no backend;
 token da ponte fora dos agentes. Revisão independente obrigatória (P4: credenciais e produção).
 
-**Fase 3. Migração dos agentes, em ondas**, com `fleet_config_guard accept` e um reinício do gateway por onda:
+**Fase 3. Migração dos agentes, em ondas** (revista em 2026-11-15: só Lara e Maia são limitadas; os demais seguem com o
+catálogo inteiro, e a migração por servidores fica para quando a tela pedir mudanças), com `fleet_config_guard accept` e um reinício do gateway por onda:
 Scriba e Mnemosyne → Atlas e Daedalus → Themis e Kairos → Hephaestus e Aegis → Athos → execuções despachadas
 (L10) → Lara e Maia. Em cada onda: resolução real das ferramentas (`_get_platform_tools`), um turno de teste e
 verificação de que nenhuma citação antiga ficou.

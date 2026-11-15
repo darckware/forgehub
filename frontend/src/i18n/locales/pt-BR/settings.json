@@ -170,6 +170,32 @@
     "suggest": "Sugestão da função",
     "discard": "Desfazer",
     "saveError": "Não foi possível salvar. Recarregue e tente de novo.",
-    "footnote": "Os modos valem na hora. Os servidores marcados são aplicados na configuração dos agentes na migração por ondas, com reinício do gateway."
+    "footnote": "Os modos valem na hora. Os servidores marcados são aplicados na configuração dos agentes na migração por ondas, com reinício do gateway.",
+    "tabs": {
+      "access": "Acesso",
+      "activity": "Atividade"
+    },
+    "activity": {
+      "agentFilter": "Filtrar por agente",
+      "allAgents": "Todos os agentes",
+      "period": "Período",
+      "lastDays_one": "Último dia",
+      "lastDays_other": "Últimos {{count}} dias",
+      "loadError": "Não foi possível carregar a atividade.",
+      "approvals": "Pedidos de aprovação",
+      "noApprovals": "Nenhum pedido de aprovação no período.",
+      "calls": "Chamadas às ferramentas do ForgeHub",
+      "noCalls": "Nenhuma chamada no período.",
+      "action": "Ação",
+      "status": "Situação",
+      "when": "Quando",
+      "server": "Servidor",
+      "tool": "Ferramenta",
+      "actions": {
+        "ops.deploy.restart": "Reiniciar contêiner",
+        "ops.database.query": "Consultar banco"
+      },
+      "footnote": "Registro dos agentes Hermes (nome da ferramenta, resultado e duração; nunca o conteúdo). Claude Code, Codex e agy aparecem no Messages."
+    }
   }
 }

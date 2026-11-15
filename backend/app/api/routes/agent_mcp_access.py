@@ -11,7 +11,7 @@ are applied to the agents' configurations by the migration waves (plan, Fase 3).
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -128,3 +128,73 @@ async def save_mcp_access(
         raise HTTPException(409, {"code": "MCP_ACCESS_CHANGED", "message": "Changed since loaded; reload the screen."}) from None
     await db.refresh(access)
     return _out(agent, access)
+
+
+# ----------------------------------------------------------------- activity (audit, Marcelo 2026-11-15)
+# "Prefiro auditar o acesso": what each agent called on the ForgeHub MCP, and what went to approval.
+# Read from what is already recorded -- agent_activity_events (Hermes hooks: tool name, outcome,
+# duration; never arguments or content) and the agent_action approval requests. External runtimes
+# (claude/codex/agy) have no tool telemetry; their work shows in Messages.
+
+
+class McpCallOut(BaseModel):
+    occurred_at: datetime
+    agent: str
+    server: str | None
+    tool: str
+    status: str | None
+    duration_ms: int | None
+
+
+class ApprovalRequestOut(BaseModel):
+    number: int
+    agent: str
+    action: str
+    approval_status: str | None
+    dispatch_status: str | None
+    created_at: datetime
+
+
+class McpActivityOut(BaseModel):
+    days: int
+    calls: list[McpCallOut]
+    approvals: list[ApprovalRequestOut]
+
+
+@router.get("/activity", response_model=McpActivityOut)
+async def mcp_activity(
+    agent_id: uuid.UUID | None = None, days: int = 7, limit: int = 300,
+    db: AsyncSession = Depends(get_db), _: User = Depends(get_current_admin),
+):
+    from app.core.agent_action_requests import CONTEXT_PREFIX
+    from app.db.models.agent_activity_event import AgentActivityEvent
+    from app.db.models.demand import AgentDemand
+
+    days = max(1, min(days, 30))
+    limit = max(1, min(limit, 1000))
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    calls = select(AgentActivityEvent).where(
+        AgentActivityEvent.kind == "tool_ended", AgentActivityEvent.occurred_at >= since,
+        AgentActivityEvent.tool_name.like("mcp\\_\\_forgehub%"),
+    )
+    approvals = select(AgentDemand).where(
+        AgentDemand.context_area.like(f"{CONTEXT_PREFIX}%"), AgentDemand.created_at >= since)
+    if agent_id is not None:
+        calls = calls.where(AgentActivityEvent.agent_id == agent_id)
+        approvals = approvals.where(AgentDemand.from_agent_id == agent_id)
+    call_rows = (await db.execute(calls.order_by(AgentActivityEvent.occurred_at.desc()).limit(limit))).scalars().all()
+    approval_rows = (await db.execute(approvals.order_by(AgentDemand.created_at.desc()).limit(limit))).scalars().all()
+
+    def split(tool_name: str) -> tuple[str | None, str]:
+        # mcp__<server>__<tool>
+        parts = (tool_name or "").split("__", 2)
+        return (parts[1], parts[2]) if len(parts) == 3 else (None, tool_name)
+
+    return McpActivityOut(
+        days=days,
+        calls=[McpCallOut(occurred_at=r.occurred_at, agent=r.profile or "?", server=split(r.tool_name)[0],
+                          tool=split(r.tool_name)[1], status=r.status, duration_ms=r.duration_ms) for r in call_rows],
+        approvals=[ApprovalRequestOut(number=d.number, agent=d.from_agent, action=(d.context_area or "")[len(CONTEXT_PREFIX):],
+                                      approval_status=d.approval_status, dispatch_status=d.dispatch_status,
+                                      created_at=d.created_at) for d in approval_rows],
+    )

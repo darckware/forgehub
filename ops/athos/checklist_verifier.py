@@ -1579,6 +1579,67 @@ def check_versioned_runtime_sources() -> Result:
         findings.append(f"MCP sources not verified: {type(exc).__name__}")
     return _findings_result(findings, "Production switches match deploy/production-flags.env; every agent runs the published ForgeHub MCP")
 
+
+# ------------------------------------- external-facing agents stay inside their screen (ECO-073)
+# Marcelo, 2026-11-15: no agent is blocked; access is audited, and only the agents that serve people
+# outside (Lara, Maia) are limited -- by the "Agentes e MCP do ForgeHub" screen. This check warns when
+# the ForgeHub tools one of them can reach go beyond the servers marked for it there.
+EXTERNAL_FACING_AGENTS = ("lara", "maia")
+SERVER_MAP = MCP_CURRENT / "backend/app/mcp/server_map.py"
+
+
+def _load_server_map(path: Path = SERVER_MAP):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("eco073_server_map", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def external_agent_findings(reachable: dict[str, set[str] | None], marked: dict[str, list[str]], server_map) -> list[str]:
+    """``reachable``: agent -> ForgeHub tool names its config lets it call (None = the whole catalog).
+    ``marked``: agent -> optional servers marked on the screen (the core server is always included)."""
+    findings: list[str] = []
+    for agent in EXTERNAL_FACING_AGENTS:
+        if agent not in marked:
+            findings.append(f"{agent}: no row on the Agentes e MCP do ForgeHub screen")
+            continue
+        allowed = {server_map.CORE, *marked[agent]}
+        tools = reachable.get(agent)
+        if tools is None:
+            findings.append(f"{agent}: reaches the whole ForgeHub catalog (no tools.include on its forgehub MCP)")
+            continue
+        outside = sorted(t for t in tools if server_map.server_of(t) not in allowed)
+        if outside:
+            findings.append(f"{agent}: reaches {len(outside)} ForgeHub tool(s) outside its marked servers: "
+                            + ", ".join(outside[:8]) + ("…" if len(outside) > 8 else ""))
+    return findings
+
+
+def check_external_agents_limited() -> Result:
+    """ECO-073: Lara and Maia reach only the ForgeHub tools of the servers marked for them."""
+    import json
+
+    import yaml
+
+    try:
+        server_map = _load_server_map()
+        rows = psql("SELECT a.profile_slug, m.servers::text FROM company.agent_mcp_access m "
+                    "JOIN company.agents a ON a.id = m.agent_id WHERE a.profile_slug IN ('lara','maia')",
+                    database="forgehub", container="forgehub_postgres")
+        marked = {slug: json.loads(servers) for slug, servers in (line.split("|", 1) for line in rows.splitlines() if line)}
+        reachable: dict[str, set[str] | None] = {}
+        for agent in EXTERNAL_FACING_AGENTS:
+            config = yaml.safe_load((HERMES / "profiles" / agent / "config.yaml").read_text(encoding="utf-8")) or {}
+            entry = (config.get("mcp_servers") or {}).get("forgehub") or {}
+            include = (entry.get("tools") or {}).get("include")
+            reachable[agent] = set(include) if include else None
+        findings = external_agent_findings(reachable, marked, server_map)
+    except Exception as exc:
+        return fail(f"External-facing agents not verified: {type(exc).__name__}")
+    return _findings_result(findings, "Lara and Maia reach only the ForgeHub tools of their marked servers")
+
 def check_module_health(name: str) -> Result:
     # Release source first; deployed profile scripts may load the helper next
     # to themselves. No dependency on an accidentally installed older profile.
@@ -1689,6 +1750,7 @@ CHECKS = {
     "ECO-070": check_agent_profile_files,
     "ECO-071": check_whatsapp_no_commands,
     "ECO-072": check_versioned_runtime_sources,
+    "ECO-073": check_external_agents_limited,
 }
 
 

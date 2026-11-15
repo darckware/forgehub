@@ -130,3 +130,33 @@ async def test_a_screen_that_saw_no_row_cannot_overwrite_a_saved_one(client, set
     assert (await client.put(url, headers=_jwt(setup["admin"]), json=body)).status_code == 200
     again = await client.put(url, headers=_jwt(setup["admin"]), json=body)
     assert again.status_code == 409, again.text
+
+
+async def test_activity_lists_forgehub_calls_and_approval_requests(client, setup):
+    """Audit (Marcelo, 2026-11-15): what each agent called on the ForgeHub MCP, and what went to approval."""
+    from datetime import datetime, timezone
+
+    from app.db.models.agent_activity_event import AgentActivityEvent
+
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        db.add_all([
+            AgentActivityEvent(agent_id=setup["agent_id"], profile="mcp-test", kind="tool_ended", occurred_at=now,
+                               tool_name="mcp__forgehub__send_agent_message", status="ok", duration_ms=12,
+                               delivery_id=f"t-{uuid.uuid4().hex}"),
+            AgentActivityEvent(agent_id=setup["agent_id"], profile="mcp-test", kind="tool_ended", occurred_at=now,
+                               tool_name="terminal", status="ok", delivery_id=f"t-{uuid.uuid4().hex}"),
+        ])
+        await db.commit()
+    await client.post("/api/v1/database/query", json={"sql": "select 1"}, headers=_agent(setup["token"]))
+    try:
+        response = await client.get(f"/api/v1/mcp-access/activity?agent_id={setup['agent_id']}", headers=_jwt(setup["admin"]))
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert [(c["server"], c["tool"]) for c in body["calls"]] == [("forgehub", "send_agent_message")]
+        assert body["approvals"][0]["action"] == "ops.database.query"
+        assert (await client.get("/api/v1/mcp-access/activity", headers=_jwt(setup["plain"]))).status_code == 403
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(AgentActivityEvent).where(AgentActivityEvent.agent_id == setup["agent_id"]))
+            await db.commit()

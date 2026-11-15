@@ -79,6 +79,25 @@ describe("AgentMcpAccessCard", () => {
     expect(screen.getByRole("checkbox", { name: "forgehub_ops — Scriba" })).toBeChecked();
   });
 
+  it("shows the audit in the Activity tab", async () => {
+    vi.mocked(apiClient.get).mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/activity")
+          ? {
+              days: 7,
+              calls: [{ occurred_at: "2026-11-15T20:00:00Z", agent: "athos", server: "forgehub", tool: "send_agent_message", status: "ok", duration_ms: 12 }],
+              approvals: [{ number: 42404, agent: "scriba", action: "ops.database.query", approval_status: "rejected", dispatch_status: null, created_at: "2026-11-15T20:00:00Z" }],
+            }
+          : { core_server: "forgehub", servers: SERVERS, agents: [row({})] },
+      ) as never,
+    );
+    renderCard();
+    fireEvent.click(await screen.findByRole("tab", { name: "mcpAccess.tabs.activity" }));
+    expect(await screen.findByText("send_agent_message")).toBeInTheDocument();
+    expect(screen.getByText("#42404")).toBeInTheDocument();
+    expect(apiClient.get).toHaveBeenCalledWith("/api/v1/mcp-access/activity?days=7");
+  });
+
   it("is hidden from non-admins", () => {
     useAuthStore.setState({ user: { is_admin: false } as never });
     renderCard();

@@ -1,6 +1,9 @@
 # MCP do ForgeHub — Fase 2: autorização no servidor
 
-Status: **decisões A, B e C tomadas** (2026-11-15). Implementação não iniciada. Faz parte do [plano de divisão do MCP](MCP_SPLIT_PLAN.md)
+Status (2026-11-15, fim do dia): **2a e 2b em produção; 2c e 2d não serão feitos agora.** Marcelo: "não quero bloquear os
+agentes e nem o sistema. Prefiro auditar o acesso e limitar somente os agentes que fazem atendimento externos como Maia e
+Lara". No lugar: auditoria (aba Atividade, MCP-027) e limite só para Lara e Maia pela tela (ECO-073, MCP-028). 2b foi
+refeita: nada é recusado; só reiniciar contêiner e consultar banco direto podem ir para aprovação (MCP-023). Faz parte do [plano de divisão do MCP](MCP_SPLIT_PLAN.md)
 (lacunas L1, L9, L13). Decisões que valem aqui: D2 e D4 do plano.
 
 ## 1. Como é hoje (verificado no código)

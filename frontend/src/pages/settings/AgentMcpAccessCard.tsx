@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -5,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type ActionMode, useAgentMcpAccessViewModel } from "@/hooks/useAgentMcpAccessViewModel";
 import { useAuthStore } from "@/store/authStore";
+import { McpActivityPanel } from "./McpActivityPanel";
 
 /** Short column label: "forgehub_factory" -> "factory". */
 function shortName(server: string) {
@@ -19,6 +22,7 @@ export function AgentMcpAccessCard() {
   const { t } = useTranslation("settings");
   const admin = useAuthStore((s) => s.user?.is_admin);
   const vm = useAgentMcpAccessViewModel();
+  const [tab, setTab] = useState("access");
   if (!admin) return null;
 
   const modeSelect = (row: (typeof vm.rows)[number], field: "restart_mode" | "query_mode") => (
@@ -47,7 +51,12 @@ export function AgentMcpAccessCard() {
           </p>
         )}
         {vm.status === "ready" && (
-          <>
+          <Tabs value={tab} onValueChange={setTab}>
+            <TabsList>
+              <TabsTrigger value="access">{t("mcpAccess.tabs.access")}</TabsTrigger>
+              <TabsTrigger value="activity">{t("mcpAccess.tabs.activity")}</TabsTrigger>
+            </TabsList>
+            <TabsContent value="access" className="space-y-4">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -138,7 +147,11 @@ export function AgentMcpAccessCard() {
               </TableBody>
             </Table>
             <p className="text-xs text-muted-foreground">{t("mcpAccess.footnote")}</p>
-          </>
+            </TabsContent>
+            <TabsContent value="activity">
+              <McpActivityPanel agents={vm.rows} active={tab === "activity"} />
+            </TabsContent>
+          </Tabs>
         )}
       </CardContent>
     </Card>

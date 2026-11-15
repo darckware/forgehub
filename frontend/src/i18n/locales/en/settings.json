@@ -170,6 +170,32 @@
     "suggest": "Function suggestion",
     "discard": "Undo",
     "saveError": "Could not save. Reload and try again.",
-    "footnote": "Modes take effect at once. Checked servers are applied to the agents' configuration in the migration waves, with a gateway restart."
+    "footnote": "Modes take effect at once. Checked servers are applied to the agents' configuration in the migration waves, with a gateway restart.",
+    "tabs": {
+      "access": "Access",
+      "activity": "Activity"
+    },
+    "activity": {
+      "agentFilter": "Filter by agent",
+      "allAgents": "All agents",
+      "period": "Period",
+      "lastDays_one": "Last day",
+      "lastDays_other": "Last {{count}} days",
+      "loadError": "Could not load the activity.",
+      "approvals": "Approval requests",
+      "noApprovals": "No approval requests in this period.",
+      "calls": "ForgeHub tool calls",
+      "noCalls": "No calls in this period.",
+      "action": "Action",
+      "status": "Status",
+      "when": "When",
+      "server": "Server",
+      "tool": "Tool",
+      "actions": {
+        "ops.deploy.restart": "Restart container",
+        "ops.database.query": "Query database"
+      },
+      "footnote": "Recorded for Hermes agents (tool name, outcome and duration; never the content). Claude Code, Codex and agy show in Messages."
+    }
   }
 }
