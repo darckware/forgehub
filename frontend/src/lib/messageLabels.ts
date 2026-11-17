@@ -20,18 +20,36 @@ export const MESSAGE_LABEL_GROUPS = {
   archived: ["archived", "obsolete", "possible_duplicate", "possible_obsolete", "informational_feedback"],
 } satisfies Record<string, MessageLabel[]>;
 
+type OperatorDestinationLabel = "answers" | "decisions" | "agent_tasks" | "incubations" | "moodle_approvals";
+const OPERATOR_DESTINATION_PATHS: Record<OperatorDestinationLabel, string> = {
+  answers: "/personal?tab=agent-work&workTab=answers",
+  decisions: "/personal?tab=agent-work&workTab=decisions",
+  agent_tasks: "/personal?tab=agent-work&workTab=approvals",
+  incubations: "/personal?tab=agent-work&workTab=incubation&incubationView=decision",
+  moodle_approvals: "/personal?tab=agent-work&workTab=approvals",
+};
+
+export function operatorDestinationLabel(item: {
+  operator_destination?: string | null; operator_decision?: string | null;
+}): OperatorDestinationLabel | null {
+  if (!["authorization", "question", "correction", "reconciliation"].includes(item.operator_decision ?? "")) return null;
+  if (item.operator_decision === "question") return "answers";
+  if (item.operator_destination === "agent_tasks" && ["correction", "reconciliation"].includes(item.operator_decision ?? "")) {
+    return "decisions";
+  }
+  return item.operator_destination && item.operator_destination in OPERATOR_DESTINATION_PATHS
+    ? item.operator_destination as OperatorDestinationLabel
+    : null;
+}
+
 export function operatorDestination(item: {
   operator_destination?: string | null; operator_decision?: string | null; operator_question_id?: string | null;
 }): string | null {
-  if (!["authorization", "question", "correction", "reconciliation"].includes(item.operator_decision ?? "")) return null;
+  const label = operatorDestinationLabel(item);
+  if (!label) return null;
+  const destination = OPERATOR_DESTINATION_PATHS[label];
   // A question is answered in Respostas, whichever group the message is in.
-  if (item.operator_decision === "question") return item.operator_question_id
-    ? `/personal?tab=agent-work&workTab=answers&questionId=${encodeURIComponent(item.operator_question_id)}`
-    : "/personal?tab=agent-work&workTab=answers";
-  switch (item.operator_destination) {
-    case "agent_tasks": return "/personal?tab=agent-work&workTab=approvals";
-    case "incubations": return "/personal?tab=agent-work&workTab=incubation&incubationView=decision";
-    case "moodle_approvals": return "/personal?tab=agent-work&workTab=approvals";
-    default: return null;
-  }
+  return label === "answers" && item.operator_question_id
+    ? `${destination}&questionId=${encodeURIComponent(item.operator_question_id)}`
+    : destination;
 }

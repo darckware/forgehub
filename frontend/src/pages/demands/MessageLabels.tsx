@@ -2,13 +2,14 @@ import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { Demand } from "@/hooks/useDemands";
 import { Badge } from "@/components/ui/badge";
-import { operatorDestination, visibleMessageLabels } from "@/lib/messageLabels";
+import { operatorDestination, operatorDestinationLabel, visibleMessageLabels } from "@/lib/messageLabels";
 
 export function MessageOperatorLink({ demand }: { demand: Demand }) {
   const { t } = useTranslation("demands");
   const destination = operatorDestination(demand);
+  const label = operatorDestinationLabel(demand);
   return destination ? <Link className="block w-fit max-w-full break-words text-xs text-primary underline hover:text-primary/80 focus-visible:outline focus-visible:outline-2" to={destination}>
-    {t(`messageLabels.destinations.${demand.operator_decision === "question" ? "answers" : demand.operator_destination}`)}
+    {label ? t(`messageLabels.destinations.${label}`) : null}
   </Link> : null;
 }
 

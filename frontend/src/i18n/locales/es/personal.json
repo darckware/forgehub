@@ -432,17 +432,16 @@
     "tabs": {
       "label": "Pestañas de Tareas de los agentes",
       "tasks": "Tareas",
+      "decisionsCount": "Decisiones ({{count}})",
       "incubation": "Incubaciones",
       "approvalsCount": "Aprobaciones ({{count}})",
-      "answersCount": "Respuestas ({{count}})",
-      "moodleInDecision_one": "{{count}} aprobación Moodle también espera tu decisión (fuera de esta lista).",
-      "moodleInDecision_other": "{{count}} aprobaciones Moodle también esperan tu decisión (fuera de esta lista).",
-      "openApprovals": "Abrir Aprobaciones"
+      "answersCount": "Respuestas ({{count}})"
     },
     "tabDescriptions": {
-      "tasks": "Todas las tareas de los agentes, con filtros. Autoriza trabajos, sigue la ejecución y revisa los resultados.",
+      "tasks": "Tareas en tratamiento, en espera, resueltas o archivadas. Decisiones y autorizaciones tienen pestañas propias.",
+      "decisions": "Fallos y pendientes que necesitan tu decisión. Las aprobaciones y preguntas están en sus pestañas.",
       "incubation": "Decide qué ideas deben convertirse en tareas, esperar una nueva fecha o descartarse.",
-      "approvals": "Solo lo que espera tu autorización: tareas que piden aprobación, aprobaciones Moodle, decisiones de misión y conclusiones de tareas de proyecto. Las ejecuciones fallidas quedan en Tareas → Tu decisión.",
+      "approvals": "Solo lo que espera tu autorización: tareas que piden aprobación, aprobaciones Moodle, decisiones de misión y conclusiones de tareas de proyecto. Los fallos de ejecución están en Decisiones.",
       "answers": "Preguntas de los agentes que bloquean una tarea hasta que respondas."
     },
     "approvalSections": {

@@ -5,11 +5,13 @@ Approved by Marcelo on 2026-11-08 after the queue audit and Personal screen revi
 ## Result
 
 Personal agent work is an exception/decision console, not a raw error inbox. Keep the existing
-Moodle/incubation/task workflows and add four operator views: `decision` (Sua decisão),
-`processing` (Em tratamento), `waiting` (Aguardando), `resolved` (Resolvidas). Preserve legacy
-views for links/API compatibility. Default to decision; a newly failed attempt awaits system
-analysis rather than becoming a human decision automatically. Real approvals and blocking
-operator questions remain visible even if analysis is unavailable.
+Moodle/incubation/task workflows and separate Tarefas, Decisões, Incubações, Aprovações and
+Respostas into tabs. Tarefas defaults to `processing`; Decisões contains operator decisions
+from task work; Incubações keeps its guarded decision flow; Aprovações contains authorization
+requests; Respostas contains blocking operator questions. Within task work, preserve the
+`processing`, `waiting` and `resolved` lifecycle views, plus archived records. Preserve legacy
+views for links/API compatibility. A newly failed attempt awaits system analysis rather than
+becoming a human decision automatically. A model outage leaves each queue visible and recoverable.
 
 The primary button is **Analisar e encaminhar**. It queues a durable asynchronous analysis
 over all pending records in the selected agent/context scope, not only the visible page.
@@ -102,8 +104,9 @@ authorization to start its implementation.
 Operational acceptance must demonstrate: a delivered item never reruns after quota recovery;
 one scoped manual job processes beyond UI pagination; fresh incoming work is analyzed before
 dispatch; duplicate starts produce one job/action; a stale result cannot change new content;
-service and quota waits remain separate; only operator decisions occupy the default screen;
-provider failure/restart is visible and recoverable; the whole chain is traceable in history.
+service and quota waits remain separate; decisions, authorizations and questions appear only in
+their own queues; the default task tab shows work in treatment; provider failure/restart is
+visible and recoverable; the whole chain is traceable in history.
 
 ## Verification
 

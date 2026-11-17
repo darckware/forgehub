@@ -110,7 +110,8 @@ export function AgentTasksTab() {
     </ConfirmDialog>
   );
 
-  const tabLabel = (tab: WorkTab) => tab === "approvals" ? t("agentTasks.tabs.approvalsCount", { count: vm.approvalsCount })
+  const tabLabel = (tab: WorkTab) => tab === "decisions" ? t("agentTasks.tabs.decisionsCount", { count: vm.decisionsCount })
+    : tab === "approvals" ? t("agentTasks.tabs.approvalsCount", { count: vm.approvalsCount })
     : tab === "answers" ? t("agentTasks.tabs.answersCount", { count: vm.answersCount }) : t(`agentTasks.tabs.${tab}`);
   // Same scrolling strip as components/ui/tabs.tsx on a phone; sits beside the button from sm up.
   const tabStrip = <div role="tablist" aria-label={t("agentTasks.tabs.label")}
@@ -125,7 +126,8 @@ export function AgentTasksTab() {
   const questionPart = vm.questionAnalysis.summary ? t("agentTasks.analysis.questions", { count: vm.questionAnalysis.summary.total, total: vm.questionAnalysis.summary.total, archive: vm.questionAnalysis.summary.archive })
     : vm.questionAnalysis.error ? t("agentTasks.analysis.questionsFailed") : vm.questionAnalysis.loading ? t("agentTasks.analysis.questionsRunning") : null;
   const withQuestions = (text: string) => questionPart ? `${text} · ${questionPart}` : text;
-  const listTab = vm.tab === "tasks" || vm.tab === "incubation";
+  const listTab = vm.tab === "tasks" || vm.tab === "decisions" || vm.tab === "incubation";
+  const statusFilterTab = vm.tab === "tasks" || vm.tab === "incubation";
   const approvalsEmpty = vm.tab === "approvals" && !vm.query.isLoading && !vm.query.isError && vm.approvalsCount === 0;
 
   return <div className="space-y-4 pt-4">
@@ -159,9 +161,9 @@ export function AgentTasksTab() {
     {vm.tab === "approvals" && !approvalsEmpty && vm.queueCount > 0 && <h3 className="font-semibold">{t("agentTasks.approvalSections.queue", { count: vm.queueCount })}</h3>}
     {approvalsEmpty && <p className="text-sm text-muted-foreground">{t("agentTasks.approvalSections.empty")}</p>}
     {listTab && <div className="flex flex-wrap gap-2">
-      <Select aria-label={t("agentTasks.view")} value={vm.view} onChange={e => vm.setView(e.target.value)} className="w-full sm:w-56">
+      {statusFilterTab && <Select aria-label={t("agentTasks.view")} value={vm.view} onChange={e => vm.setView(e.target.value)} className="w-full sm:w-56">
         {vm.views.map(view => <option key={view} value={view}>{t(`agentTasks.views.${view}`)}{vm.counts[view] !== undefined ? ` (${vm.counts[view]})` : ""}</option>)}
-      </Select>
+      </Select>}
       <Select aria-label={t("agentTasks.context")} value={vm.context} onChange={e => vm.setContext(e.target.value)} className="w-full sm:w-56">
         <option value="all">{t("agentTasks.allContexts")}</option>
         {vm.contexts.map(context => <option key={context.key} value={context.key}>{context.label ?? t("agentTasks.unclassified")}</option>)}
@@ -174,9 +176,6 @@ export function AgentTasksTab() {
       <label className="space-y-1 text-sm">{t("agentTasks.createdFrom")}<Input type="date" value={vm.from} onChange={e => vm.setFrom(e.target.value)} /></label>
       <label className="space-y-1 text-sm">{t("agentTasks.createdTo")}<Input type="date" value={vm.to} min={vm.from || undefined} onChange={e => vm.setTo(e.target.value)} /></label>
     </div>}
-    {vm.tab === "tasks" && vm.view === "decision" && (vm.moodlePending ?? 0) > 0 && <p className="text-sm">
-      {t("agentTasks.tabs.moodleInDecision", { count: vm.moodlePending ?? 0 })}{" "}
-      <button type="button" className="cursor-pointer text-primary underline" onClick={() => vm.setTab("approvals")}>{t("agentTasks.tabs.openApprovals")}</button></p>}
     {vm.selectedIds.length > 0 && <div className="flex flex-wrap items-center gap-2" role="region" aria-label={t("agentTasks.bulkSelection")}>
       <span className="text-sm">{t("agentTasks.selectedCount", { count: vm.selectedIds.length })}</span>
       <Button variant="outline" size="sm" onClick={() => vm.askBulk(vm.view === "archived" ? "restore" : "archive")}>{t(vm.view === "archived" ? "agentTasks.bulkRestore" : "agentTasks.bulkArchive")}</Button>

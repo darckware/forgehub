@@ -15,6 +15,8 @@ import { serverFormSchema, useServers, type Server } from "@/hooks/useServers";
 export interface PreparationViewModel {
   status: "idle" | "submitting" | "error" | "copy_ready";
   pending: boolean;
+  retryingSsh: boolean;
+  openRetrySsh: () => void;
   validated: boolean;
   validating: boolean;
   validationDetail: string | null;
@@ -68,6 +70,7 @@ export function usePreparationViewModel(
   const [storedPasswordChoice, setStoredPasswordChoice] = useState(false);
   const [sshPortChoice, setSshPort] = useState<string | null>(null);
   const [disableAdminChoice, setDisableAdminChoice] = useState<boolean | null>(null);
+  const [retryingSsh, setRetryingSsh] = useState(false);
 
   // Reconfiguration is available even when the old SSH login responds.
   const candidates = useMemo(
@@ -95,18 +98,26 @@ export function usePreparationViewModel(
   return {
     status,
     pending,
+    retryingSsh,
+    openRetrySsh: () => {
+      setMode("ssh");
+      setRetryingSsh(true);
+      validation.reset();
+    },
     validated,
     validationDetail,
     validationFailed: validation.data?.ok === false,
     validating: validation.isPending,
     validate: () => {
       if (selected && !validation.isPending && !recovery.isPending) {
+        setRetryingSsh(false);
         setAction("validate");
         validation.mutate(selected.id);
       }
     },
     recover: () => {
       if (selected && !recovery.isPending && !validation.isPending) {
+        setRetryingSsh(false);
         setAction("recover");
         validation.reset();
         recovery.mutate(selected.id);
@@ -125,6 +136,7 @@ export function usePreparationViewModel(
       prepare.reset();
       validation.reset();
       recovery.reset();
+      setRetryingSsh(false);
       setStoredPasswordChoice(false);
       setOtherUser("");
       setServerIdState(id);
@@ -153,7 +165,7 @@ export function usePreparationViewModel(
     setSshPort,
     disableAdmin,
     setDisableAdmin: setDisableAdminChoice,
-    canSubmit: !pending && !validated && candidates.some((m) => m.id === selected?.id) && !validation.isPending && (mode === "copy" || (validPort && adminUser.length > 0 && (useStoredPassword || adminPassword.length > 0))),
+    canSubmit: (!pending || retryingSsh) && !validated && candidates.some((m) => m.id === selected?.id) && !validation.isPending && (mode === "copy" || (validPort && adminUser.length > 0 && (useStoredPassword || adminPassword.length > 0))),
     submit: () => {
       if (!selected || prepare.isPending || (mode === "ssh" && !validPort)) return;
       setAction("prepare");

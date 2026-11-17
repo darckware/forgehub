@@ -253,6 +253,7 @@
     "quotaResetUnknown": "Reset time not provided by the provider",
     "destinations": {
       "agent_tasks": "Personal · Agent tasks · Approvals",
+      "decisions": "Personal · Agent tasks · Decisions",
       "incubations": "Personal · Agent tasks · Incubations",
       "moodle_approvals": "Personal · Agent tasks · Approvals",
       "answers": "Personal · Agent tasks · Answers"

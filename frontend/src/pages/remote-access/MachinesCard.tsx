@@ -195,7 +195,9 @@ export function MachinesCard({ quickActions }: { quickActions?: QuickActions } =
   };
 
   const showActions = vm.isAdmin && quickActions !== undefined;
-  const systemItems = (machine?: Server): ActionMenuItem[] => SYSTEM_ACTIONS.map((action, i) => ({
+  const systemItems = (machine?: Server): ActionMenuItem[] => SYSTEM_ACTIONS
+    .filter((action) => action !== "rdp_setup" || !machine || machine.os_family === "windows")
+    .map((action, i) => ({
     key: action,
     label: t(`quick.${action}`),
     icon: <Wrench className="h-3.5 w-3.5" />,

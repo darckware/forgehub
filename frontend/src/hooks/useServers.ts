@@ -177,6 +177,62 @@ export const serverFormSchema = z.object({
 
 export type ServerFormValues = z.infer<typeof serverFormSchema>;
 
+/** Unprepared tailnet-synced (`remote_user === ""`) and waiting-to-join
+ * enrolled (`ip_address === ""`) hosts must still allow metadata/name edits
+ * without inventing credentials they do not have yet. */
+export function buildServerFormSchema(initial: Server | null) {
+  if (!initial) return serverFormSchema;
+  return serverFormSchema.extend({
+    ip_address: initial.ip_address === ""
+      ? z.string().trim().max(100)
+      : serverFormSchema.shape.ip_address,
+    remote_user: initial.remote_user === ""
+      ? z.string().trim().max(100)
+      : serverFormSchema.shape.remote_user,
+  });
+}
+
+/** Computes a minimal `ServerUpdate` containing only fields changed from
+ * `initial`, so renaming a host never resends or disturbs access settings,
+ * passphrases, or group memberships. */
+export function buildServerUpdate(
+  initial: Server,
+  values: ServerFormValues,
+  options?: { groupIds?: string[]; clientName?: string | null },
+): ServerUpdate {
+  const diff: ServerUpdate = {};
+  const name = values.name.trim();
+  if (name !== initial.name) diff.name = name;
+  const ip = values.ip_address.trim();
+  if (ip !== initial.ip_address) diff.ip_address = ip;
+  const user = values.remote_user.trim();
+  if (user !== initial.remote_user) diff.remote_user = user;
+  if (values.ssh_port !== initial.ssh_port) diff.ssh_port = values.ssh_port;
+  if (values.environment !== initial.environment) diff.environment = values.environment;
+  const desc = values.description?.trim() || null;
+  if (desc !== (initial.description ?? null)) diff.description = desc;
+  if (values.kind !== initial.kind) diff.kind = values.kind;
+  const os = values.os_family || null;
+  if (os !== (initial.os_family ?? null)) diff.os_family = os;
+  const adminUser = values.admin_user?.trim() || null;
+  if (adminUser !== (initial.admin_user ?? null)) diff.admin_user = adminUser;
+  const clientId = values.darckware_client_id || null;
+  if (clientId !== (initial.darckware_client_id ?? null)) {
+    diff.darckware_client_id = clientId;
+    diff.darckware_client_name = clientId ? (options?.clientName ?? null) : null;
+  }
+  const loc = values.location?.trim() || null;
+  if (loc !== (initial.location ?? null)) diff.location = loc;
+  if (options?.groupIds !== undefined) {
+    const prev = [...initial.group_ids].sort();
+    const next = [...new Set(options.groupIds)].sort();
+    if (prev.length !== next.length || prev.some((id, idx) => id !== next[idx])) {
+      diff.group_ids = options.groupIds;
+    }
+  }
+  return diff;
+}
+
 export interface ServerImportResult {
   created: number;
   updated: number;

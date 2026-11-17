@@ -161,7 +161,7 @@ erro. O
 
    | Aba | Conteúdo |
    |---|---|
-   | **Máquinas** | Só a lista de máquinas. Os dez botões de ação rápida do topo (Preparar estação, Rotacionar senha/chave SSH, Detectar SO, Instalador Darckware Remoto, Instalar Tailscale/RustDesk, Obter ID do RustDesk, Liberar RustDesk no firewall, Trocar senha do RustDesk) saem do topo: vão para um menu "Ações" na barra da lista e para o menu de cada máquina, que já vem com ela selecionada |
+   | **Máquinas** | Só a lista de máquinas. Os dez botões de ação rápida do topo (Preparar estação, Rotacionar senha/chave SSH, Detectar SO, Instalador Remoto, Instalar Tailscale/RustDesk, Obter ID do RustDesk, Liberar RustDesk no firewall, Trocar senha do RustDesk) saem do topo: vão para um menu "Ações" na barra da lista e para o menu de cada máquina, que já vem com ela selecionada |
    | **Agentes** (nova) | O cartão único do item 1 (quem pode fazer manutenção, em quais máquinas, scripts e/ou comandos), o Pausar e as propostas de manutenção |
    | **Scripts e execuções** | Sem mudança |
    | **Rede Tailscale** | Sem mudança |

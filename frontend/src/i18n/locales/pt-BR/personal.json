@@ -432,17 +432,16 @@
     "tabs": {
       "label": "Abas de Tarefas dos agentes",
       "tasks": "Tarefas",
+      "decisionsCount": "Decisões ({{count}})",
       "incubation": "Incubações",
       "approvalsCount": "Aprovações ({{count}})",
-      "answersCount": "Respostas ({{count}})",
-      "moodleInDecision_one": "{{count}} aprovação Moodle também aguarda sua decisão (fora desta lista).",
-      "moodleInDecision_other": "{{count}} aprovações Moodle também aguardam sua decisão (fora desta lista).",
-      "openApprovals": "Abrir Aprovações"
+      "answersCount": "Respostas ({{count}})"
     },
     "tabDescriptions": {
-      "tasks": "Todas as tarefas dos agentes, com filtros. Autorize trabalhos, acompanhe a execução e revise os resultados.",
+      "tasks": "Tarefas em tratamento, aguardando, resolvidas ou arquivadas. Decisões e autorizações ficam em abas próprias.",
+      "decisions": "Falhas e pendências que precisam de uma decisão sua. Aprovações e perguntas ficam nas abas próprias.",
       "incubation": "Decida quais ideias devem virar tarefas, aguardar uma nova data ou ser descartadas.",
-      "approvals": "Só o que espera a sua autorização: tarefas que pedem aprovação, aprovações Moodle, decisões de missão e conclusões de tarefas de projeto. Falhas de execução ficam em Tarefas → Sua decisão.",
+      "approvals": "Só o que espera a sua autorização: tarefas que pedem aprovação, aprovações Moodle, decisões de missão e conclusões de tarefas de projeto. Falhas de execução ficam em Decisões.",
       "answers": "Perguntas dos agentes que bloqueiam uma tarefa até você responder."
     },
     "approvalSections": {

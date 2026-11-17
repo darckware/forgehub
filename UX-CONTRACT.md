@@ -73,6 +73,13 @@ Permissions, deletion/retention, billing, and legal policy remain owned by their
   queues. Archived rows leave all active stages. List and badge predicates
   must agree. This follows the operator's September 2026 lifecycle decision.
 
+- Personal agent work separates Tarefas, Decisões, Incubações, Aprovações and
+  Respostas. Tasks default to `processing`; Decisões contains task work that
+  needs an operator decision, excluding pending authorization and blocking
+  questions. Those appear in Aprovações and Respostas. Incubations retain their
+  guarded decision flow. Legacy `workView=decision` URLs open Decisões. Counts
+  use the same disjoint predicates as their lists.
+
 - Admin tables use the API's bounded pagination when available; otherwise the owning screen must document its bounded dataset.
 - Committed search/filter/sort/page state belongs in URL parameters unless it is sensitive or explicitly transient.
 - Loading, empty, no-results, partial degradation, and failure states preserve the owning surface's geometry.
@@ -167,9 +174,11 @@ deletion and excluded from bulk cleanup. The same dispatch/completion workers ha
 ## Messages analysis and operator decisions (2026-11-08)
 
 Source: `docs/superpowers/specs/2026-11-08-messages-triage.md` and its API contract.
-The default task and incubation view is `decision`; `processing`, `waiting` and `resolved` separate system
-handling from genuine operator decisions. Legacy view URLs remain accepted. Moodle and
-incubation keep their current guarded flows. Instructor filter labels use readable context names while preserving the source key as the filter value. Failures alone never imply operator approval.
+Tasks default to `processing`; a separate Decisions tab contains task work awaiting an operator
+decision. Incubations retain their guarded decision flow. Pending authorizations and blocking
+questions are exclusive to Aprovações and Respostas. Legacy view URLs remain accepted, with
+`workView=decision` opening Decisões. Instructor filter labels use readable context names while
+preserving the source key as the filter value. Failures alone never imply operator approval.
 
 “Analisar e encaminhar” submits only the selected agent/context scope. Page, search, date
 filters and checkboxes do not narrow that operation; inline copy states its all-pending scope.

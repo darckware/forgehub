@@ -209,4 +209,23 @@ describe("PrepareDialog", () => {
     expect(screen.getByRole("button", { name: "Diagnosticar acesso" })).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("allows retrying SSH preparation while validation is pending", async () => {
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ execution_id: "e-retry", script: null } as never);
+    const onExecution = renderDialog(
+      [{ ...machine("pending", "srv-ad03", "linux", "administrator", "server"), preparation_pending: true }],
+      "pending",
+    );
+    await screen.findByRole("option", { name: /srv-ad03/ });
+    expect(screen.queryByRole("button", { name: "Preparar agora" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Preparar pelo SSH" }));
+    fireEvent.change(await screen.findByLabelText("Senha do administrador"), { target: { value: "AdmPass#1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Preparar agora" }));
+
+    await vi.waitFor(() => expect(onExecution).toHaveBeenCalledWith("e-retry"));
+    expect(apiClient.post).toHaveBeenCalledWith("/api/v1/servers/pending/preparation", {
+      mode: "ssh", admin_user: "administrator", admin_password: "AdmPass#1", disable_admin: false, ssh_port: 22,
+    });
+  });
+
 });

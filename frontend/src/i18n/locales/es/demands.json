@@ -253,6 +253,7 @@
     "quotaResetUnknown": "El proveedor no informó la hora del reinicio",
     "destinations": {
       "agent_tasks": "Personal · Tareas de los agentes · Aprobaciones",
+      "decisions": "Personal · Tareas de los agentes · Decisiones",
       "incubations": "Personal · Tareas de los agentes · Incubaciones",
       "moodle_approvals": "Personal · Tareas de los agentes · Aprobaciones",
       "answers": "Personal · Tareas de los agentes · Respuestas"

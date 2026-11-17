@@ -32,8 +32,9 @@ import { TokenField } from "@/components/ui/token-field";
 import { useDarckwareClients } from "@/hooks/useClientOps";
 import { useHostGroups } from "@/hooks/useHostInventory";
 import {
+  buildServerFormSchema,
+  buildServerUpdate,
   resolveLiveServer,
-  serverFormSchema,
   useCreateServer,
   useServer,
   useServers,
@@ -43,7 +44,23 @@ import {
   type ServerCreate,
   type ServerFormValues,
 } from "@/hooks/useServers";
+import { apiErrorText } from "@/lib/apiErrorText";
 import { useServerKeyVaultViewModel } from "@/hooks/useServerKeyVaultViewModel";
+
+function formatSaveError(error: unknown, fallback: string): string {
+  const body = (error as { body?: { detail?: unknown }; status?: unknown } | null | undefined)?.body;
+  const status = (error as { status?: unknown } | null | undefined)?.status;
+  const detail = body?.detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => (item && typeof item === "object" ? (item as { msg?: unknown }).msg : null))
+      .filter((msg): msg is string => typeof msg === "string" && msg.length > 0);
+    if (messages.length > 0) return messages.join("; ");
+  }
+  if (typeof status === "number" && status >= 500 && !detail) return fallback;
+  const text = apiErrorText(error);
+  return text && text !== "undefined" && text !== "null" ? text : fallback;
+}
 
 /** Key vault section: keeps an encrypted copy of the identity file on the row
  * and pours it back when the file on the host is gone. Pure render of
@@ -293,7 +310,7 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
     watch,
     formState: { errors },
   } = useForm<ServerFormValues>({
-    resolver: zodResolver(serverFormSchema),
+    resolver: zodResolver(buildServerFormSchema(initial)),
     defaultValues: {
       name: initial?.name ?? "",
       ip_address: initial?.ip_address ?? "",
@@ -317,6 +334,30 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
 
   function onSubmit(values: ServerFormValues) {
     setSaveError(null);
+    const selectedClientName =
+      clientList?.items.find((c) => c.id === values.darckware_client_id)?.company_name
+      ?? (values.darckware_client_id === initial?.darckware_client_id ? initial?.darckware_client_name : null)
+      ?? null;
+    const filteredGroupIds = hostGroups !== undefined
+      ? groupIds.filter((id) => groupChoices.some((g) => g.id === id))
+      : undefined;
+
+    if (initial) {
+      const diff = buildServerUpdate(initial, values, {
+        groupIds: values.kind === "workstation" ? filteredGroupIds : undefined,
+        clientName: selectedClientName,
+      });
+      if (passphraseTouched) diff.key_passphrase = passphrase;
+      updateServer.mutate(
+        { id: initial.id, data: diff },
+        {
+          onSuccess: onClose,
+          onError: (error) => setSaveError(formatSaveError(error, t("form.saveFailed"))),
+        },
+      );
+      return;
+    }
+
     const payload: ServerCreate = {
       name: values.name,
       ip_address: values.ip_address,
@@ -328,29 +369,19 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
       os_family: values.os_family || null,
       admin_user: values.admin_user?.trim() || null,
       darckware_client_id: values.darckware_client_id || null,
-      darckware_client_name:
-        clientList?.items.find((c) => c.id === values.darckware_client_id)?.company_name
-        ?? (values.darckware_client_id === initial?.darckware_client_id ? initial?.darckware_client_name : null)
-        ?? null,
+      darckware_client_name: selectedClientName,
       location: values.location?.trim() || null,
-      group_ids: groupIds.filter((id) => groupChoices.some((g) => g.id === id)),
+      group_ids: filteredGroupIds ?? [],
     };
     // Only send the passphrase when the field was actually touched: an
     // untouched field is empty because the form never receives the stored
     // value, and sending "" would clear a passphrase nobody meant to remove.
     if (passphraseTouched) payload.key_passphrase = passphrase;
 
-    if (initial) {
-      updateServer.mutate(
-        { id: initial.id, data: payload },
-        { onSuccess: onClose, onError: () => setSaveError(t("form.saveFailed")) },
-      );
-    } else {
-      createServer.mutate(payload, {
-        onSuccess: onClose,
-        onError: () => setSaveError(t("form.createFailed")),
-      });
-    }
+    createServer.mutate(payload, {
+      onSuccess: onClose,
+      onError: (error) => setSaveError(formatSaveError(error, t("form.createFailed"))),
+    });
   }
 
   return (
@@ -381,8 +412,8 @@ export function ServerForm({ initial, onClose }: { initial: Server | null; onClo
       }
     >
       <div className="space-y-1">
-        <Label>{t("form.name")}</Label>
-        <Input {...register("name")} placeholder="srv-app01" />
+        <Label htmlFor="server-name">{t("form.name")}</Label>
+        <Input id="server-name" {...register("name")} placeholder="srv-app01" />
         {errors.name && <p className="text-[11px] text-destructive">{errors.name.message}</p>}
       </div>
 

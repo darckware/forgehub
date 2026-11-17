@@ -19,6 +19,11 @@ const script = (over: Record<string, unknown>) => ({
 });
 const SCRIPTS = [
   script({}),
+  script({ id: "rdp", name: "Configurar Área de Trabalho Remota (RDP)", system_key: "rdp_setup:windows", is_system: true,
+    parameters: [
+      { name: "CLIENTE_AUTORIZOU", label: "O cliente autorizou a Área de Trabalho Remota?", required: true, default: "nao", secret: false, options: ["nao", "sim"] },
+      { name: "USUARIO_SUPORTE", label: "Usuário local que receberá acesso RDP", required: true, default: null, secret: false },
+    ] }),
   script({ id: "rw", name: "Instalar RustDesk", system_key: "rustdesk_install:windows", parameters: [], is_system: true }),
   script({ id: "rl", name: "Instalar RustDesk", platform: "linux", system_key: "rustdesk_install:linux", parameters: [], is_system: true }),
   script({ id: "pw", name: "Alterar senha de usuário", parameters: [
@@ -107,6 +112,13 @@ describe("ExecutionComposer", () => {
     expect(await screen.findByRole("checkbox", { name: /srv-lin/ })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /PC-01/ })).not.toBeChecked();
     expect(await screen.findByDisplayValue(/Instalar RustDesk · Linux/)).toBeInTheDocument();
+  });
+
+  it("opens the Windows RDP script with authorization and support-user inputs", async () => {
+    renderComposer({ initialSystem: "rdp_setup", initialMachineIds: ["w1"] });
+    expect(await screen.findByDisplayValue(/Configurar Área de Trabalho Remota \(RDP\) · Windows/)).toBeInTheDocument();
+    expect(screen.getByLabelText("O cliente autorizou a Área de Trabalho Remota? *")).toHaveDisplayValue("Não");
+    expect(screen.getByLabelText("Usuário local que receberá acesso RDP *")).toBeInTheDocument();
   });
 
   it("copies the ready script for a machine without SSH", async () => {

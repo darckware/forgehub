@@ -432,17 +432,16 @@
     "tabs": {
       "label": "Agent tasks tabs",
       "tasks": "Tasks",
+      "decisionsCount": "Decisions ({{count}})",
       "incubation": "Incubations",
       "approvalsCount": "Approvals ({{count}})",
-      "answersCount": "Answers ({{count}})",
-      "moodleInDecision_one": "{{count}} Moodle approval also awaits your decision (not in this list).",
-      "moodleInDecision_other": "{{count}} Moodle approvals also await your decision (not in this list).",
-      "openApprovals": "Open Approvals"
+      "answersCount": "Answers ({{count}})"
     },
     "tabDescriptions": {
-      "tasks": "Every agent task, with filters. Authorize work, follow execution and review results.",
+      "tasks": "Tasks being handled, waiting, resolved or archived. Decisions and approvals have their own tabs.",
+      "decisions": "Failures and pending work that need your decision. Approvals and questions are in their own tabs.",
       "incubation": "Decide which ideas should become tasks, wait for a new date or be discarded.",
-      "approvals": "Only what awaits your authorization: tasks that ask for approval, Moodle approvals, mission decisions and project task completions. Failed runs stay in Tasks → Your decision.",
+      "approvals": "Only what awaits your authorization: tasks that ask for approval, Moodle approvals, mission decisions and project task completions. Failed runs stay in Decisions.",
       "answers": "Agent questions that block a task until you answer."
     },
     "approvalSections": {

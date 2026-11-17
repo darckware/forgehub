@@ -253,6 +253,7 @@
     "quotaResetUnknown": "Horário não informado pelo provedor",
     "destinations": {
       "agent_tasks": "Pessoal · Tarefas dos agentes · Aprovações",
+      "decisions": "Pessoal · Tarefas dos agentes · Decisões",
       "incubations": "Pessoal · Tarefas dos agentes · Incubações",
       "moodle_approvals": "Pessoal · Tarefas dos agentes · Aprovações",
       "answers": "Pessoal · Tarefas dos agentes · Respostas"

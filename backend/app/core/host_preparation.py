@@ -18,6 +18,7 @@ removes another key or account. The login and key are validated
 before being embedded, so nothing a user typed in the form becomes script
 syntax.
 """
+import base64
 import re
 
 TAILNET_CIDR = "100.64.0.0/10"
@@ -128,8 +129,69 @@ def _linux_account_block(login: str, password: str) -> str:
 #     (os comandos do ForgeHub rodam sem terminal)
 id {login} >/dev/null 2>&1 || useradd -m -s /bin/bash {login}
 echo '{login}:{password}' | chpasswd
+mkdir -p /etc/sudoers.d
 echo '{login} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/{login}
 chmod 440 /etc/sudoers.d/{login}
+"""
+
+
+def linux_ssh_bootstrap_script(script: str, admin_password: str | None) -> str:
+    """Wrap `linux_script` so SSH logins as a non-root admin elevate via sudo or su."""
+    script_b64 = base64.b64encode(script.encode()).decode("ascii")
+    pw_b64 = base64.b64encode((admin_password or "").encode()).decode("ascii")
+    return f"""#!/bin/sh
+# ForgeHub - preparacao da estacao (elevacao via sudo/su)
+if [ "$(id -u)" -eq 0 ]; then
+    echo '{script_b64}' | base64 -d | sh
+    exit $?
+fi
+tmp=$(mktemp /tmp/fh-prep.XXXXXX) || exit 1
+chmod 600 "$tmp"
+trap 'rm -f "$tmp"' EXIT INT TERM
+echo '{script_b64}' | base64 -d > "$tmp" || exit 1
+ADMIN_PW=$(printf '%s' '{pw_b64}' | base64 -d)
+if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+    sudo -n sh "$tmp"
+elif command -v sudo >/dev/null 2>&1 && printf '%s\\n' "$ADMIN_PW" | sudo -S -p '' true >/dev/null 2>&1; then
+    printf '%s\\n' "$ADMIN_PW" | sudo -S -p '' sh "$tmp"
+elif command -v python3 >/dev/null 2>&1 && command -v su >/dev/null 2>&1; then
+    ADMIN_PW="$ADMIN_PW" TMP_SCRIPT="$tmp" python3 -c '
+import os, pty, select, sys
+pw = os.environ.pop("ADMIN_PW", "")
+tmp_script = os.environ["TMP_SCRIPT"]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp("su", ["su", "root", "-c", "sh " + tmp_script])
+sent = False
+buf = b""
+while True:
+    r, _, _ = select.select([fd], [], [], 30)
+    if not r:
+        break
+    try:
+        chunk = os.read(fd, 4096)
+    except OSError:
+        break
+    if not chunk:
+        break
+    sys.stdout.buffer.write(chunk)
+    sys.stdout.buffer.flush()
+    if not sent:
+        buf += chunk
+        low = buf.lower()
+        if b"assword" in low or b"senha" in low or low.rstrip().endswith(b":"):
+            os.write(fd, (pw + "\\n").encode())
+            sent = True
+_, status = os.waitpid(pid, 0)
+os.close(fd)
+sys.exit(os.waitstatus_to_exitcode(status))
+'
+elif command -v su >/dev/null 2>&1; then
+    printf '%s\\n' "$ADMIN_PW" | su root -c "sh '$tmp'"
+else
+    echo "Nao foi possivel elevar privilegios para root via sudo ou su." >&2
+    exit 1
+fi
 """
 
 

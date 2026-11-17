@@ -17,19 +17,20 @@ export type WorkView = typeof WORK_VIEWS[number];
 /** Server-side group of the agent-work list a tab reads. */
 export type WorkGroup = "tasks" | "incubation";
 /** One tab strip beside "Analisar e encaminhar" (Marcelo, 2026-11-13). */
-export const WORK_TABS = ["tasks", "incubation", "approvals", "answers"] as const;
+export const WORK_TABS = ["tasks", "decisions", "incubation", "approvals", "answers"] as const;
 export type WorkTab = typeof WORK_TABS[number];
 type MoodleApprovalsSummary = { items: unknown[] };
 
-/** `workTab` wins; older links still land: a question id opens Respostas,
- * `workGroup=moodle` Aprovações and `workGroup=incubation` Incubações. */
+/** Old decision filters become the Decisions tab; other legacy links still land. */
 export function resolveWorkTab(params: URLSearchParams): WorkTab {
   const explicit = params.get("workTab");
+  if (explicit === "tasks" && params.get("workView") === "decision") return "decisions";
   if (WORK_TABS.includes(explicit as WorkTab)) return explicit as WorkTab;
   if (params.get("questionId")) return "answers";
   const legacy = params.get("workGroup");
   if (legacy === "moodle") return "approvals";
   if (legacy === "incubation" || (!legacy && params.get("workView") === "incubation")) return "incubation";
+  if (params.get("workView") === "decision") return "decisions";
   return "tasks";
 }
 /** Same key and request as MoodleApprovalPanel, so both read one cached response. */
@@ -65,11 +66,13 @@ export function useAgentTasksViewModel() {
   const tab = resolveWorkTab(params);
   const group: WorkGroup = tab === "incubation" ? "incubation" : "tasks";
   // Each list tab keeps its own filters/page in the URL.
-  const paramKey = (key: string) => tab === "incubation" ? key.replace(/^work/, "incubation") : tab === "approvals" ? key.replace(/^work/, "approvals") : key;
+  const paramKey = (key: string) => tab === "incubation" ? key.replace(/^work/, "incubation") : tab === "decisions" ? key.replace(/^work/, "decision") : tab === "approvals" ? key.replace(/^work/, "approvals") : key;
   const value = (key: string) => params.get(paramKey(key));
   const rawView = value("workView");
-  const views = WORK_VIEWS.filter(view => ["decision", "processing", "waiting", "resolved", "archived", rawView].includes(view));
-  const view: WorkView = tab === "approvals" ? "approvals_queue" : WORK_VIEWS.includes(rawView as WorkView) ? rawView as WorkView : "decision";
+  const viewKeys = tab === "incubation" ? ["decision", "processing", "waiting", "resolved", "archived", rawView] : ["processing", "waiting", "resolved", "archived", rawView];
+  const views = WORK_VIEWS.filter(candidate => viewKeys.includes(candidate));
+  const view: WorkView = tab === "approvals" ? "approvals_queue" : tab === "decisions" ? "decision"
+    : WORK_VIEWS.includes(rawView as WorkView) ? rawView as WorkView : tab === "tasks" ? "processing" : "decision";
   const search = value("workSearch") ?? "", context = value("workContext") ?? "all";
   const agent = value("workAgent") ?? "all", from = value("workFrom") ?? "", to = value("workTo") ?? "";
   const requestedPage = Math.max(1, Number(value("workPage")) || 1);
@@ -158,10 +161,11 @@ export function useAgentTasksViewModel() {
   const setFilter = (key: string, value: string) => setParams(prev => { const next = new URLSearchParams(prev); next.set("tab", "agent-work"); if (value && value !== "all") next.set(paramKey(key), value); else next.delete(paramKey(key)); if (key !== "workPage") next.delete(paramKey("workPage")); return next; }, { replace: true });
   const agentName = (item: Demand) => agents.data?.find(row => row.id === (item.incubation_owner_id ?? item.target_agent_id))?.name ?? item.from_agent;
   const contextName = (item: AgentWorkItem) => readableContext(item.display_context || (projects.data?.find(row => row.id === item.project_id)?.name ?? item.context_area));
-  const setTab = (nextTab: WorkTab) => { setSelectedId(null); setSelectedIds([]); setBulkResults([]); setNotice(false); setPromotedTask(null); setConfirmation(null); setParams(prev => { const next = new URLSearchParams(prev); next.set("tab", "agent-work"); next.set("workTab", nextTab); next.delete("workGroup"); next.delete("questionId"); return next; }); };
+  const setTab = (nextTab: WorkTab) => { setSelectedId(null); setSelectedIds([]); setBulkResults([]); setNotice(false); setPromotedTask(null); setConfirmation(null); setParams(prev => { const next = new URLSearchParams(prev); next.set("tab", "agent-work"); next.set("workTab", nextTab); next.delete("workGroup"); next.delete("questionId"); if (nextTab === "decisions") next.delete("workView"); if (nextTab === "tasks" && next.get("workView") === "decision") next.set("workView", "processing"); return next; }); };
   const counts: Record<string, number> = query.data?.counts ?? {};
   const taskApprovals = (approvals.data ?? []).filter(request => request.target_type === "project_task");
   const queueCount = approvalsQueue.data?.counts?.approvals_queue ?? 0;
+  const decisionsCount = approvalsQueue.data?.counts?.decision ?? 0;
   // Disjoint sources: the queue excludes Moodle messages, incubations and
   // question-blocked items; missions and governed task approvals aren't messages.
   const approvalsCount = queueCount + (moodlePending ?? 0) + missionPending + taskApprovals.length;
@@ -179,7 +183,7 @@ export function useAgentTasksViewModel() {
   const questionAnalysisSummary = questionAnalysis.data ? { total: questionAnalysis.data.total, archive: questionAnalysis.data.archive } : null;
   return {
     tab, setTab, group, views, promotedTask,
-    approvalsCount, answersCount: questions.length, queueCount, taskApprovals, missionPending,
+    approvalsCount, decisionsCount, answersCount: questions.length, queueCount, taskApprovals, missionPending,
     archiving, askArchiveQuestion: (item: { id: string; number: number; question: string }) => { cancelQuestion.reset(); setArchiveReason(""); setArchiving(item); },
     archiveReason, setArchiveReason, archiveReasonValid: archiveReason.trim().length >= 3,
     cancelArchiveQuestion: () => { if (!cancelQuestion.isPending) setArchiving(null); },

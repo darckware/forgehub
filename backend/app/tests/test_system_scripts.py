@@ -40,7 +40,7 @@ def test_system_scripts_render_safely(spec):
         assert {n: p["vault_field"] for n, p in fixed.items()} == {
             "RUSTDESK_ID_SERVER": "id_server", "RUSTDESK_RELAY_SERVER": "relay_server", "RUSTDESK_KEY": "key"}
         assert not any(p["default"] for p in fixed.values())  # nothing fixed is kept in the script
-        assert fixed["RUSTDESK_KEY"]["secret"] and not fixed["RUSTDESK_ID_SERVER"]["secret"]
+        assert not fixed["RUSTDESK_KEY"]["secret"] and not fixed["RUSTDESK_ID_SERVER"]["secret"]
 
 
 def _render(system_key, values):
@@ -163,11 +163,11 @@ async def test_rustdesk_server_read_from_forgevault_when_blank():
         text, _, secrets = await exec_routes.prepare_script_run(script, {"RUSTDESK_PASSWORD": "Senha#2026x"})
         assert asked == [RUSTDESK_SERVER_SECRET]  # one read for the three fields
         assert "$RUSTDESK_ID_SERVER = '10.0.0.9'" in text and "$RUSTDESK_KEY = 'vault-key='" in text
-        assert "vault-key=" in secrets and "10.0.0.9" not in secrets  # only the key is masked
+        assert "vault-key=" not in secrets and "Senha#2026x" in secrets  # the server key is public
         text, _, _ = await exec_routes.prepare_script_run(script, {
             "RUSTDESK_PASSWORD": "Senha#2026x", "RUSTDESK_ID_SERVER": "1.2.3.4",
             "RUSTDESK_RELAY_SERVER": "1.2.3.4:21117", "RUSTDESK_KEY": "typed="})
-        assert asked == [RUSTDESK_SERVER_SECRET] and "'typed='" in text  # typed values never touch the vault
+        assert asked == [RUSTDESK_SERVER_SECRET] and "'typed='" in text and "typed=" not in secrets
 
     async def broken(name):
         return '{"id_server": "10.0.0.9"}'
@@ -624,13 +624,70 @@ def test_windows_rustdesk_server_is_applied_by_forgehub_after_the_installer(key)
     """2026-11-15: the public installer stopped at its service wait and never configured the server
     (blank ID/Relay/Key). ForgeHub now ensures the service and applies the server itself, before the ID."""
     content = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == key)["content"]
-    ensure = content.index("\nEnsure-RustDeskService") if "\nEnsure-RustDeskService" in content else content.index("    Ensure-RustDeskService")
-    server = content.index("Set-RustDeskServer\n", ensure)
-    assert content.index("Invoke-Installer $installerArgs") < ensure < server < content.index("'--get-id'", server)
+    install = content.index("Invoke-Installer $installerArgs")
+    configure = content.index("Initialize-RustDeskServer", install)
+    get_id = content.index("$id = Get-RustDeskId", configure)
+    assert install < configure < get_id
     assert "'--install-service'" in content
     for option in ("custom-rendezvous-server", "relay-server", "'key'"):
         assert option in content
     assert "NAO foi configurado" in content  # a failure says the Darckware server is missing
+
+
+@pytest.mark.parametrize("key", ["rustdesk_install:windows", "remote_access_install:windows"])
+def test_windows_rustdesk_install_verifies_the_public_key_applied_to_the_service(key):
+    content = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == key)["content"]
+    assert "function Get-RustDeskServerOptions" in content
+    assert "Name = 'key'; Value = $RUSTDESK_KEY" in content
+    assert "Invoke-RustDesk @('--option', $option.Name)" in content
+    assert "$current.Out -cne $option.Value" in content
+    assert "RustDesk nao confirmou a chave publica" in content
+    assert content.count("$cfg.rustdesk.idServer = $RUSTDESK_ID_SERVER") == 1
+    assert content.count("$cfg.rustdesk.relayServer = $RUSTDESK_RELAY_SERVER") == 1
+    assert content.count("$cfg.rustdesk.publicKey = $RUSTDESK_KEY") == 1
+    helper = content.index("function Set-RustDeskDeploymentConfig")
+    call = content.index("$cfg = Set-RustDeskDeploymentConfig", helper)
+    install = content.index("Invoke-Installer $installerArgs")
+    assert helper < call < install
+    assert "Initialize-RustDeskServer $installerConfigured" in content
+    assert "Set-RustDeskAccessMode" in content
+    access_mode = content[content.index("function Set-RustDeskAccessMode"):content.index("function Get-RustDeskId")]
+    assert "$password = Invoke-RustDesk @('--password', $RUSTDESK_PASSWORD)" in access_mode
+    assert "if (-not $InstallerConfigured)" not in access_mode
+
+
+def test_windows_rustdesk_install_fails_fast_without_administrator_rights():
+    content = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == "rustdesk_install:windows")["content"]
+    admin_check = content.index("$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)")
+    installer = content.index("function Invoke-Installer")
+    assert admin_check < installer
+
+
+@pytest.mark.parametrize("key", ["rustdesk_install:windows", "remote_access_install:windows"])
+def test_windows_installers_reuse_rustdesk_completion_helpers(key):
+    content = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == key)["content"]
+    for helper in ("Initialize-RustDeskServer", "Set-RustDeskAccessMode", "Get-RustDeskId"):
+        assert content.count(f"function {helper}") == 1
+        assert content.count(helper) >= 2
+
+
+@pytest.mark.parametrize("key", ["rustdesk_install:linux", "remote_access_install:linux"])
+def test_linux_installers_reuse_rustdesk_id_capture(key):
+    content = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == key)["content"]
+    assert content.count('RD_ID="$($SUDO rustdesk --get-id)"') == 1
+
+
+@pytest.mark.parametrize("key", ["rustdesk_install:linux", "remote_access_install:linux"])
+def test_linux_rustdesk_install_verifies_the_public_key(key):
+    content = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == key)["content"]
+    assert 'current_key=$($SUDO rustdesk --option key)' in content
+    assert '[ "$current_key" = "$RUSTDESK_KEY" ]' in content
+
+
+@pytest.mark.parametrize("key", ["remote_access_install:windows", "remote_access_install:linux"])
+def test_remote_access_installer_display_name(key):
+    spec = next(s for s in SYSTEM_SCRIPTS if s["system_key"] == key)
+    assert spec["name"] == "Instalador Remoto"
 
 
 def test_a_tailscale_failure_still_fails_the_combined_install():

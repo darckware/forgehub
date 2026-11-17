@@ -117,9 +117,9 @@ describe("operator deliberation", () => {
     expect(option).toHaveValue("area:instructor:bcaa8b44-418a-493d-a55b-f80aa3dbf79f");
     expect(screen.queryByText(/bcaa8b44/)).not.toBeInTheDocument();
   });
-  it("defaults to operator decisions", () => {
+  it("defaults to task handling", () => {
     open();
-    expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ view: "decision" }), true);
+    expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ view: "processing" }), true);
     expect(screen.getByRole("button", { name: "Analisar e encaminhar" })).toBeInTheDocument();
   });
   it("analyzes all pending work beyond page/search/date filters", async () => {
@@ -236,7 +236,7 @@ describe("operator deliberation", () => {
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Transformar em tarefa" }));
     expect(await screen.findByRole("link", { name: /Ver tarefa #42/ })).toHaveAttribute("href", "/demands?message=work-1");
   });
-  it("shows one tab strip beside the analysis button: Tarefas, Incubações, Aprovações (N), Respostas (N)", async () => {
+  it("separates tasks, decisions, incubations, approvals and answers into peer tabs", async () => {
     vi.spyOn(apiClient, "get").mockImplementation(async (url: string) => url === "/api/v1/personal/moodle-approvals" ? { items: [{}, {}], activity: [] } : []);
     mocks.demands.mockReturnValue({ data: { items: [item()], total: 1, page: 1, page_size: 25, counts: { decision: 4, approvals_queue: 3 }, contexts: [] }, isLoading: false, isError: false });
     mocks.approvals.mockReturnValue({ data: [{ id: "req-1", target_type: "project_task", target_id: "task-1", requested_by_name: "Athos", created_at: "2026-11-13T00:00:00Z" },
@@ -247,13 +247,19 @@ describe("operator deliberation", () => {
     const strip = screen.getByRole("tablist", { name: "Abas de Tarefas dos agentes" });
     expect(strip.parentElement).toContainElement(screen.getByRole("button", { name: "Analisar e encaminhar" }));
     // Aprovações = queue 3 + Moodle 2 + project_task approvals 1 (missions: not admin).
-    await waitFor(() => expect(within(strip).getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Tarefas", "Incubações", "Aprovações (6)", "Respostas (1)"]));
+    await waitFor(() => expect(within(strip).getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Tarefas", "Decisões (4)", "Incubações", "Aprovações (6)", "Respostas (1)"]));
     expect(within(strip).getByRole("tab", { name: "Tarefas" })).toHaveAttribute("aria-selected", "true");
-    // "Sua decisão" counts what that view lists; Moodle is only noted (it lives in Aprovações).
-    expect(screen.getByRole("option", { name: "Sua decisão (4)" })).toBeInTheDocument();
-    expect(screen.getByText("2 aprovações Moodle também aguardam sua decisão (fora desta lista).")).toBeInTheDocument();
+    const taskView = screen.getByRole("combobox", { name: "Situação" }) as HTMLSelectElement;
+    expect(taskView.value).toBe("processing");
+    expect(within(taskView).queryByRole("option", { name: /Sua decisão/ })).not.toBeInTheDocument();
+    expect(mocks.demands).toHaveBeenCalledWith(expect.objectContaining({ group: "tasks", view: "processing" }), true);
     expect(screen.queryByText("Which format?")).not.toBeInTheDocument();
     expect(mocks.demands).toHaveBeenCalledWith({ group: "tasks", view: "approvals_queue", page: 1, page_size: 1 }, true);
+
+    fireEvent.click(within(strip).getByRole("tab", { name: "Decisões (4)" }));
+    expect(within(strip).getByRole("tab", { name: "Decisões (4)" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("combobox", { name: "Situação" })).not.toBeInTheDocument();
+    expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ group: "tasks", view: "decision" }), true);
 
     fireEvent.click(within(strip).getByRole("tab", { name: "Aprovações (6)" }));
     expect(mocks.demands).toHaveBeenLastCalledWith({ group: "tasks", view: "approvals_queue", page: 1, page_size: 25 }, true);
@@ -274,6 +280,8 @@ describe("operator deliberation", () => {
     ["/personal?tab=agent-work&workGroup=moodle", "Aprovações"],
     ["/personal?tab=agent-work&workGroup=incubation", "Incubações"],
     ["/personal?tab=agent-work&workView=incubation", "Incubações"],
+    ["/personal?tab=agent-work&workView=decision", "Decisões"],
+    ["/personal?tab=agent-work&workTab=decisions", "Decisões"],
     ["/personal?tab=agent-work&workTab=approvals", "Aprovações"],
     ["/personal?tab=agent-work&workTab=answers", "Respostas"],
     ["/personal?tab=agent-work&workGroup=tasks&questionId=question-1", "Respostas"],
@@ -346,13 +354,25 @@ describe("operator deliberation", () => {
   });
 
   it("requires confirmation before releasing the selected content", async () => {
-    open(); fireEvent.click(screen.getByRole("button", { name: /Revisar backup/ }));
+    open("/personal?tab=agent-work&workTab=decisions"); fireEvent.click(screen.getByRole("button", { name: /Revisar backup/ }));
     fireEvent.click(screen.getByRole("button", { name: "Aprovar e liberar" }));
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText(/autorizando o conteúdo atual/)).toBeInTheDocument();
     expect(mocks.post).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Aprovar e liberar" }));
     await waitFor(() => expect(mocks.post).toHaveBeenCalledWith("/api/v1/demands/work-1/decision", expect.objectContaining({ action: "approve", expected_updated_at: "2026-10-20T00:00:00Z" })));
+  });
+
+  it("cancels a correction decision without changing or dispatching the task", () => {
+    open("/personal?tab=agent-work&workTab=decisions");
+    fireEvent.click(screen.getByRole("button", { name: /Revisar backup/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Aprovar e liberar" }));
+    const dialog = screen.getByRole("dialog");
+    expect(mocks.post).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Revisar backup/ })).toBeInTheDocument();
+    expect(mocks.post).not.toHaveBeenCalled();
   });
 
   it("requires a reason when rejecting and preserves it on failure", async () => {

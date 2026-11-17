@@ -112,18 +112,82 @@ function Ensure-RustDeskService {
     }
     'RustDesk: servico em execucao'
 }
-function Set-RustDeskServer {
-    foreach ($pair in @(@('custom-rendezvous-server', $RUSTDESK_ID_SERVER), @('relay-server', $RUSTDESK_RELAY_SERVER), @('key', $RUSTDESK_KEY))) {
-        $result = Invoke-RustDesk @('--option', $pair[0], $pair[1])
-        if ($result.Code -ne 0) { throw "O RustDesk recusou a configuracao $($pair[0])" }
-    }
-    foreach ($pair in @(@('custom-rendezvous-server', $RUSTDESK_ID_SERVER), @('relay-server', $RUSTDESK_RELAY_SERVER))) {
-        $current = Invoke-RustDesk @('--option', $pair[0])
-        if ($current.Code -ne 0 -or $current.Out -ne $pair[1]) {
-            throw "O RustDesk nao confirmou $($pair[0]): o servidor da Darckware NAO esta configurado"
+function Set-RustDeskDeploymentConfig([switch]$UpdateRoute) {
+    $cfgPath = Join-Path $dir 'config\\deployment.json'
+    $cfg = Get-Content -Raw $cfgPath | ConvertFrom-Json
+    $cfg.rustdesk.idServer = $RUSTDESK_ID_SERVER
+    $cfg.rustdesk.relayServer = $RUSTDESK_RELAY_SERVER
+    $cfg.rustdesk.publicKey = $RUSTDESK_KEY
+    if ($UpdateRoute) { $cfg.route.destinationPrefix = "$RUSTDESK_ID_SERVER/32" }
+    $cfg | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 $cfgPath
+    return $cfg
+}
+function Get-RustDeskServerOptions {
+    @(
+        [pscustomobject]@{ Name = 'custom-rendezvous-server'; Value = $RUSTDESK_ID_SERVER },
+        [pscustomobject]@{ Name = 'relay-server'; Value = $RUSTDESK_RELAY_SERVER },
+        [pscustomobject]@{ Name = 'key'; Value = $RUSTDESK_KEY }
+    )
+}
+function Test-RustDeskServer {
+    $serverOptions = @(Get-RustDeskServerOptions)
+    foreach ($option in $serverOptions) {
+        $current = Invoke-RustDesk @('--option', $option.Name)
+        if ($current.Code -ne 0 -or $current.Out -cne $option.Value) {
+            if ($option.Name -eq 'key') {
+                throw 'O RustDesk nao confirmou a chave publica do servidor; a conexao nao foi liberada'
+            }
+            throw "O RustDesk nao confirmou $($option.Name): o servidor da Darckware NAO esta configurado"
         }
     }
+}
+function Set-RustDeskServer {
+    $serverOptions = @(Get-RustDeskServerOptions)
+    foreach ($pair in $serverOptions) {
+        $result = Invoke-RustDesk @('--option', $pair.Name, $pair.Value)
+        if ($result.Code -ne 0) { throw "O RustDesk recusou a configuracao $($pair.Name)" }
+    }
+    Test-RustDeskServer
+}
+function Initialize-RustDeskServer([bool]$InstallerConfigured) {
+    Ensure-RustDeskService
+    if ($InstallerConfigured) {
+        try { Test-RustDeskServer } catch {
+            'Aviso: o instalador nao confirmou a configuracao do servidor; o ForgeHub vai reaplica-la.'
+            Set-RustDeskServer
+        }
+    } else {
+        Set-RustDeskServer
+    }
     "RustDesk: servidor da Darckware configurado ($RUSTDESK_ID_SERVER)"
+}
+function Set-RustDeskAccessMode {
+    if (-not $RUSTDESK_PASSWORD) {
+        $approval = Invoke-RustDesk @('--option', 'approve-mode', 'click')
+        if ($approval.Code -ne 0) { throw 'Nao foi possivel exigir aprovacao local para as conexoes RustDesk' }
+        $approvalMode = Invoke-RustDesk @('--option', 'approve-mode')
+        if ($approvalMode.Code -ne 0 -or $approvalMode.Out -ne 'click') {
+            throw 'O RustDesk nao confirmou o modo de aprovacao por clique'
+        }
+        'RustDesk: sem senha permanente; cada conexao precisa ser aprovada na maquina.'
+    } else {
+        # The external installer trusts the exit code; RustDesk may still reject the password.
+        $password = Invoke-RustDesk @('--password', $RUSTDESK_PASSWORD)
+        if ($password.Code -ne 0 -or $password.Out -notmatch '(?m)^Done!$') {
+            throw 'O RustDesk nao confirmou a senha permanente'
+        }
+        $approval = Invoke-RustDesk @('--option', 'approve-mode', 'password-click')
+        if ($approval.Code -ne 0) { throw 'Nao foi possivel habilitar acesso por senha ou aprovacao local' }
+        $approvalMode = Invoke-RustDesk @('--option', 'approve-mode')
+        if ($approvalMode.Code -ne 0 -or $approvalMode.Out -ne 'password-click') {
+            throw 'O RustDesk nao confirmou o modo senha ou clique'
+        }
+    }
+}
+function Get-RustDeskId {
+    $id = (Invoke-RustDesk @('--get-id')).Out
+    if ($id -notmatch '^\\d+$') { throw 'O RustDesk nao retornou um ID valido' }
+    return $id
 }
 """
 
@@ -154,6 +218,8 @@ fi
 $SUDO rustdesk --option custom-rendezvous-server "$RUSTDESK_ID_SERVER"
 $SUDO rustdesk --option relay-server "$RUSTDESK_RELAY_SERVER"
 $SUDO rustdesk --option key "$RUSTDESK_KEY"
+current_key=$($SUDO rustdesk --option key)
+[ "$current_key" = "$RUSTDESK_KEY" ] || {{ echo "O RustDesk nao confirmou a chave publica do servidor; a conexao nao foi liberada" >&2; exit 1; }}
 if [ -n "$RUSTDESK_PASSWORD" ]; then
     password_result=$($SUDO rustdesk --password "$RUSTDESK_PASSWORD")
     case "$password_result" in *Done!*) ;; *) echo "O RustDesk nao confirmou a senha permanente" >&2; exit 1 ;; esac
@@ -167,7 +233,8 @@ else
     echo "RustDesk: sem senha permanente; cada conexao precisa ser aprovada na maquina."
 fi
 """
-_SH_RUSTDESK_INSTALL = _SH_RUSTDESK_SETUP + 'echo "RUSTDESK_ID=$($SUDO rustdesk --get-id)"\n'
+_SH_RUSTDESK_CAPTURE_ID = 'RD_ID="$($SUDO rustdesk --get-id)"\n'
+_SH_RUSTDESK_INSTALL = _SH_RUSTDESK_SETUP + _SH_RUSTDESK_CAPTURE_ID + 'echo "RUSTDESK_ID=$RD_ID"\n'
 
 # Left blank, the auth key is minted by ForgeHub through the Tailscale API: one
 # single-use, NOT pre-authorized key per machine, carrying this tag -- each
@@ -293,7 +360,7 @@ _RUSTDESK_NETWORK_PARAMS = [
      "vault_secret": RUSTDESK_SERVER_SECRET, "vault_field": "id_server"},
     {"name": "RUSTDESK_RELAY_SERVER", "label": "Servidor de Relay", "required": True,
      "vault_secret": RUSTDESK_SERVER_SECRET, "vault_field": "relay_server"},
-    {"name": "RUSTDESK_KEY", "label": "Key", "required": True, "secret": True,
+    {"name": "RUSTDESK_KEY", "label": "Chave pública do servidor", "required": True,
      "vault_secret": RUSTDESK_SERVER_SECRET, "vault_field": "key"},
 ]
 _RUSTDESK_PASSWORD_PARAM = {"name": "RUSTDESK_PASSWORD", "label": "Senha permanente do RustDesk", "required": True, "secret": True}
@@ -535,17 +602,13 @@ if ($r.ReturnValue -ne 0) { throw "Politica gravada, mas o reinicio do servico f
             "Instala o RustDesk (instalador oficial validado pelo darckware-remote), configura o servidor de "
             "ID/Relay e a Key da Darckware. A senha permanente é opcional; sem ela, a estação exige aprovação "
             "manual de cada conexão. Quando informada, a senha e o ID ficam guardados no cadastro da máquina. "
-            "Requer a máquina conectada à tailnet."
+            "Requer a máquina conectada à tailnet e execução com direitos de Administrador."
         ),
         "parameters": [*_RUSTDESK_NETWORK_PARAMS, _RUSTDESK_PASSWORD_OPTIONAL],
-        "content": _WIN_FETCH_INSTALLER + _WIN_RUSTDESK_CLI + """
-$cfgPath = Join-Path $dir 'config\\deployment.json'
-$cfg = Get-Content -Raw $cfgPath | ConvertFrom-Json
-$cfg.rustdesk.idServer = $RUSTDESK_ID_SERVER
-$cfg.rustdesk.relayServer = $RUSTDESK_RELAY_SERVER
-$cfg.rustdesk.publicKey = $RUSTDESK_KEY
-$cfg | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 $cfgPath
+        "content": _WIN_REQUIRE_ADMIN + _WIN_FETCH_INSTALLER + _WIN_RUSTDESK_CLI + """
+$cfg = Set-RustDeskDeploymentConfig
 $installerArgs = @('-NonInteractive', '-InstallRustDesk', '-ConnectivityMode', 'LocalTailscale')
+$installerConfigured = $false
 $sec = New-SecretDir
 try {
     if ($RUSTDESK_PASSWORD) {
@@ -553,35 +616,15 @@ try {
         [IO.File]::WriteAllText($passwordPath, $RUSTDESK_PASSWORD)
         $installerArgs += @('-RustDeskPasswordFile', $passwordPath)
     }
-    try { Invoke-Installer $installerArgs } catch {
+    try { Invoke-Installer $installerArgs; $installerConfigured = $true } catch {
         # The installer may stop at its service wait, before configuring anything; finish it below.
         if (-not (Test-Path (Join-Path $env:ProgramFiles 'RustDesk\\rustdesk.exe'))) { throw }
         "Aviso do instalador: $($_.Exception.Message) -- o ForgeHub conclui o servico e a configuracao."
     }
 } finally { Remove-Item -Recurse -Force $sec -ErrorAction SilentlyContinue }
-Ensure-RustDeskService
-Set-RustDeskServer
-if (-not $RUSTDESK_PASSWORD) {
-    $approval = Invoke-RustDesk @('--option', 'approve-mode', 'click')
-    if ($approval.Code -ne 0) { throw 'Nao foi possivel exigir aprovacao local para as conexoes RustDesk' }
-    $approvalMode = Invoke-RustDesk @('--option', 'approve-mode')
-    if ($approvalMode.Code -ne 0 -or $approvalMode.Out -ne 'click') {
-        throw 'O RustDesk nao confirmou o modo de aprovacao por clique'
-    }
-    'RustDesk: sem senha permanente; cada conexao precisa ser aprovada na maquina.'
-} else {
-    $password = Invoke-RustDesk @('--password', $RUSTDESK_PASSWORD)
-    if ($password.Code -ne 0 -or $password.Out -notmatch '(?m)^Done!$') {
-        throw 'O RustDesk nao confirmou a senha permanente'
-    }
-    $approval = Invoke-RustDesk @('--option', 'approve-mode', 'password-click')
-    if ($approval.Code -ne 0) { throw 'Nao foi possivel habilitar acesso por senha ou aprovacao local' }
-    $approvalMode = Invoke-RustDesk @('--option', 'approve-mode')
-    if ($approvalMode.Code -ne 0 -or $approvalMode.Out -ne 'password-click') {
-        throw 'O RustDesk nao confirmou o modo senha ou clique'
-    }
-}
-$id = (Invoke-RustDesk @('--get-id')).Out
+Initialize-RustDeskServer $installerConfigured
+Set-RustDeskAccessMode
+$id = Get-RustDeskId
 "RUSTDESK_ID=$id"
 """,
     },
@@ -602,7 +645,7 @@ $id = (Invoke-RustDesk @('--get-id')).Out
     },
     {
         "system_key": "remote_access_install:windows",
-        "name": "Instalador Darckware Remoto",
+        "name": "Instalador Remoto",
         "platform": "windows",
         "category": "acesso_remoto",
         "risk": "change",
@@ -630,13 +673,7 @@ $wantRd = $COMPONENTES -ne 'somente_tailscale'
 $router = $COMPONENTES -eq 'somente_rustdesk' -and $CONEXAO_RUSTDESK -eq 'roteador_subrede'
 if ($wantTs -and -not $TAILSCALE_AUTHKEY) { throw 'Informe a chave de autenticacao da Tailscale' }
 if ($router -and -not ($ROUTER_IP -match '^\\d{1,3}(\\.\\d{1,3}){3}$')) { throw 'Informe o IPv4 do host roteador na rede local' }
-$cfgPath = Join-Path $dir 'config\\deployment.json'
-$cfg = Get-Content -Raw $cfgPath | ConvertFrom-Json
-$cfg.rustdesk.idServer = $RUSTDESK_ID_SERVER
-$cfg.rustdesk.relayServer = $RUSTDESK_RELAY_SERVER
-$cfg.rustdesk.publicKey = $RUSTDESK_KEY
-$cfg.route.destinationPrefix = "$RUSTDESK_ID_SERVER/32"
-$cfg | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 $cfgPath
+$cfg = Set-RustDeskDeploymentConfig -UpdateRoute
 $hn = if ($TAILSCALE_HOSTNAME) { $TAILSCALE_HOSTNAME } else { $env:COMPUTERNAME.ToLower() }
 $installerArgs = @('-NonInteractive')
 $sec = New-SecretDir
@@ -660,7 +697,8 @@ try {
         }
     }
     $installerError = $null
-    try { Invoke-Installer $installerArgs } catch {
+    $installerConfigured = $false
+    try { Invoke-Installer $installerArgs; $installerConfigured = $true } catch {
         # Tolerated only to finish RustDesk below; a Tailscale part still fails the run at the end.
         if (-not ($wantRd -and (Test-Path (Join-Path $env:ProgramFiles 'RustDesk\\rustdesk.exe')))) { throw }
         $installerError = $_.Exception.Message
@@ -668,30 +706,10 @@ try {
     }
 } finally { Remove-Item -Recurse -Force $sec -ErrorAction SilentlyContinue }
 if ($wantRd) {
-    Ensure-RustDeskService
-    Set-RustDeskServer
+    Initialize-RustDeskServer $installerConfigured
 }
 if ($installerError -and $wantTs) { throw "O instalador da Darckware falhou: $installerError" }
-if ($wantRd -and -not $RUSTDESK_PASSWORD) {
-    $approval = Invoke-RustDesk @('--option', 'approve-mode', 'click')
-    if ($approval.Code -ne 0) { throw 'Nao foi possivel exigir aprovacao local para as conexoes RustDesk' }
-    $approvalMode = Invoke-RustDesk @('--option', 'approve-mode')
-    if ($approvalMode.Code -ne 0 -or $approvalMode.Out -ne 'click') {
-        throw 'O RustDesk nao confirmou o modo de aprovacao por clique'
-    }
-    'RustDesk: sem senha permanente; cada conexao precisa ser aprovada na maquina.'
-} elseif ($wantRd) {
-    $password = Invoke-RustDesk @('--password', $RUSTDESK_PASSWORD)
-    if ($password.Code -ne 0 -or $password.Out -notmatch '(?m)^Done!$') {
-        throw 'O RustDesk nao confirmou a senha permanente'
-    }
-    $approval = Invoke-RustDesk @('--option', 'approve-mode', 'password-click')
-    if ($approval.Code -ne 0) { throw 'Nao foi possivel habilitar acesso por senha ou aprovacao local' }
-    $approvalMode = Invoke-RustDesk @('--option', 'approve-mode')
-    if ($approvalMode.Code -ne 0 -or $approvalMode.Out -ne 'password-click') {
-        throw 'O RustDesk nao confirmou o modo senha ou clique'
-    }
-}
+if ($wantRd) { Set-RustDeskAccessMode }
 
 '=== Validacao'
 $failed = @()
@@ -713,7 +731,7 @@ if ($wantRd) {
         "Porta $($RUSTDESK_ID_SERVER):$($port): $(if ($okPort) { 'acessivel' } else { 'SEM resposta' })"
         if (-not $okPort) { $failed += "Porta $port" }
     }
-    $id = (Invoke-RustDesk @('--get-id')).Out
+    $id = Get-RustDeskId
     if ($id) { "RUSTDESK_ID=$id" } else { $failed += 'ID do RustDesk' }
 }
 if ($failed.Count) { throw "Validacao falhou: $($failed -join ', ')" }
@@ -722,7 +740,7 @@ if ($failed.Count) { throw "Validacao falhou: $($failed -join ', ')" }
     },
     {
         "system_key": "remote_access_install:linux",
-        "name": "Instalador Darckware Remoto",
+        "name": "Instalador Remoto",
         "platform": "linux",
         "category": "acesso_remoto",
         "risk": "change",
@@ -742,7 +760,7 @@ if ($failed.Count) { throw "Validacao falhou: $($failed -join ', ')" }
 if [ "$WANT_TS" = 1 ]; then
 """ + _SH_TAILSCALE_UP + """fi
 if [ "$WANT_RD" = 1 ]; then
-""" + _SH_RUSTDESK_SETUP + """RD_ID="$($SUDO rustdesk --get-id)"
+""" + _SH_RUSTDESK_SETUP + _SH_RUSTDESK_CAPTURE_ID + """
 fi
 echo "=== Validacao"
 FAILED=""
@@ -1317,13 +1335,292 @@ for _platform, _extension in (("windows", "ps1"), ("linux", "sh")):
         "content": (Path(__file__).parent / "script_assets" / f"diagnose_ssh.{_extension}").read_text(encoding="utf-8"),
     })
 
+SYSTEM_SCRIPTS.append({
+    "system_key": "rdp_setup:windows",
+    "name": "Configurar Área de Trabalho Remota (Windows)",
+    "platform": "windows",
+    "category": "acesso_remoto",
+    "risk": "change",
+    "timeout_seconds": 180,
+    "description": (
+        "Ativa a Área de Trabalho Remota após confirmar a autorização do cliente, avisa as sessões interativas, "
+        "libera o usuário local informado e limita o firewall TCP/3389 à rede Tailscale (100.64.0.0/10)."
+    ),
+    "parameters": [
+        {"name": "CLIENTE_AUTORIZOU", "label": "O cliente autorizou a Área de Trabalho Remota?",
+         "required": True, "default": "nao", "options": ["nao", "sim"]},
+        {"name": "USUARIO_SUPORTE", "label": "Usuário local que receberá acesso RDP", "required": True},
+    ],
+    "content": r"""$ErrorActionPreference = 'Stop'
+$tailnet = '100.64.0.0/10'
+$ruleName = 'ForgeHub-RDP-Tailscale'
+$rdpGroupSid = 'S-1-5-32-555'
+
+function Test-Port3389([object[]]$PortValues) {
+    foreach ($value in $PortValues) {
+        foreach ($part in ([string]$value -split ',')) {
+            $part = $part.Trim()
+            if ($part -eq 'Any' -or $part -eq '3389') { return $true }
+            if ($part -match '^(\d+)-(\d+)$' -and [int]$Matches[1] -le 3389 -and [int]$Matches[2] -ge 3389) { return $true }
+        }
+    }
+    return $false
+}
+
+function Convert-IPv4Number([string]$Address) {
+    $ip = [Net.IPAddress]::Parse($Address)
+    if ($ip.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) { throw 'IPv4 required' }
+    $octets = $ip.GetAddressBytes()
+    return ([uint64]$octets[0] * 16777216) + ([uint64]$octets[1] * 65536) + ([uint64]$octets[2] * 256) + [uint64]$octets[3]
+}
+
+function Get-IPv4Range([string]$Value) {
+    $range = @($Value -split '-', 2)
+    if ($range.Count -eq 2) {
+        $first = Convert-IPv4Number $range[0]
+        $last = Convert-IPv4Number $range[1]
+        if ($first -gt $last) { throw 'Invalid IPv4 range' }
+        return [pscustomobject]@{ Start = $first; End = $last }
+    }
+    $parts = @($Value -split '/', 2)
+    $number = Convert-IPv4Number $parts[0]
+    if ($parts.Count -eq 2) {
+        if ($parts[1] -match '^\d{1,2}$') {
+            $prefix = [int]$parts[1]
+            if ($prefix -lt 0 -or $prefix -gt 32) { throw 'Invalid prefix' }
+            $size = [uint64][math]::Pow(2, 32 - $prefix)
+            $start = [uint64]([math]::Floor($number / $size) * $size)
+            return [pscustomobject]@{ Start = $start; End = ($start + $size - 1) }
+        }
+        $mask = Convert-IPv4Number $parts[1]
+        $inv = [uint64]4294967295 - $mask
+        if (($inv -band ($inv + 1)) -ne 0) { throw 'Invalid subnet mask' }
+        $start = $number -band $mask
+        return [pscustomobject]@{ Start = $start; End = ($start + $inv) }
+    }
+    return [pscustomobject]@{ Start = $number; End = $number }
+}
+
+function Test-AddressInsideTailnet([string]$Address) {
+    try {
+        $range = Get-IPv4Range $Address
+        return $range.Start -ge 1681915904 -and $range.End -le 1686110207
+    } catch { return $false }
+}
+
+function Test-AddressOverlapsTailnet([string]$Address) {
+    if ($Address -in @('Any', 'LocalSubnet', 'Internet')) { return $true }
+    try {
+        $range = Get-IPv4Range $Address
+        return $range.Start -le 1686110207 -and $range.End -ge 1681915904
+    } catch { return $true }
+}
+
+function Test-TailnetOnly([object[]]$Addresses) {
+    $values = @($Addresses | ForEach-Object { [string]$_ })
+    return $values.Count -gt 0 -and @($values | Where-Object { -not (Test-AddressInsideTailnet $_) }).Count -eq 0
+}
+
+function Test-ForgeHubRdpRule($Rule) {
+    $ports = @($Rule | Get-NetFirewallPortFilter)
+    $addresses = @($Rule | Get-NetFirewallAddressFilter | ForEach-Object { $_.RemoteAddress })
+    if ($ports.Count -ne 1) { return $false }
+    $localPorts = @($ports[0].LocalPort | ForEach-Object { [string]$_ })
+    return [string]$Rule.Action -eq 'Allow' -and [string]$Rule.Direction -eq 'Inbound' -and
+        [string]$ports[0].Protocol -eq 'TCP' -and $localPorts.Count -eq 1 -and
+        $localPorts[0] -eq '3389' -and (Test-TailnetOnly $addresses)
+}
+
+function Assert-RdpFirewallPolicy {
+    $profiles = @(Get-NetFirewallProfile -PolicyStore ActiveStore -ErrorAction Stop)
+    if ($profiles.Count -eq 0) { throw 'Não foi possível ler a política efetiva do Firewall do Windows.' }
+    foreach ($profile in $profiles) {
+        if ([string]$profile.Enabled -ine 'True') { throw "Firewall desativado no perfil $($profile.Name); habilite-o antes de configurar RDP." }
+        if ([string]$profile.DefaultInboundAction -eq 'Allow') {
+            throw "O perfil $($profile.Name) permite conexões inbound por padrão; ajuste a política antes de habilitar RDP."
+        }
+    }
+
+    # Query the ActiveStore once, then filter in memory. Some Windows builds raise
+    # CmdletizationQuery_NotFound when a filtered query has no matching rules.
+    $inboundRules = @(Get-NetFirewallRule -PolicyStore ActiveStore -ErrorAction Stop |
+        Where-Object { [string]$_.Direction -eq 'Inbound' -and [string]$_.Enabled -ieq 'True' })
+    $allowRules = @($inboundRules | Where-Object { [string]$_.Action -eq 'Allow' })
+    foreach ($rule in $allowRules) {
+        foreach ($filter in @($rule | Get-NetFirewallPortFilter)) {
+            if ([string]$filter.Protocol -notin @('TCP', '6', 'Any', '256')) { continue }
+            if (-not (Test-Port3389 @($filter.LocalPort))) { continue }
+            $addresses = @($rule | Get-NetFirewallAddressFilter | ForEach-Object { $_.RemoteAddress })
+            if (-not (Test-TailnetOnly $addresses)) {
+                throw "A regra efetiva '$($rule.DisplayName)' permite acesso inbound mais amplo à porta 3389. Restrinja-a antes de habilitar RDP."
+            }
+        }
+    }
+
+    $blockRules = @($inboundRules | Where-Object { [string]$_.Action -eq 'Block' })
+    foreach ($rule in $blockRules) {
+        foreach ($filter in @($rule | Get-NetFirewallPortFilter)) {
+            if ([string]$filter.Protocol -notin @('TCP', '6', 'Any', '256')) { continue }
+            if (-not (Test-Port3389 @($filter.LocalPort))) { continue }
+            $addresses = @($rule | Get-NetFirewallAddressFilter | ForEach-Object { $_.RemoteAddress })
+            if (@($addresses | Where-Object { Test-AddressOverlapsTailnet ([string]$_) }).Count -gt 0) {
+                throw "A regra efetiva '$($rule.DisplayName)' bloqueia a porta 3389 para a Tailscale; revise-a antes de habilitar RDP."
+            }
+        }
+    }
+}
+
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = [Security.Principal.WindowsPrincipal]::new($identity)
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw 'Execute este script como administrador.'
+}
+if ($CLIENTE_AUTORIZOU -ne 'sim') {
+    throw 'A configuração foi cancelada. Registre a autorização do cliente e selecione sim para continuar.'
+}
+if ([string]::IsNullOrWhiteSpace($USUARIO_SUPORTE) -or $USUARIO_SUPORTE.IndexOfAny([char[]]'\\/:*?[]<>|"') -ge 0) {
+    throw 'Informe um nome de usuário local válido, sem domínio.'
+}
+$supportUsers = @(Get-LocalUser -ErrorAction Stop | Where-Object { $_.Name -ieq $USUARIO_SUPORTE })
+if ($supportUsers.Count -ne 1 -or -not $supportUsers[0].Enabled) {
+    throw "O usuário local '$USUARIO_SUPORTE' não existe ou está desativado. Nenhuma conta foi criada ou alterada."
+}
+$supportUser = $supportUsers[0]
+
+$rdpGroup = Get-LocalGroup -SID $rdpGroupSid -ErrorAction Stop
+$groupMembers = @(Get-LocalGroupMember -Group $rdpGroup -ErrorAction Stop)
+$alreadyMember = [bool]($groupMembers | Where-Object { $_.SID -and $_.SID.Value -eq $supportUser.SID.Value })
+$terminalService = Get-Service -Name 'TermService' -ErrorAction SilentlyContinue
+if (-not $terminalService) { throw 'O serviço TermService não existe nesta instalação do Windows.' }
+$terminalServerPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server'
+$rdpTcpPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp'
+if (-not (Test-Path -LiteralPath $terminalServerPath) -or -not (Test-Path -LiteralPath $rdpTcpPath)) {
+    throw 'A configuração padrão do RDP não foi encontrada no Registro.'
+}
+$initialListenerConfig = Get-ItemProperty -LiteralPath $rdpTcpPath -ErrorAction Stop
+if ([int]$initialListenerConfig.PortNumber -ne 3389) {
+    throw "O RDP existente usa a porta $($initialListenerConfig.PortNumber), não 3389. Planeje a mudança da porta antes de executar; nenhuma configuração foi alterada."
+}
+
+Assert-RdpFirewallPolicy
+$ownedRules = @(Get-NetFirewallRule -PolicyStore ActiveStore -Name $ruleName -ErrorAction SilentlyContinue)
+$persistentOwned = @(Get-NetFirewallRule -PolicyStore PersistentStore -Name $ruleName -ErrorAction SilentlyContinue)
+if (
+    $ownedRules.Count -gt 1 -or
+    ($ownedRules.Count -eq 1 -and -not (Test-ForgeHubRdpRule $ownedRules[0])) -or
+    $persistentOwned.Count -gt 1 -or
+    ($persistentOwned.Count -eq 1 -and -not (Test-ForgeHubRdpRule $persistentOwned[0])) -or
+    ($ownedRules.Count -eq 1 -and $persistentOwned.Count -eq 0)
+) {
+    throw 'A regra ForgeHub de RDP já existe com escopo diferente; revise-a antes de reconfigurar.'
+}
+
+$msgExe = Join-Path $env:WINDIR 'System32\msg.exe'
+if (-not (Test-Path -LiteralPath $msgExe)) { throw 'msg.exe não está disponível; nenhuma configuração foi alterada.' }
+if (-not ('ForgeHubWts.SessionEnumerator' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+namespace ForgeHubWts {
+    public enum WTS_CONNECTSTATE_CLASS { WTSActive, WTSConnected, WTSConnectQuery, WTSShadow, WTSDisconnected, WTSIdle, WTSListen, WTSReset, WTSDown, WTSInit }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct WTS_SESSION_INFO { public Int32 SessionID; public IntPtr WinStationName; public WTS_CONNECTSTATE_CLASS State; }
+    public static class SessionEnumerator {
+        [DllImport("Wtsapi32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+        private static extern bool WTSEnumerateSessions(IntPtr server, int reserved, int version, out IntPtr sessions, out int count);
+        [DllImport("Wtsapi32.dll")]
+        private static extern void WTSFreeMemory(IntPtr memory);
+        public static int[] GetActiveSessionIds() {
+            IntPtr buffer; int count;
+            if (!WTSEnumerateSessions(IntPtr.Zero, 0, 1, out buffer, out count)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            try {
+                int size = Marshal.SizeOf(typeof(WTS_SESSION_INFO));
+                int[] ids = new int[count]; int found = 0;
+                for (int i = 0; i < count; i++) {
+                    IntPtr itemPtr = new IntPtr(buffer.ToInt64() + (long)i * size);
+                    WTS_SESSION_INFO item = (WTS_SESSION_INFO)Marshal.PtrToStructure(itemPtr, typeof(WTS_SESSION_INFO));
+                    if (item.SessionID > 0 && item.State == WTS_CONNECTSTATE_CLASS.WTSActive) ids[found++] = item.SessionID;
+                }
+                Array.Resize(ref ids, found);
+                return ids;
+            } finally { if (buffer != IntPtr.Zero) WTSFreeMemory(buffer); }
+        }
+    }
+}
+'@
+}
+$activeSessionIds = @([ForgeHubWts.SessionEnumerator]::GetActiveSessionIds() | Sort-Object -Unique)
+if ($activeSessionIds.Count -eq 0) { throw 'Nenhuma sessão interativa ativa foi encontrada; nenhuma configuração foi alterada.' }
+$notice = "ForgeHub: a Área de Trabalho Remota será habilitada para $USUARIO_SUPORTE, limitada à rede Tailscale. A autorização do cliente foi registrada."
+foreach ($sessionId in $activeSessionIds) {
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $msgExe ([string]$sessionId) '/TIME:60' $notice 2>&1 | Out-Null
+        $msgCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+    if ($msgCode -ne 0) { throw "Não foi possível avisar a sessão interativa $sessionId; nenhuma configuração foi alterada." }
+}
+
+# Prepare the tailnet-only firewall and the chosen account before enabling the RDP listener.
+if ($persistentOwned.Count -eq 0) {
+    New-NetFirewallRule -Name $ruleName -DisplayName 'ForgeHub RDP (Tailscale)' -Direction Inbound `
+        -Action Allow -Protocol TCP -LocalPort 3389 -RemoteAddress $tailnet -Profile Any -PolicyStore PersistentStore | Out-Null
+} else {
+    Set-NetFirewallRule -Name $ruleName -Enabled True -Profile Any -PolicyStore PersistentStore | Out-Null
+}
+if (-not $alreadyMember) { Add-LocalGroupMember -Group $rdpGroup -Member $supportUser -ErrorAction Stop }
+
+Set-ItemProperty -LiteralPath $rdpTcpPath -Name 'PortNumber' -Type DWord -Value 3389
+Set-ItemProperty -LiteralPath $rdpTcpPath -Name 'UserAuthentication' -Type DWord -Value 1
+Set-ItemProperty -LiteralPath $terminalServerPath -Name 'fDenyTSConnections' -Type DWord -Value 0
+Set-Service -Name 'TermService' -StartupType Automatic
+if ((Get-Service -Name 'TermService').Status -ne 'Running') { Start-Service -Name 'TermService' }
+
+Assert-RdpFirewallPolicy
+$deadline = (Get-Date).AddSeconds(30)
+do {
+    $listeners = @(Get-NetTCPConnection -State Listen -LocalPort 3389 -ErrorAction SilentlyContinue)
+    $serviceInfo = Get-CimInstance -ClassName Win32_Service -Filter "Name='TermService'"
+    $serviceListeners = @($listeners | Where-Object { $_.OwningProcess -eq $serviceInfo.ProcessId })
+    if ($serviceListeners.Count -gt 0) { break }
+    Start-Sleep -Seconds 2
+} while ((Get-Date) -lt $deadline)
+if ($serviceListeners.Count -eq 0) { throw 'TermService não abriu TCP/3389; confira a política do Windows.' }
+
+$serverConfig = Get-ItemProperty -LiteralPath $terminalServerPath
+$listenerConfig = Get-ItemProperty -LiteralPath $rdpTcpPath
+$finalRules = @(Get-NetFirewallRule -PolicyStore ActiveStore -Name $ruleName -ErrorAction SilentlyContinue |
+    Where-Object { [string]$_.Enabled -ieq 'True' })
+if ($serverConfig.fDenyTSConnections -ne 0 -or $listenerConfig.PortNumber -ne 3389 -or $listenerConfig.UserAuthentication -ne 1) {
+    throw 'O Windows não confirmou RDP habilitado com NLA e TCP/3389.'
+}
+if ($finalRules.Count -ne 1 -or [string]$finalRules[0].Enabled -ine 'True' -or -not (Test-ForgeHubRdpRule $finalRules[0])) {
+    throw 'A regra efetiva do firewall não confirmou TCP/3389 somente pela Tailscale.'
+}
+$finalMembers = @(Get-LocalGroupMember -Group $rdpGroup -ErrorAction Stop)
+if (-not ($finalMembers | Where-Object { $_.SID -and $_.SID.Value -eq $supportUser.SID.Value })) {
+    throw 'O usuário informado não aparece em Remote Desktop Users.'
+}
+"RDP habilitado: TCP/3389, NLA obrigatório; usuário liberado: $($supportUser.Name); origem de rede: $tailnet."
+"Aviso entregue às sessões ativas via msg.exe (IDs: $($activeSessionIds -join ', '))."
+"Serviço TermService: $((Get-Service -Name 'TermService').Status)."
+"Firewall efetivo: $($finalRules[0].Name) — inbound TCP/3389 restrito à Tailscale."
+"Autorização registrada no ForgeHub: $CLIENTE_AUTORIZOU."
+""",
+})
+
 # How the library groups the scripts (2026-10-19, Marcelo: "os scripts precisam
 # serem classificados. Exemplo: tailscale, rustdesk, criação de conta,
 # manutenção"). Created on startup when missing; never renamed afterwards.
 SYSTEM_CATEGORIES = [
     ("tailscale", "Tailscale", "Instalação e ajustes da Tailscale"),
     ("rustdesk", "RustDesk", "Instalação e senha do RustDesk"),
-    ("acesso_remoto", "Acesso remoto", "Instalador Darckware Remoto (Tailscale + RustDesk)"),
+    ("acesso_remoto", "Acesso remoto", "Instalador Remoto (Tailscale + RustDesk)"),
     ("contas", "Contas de usuário", "Criação de contas, senhas e propriedades de usuários"),
     ("manutencao", "Manutenção", None),
     ("monitoramento", "Monitoramento", "Estado, serviços, containers, logs e rede (leitura) e teste de alcance"),

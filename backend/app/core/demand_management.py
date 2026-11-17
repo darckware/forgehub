@@ -103,16 +103,23 @@ def operator_state_sql():
 def view_filter(view, state, *, operator=None, demand=AgentDemand, question=None):
     if view == "approvals_queue":
         # Pessoal -> Tarefas dos agentes -> Aprovacoes holds only work waiting for
-        # Marcelo's authorization (2026-11-14, Marcelo: "quando a tarefa precisa de
-        # autorização, precisa entrada na aba aprovação"). A failed or uncertain run
-        # is a decision too, but not an authorization: it stays in Tarefas -> Sua
-        # decisão. A blocking question belongs to Respostas (each item shown once).
+        # Marcelo's authorization. Pending task authorizations and blocking-question
+        # tasks are excluded from the separate operator Decisions queue.
         operator = operator_state_sql() if operator is None else operator
         question = blocking_question_sql(demand) if question is None else question
-        return and_(demand.status != "archived", operator == "decision", ~question,
+        return and_(demand.status != "archived", demand.origin_type == "task", operator == "decision", ~question,
                     demand.requires_approval.is_(True),
                     or_(demand.approval_status.is_(None), demand.approval_status == "pending"))
-    if view in ("decision","processing","waiting","resolved"):
+    if view == "decision":
+        operator = operator_state_sql() if operator is None else operator
+        question = blocking_question_sql(demand) if question is None else question
+        pending_approval = and_(demand.requires_approval.is_(True),
+            or_(demand.approval_status.is_(None), demand.approval_status == "pending"))
+        # Incubations retain their guarded decision flow. For task rows, the
+        # Decisions tab excludes approvals and blocking questions shown elsewhere.
+        task_decision = or_(demand.origin_type != "task", and_(~question, ~pending_approval))
+        return and_(demand.status != "archived", operator == "decision", task_decision)
+    if view in ("processing","waiting","resolved"):
         operator = operator_state_sql() if operator is None else operator
         return and_(demand.status!="archived",operator==view)
     if view == "attention":

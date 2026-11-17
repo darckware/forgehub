@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MESSAGE_LABELS, visibleMessageLabels, operatorDestination } from "./messageLabels";
+import { MESSAGE_LABELS, visibleMessageLabels, operatorDestination, operatorDestinationLabel } from "./messageLabels";
 import type { Demand } from "@/hooks/useDemands";
 import pt from "@/i18n/locales/pt-BR/demands.json";
 import en from "@/i18n/locales/en/demands.json";
@@ -30,9 +30,13 @@ describe("automatic message labels", () => {
     expect(operatorDestination({ ...question, operator_destination: "incubations" })).toContain("workTab=answers&questionId=question-42");
     expect(operatorDestination({ ...row, operator_decision: null })).toBeNull();
   });
-  it("links failures that only a person can move forward to Aprovações", () => {
+  it("routes correction and reconciliation decisions to Decisões", () => {
     const row = { operator_destination: "agent_tasks", operator_decision: "correction", operator_question_id: null } as Demand;
-    expect(operatorDestination(row)).toBe("/personal?tab=agent-work&workTab=approvals");
-    expect(operatorDestination({ ...row, operator_decision: "reconciliation" })).toBe("/personal?tab=agent-work&workTab=approvals");
+    expect(operatorDestination(row)).toBe("/personal?tab=agent-work&workTab=decisions");
+    expect(operatorDestinationLabel(row)).toBe("decisions");
+    const reconciliation = { ...row, operator_decision: "reconciliation" };
+    expect(operatorDestination(reconciliation)).toBe("/personal?tab=agent-work&workTab=decisions");
+    expect(operatorDestinationLabel(reconciliation)).toBe("decisions");
+    expect(operatorDestinationLabel({ ...row, operator_decision: "authorization" })).toBe("agent_tasks");
   });
 });

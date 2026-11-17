@@ -99,3 +99,23 @@ it.each([
   fireEvent.click(screen.getByRole("button", { name: /Athos.*Aguardando sua autorização/ }));
   expect(screen.getAllByRole("link", { name: label })).toHaveLength(2);
 });
+
+it("links a correction decision from Execução to the same demand in Decisões", () => {
+  const failed = demandSchema.parse({
+    id: "attempt-correction", number: 42246, from_agent: "Athos", subject: "Restore ECO-054", body: "Corrigir a entrega",
+    status: "read", group_id: null, converted_entity_type: null, converted_reference: null,
+    created_at: "2026-11-08T10:00:00Z", updated_at: "2026-11-08T10:00:00Z", target_agent_id: "athos",
+    from_agent_id: "athos", project_id: null, command_text: null, origin_type: "task", origin_id: null,
+    dispatch_result: "Trabalho parcial", reply_to_id: null, requires_response: false, scheduled_at: null,
+    agent_processed_at: null, task_execution_at: null, dispatch_status: "failed", agent_run_id: "run-42246",
+    dispatch_attempts: 1, dispatch_error: "O agente reportou STATUS: PARTIAL", message_labels: ["needs_correction"],
+    operator_destination: "agent_tasks", operator_decision: "correction",
+  });
+  state.rows = [failed];
+  openLabels();
+  fireEvent.click(screen.getByRole("button", { name: /^Execução/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Athos.*Restore ECO-054/ }));
+  const links = screen.getAllByRole("link", { name: "Pessoal · Tarefas dos agentes · Decisões" });
+  expect(links).toHaveLength(2);
+  for (const link of links) expect(link).toHaveAttribute("href", expect.stringContaining("workTab=decisions"));
+});

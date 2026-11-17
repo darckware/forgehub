@@ -465,9 +465,11 @@ async def test_queue_and_messages_agree_on_every_failed_row(client, consolidatio
     candidates = [uncertain, *rows.values()]
     labels = await classify_messages(db, candidates)
     linked = {str(row.id) for row in candidates if labels[row.id]["operator_decision"]}
-    assert listed == linked
+    # Authorization decisions are listed only in the Aprovações tab.
+    assert listed == linked - {str(rows["pending_approval"].id)}
     expected = {uncertain, rows["partial"], rows["blocked"], rows["rejected"], rows["pending_approval"],
                 rows["missing_context"], rows["delivered"], rows["failed_check"]}
+    expected.remove(rows["pending_approval"])
     assert listed == {str(row.id) for row in expected}
     assert all(labels[row.id]["operator_destination"] == "agent_tasks" for row in expected)
     assert labels[rows["delivered"].id]["message_labels"] == ["delivery_verified"]
@@ -498,8 +500,10 @@ async def test_approvals_queue_lists_only_work_waiting_for_authorization(client,
         result = await _work(client, label, view="approvals_queue")
         assert {row["id"] for row in result["items"]} == {str(pending.id)}
         assert result["counts"]["approvals_queue"] == 1
-        # "Sua decisão" in Tarefas still holds the uncertain run and the question.
-        assert result["counts"]["decision"] == 3
+        # Decisions contain actionable task work, separate from approvals and questions.
+        assert result["counts"]["decision"] == 1
+        decisions = await _work(client, label, view="decision")
+        assert {row["id"] for row in decisions["items"]} == {str(uncertain.id)}
         question.status = "cancelled"
         await db.commit()
         # Without its question the asked task needs no authorization: it does not enter Aprovações.

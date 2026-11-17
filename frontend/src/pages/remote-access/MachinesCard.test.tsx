@@ -237,7 +237,8 @@ describe("MachinesCard", () => {
     const menu = screen.getByRole("menu", { name: "Ações" });
     expect(within(menu).getAllByRole("menuitem").map((i) => i.textContent)).toEqual([
       "Configurar acesso da máquina", "Rotacionar senha", "Rotacionar chave SSH", "Detectar sistemas operacionais",
-      "Instalador Darckware Remoto", "Instalar Tailscale", "Instalar RustDesk", "Obter ID do RustDesk",
+      "Instalador Remoto", "Configurar Área de Trabalho Remota (RDP)",
+      "Instalar Tailscale", "Instalar RustDesk", "Obter ID do RustDesk",
       "Liberar RustDesk no firewall", "Definir ou trocar senha do RustDesk",
     ]);
     const items = within(menu).getAllByRole("menuitem");
@@ -245,7 +246,7 @@ describe("MachinesCard", () => {
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(items[1]).toHaveFocus();
     fireEvent.keyDown(menu, { key: "End" });
-    expect(items[9]).toHaveFocus();
+    expect(items[items.length - 1]).toHaveFocus();
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(items[0]).toHaveFocus();
     fireEvent.keyDown(menu, { key: "Escape" });
@@ -272,6 +273,7 @@ describe("MachinesCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Ações em srv-sup" }));
     let menu = screen.getByRole("menu", { name: "Ações em srv-sup" });
     expect(within(menu).getByRole("menuitem", { name: "Configurar acesso da máquina" })).toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: "Configurar Área de Trabalho Remota (RDP)" })).not.toBeInTheDocument();
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Rotacionar senha" }));
     expect(run).toHaveBeenCalledWith("rotate_login_password", expect.objectContaining({ id: "s1" }));
 
@@ -285,6 +287,10 @@ describe("MachinesCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Ações em GAT-ADM-PC01" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Instalar RustDesk" }));
     expect(run).toHaveBeenLastCalledWith("rustdesk_install", expect.objectContaining({ id: "m1" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Ações em GAT-ADM-PC01" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Configurar Área de Trabalho Remota (RDP)" }));
+    expect(run).toHaveBeenLastCalledWith("rdp_setup", expect.objectContaining({ id: "m1" }));
   });
 
   it("Ações: a click outside closes the menu without running anything", async () => {
@@ -326,6 +332,107 @@ describe("MachinesCard", () => {
     const row = screen.getByText("GAT-ADM-PC01").closest("tr")!;
     expect(within(row).getAllByText("Reconfiguração necessária").length).toBeGreaterThan(0);
     expect(within(row).getByRole("button", { name: "Abrir terminal SSH em GAT-ADM-PC01" })).toBeInTheDocument();
+  });
+
+  it("uses host-name labels in pt-BR, en, and es on the Remote Access edit panel", async () => {
+    renderCard();
+    await screen.findByText("srv-ad03");
+    fireEvent.click(screen.getByRole("button", { name: "Editar srv-ad03" }));
+    expect(await screen.findByLabelText("Nome do host")).toBeInTheDocument();
+
+    await i18n.changeLanguage("en");
+    expect(await screen.findByLabelText("Host name")).toBeInTheDocument();
+
+    await i18n.changeLanguage("es");
+    expect(await screen.findByLabelText("Nombre del host")).toBeInTheDocument();
+  });
+
+  it("renames a host with a minimal diff, closes the panel, and refreshes the list", async () => {
+    const currentMachines = MACHINES.map((m) => ({ ...m }));
+    vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
+      if (url === "/api/v1/servers") return currentMachines.map((m) => ({ ...m })) as never;
+      if (url === "/api/v1/host-groups") return GROUPS as never;
+      if (url.startsWith("/api/v1/servers/readiness")) return READINESS as never;
+      if (url === "/api/v1/vpn/status") return VPN as never;
+      if (url === "/api/v1/servers/m1") return { ...currentMachines[0], key_passphrase: null } as never;
+      return { items: [{ id: "c1", company_name: "Gatling" }] } as never;
+    });
+    vi.mocked(apiClient.put).mockImplementation(async (url: string, body: unknown) => {
+      expect(url).toBe("/api/v1/servers/m1");
+      expect(body).toEqual({ name: "GAT-ADM-PC02" });
+      currentMachines[0] = { ...currentMachines[0], name: "GAT-ADM-PC02" };
+      return currentMachines[0] as never;
+    });
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={qc}>
+          <MachinesCard />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    const submitButton = () =>
+      screen.getAllByRole("button", { name: "Salvar" }).find((b) => (b as HTMLButtonElement).type === "submit")!;
+
+    await screen.findByText("GAT-ADM-PC01");
+    fireEvent.click(screen.getByRole("button", { name: "Editar GAT-ADM-PC01" }));
+    const input = await screen.findByLabelText("Nome do host");
+    fireEvent.change(input, { target: { value: "  GAT-ADM-PC02  " } });
+    fireEvent.click(submitButton());
+
+    expect(await screen.findByText("GAT-ADM-PC02")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Editar servidor" })).not.toBeInTheDocument();
+  });
+
+  it("allows renaming an unprepared tailnet-synced host with blank remote_user", async () => {
+    const synced = [{ ...MACHINES[0], id: "m-sync", name: "PC-SYNC", remote_user: "", tailnet_node_id: "nPC1" }] as Server[];
+    vi.mocked(apiClient.put).mockResolvedValueOnce({ ...synced[0], name: "PC-SYNC-02" } as never);
+
+    renderCard(undefined, synced);
+    await screen.findByText("PC-SYNC");
+    fireEvent.click(screen.getByRole("button", { name: "Editar PC-SYNC" }));
+    const input = await screen.findByLabelText("Nome do host");
+    fireEvent.change(input, { target: { value: "PC-SYNC-02" } });
+    const saveBtn = screen.getAllByRole("button", { name: "Salvar" }).find((b) => (b as HTMLButtonElement).type === "submit")!;
+    fireEvent.click(saveBtn);
+
+    await vi.waitFor(() => {
+      expect(apiClient.put).toHaveBeenCalledWith("/api/v1/servers/m-sync", { name: "PC-SYNC-02" });
+    });
+  });
+
+  it("shows a safe backend rejection reason and keeps unsaved input when save fails", async () => {
+    vi.mocked(apiClient.put)
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Request to /api/v1/servers/s2 failed with status 409"), {
+          status: 409,
+          body: { detail: "Host 'srv-sup' already exists" },
+        }),
+      )
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Request to /api/v1/servers/s2 failed with status 500"), {
+          status: 500,
+          body: undefined,
+        }),
+      );
+
+    renderCard();
+    await screen.findByText("srv-ad03");
+    fireEvent.click(screen.getByRole("button", { name: "Editar srv-ad03" }));
+    const input = await screen.findByLabelText("Nome do host");
+    fireEvent.change(input, { target: { value: "srv-sup" } });
+    const submitBtn = () =>
+      screen.getAllByRole("button", { name: "Salvar" }).find((b) => (b as HTMLButtonElement).type === "submit")!;
+    fireEvent.click(submitBtn());
+
+    expect(await screen.findByText("Host 'srv-sup' already exists")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Editar servidor" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Nome do host")).toHaveValue("srv-sup");
+
+    fireEvent.click(submitBtn());
+    expect(await screen.findByText("Não foi possível salvar.")).toBeInTheDocument();
   });
 
 });

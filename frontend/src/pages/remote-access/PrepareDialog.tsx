@@ -65,13 +65,18 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
               {t("prepare.recover")}
             </Button>
           )}
+          {vm.pending && !vm.validated && !vm.retryingSsh && (
+            <Button type="button" size="sm" variant="outline" onClick={vm.openRetrySsh} disabled={busy} className="cursor-pointer">
+              {t("prepare.retrySsh")}
+            </Button>
+          )}
           {vm.pending && !vm.validated && (
             <Button type="button" size="sm" onClick={vm.validate} disabled={busy} className="cursor-pointer gap-1.5">
               {vm.validating && <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" />}
               {t("prepare.validate")}
             </Button>
           )}
-          {!vm.pending && !vm.validated && (
+          {(!vm.pending || vm.retryingSsh) && !vm.validated && (
             <Button type="button" size="sm" onClick={vm.submit} disabled={busy || !vm.canSubmit} className="cursor-pointer gap-1.5">
               {busy && <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" />}
               {t(vm.mode === "ssh" ? "prepare.runSsh" : "prepare.generateCopy")}
@@ -103,15 +108,15 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
 
       {diagnosticOpen && supportsDiagnostic && <PreparationDiagnostic key={vm.serverId} serverId={vm.serverId} />}
 
-      {!vm.pending && !vm.validated && <>
-      <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t("prepare.mode")}>
+      {(!vm.pending || vm.retryingSsh) && !vm.validated && <>
+      {!vm.pending && <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t("prepare.mode")}>
         {(["ssh", "copy"] as const).map((m) => (
           <Button key={m} type="button" size="sm" variant={vm.mode === m ? "default" : "outline"} role="radio" aria-checked={vm.mode === m}
             onClick={() => vm.setMode(m)} disabled={busy} className="cursor-pointer">
             {t(`prepare.modes.${m}`)}
           </Button>
         ))}
-      </div>
+      </div>}
 
       {vm.mode === "ssh" ? (
         <div className="space-y-3 rounded-md border border-border p-3">

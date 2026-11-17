@@ -9,6 +9,7 @@ import type { Server } from "@/hooks/useServers";
 /** System scripts the execution screen opens with (`?system=`). */
 export const SYSTEM_ACTIONS = [
   "remote_access_install",
+  "rdp_setup",
   "tailscale_install",
   "rustdesk_install",
   "rustdesk_get_id",

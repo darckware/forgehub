@@ -84,7 +84,7 @@ Use the existing system sans stack for interface text and the system monospace s
 
 ## Layout
 
-Pessoal → Tarefas dos agentes separates Moodle approvals, incubations and executable agent tasks into three nested groups. Each group owns its filters and counts. Task rows expose View details and Archive; the table owns horizontal overflow on narrow screens. Source failures never imply zero pending decisions. Moodle operation outcomes and execution-report outcomes are presented separately.
+Pessoal → Tarefas dos agentes separates Tarefas, Decisões, Incubações, Aprovações and Respostas into distinct tabs. Tarefas defaults to work in treatment; Decisões lists task items awaiting an operator decision; Incubações keeps its guarded flow; Aprovações contains authorization requests; Respostas contains blocking questions. Each list owns its filters and counts. Source failures never imply zero pending items. Moodle operation outcomes and execution-report outcomes are presented separately.
 
 Administrative lists use full-width native tables with comfortable rows and horizontal overflow owned by the table surface. Expanded details appear directly beneath their owning row. Page-level controls remain above the table and do not move when a row opens.
 
@@ -149,7 +149,10 @@ Selected groups save current machines; all-machine scope includes future prepare
 
 Personal agent work keeps the existing compact ledger, source groups, table overflow and
 inset details. The primary action is “Analisar e encaminhar”; archive remains secondary.
-Tasks and incubations default to operator decisions, with separate handling, waiting and resolved views.
+Tasks default to `processing`; a separate Decisions tab owns task operator decisions, apart from
+approvals (Aprovações) and blocking questions (Respostas). Incubations keep their guarded decision
+flow. Task handling, waiting and resolved views remain available. Legacy decision links open
+Decisões.
 A row carries a short analysis, reason and next step; use the API's readable source context.
 Raw instructor identifiers stay in detailed evidence. The stable inline status region reports
 analysis loading, queued/running progress, completion and recoverable failure without moving

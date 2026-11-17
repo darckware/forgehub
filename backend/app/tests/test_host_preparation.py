@@ -15,7 +15,7 @@ from app.api.routes import host_execution as exec_routes
 from app.api.routes import server as server_routes
 from app.core import host_exec_runner
 from app.db.models.host_execution import HostExecution
-from app.core.host_preparation import PreparationError, preparation_script
+from app.core.host_preparation import PreparationError, linux_ssh_bootstrap_script, preparation_script
 from app.db.base import AsyncSessionLocal
 from app.db.models.governance import AuditEvent
 from app.db.models.server import Server
@@ -223,7 +223,7 @@ async def test_ssh_mode_never_locks_admin_when_the_new_login_fails(client, stati
         OK, {"exit_code": 255, "stdout": "", "stderr": "Permission denied", "duration_ms": 1, "failure": "auth"}])
     assert [c[0] for c in calls] == ["administrador", "darckware"]  # no lock step
     result = detail.results[0]
-    assert result.status == "failed" and "Candidate key did not authenticate" in result.stdout
+    assert result.status == "failed" and "O SSH recusou a chave pendente" in result.stdout
 
 
 @pytest.mark.asyncio
@@ -392,3 +392,82 @@ async def test_staging_blocks_inventory_and_key_mutation(client, station):
     changed = await client.put(f"/api/v1/servers/{station.id}", json={"ssh_port": 2222})
     deleted = await client.delete(f"/api/v1/servers/{station.id}/key")
     assert changed.status_code == deleted.status_code == 409
+
+
+def test_linux_ssh_bootstrap_elevates_non_root_via_sudo_or_su():
+    inner, _ = preparation_script("linux", "darckware", KEY, "Passw0rd!123")
+    wrapped = linux_ssh_bootstrap_script(inner, "Admin$Pass1")
+    assert wrapped.startswith("#!/bin/sh\n# ForgeHub - preparacao da estacao")
+    assert not [c for c in wrapped if ord(c) < 32 and c not in "\n\r\t"]
+    assert "mkdir -p /etc/sudoers.d" in inner
+    assert "sudo -n sh" in wrapped
+    assert "sudo -S -p ''" in wrapped
+    assert "su root -c" in wrapped
+    assert "Admin$Pass1" not in wrapped
+    assert "Passw0rd!123" not in wrapped
+
+
+@pytest.mark.asyncio
+async def test_ssh_mode_reuses_pending_candidate_and_elevates_linux_non_root(client, station):
+    VAULT.clear()
+    GENERATED.clear()
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, station.id)
+        row.os_family = "linux"
+        row.kind = "server"
+        row.remote_user = "administrator"
+        await db.commit()
+
+    with (
+        patch.object(server_routes, "_bridge_post", AsyncMock(side_effect=_bridge)) as generate,
+        patch.object(server_routes, "vault_store", AsyncMock(side_effect=_fake_store)) as store,
+    ):
+        copy_resp = await client.post(
+            f"/api/v1/servers/{station.id}/preparation",
+            json={"mode": "copy", "admin_user": "administrator"},
+        )
+        assert copy_resp.status_code == 200, copy_resp.text
+        assert generate.await_count == 1 and store.await_count == 1
+
+        # Copy mode still blocks duplicate pending preparation.
+        copy_again = await client.post(
+            f"/api/v1/servers/{station.id}/preparation",
+            json={"mode": "copy", "admin_user": "administrator"},
+        )
+        assert copy_again.status_code == 409
+
+    staged_pw = list(VAULT.values())[-1]
+    calls = []
+
+    async def fake_exec(**kw):
+        calls.append((kw["user"], kw["password"] is not None, kw["script"]))
+        if len(calls) == 1:
+            return OK
+        return {**OK, "stdout": "darckware"}
+
+    with (
+        patch.object(server_routes, "_bridge_post", AsyncMock()) as no_new_key,
+        patch.object(server_routes, "vault_store", AsyncMock()) as no_new_pw,
+        patch.object(server_routes, "vault_reveal", AsyncMock(return_value=staged_pw)) as reveal,
+        patch.object(server_routes, "call_bridge_exec_as", fake_exec),
+    ):
+        retry = await client.post(
+            f"/api/v1/servers/{station.id}/preparation",
+            json={"mode": "ssh", "admin_user": "administrator", "admin_password": "RootPass#2026", "disable_admin": False},
+        )
+        assert retry.status_code == 200, retry.text
+        body = retry.json()
+        assert body["key_created"] is False and body["execution_id"] is not None
+        await asyncio.wait_for(host_exec_runner._running[uuid.UUID(body["execution_id"])], timeout=10)
+        no_new_key.assert_not_called()
+        no_new_pw.assert_not_called()
+        reveal.assert_awaited_once()
+
+    assert [c[0] for c in calls] == ["administrator", "darckware"]
+    assert "sudo -S -p ''" in calls[0][2] and "su root -c" in calls[0][2]
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, station.id)
+        assert row.remote_user == "darckware"
+        assert row.ssh_key_ref == GEN_REF
+        assert not row.preparation_pending
+        assert row.access_verified_at is not None
