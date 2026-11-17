@@ -343,7 +343,9 @@ async def sync_from_tailnet(
     are absent from a successful tailnet inventory are removed and audited;
     offline peers remain because the Tailscale API still lists them. Client,
     OS, groups and login on matched rows are never overwritten. A
-    "tag:client-<slug>" tag is a suggestion only.
+    "tag:client-<slug>" tag is a suggestion only. Only rows linked to a
+    tailnet node can be removed: a server reached by its LAN address through a
+    subnet router (no node of its own) always stays.
     """
     # `import_node_ids` remains accepted for compatibility; every compatible
     # tailnet machine is now registered during sync.
@@ -424,7 +426,12 @@ async def sync_from_tailnet(
         if s.tailnet_node_id in seen_nodes
         or (not s.tailnet_node_id and (s.ip_address in present_ips or s.name.lower() in present_names))
     )
-    stale = [s for s in servers if s.id not in present_server_ids]
+    # Only a row tied to a tailnet device can be "absent from the tailnet". A
+    # server registered by hand and reached by its LAN address through a subnet
+    # router (srv-app02, srv-vm01, the NAS at SEMED) is never a tailnet peer, so
+    # its absence proves nothing: deleting it took the Moodle server out of the
+    # inventory twice (2026-11-15/16) and lost its key reference.
+    stale = [s for s in servers if s.tailnet_node_id and s.id not in present_server_ids]
     missing = []
     for server in stale:
         missing.append(server.id)

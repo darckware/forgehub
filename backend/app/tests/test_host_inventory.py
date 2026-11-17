@@ -148,14 +148,26 @@ async def test_workstation_fields_and_groups_roundtrip(client, marker):
 
 
 @pytest.mark.asyncio
-async def test_tailnet_sync_links_imports_on_request_and_never_overwrites(client, marker):
+async def test_tailnet_sync_links_creates_and_removes_only_tailnet_devices(client, marker):
     async with AsyncSessionLocal() as db:
+        # Rows other tests or the seed linked to a tailnet node stay present in
+        # every simulated inventory, so this test never removes them.
+        others = [
+            _peer(node, name or node, "100.64.0.1", os="linux")
+            for node, name in (await db.execute(
+                select(Server.tailnet_node_id, Server.name).where(Server.tailnet_node_id.is_not(None))
+            )).all()
+        ]
         # Registered by hand with the device's tailnet IP: linked by IP.
         db.add(_row(name=f"manual-{marker}", ip_address="100.127.2.2", os_family="linux",
                     darckware_client_name="Kept", kind="workstation"))
         # A server reached by its LAN address, same name as a tailnet peer:
         # linked by name, and its address must survive every sync.
         db.add(_row(name=f"srv-{marker}", ip_address="172.15.9.9", kind="server"))
+        # A server reached only through a subnet router (srv-app02 at SEMED):
+        # never a tailnet peer, so never "absent" from it.
+        lan = _row(name=f"lan-{marker}", ip_address="172.15.2.3", kind="server")
+        db.add(lan)
         await db.commit()
 
     peers = [
@@ -166,22 +178,19 @@ async def test_tailnet_sync_links_imports_on_request_and_never_overwrites(client
     ]
 
     async def sync(peer_list, body=None):
-        with patch.object(server_routes, "fetch_tailnet_status", AsyncMock(return_value=_status(peer_list))):
+        status = _status(peer_list + others)
+        with patch.object(server_routes, "fetch_tailnet_status", AsyncMock(return_value=status)):
             resp = await client.post("/api/v1/servers/tailnet:sync", json=body)
         assert resp.status_code == 200, resp.text
         return resp.json(), {e["node_id"]: e for e in resp.json()["entries"]}
 
-    _, by_node = await sync(peers)
-    # Not in the inventory and not asked for: reported, never created.
-    assert by_node[f"{marker}A"]["outcome"] == "available"
-    assert by_node[f"{marker}A"]["server_id"] is None
+    body, by_node = await sync(peers)
+    assert by_node[f"{marker}A"]["outcome"] == "created"
     assert by_node[f"{marker}A"]["suggested_client_tag"] == "gat"
     assert by_node[f"{marker}B"]["outcome"] == "linked"
     assert by_node[f"{marker}S"]["outcome"] == "linked"
     assert f"{marker}C" not in by_node  # phones are not maintenance targets
-
-    _, by_node = await sync(peers, {"import_node_ids": [f"{marker}A"]})
-    assert by_node[f"{marker}A"]["outcome"] == "created"
+    assert str(lan.id) not in body["missing_server_ids"]
 
     async with AsyncSessionLocal() as db:
         created = (await db.execute(select(Server).where(Server.tailnet_node_id == f"{marker}A"))).scalar_one()
@@ -195,9 +204,10 @@ async def test_tailnet_sync_links_imports_on_request_and_never_overwrites(client
     peers2 = [_peer(f"{marker}A", f"gat-pc01-new-{marker}", "100.127.2.9"), peers[3]]
     body, by_node = await sync(peers2)
     assert by_node[f"{marker}A"]["outcome"] == "updated"
-    assert str(linked.id) in body["missing_server_ids"]
+    assert body["missing_server_ids"] == [str(linked.id)]
     async with AsyncSessionLocal() as db:
-        assert await db.get(Server, linked.id) is not None  # reported, never deleted
+        assert await db.get(Server, linked.id) is None  # a tailnet device that left is removed
+        assert await db.get(Server, lan.id) is not None  # a LAN server is never removed by the sync
         assert (await db.get(Server, created.id)).ip_address == "100.127.2.9"
         srv = (await db.execute(select(Server).where(Server.tailnet_node_id == f"{marker}S"))).scalar_one()
         assert srv.ip_address == "172.15.9.9"  # a server keeps the address it is reached by
