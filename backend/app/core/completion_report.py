@@ -22,6 +22,12 @@ COMPLETION_CONTRACT = (
     "liste as evidências (arquivos, commits, testes, comandos e resultados).\n"
     "- PARTIAL: parte foi feita; diga o que falta e por quê.\n"
     "- BLOCKED: não foi possível avançar; diga o que impede e o que é preciso.\n"
+    "- Se o que impede é uma autorização ou decisão do Marcelo, a linha final é "
+    "STATUS: BLOCKED | AUTORIZAÇÃO: <o que ele precisa autorizar ou decidir>. "
+    "A mensagem vai para a aprovação dele e volta para você quando ele aprovar.\n"
+    "- Se você fez tudo o que podia e só espera a resposta de uma pessoa (instrutor, "
+    "cliente, outro agente), a linha final é "
+    "STATUS: BLOCKED | AGUARDANDO RESPOSTA: <o que falta e de quem>.\n"
     "Sem essa linha, a mensagem é registrada como falha."
 )
 
@@ -54,14 +60,45 @@ def with_completion_contract(prompt: str) -> str:
     return f"{prompt}\n\n{COMPLETION_CONTRACT}"
 
 
-def parse_completion_status(text: str) -> str | None:
-    """The status of the last `STATUS:` report in `text`, or None when absent.
-    The last one wins: an agent may restate it after a correction. A line that
-    isn't a report (prose, the contract's model line) is skipped."""
+def parse_completion_report(text: str) -> tuple[str | None, str | None]:
+    """(status, note) of the last `STATUS:` report in `text`; (None, None)
+    when absent. The last one wins: an agent may restate it after a
+    correction. A line that isn't a report (prose, the contract's model line)
+    is skipped."""
     for line in reversed((text or "").splitlines()):
         match = _STATUS_LINE.match(line)
         if match and (match.group(2) is None or _is_evidence_note(match.group(2))):
-            return match.group(1).upper()
+            note = match.group(2).strip(" \t*_`") if match.group(2) is not None else None
+            return match.group(1).upper(), note or None
+    return None, None
+
+
+def parse_completion_status(text: str) -> str | None:
+    """The status of the last `STATUS:` report in `text`, or None when absent."""
+    return parse_completion_report(text)[0]
+
+
+# 2026-11-16 (Marcelo, ECO-054 5a/5b): two ways to stop that are not failures.
+# Only an explicit label right after the `|` counts -- never a guess from prose,
+# so a real blocker can't hide as a "wait" by wording alone.
+_BLOCKED_KINDS = (
+    ("awaiting_authorization", re.compile(r"^AUTORIZA[ÇC][ÃA]O\s*:\s*(\S.*)$", re.IGNORECASE | re.DOTALL)),
+    ("waiting_reply", re.compile(r"^AGUARDANDO\s+RESPOSTA\s*:\s*(\S.*)$", re.IGNORECASE | re.DOTALL)),
+)
+
+
+def blocked_outcome(status: str | None, note: str | None) -> tuple[str, str] | None:
+    """(outcome, what is needed) for `STATUS: BLOCKED | AUTORIZAÇÃO: ...` or
+    `STATUS: BLOCKED | AGUARDANDO RESPOSTA: ...`; None for anything else."""
+    if status != "BLOCKED" or not note:
+        return None
+    for outcome, pattern in _BLOCKED_KINDS:
+        match = pattern.match(note.strip())
+        if match:
+            needed = match.group(1).strip()
+            if needed.startswith("<") and needed.endswith(">"):
+                return None  # the contract's own model line, echoed
+            return outcome, needed[:2000]
     return None
 
 

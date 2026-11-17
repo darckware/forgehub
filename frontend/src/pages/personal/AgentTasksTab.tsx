@@ -234,6 +234,8 @@ export function AgentTasksTab() {
         <Link className="ml-2 underline" to="/personal?tab=agent-work&workTab=approvals">{t("agentTasks.groups.moodle")}</Link></p>}
       {selected.requires_approval && <p className="text-sm">{t("agentTasks.approvalHint")}</p>}
       {selected.decision_reason && <p className="whitespace-pre-wrap text-sm">{t("agentTasks.reason")}: {selected.decision_reason}</p>}
+      {selected.dispatch_outcome && <p className="whitespace-pre-wrap break-words rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-sm">
+        <span className="font-medium">{t(`agentTasks.outcomes.${selected.dispatch_outcome}`)}</span>{selected.outcome_note ? `: ${selected.outcome_note}` : ""}</p>}
       <div className="flex flex-wrap gap-2">
         {(["approve", "reject", "postpone", "drop", "restore", "reconcile", "record_investigation", "confirm_inactive", "retry", "authorize_retry", "archive", "delete"] as const).filter(action => vm.allowed(selected, action)).map(action => <Button key={action} size="sm" variant={action === "delete" ? "destructive" : action === "approve" ? "default" : "outline"} onClick={() => vm.ask(selected, action)}>{actionLabel(action)}</Button>)}
         <Link className="self-center text-sm text-primary underline" to={`/demands?message=${selected.id}`}>{t("agentTasks.openMessages")}</Link>

@@ -204,5 +204,9 @@
   },
   "sidePanel": {
     "close": "Fechar"
+  },
+  "newVersion": {
+    "message": "Há uma nova versão do ForgeHub. Recarregue a página para continuar com os dados atualizados.",
+    "reload": "Recarregar"
   }
 }

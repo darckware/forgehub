@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { useSessionKeepAlive, useSyncUiLanguage } from "@/hooks/useAuth";
 import { AssistantDrawer } from "@/components/chat/AssistantDrawer";
+import { NewVersionBanner } from "@/components/layout/NewVersionBanner";
 
 export function AppLayout() {
   // Keeps an actively-used session's JWT sliding forward so it never
@@ -69,6 +70,7 @@ export function AppLayout() {
             drawer shrinks <main> instead of covering it. */}
         <AssistantDrawer />
       </div>
+      <NewVersionBanner />
     </div>
   );
 }
