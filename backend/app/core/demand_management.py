@@ -148,7 +148,10 @@ async def work_item(db, demand, state):
     for action in ("approve", "reject", "postpone", "drop", "archive", "restore", "delete", "reconcile", "retry", "authorize_retry", "request_approval",
                    "record_investigation", "confirm_inactive"):
         reason = None
-        if direct_moodle:
+        if direct_moodle and not (action == "archive" and moodle.state in ("finished", "rejected")
+                                  and not active and demand.status != "archived"):
+            # decide_demand accepts archiving once the Moodle flow is over; the
+            # button follows the same rule instead of staying disabled.
             reason = "moodle_flow_required"
         elif action == "archive" and uncertain(demand):
             reason = "reconciliation_required"

@@ -386,5 +386,17 @@
         "description": "Preserved history. Archiving does not complete, cancel or authorize execution."
       }
     }
+  },
+  "ruleErrors": {
+    "EXECUTION_ACTIVE": "The execution is still running. Wait for it to finish before deleting or archiving.",
+    "RECONCILIATION_REQUIRED": "The outcome of the last run is uncertain. Reconcile it in Personal → Agent tasks (Reconcile or Confirm inactive) before deleting or archiving.",
+    "EXECUTION_CHECK_EVIDENCE": "It is part of a failure check (evidence). It can't be deleted; archive it instead.",
+    "SUMMARY_HAS_HISTORY": "It is a consolidated summary with linked history and can't be deleted.",
+    "MOODLE_APPROVAL_HISTORY": "It has a linked Moodle approval and is part of the audit trail. It can't be deleted; archive it once the Moodle flow is over.",
+    "MOODLE_FLOW_REQUIRED": "Moodle message: it only changes through the Moodle approval flow (Personal → Agent tasks → Approvals). Archiving is possible once that flow is over.",
+    "OPEN_SUMMARY": "This message was consolidated; open the current summary to handle it.",
+    "bulkSummary": "{{done}} processed, {{refused}} refused by a business rule:",
+    "nothingEligible": "No message fits this action. Active, running or evidence messages are never included.",
+    "dismiss": "Dismiss"
   }
 }

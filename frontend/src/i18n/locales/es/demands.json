@@ -386,5 +386,17 @@
         "description": "Historial conservado. Archivar no completa, cancela ni autoriza ejecutar un mensaje."
       }
     }
+  },
+  "ruleErrors": {
+    "EXECUTION_ACTIVE": "La ejecución sigue en curso. Espere a que termine antes de eliminar o archivar.",
+    "RECONCILIATION_REQUIRED": "El resultado de la última ejecución es incierto. Concílielo en Personal → Tareas de los agentes (Conciliar o Confirmar inactiva) antes de eliminar o archivar.",
+    "EXECUTION_CHECK_EVIDENCE": "Forma parte de una verificación de falla (evidencia). No se puede eliminar; archívela.",
+    "SUMMARY_HAS_HISTORY": "Es un resumen consolidado con historial vinculado y no se puede eliminar.",
+    "MOODLE_APPROVAL_HISTORY": "Tiene una aprobación de Moodle vinculada y forma parte de la auditoría. No se puede eliminar; archívela cuando termine el flujo de Moodle.",
+    "MOODLE_FLOW_REQUIRED": "Mensaje de Moodle: solo cambia por el flujo de aprobación de Moodle (Personal → Tareas de los agentes → Aprobaciones). Archivar es posible cuando ese flujo termina.",
+    "OPEN_SUMMARY": "Este mensaje fue consolidado; abra el resumen actual para tratarlo.",
+    "bulkSummary": "{{done}} procesado(s), {{refused}} rechazado(s) por una regla de negocio:",
+    "nothingEligible": "Ningún mensaje se ajusta a esta acción. Los mensajes activos, en ejecución o de evidencia nunca se incluyen.",
+    "dismiss": "Cerrar aviso"
   }
 }

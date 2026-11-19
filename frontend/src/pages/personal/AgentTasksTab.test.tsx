@@ -328,6 +328,14 @@ describe("operator deliberation", () => {
     expect(document.getElementById("operator-question-question-9")).toHaveFocus();
   });
 
+  it("says on screen why archive is unavailable", () => {
+    mocks.demands.mockReturnValue({ data: { items: [item({ dispatch_status: "failed", dispatch_error: "Dispatch outcome is uncertain", agent_run_id: "run-1",
+      allowed_actions: ["reconcile"], blocked_actions: { archive: "reconciliation_required", delete: "reconciliation_required" } } as Partial<Demand>)], total: 1, page: 1, page_size: 25, counts: {}, contexts: [] } });
+    open();
+    expect(screen.getByRole("button", { name: "Arquivar tarefa #42" })).toBeDisabled();
+    expect(screen.getAllByText(/O resultado da última execução é incerto/).length).toBeGreaterThan(0);
+  });
+
   it("offers archive on the task row before opening its details", async () => {
     open();
     fireEvent.click(screen.getByRole("checkbox", { name: "Selecionar mensagem #42" }));

@@ -380,7 +380,7 @@
       "quota_context_changed": "O contexto mudou; revise antes de retomar.",
       "quota_run_evidence_missing": "Não há identificador da execução anterior.",
       "quota_effects_review_required": "Revise os efeitos antes de autorizar a retomada.",
-      "reconciliation_required": "Reconcilie a execução anterior.",
+      "reconciliation_required": "O resultado da última execução é incerto: use Reconciliar ou Confirmar inativa antes de arquivar ou excluir.",
       "execution_active": "A execução está ativa.",
       "linked_history": "O resumo preserva registros vinculados.",
       "open_summary": "Abra o resumo atual.",
@@ -395,7 +395,7 @@
       "execution_context_missing": "Defina remetente, executor e diretório em Messages antes de aprovar.",
       "not_incubation": "Esta ação exige uma incubação.",
       "no_uncertain_outcome": "Não há resultado incerto a investigar.",
-      "moodle_flow_required": "Use Aprovações Moodle para decidir esta operação."
+      "moodle_flow_required": "Mensagem do Moodle: decida em Aprovações Moodle; arquivar só depois que o fluxo terminar."
     },
     "events": {
       "demand_quota_wait": "Aguardando reset da cota",
@@ -552,7 +552,9 @@
         "blocking_origin_completed": "Bloqueia o trabalho do agente; a tarefa de origem terminou, mas a resposta ainda retoma o trabalho."
       },
       "limit": "Selecione no máximo {{max}} perguntas por vez."
-    }
+    },
+    "blockedTitle": "Ações indisponíveis",
+    "blockedAction": "{{action}} indisponível:"
   },
   "location": {
     "title": "Localização atual",

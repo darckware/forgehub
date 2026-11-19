@@ -32,6 +32,7 @@ import { visibleMessageLabels } from "@/lib/messageLabels";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { bulkActionText, demandRuleText } from "@/lib/demandRuleError";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -370,6 +371,9 @@ function ReadingPane({
   const [sendToOutgoingOpen, setSendToOutgoingOpen] = useState(false);
 
   useEffect(() => {
+    promoteToTask.reset();
+    reprocessOne.reset();
+    updateStatus.reset();
     if (demand.status === "new") {
       updateStatus.mutate({ id: demand.id, status: "read" });
     }
@@ -384,6 +388,7 @@ function ReadingPane({
         title={t("reading.deleteTitle", { subject: demand.subject })}
         description={t("reading.deleteDescription")}
         loading={deleteDemand.isPending}
+        error={deleteDemand.error ? demandRuleText(deleteDemand.error, t) : null}
         onConfirm={() => deleteDemand.mutate(demand.id, { onSuccess: () => setConfirmDelete(false) })}
         onCancel={() => setConfirmDelete(false)}
       />
@@ -481,9 +486,10 @@ function ReadingPane({
               size="sm"
               variant="outline"
               className="gap-1.5"
+              disabled={updateStatus.isPending}
               onClick={() => updateStatus.mutate({ id: demand.id, status: "archived" })}
             >
-              <Archive className="h-3.5 w-3.5" /> {t("reading.archive")}
+              {updateStatus.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />} {t("reading.archive")}
             </Button>
           )}
           {canSendToOutgoing && (
@@ -496,10 +502,22 @@ function ReadingPane({
               <Send className="h-3.5 w-3.5" /> {t("sendToOutgoing.button")}
             </Button>
           )}
-          <Button size="sm" variant="outline" className="gap-1.5 text-destructive" onClick={() => setConfirmDelete(true)}>
+          <Button size="sm" variant="outline" className="gap-1.5 text-destructive" onClick={() => { deleteDemand.reset(); setConfirmDelete(true); }}>
             <Trash2 className="h-3.5 w-3.5" /> {t("reading.delete")}
           </Button>
         </div>
+        {/* A refused action names its rule here instead of doing nothing
+            (2026-11-19). The automatic "mark as read" on opening is left out:
+            the operator didn't ask for it. */}
+        {(() => {
+          const error = (updateStatus.variables?.status === "archived" && updateStatus.error)
+            || promoteToTask.error || reprocessOne.error;
+          return error ? (
+            <p role="alert" className="mt-2 whitespace-pre-line break-words rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {bulkActionText(error, t)}
+            </p>
+          ) : null;
+        })()}
         {canSendToOutgoing && sendToOutgoingOpen && (
           <SendToOutgoingForm demand={demand} onDone={() => setSendToOutgoingOpen(false)} />
         )}
@@ -652,6 +670,27 @@ export default function DemandsPage() {
   const reprocessDemands = useReprocessDemands();
   const cleanupArchived = useCleanupArchived();
   const [archiveConfirm, setArchiveConfirm] = useState<ArchiveTarget | null>(null);
+  // A cleanup with nothing to remove used to close silently, and a refused
+  // item made the whole batch fail with nothing on screen (2026-11-19).
+  const [cleanupNothing, setCleanupNothing] = useState(false);
+  const openCleanup = (target: CleanupTarget) => {
+    cleanupDemands.reset();
+    cleanupArchived.reset();
+    setCleanupNothing(false);
+    setCleanupConfirm(target);
+  };
+  const openArchive = (target: ArchiveTarget) => {
+    archiveDemands.reset();
+    setCleanupNothing(false);
+    setArchiveConfirm(target);
+  };
+  const cleanupError = cleanupNothing
+    ? t("ruleErrors.nothingEligible")
+    : cleanupDemands.error
+      ? bulkActionText(cleanupDemands.error, t)
+      : cleanupArchived.error
+        ? bulkActionText(cleanupArchived.error, t)
+        : null;
   /** Reprocessar em massa passa por confirmação como toda ação em lote:
    * devolve N mensagens à fila de despacho de uma vez, e o operador precisa
    * ver quantas antes de confirmar. */
@@ -1045,8 +1084,16 @@ export default function DemandsPage() {
                 : t("cleanup.confirmKeepDescription", { days: cleanupConfirm.days })
         }
         loading={cleanupDemands.isPending || cleanupArchived.isPending}
+        error={cleanupError}
         onConfirm={() => {
           if (!cleanupConfirm) return;
+          const ids = cleanupTargetIds(cleanupConfirm, demands ?? []);
+          const folders = cleanupConfirm.kind === "group" && cleanupConfirm.scope === "notes"
+            ? (groups ?? []).filter((g) => !g.parent_id).length : 0;
+          if (ids.length === 0 && folders === 0) {
+            setCleanupNothing(true);
+            return;
+          }
           // Arquivadas é o único grupo que também mostra pastas, então
           // limpá-lo tem de levar as pastas junto -- só apagar mensagens
           // deixava a árvore igual e o clique parecia não funcionar.
@@ -1081,8 +1128,13 @@ export default function DemandsPage() {
         }
         confirmLabel={t("archive.confirmButton")}
         loading={archiveDemands.isPending}
+        error={cleanupNothing ? t("ruleErrors.nothingEligible") : archiveDemands.error ? bulkActionText(archiveDemands.error, t) : null}
         onConfirm={() => {
           if (!archiveConfirm) return;
+          if (archiveTargetIds(archiveConfirm, demands ?? []).length === 0) {
+            setCleanupNothing(true);
+            return;
+          }
           archiveDemands.mutate(archiveTargetIds(archiveConfirm, demands ?? []), {
             onSuccess: () => setArchiveConfirm(null),
           });
@@ -1195,7 +1247,7 @@ export default function DemandsPage() {
             variant="outline"
             className="h-8 w-auto gap-1 px-2"
             disabled={cleanupDemands.isPending}
-            onClick={() => setCleanupConfirm({ kind: "age", days: 30 })}
+            onClick={() => openCleanup({ kind: "age", days: 30 })}
             title={t("cleanup.keep30")}
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -1206,7 +1258,7 @@ export default function DemandsPage() {
             variant="outline"
             className="h-8 w-auto gap-1 px-2"
             disabled={cleanupDemands.isPending}
-            onClick={() => setCleanupConfirm({ kind: "age", days: 15 })}
+            onClick={() => openCleanup({ kind: "age", days: 15 })}
             title={t("cleanup.keep15")}
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -1217,7 +1269,7 @@ export default function DemandsPage() {
             variant="destructive"
             className="h-8 w-8"
             disabled={cleanupDemands.isPending}
-            onClick={() => setCleanupConfirm({ kind: "age", days: null })}
+            onClick={() => openCleanup({ kind: "age", days: null })}
             title={t("cleanup.clearAll")}
           >
             <Trash2 className="h-4 w-4" />
@@ -1246,6 +1298,14 @@ export default function DemandsPage() {
             <Plus className="h-4 w-4" />
           </Button>
 
+        </div>
+      )}
+      {moveDemand.error && (
+        <div role="alert" className="mx-2 mb-2 flex items-start gap-2 whitespace-pre-line break-words rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <span className="flex-1">{demandRuleText(moveDemand.error, t)}</span>
+          <button type="button" className="shrink-0" aria-label={t("ruleErrors.dismiss")} onClick={() => moveDemand.reset()}>
+            <XCircle className="h-4 w-4" />
+          </button>
         </div>
       )}
 
@@ -1302,7 +1362,7 @@ export default function DemandsPage() {
               onSelectRoot={() => selectFolder({ kind: "inbox", agentId: null })}
               onSelectAgent={(agentId) => selectFolder({ kind: "inbox", agentId })}
               onDropDemand={(demandId) => moveDemand.mutate({ id: demandId, groupId: null, status: "read" })}
-              onCleanup={() => setCleanupConfirm({ kind: "group", scope: "inbox" })}
+              onCleanup={() => openCleanup({ kind: "group", scope: "inbox" })}
               messages={filtered}
               renderMessage={renderMessage}
               emptyMessage={emptyMessage}
@@ -1319,7 +1379,7 @@ export default function DemandsPage() {
               onToggleExpanded={() => toggleGroup("outbox")}
               onSelectRoot={() => selectFolder({ kind: "outbox", agentId: null })}
               onSelectAgent={(agentId) => selectFolder({ kind: "outbox", agentId })}
-              onCleanup={() => setCleanupConfirm({ kind: "group", scope: "outbox" })}
+              onCleanup={() => openCleanup({ kind: "group", scope: "outbox" })}
               messages={filtered}
               renderMessage={renderMessage}
               emptyMessage={emptyMessage}
@@ -1332,7 +1392,7 @@ export default function DemandsPage() {
               expanded={Boolean(expandedGroups.incubation)}
               onToggleExpanded={() => toggleGroup("incubation")}
               onSelect={() => selectFolder({ kind: "incubation" })}
-              onCleanup={() => setCleanupConfirm({ kind: "group", scope: "incubation" })}
+              onCleanup={() => openCleanup({ kind: "group", scope: "incubation" })}
               messages={filtered}
               renderMessage={renderMessage}
               emptyMessage={emptyMessage}
@@ -1366,8 +1426,8 @@ export default function DemandsPage() {
               onToggleExpanded={() => toggleGroup("completed")}
               onSelectRoot={() => selectFolder({ kind: "completed", agentId: null })}
               onSelectAgent={(agentId) => selectFolder({ kind: "completed", agentId })}
-              onCleanup={() => setCleanupConfirm({ kind: "group", scope: "completed" })}
-              onArchive={() => setArchiveConfirm({ scope: "completed" })}
+              onCleanup={() => openCleanup({ kind: "group", scope: "completed" })}
+              onArchive={() => openArchive({ scope: "completed" })}
               messages={filtered}
               renderMessage={renderMessage}
               emptyMessage={emptyMessage}
@@ -1381,7 +1441,7 @@ export default function DemandsPage() {
               onSelectRoot={() => selectFolder({ kind: "archived", groupId: null, agentId: null })}
               onSelectGroup={(id) => selectFolder({ kind: "archived", groupId: id })}
               onDropDemand={(demandId, groupId) => moveDemand.mutate({ id: demandId, groupId, status: "archived" })}
-              onCleanup={() => setCleanupConfirm({ kind: "group", scope: "notes" })}
+              onCleanup={() => openCleanup({ kind: "group", scope: "notes" })}
               counts={archivedCounts}
               rootCount={archivedCount}
               noAgentLabel={t("systemLabel")}

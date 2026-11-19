@@ -207,7 +207,10 @@ export function AgentTasksTab() {
               <TableCell><Button size="sm" variant="outline" disabled={!vm.allowed(item, item.status === "archived" ? "restore" : "archive")}
                 aria-label={t(item.status === "archived" ? "agentTasks.restoreItem" : "agentTasks.archiveItem", { number: item.number })}
                 title={item.blocked_actions?.archive ? t(`agentTasks.blocked.${item.blocked_actions.archive}`) : undefined}
-                onClick={() => vm.ask(item, item.status === "archived" ? "restore" : "archive")}>{t(item.status === "archived" ? "agentTasks.actions.restore" : "agentTasks.actions.archive")}</Button></TableCell>
+                onClick={() => vm.ask(item, item.status === "archived" ? "restore" : "archive")}>{t(item.status === "archived" ? "agentTasks.actions.restore" : "agentTasks.actions.archive")}</Button>
+                {/* The reason is on screen, not only in a hover title a touch
+                    screen never shows (2026-11-19). */}
+                {item.status !== "archived" && item.blocked_actions?.archive && <p className="mt-1 max-w-48 text-xs text-muted-foreground">{t(`agentTasks.blocked.${item.blocked_actions.archive}`)}</p>}</TableCell>
             </TableRow>)}
           </TableBody></Table>
         </div>
@@ -238,6 +241,10 @@ export function AgentTasksTab() {
         <Link className="self-center text-sm text-primary underline" to={`/demands?message=${selected.id}`}>{t("agentTasks.openMessages")}</Link>
       </div>
       {selected.blocked_actions?.approve && selected.dispatch_status === null && <p className="text-sm text-muted-foreground">{t(`agentTasks.blocked.${selected.blocked_actions.approve}`)}</p>}
+      {selected.status !== "archived" && (["archive", "delete"] as const).some(action => selected.blocked_actions?.[action]) && <ul className="space-y-1 text-sm text-muted-foreground" aria-label={t("agentTasks.blockedTitle")}>
+        {(["archive", "delete"] as const).filter(action => selected.blocked_actions?.[action]).map(action => <li key={action}>
+          <span className="font-medium">{t("agentTasks.blockedAction", { action: actionLabel(action) })}</span> {t(`agentTasks.blocked.${selected.blocked_actions?.[action]}`)}</li>)}
+      </ul>}
       {vm.dependenciesError && <p role="alert">{t("agentTasks.dependenciesError")}</p>}
       {vm.sourcesError && <p role="alert">{t("agentTasks.sourcesError")}</p>}
       {vm.dependencies.length > 0 && <div><h4 className="text-sm font-medium">{t("agentTasks.dependencies")}</h4><ul className="mt-1 space-y-1 text-sm">

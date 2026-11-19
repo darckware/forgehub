@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
+import { settleEach } from "@/lib/demandRuleError";
 import { apiClient } from "@/lib/api";
 
 /**
@@ -586,11 +587,10 @@ export function useDeleteDemand() {
 export function useCleanupDemands() {
   const invalidate = useInvalidateDemands();
   return useMutation({
-    mutationFn: async (ids: string[]) => {
-      await Promise.all(ids.map((id) => apiClient.delete<void>(`${RESOURCE}/${id}`)));
-      return ids.length;
-    },
-    onSuccess: invalidate,
+    // Every id is tried and refusals are reported together (BulkActionError):
+    // Promise.all used to stop at the first 409 with nothing on screen.
+    mutationFn: (ids: string[]) => settleEach(ids, (id) => apiClient.delete<void>(`${RESOURCE}/${id}`)),
+    onSettled: invalidate,
   });
 }
 
@@ -604,13 +604,9 @@ export function useCleanupDemands() {
 export function useArchiveDemands() {
   const invalidate = useInvalidateDemands();
   return useMutation({
-    mutationFn: async (ids: string[]) => {
-      await Promise.all(
-        ids.map((id) => apiClient.patch<Demand>(`${RESOURCE}/${id}`, { status: "archived" }))
-      );
-      return ids.length;
-    },
-    onSuccess: invalidate,
+    mutationFn: (ids: string[]) =>
+      settleEach(ids, (id) => apiClient.patch<Demand>(`${RESOURCE}/${id}`, { status: "archived" })),
+    onSettled: invalidate,
   });
 }
 
@@ -823,13 +819,15 @@ export function useCleanupArchived() {
   const invalidateGroups = useInvalidateDemandGroups();
   return useMutation({
     mutationFn: async ({ demandIds, rootGroupIds }: { demandIds: string[]; rootGroupIds: string[] }) => {
-      await Promise.all(demandIds.map((id) => apiClient.delete<void>(`${RESOURCE}/${id}`)));
+      // A refused message stops here (BulkActionError): its folder stays, so a
+      // kept message never loses the folder it is filed in.
+      await settleEach(demandIds, (id) => apiClient.delete<void>(`${RESOURCE}/${id}`));
       for (const id of rootGroupIds) {
         await apiClient.delete<void>(`${GROUPS_RESOURCE}/${id}`);
       }
       return demandIds.length + rootGroupIds.length;
     },
-    onSuccess: () => {
+    onSettled: () => {
       invalidate();
       invalidateGroups();
     },

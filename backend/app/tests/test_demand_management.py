@@ -514,3 +514,57 @@ async def test_approvals_queue_lists_only_work_waiting_for_authorization(client,
     finally:
         await db.execute(delete(AgentQuestion).where(AgentQuestion.id == question.id))
         await db.commit()
+
+
+async def test_delete_refusals_carry_a_code_the_screen_can_explain(client, consolidation_db, test_suite_agent):
+    """2026-11-19: a refused delete said nothing on screen, and a message tied to
+    a Moodle approval answered 500 (FK RESTRICT). Every refusal is a coded 409."""
+    from app.db.models.demand import AgentDemand
+    from app.db.models.moodle_approval import MoodleApproval
+    db, failed, incubated = consolidation_db
+    await db.commit()
+    uncertain = await client.delete(f"/api/v1/demands/{failed.id}")
+    assert uncertain.status_code == 409, uncertain.text
+    assert uncertain.json()["detail"]["code"] == "RECONCILIATION_REQUIRED"
+    assert uncertain.json()["detail"]["number"] == failed.number
+
+    db.add(MoodleApproval(message_id=incubated.id, request_id=uuid.uuid4(), source_agent_id=test_suite_agent,
+        params_hash="c" * 64, expires_at=datetime.now(timezone.utc) + timedelta(days=1), state="finished", outcome="completed"))
+    await db.commit()
+    try:
+        moodle = await client.delete(f"/api/v1/demands/{incubated.id}")
+        assert moodle.status_code == 409, moodle.text
+        assert moodle.json()["detail"]["code"] == "MOODLE_APPROVAL_HISTORY"
+        assert (await db.get(AgentDemand, incubated.id, populate_existing=True)) is not None
+    finally:
+        await db.execute(delete(MoodleApproval).where(MoodleApproval.message_id == incubated.id))
+        await db.commit()
+
+
+async def test_archive_follows_the_same_rule_on_messages_and_agent_work(client, consolidation_db, test_suite_agent):
+    """Messages' PATCH and Pessoal's decision archive agree: an uncertain run is
+    reconciled first, and a Moodle message whose flow ended can be archived."""
+    from app.db.models.moodle_approval import MoodleApproval
+    db, failed, incubated = consolidation_db
+    label = f"archive-rule-{uuid.uuid4().hex}"
+    incubated.subject = label
+    await db.commit()
+    refused = await client.patch(f"/api/v1/demands/{failed.id}", json={"status": "archived"})
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["code"] == "RECONCILIATION_REQUIRED"
+
+    db.add(MoodleApproval(message_id=incubated.id, request_id=uuid.uuid4(), source_agent_id=test_suite_agent,
+        params_hash="d" * 64, expires_at=datetime.now(timezone.utc) + timedelta(days=1), state="finished", outcome="completed"))
+    await db.commit()
+    try:
+        work = (await client.get("/api/v1/demands/agent-work", params={"search": label, "view": "incubation", "group": "all"})).json()
+        item = next(i for i in work["items"] if i["id"] == str(incubated.id))
+        assert "archive" in item["allowed_actions"]
+        assert item["blocked_actions"]["delete"] == "moodle_flow_required"
+        edit = await client.patch(f"/api/v1/demands/{incubated.id}", json={"subject": "changed"})
+        assert edit.json()["detail"]["code"] == "MOODLE_FLOW_REQUIRED"
+        archived = await client.patch(f"/api/v1/demands/{incubated.id}", json={"status": "archived"})
+        assert archived.status_code == 200, archived.text
+    finally:
+        await db.execute(delete(MoodleApproval).where(MoodleApproval.message_id == incubated.id))
+        await db.commit()

@@ -185,7 +185,7 @@ export function ConfirmDialog({
           {children && <div className={cn("mt-4", placement === "right" && "min-h-0 flex-1 overflow-y-auto pr-1")}>{children}</div>}
 
           {error && (
-            <p role="alert" className="mt-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <p role="alert" className="mt-4 whitespace-pre-line break-words rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {error}
             </p>
           )}

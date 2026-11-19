@@ -386,5 +386,17 @@
         "description": "Histórico preservado. Arquivar não conclui, cancela nem autoriza executar uma mensagem."
       }
     }
+  },
+  "ruleErrors": {
+    "EXECUTION_ACTIVE": "A execução ainda está em andamento. Aguarde terminar antes de excluir ou arquivar.",
+    "RECONCILIATION_REQUIRED": "O resultado da última execução é incerto. Reconcilie em Pessoal → Tarefas dos agentes (Reconciliar ou Confirmar inativa) antes de excluir ou arquivar.",
+    "EXECUTION_CHECK_EVIDENCE": "Faz parte de uma verificação de falha (evidência). Não pode ser excluída; arquive em vez disso.",
+    "SUMMARY_HAS_HISTORY": "É um resumo consolidado com histórico vinculado e não pode ser excluído.",
+    "MOODLE_APPROVAL_HISTORY": "Tem uma aprovação Moodle vinculada e faz parte da auditoria. Não pode ser excluída; arquive depois que o fluxo do Moodle terminar.",
+    "MOODLE_FLOW_REQUIRED": "Mensagem do Moodle: só é alterada pelo fluxo de aprovação do Moodle (Pessoal → Tarefas dos agentes → Aprovações). Arquivar só é possível depois que o fluxo terminar.",
+    "OPEN_SUMMARY": "Esta mensagem foi consolidada; abra o resumo atual para tratá-la.",
+    "bulkSummary": "{{done}} processada(s), {{refused}} recusada(s) pela regra de negócio:",
+    "nothingEligible": "Nenhuma mensagem se enquadra nesta ação. Mensagens ativas, em execução ou com evidência de verificação nunca são incluídas.",
+    "dismiss": "Fechar aviso"
   }
 }

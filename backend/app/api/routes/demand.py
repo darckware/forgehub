@@ -1009,13 +1009,27 @@ async def update_demand(
 ) -> AgentDemand:
     demand = await _get_demand_or_404(db, demand_id, lock=True)
     from app.db.models.moodle_approval import MoodleApproval
-    if await db.scalar(select(MoodleApproval.id).where(MoodleApproval.message_id == demand.id)):
-        raise HTTPException(409, "Moodle messages cannot be edited outside their approval flow")
+    # Coded refusals, like delete_demand's: the screen names the rule instead of
+    # failing silently (2026-11-19).
+    def refuse(code: str, message: str) -> HTTPException:
+        return HTTPException(409, {"code": code, "message": message, "number": demand.number})
+    moodle_state = await db.scalar(select(MoodleApproval.state).where(MoodleApproval.message_id == demand.id))
+    # Archiving a spent Moodle approval is the one edit allowed, as in
+    # decide_demand (2026-11-13); anything else goes through its own flow.
+    spent_moodle_archive = (moodle_state in ("finished", "rejected")
+                            and payload.model_fields_set == {"status"} and payload.status == "archived")
+    if moodle_state is not None and not spent_moodle_archive:
+        raise refuse("MOODLE_FLOW_REQUIRED", "Moodle messages cannot be edited outside their approval flow")
     was_archived = demand.status == "archived"
     if demand.consolidated_into_id and (payload.status not in (None, "archived") or payload.model_fields_set - {"status", "group_id"}):
-        raise HTTPException(409, "Open the current consolidated summary")
+        raise refuse("OPEN_SUMMARY", "Open the current consolidated summary")
     if (payload.status == "archived" or payload.group_id is not None) and (demand.dispatch_status in ("dispatched", "running") or (demand.agent_run_id and demand.dispatch_status is None)):
-        raise HTTPException(409, "An active execution cannot be archived")
+        raise refuse("EXECUTION_ACTIVE", "An active execution cannot be archived")
+    # Same rule as Pessoal -> Tarefas dos agentes' archive decision
+    # (demand_workflow.decide_demand): an unknown outcome is settled first, so
+    # archiving it here can't hide a run that may still have had effects.
+    if payload.status == "archived" and not was_archived and requires_reconciliation(demand):
+        raise refuse("RECONCILIATION_REQUIRED", "The outcome of the last run is unknown; reconcile it before archiving")
     data = payload.model_dump(exclude_unset=True)
     if "group_id" in data:
         if data["group_id"] is not None:
@@ -1238,14 +1252,26 @@ async def delete_demand(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)
     root forever. Files are removed before the row so a failure here surfaces
     instead of orphaning them silently; a file already gone is not an error."""
     demand = await _get_demand_or_404(db, demand_id, lock=True)
-    if demand.dispatch_status in ("dispatched", "running") or (demand.agent_run_id and demand.dispatch_status is None) or requires_reconciliation(demand):
-        raise HTTPException(409, "Reconcile or finish the execution before deleting")
+    # Every refusal is a {code, message} 409 so the screen can say *why* in the
+    # operator's language (2026-11-19, Marcelo: "Preciso que envie mensagem de
+    # erro ou crítica, de proteção da regra de negócio das telas").
+    def refuse(code: str, message: str) -> HTTPException:
+        return HTTPException(409, {"code": code, "message": message, "number": demand.number})
+    if demand.dispatch_status in ("dispatched", "running") or (demand.agent_run_id and demand.dispatch_status is None):
+        raise refuse("EXECUTION_ACTIVE", "The execution is still running; wait for it to finish before deleting")
+    if requires_reconciliation(demand):
+        raise refuse("RECONCILIATION_REQUIRED", "The outcome of the last run is unknown; reconcile it before deleting")
     if demand.failure_check_source_id is not None or await db.scalar(
         select(AgentDemand.id).where(AgentDemand.failure_check_source_id == demand.id).limit(1)
     ):
-        raise HTTPException(409, "Execution checks and their source evidence cannot be deleted; archive them instead")
+        raise refuse("EXECUTION_CHECK_EVIDENCE", "Execution checks and their source evidence cannot be deleted; archive them instead")
     if await db.scalar(select(AgentDemand.id).where(AgentDemand.consolidated_into_id == demand.id).limit(1)):
-        raise HTTPException(409, "A summary with linked history cannot be deleted")
+        raise refuse("SUMMARY_HAS_HISTORY", "A summary with linked history cannot be deleted")
+    # The Moodle approval keeps its message (FK ON DELETE RESTRICT): deleting
+    # it used to surface as a 500 with nothing on screen.
+    from app.db.models.moodle_approval import MoodleApproval
+    if await db.scalar(select(MoodleApproval.id).where(MoodleApproval.message_id == demand.id).limit(1)):
+        raise refuse("MOODLE_APPROVAL_HISTORY", "A message with a Moodle approval is part of its audit trail; archive it instead")
     attachments = (
         await db.execute(
             select(DemandAttachment).where(DemandAttachment.demand_id == demand_id)
