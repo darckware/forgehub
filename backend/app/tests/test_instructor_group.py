@@ -356,7 +356,7 @@ async def test_send_says_who_wrote_it(monkeypatch):
     monkeypatch.setattr(ig.httpx, "AsyncClient", Client)
     monkeypatch.setattr(settings, "MAIA_INSTRUCTOR_GROUP_ID", GROUP)
     await ig.send_to_group(GROUP, "oi")
-    assert calls == {"target": f"whatsapp:{GROUP}", "message": "Maia: oi", "profile": "maia", "strict_media": True}
+    assert calls == {"target": f"whatsapp:{GROUP}", "message": "oi\n\n— Maia | Personal Assistant", "profile": "maia", "strict_media": True}
     await ig.send_to_group(GROUP, "oi", reply_to="ABC123")
     assert calls["reply_to"] == "ABC123"
 
@@ -692,3 +692,12 @@ def test_she_never_asks_for_an_email():
 
 def test_the_marks_never_reach_the_group():
     assert "[" not in ig.group_reply(f"[GRUPO]ok {ig.OFF_TOPIC_MARK} {ig.DEMAND_MARK}[/GRUPO]", failed=False)
+
+
+def test_group_reply_is_signed_once():
+    """2026-11-18: the signature replaced the "Maia: " prefix, and a signature the run wrote is not repeated."""
+    assert ig.signed("Cadastro feito.") == "Cadastro feito.\n\n— Maia | Personal Assistant"
+    assert ig.signed("Cadastro feito.\n\nMaia | Personal Assistant\nby Marcelo Darck") == (
+        "Cadastro feito.\n\n— Maia | Personal Assistant")
+    assert ig.signed("Cadastro feito.\n— Maia | Personal Assistant") == "Cadastro feito.\n\n— Maia | Personal Assistant"
+    assert not ig.signed("ok").startswith("Maia:")

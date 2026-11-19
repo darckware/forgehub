@@ -83,6 +83,11 @@ FALLBACK_REPLY = "Não consegui responder a este pedido agora. Ele foi encaminha
 CONCLUDED_REPLY = "O pedido foi concluído."
 FAILED_REPLY = "Não consegui concluir este pedido agora. Ele foi encaminhado para verificação."
 REJECTED_REPLY = "O pedido não foi aprovado."
+# Every group reply goes out through Marcelo's own number, so it is signed (2026-11-18, Marcelo: "aplica a
+# assinatura nos grupos também"). It replaced the "Maia: " prefix; the group plugin recognises an answer
+# to her by this signature, and still by the old prefix in messages sent before.
+GROUP_SIGNATURE = "— Maia | Personal Assistant"
+_SIGNATURE_LINE = re.compile(r"^\s*(?:[—–-]\s*)?(?:Maia\s*\|\s*Personal Assistant|by Marcelo Darck)\s*$", re.I | re.M)
 RESULT_NOTE = (
     "Ao terminar, escreva entre [GRUPO] e [/GRUPO] uma frase curta para os instrutores dizendo se "
     "foi feito, sem identificadores, hashes nem dados pessoais. Se foi o cadastro de um aluno novo, "
@@ -410,15 +415,20 @@ def needs_operator(reply: str, *, failed: bool) -> bool:
     return reply == FALLBACK_REPLY and not failed
 
 
+def signed(reply: str) -> str:
+    """One signature at the end: whatever signature lines the run wrote itself are dropped first."""
+    return f"{_SIGNATURE_LINE.sub('', reply).strip()}\n\n{GROUP_SIGNATURE}"
+
+
 async def send_to_group(group: str | None, text: str, reply_to: str | None = None) -> None:
-    """Goes out through Marcelo's own number, so it always says who wrote it. Only ever to the
+    """Goes out through Marcelo's own number, so it is always signed (``signed``). Only ever to the
     configured groups, whatever a row says, and an empty setting switches that group off."""
     if not text:
         return
     if served_group(group) is None:
         logger.warning("Refused a reply to a group the Maia does not serve")
         return
-    body = {"target": f"whatsapp:{group}", "message": f"Maia: {clean_reply(text)}", "profile": "maia",
+    body = {"target": f"whatsapp:{group}", "message": signed(clean_reply(text)), "profile": "maia",
             "strict_media": True}
     if reply_to:
         body["reply_to"] = reply_to
