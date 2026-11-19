@@ -304,7 +304,8 @@
       "decision": "Your decision",
       "processing": "Being handled",
       "waiting": "Waiting",
-      "resolved": "Resolved"
+      "resolved": "Resolved",
+      "stuck": "Stuck"
     },
     "states": {
       "archived": "Archived",
@@ -335,7 +336,8 @@
       "restore": "Restore without running",
       "drop": "Discard incubation",
       "record_investigation": "Record investigation",
-      "confirm_inactive": "Confirm run is inactive"
+      "confirm_inactive": "Confirm run is inactive",
+      "request_approval": "Ask for approval again"
     },
     "taskStates": {
       "planned": "Planned",
@@ -431,15 +433,15 @@
     },
     "tabs": {
       "label": "Agent tasks tabs",
-      "tasks": "Tasks",
+      "tasks": "In progress",
       "decisionsCount": "Decisions ({{count}})",
       "incubation": "Incubations",
       "approvalsCount": "Approvals ({{count}})",
       "answersCount": "Answers ({{count}})"
     },
     "tabDescriptions": {
-      "tasks": "Tasks being handled, waiting, resolved or archived. Decisions and approvals have their own tabs.",
-      "decisions": "Failures and pending work that need your decision. Approvals and questions are in their own tabs.",
+      "tasks": "What is running, queued or waiting with a date to move on by itself. Closed work stays in Messages.",
+      "decisions": "Only what is stuck and depends on you, with the reason. Use Analyze to see the context and what each action does. Approvals and questions have their own tabs.",
       "incubation": "Decide which ideas should become tasks, wait for a new date or be discarded.",
       "approvals": "Only what awaits your authorization: tasks that ask for approval, Moodle approvals, mission decisions and project task completions. Failed runs stay in Decisions.",
       "answers": "Agent questions that block a task until you answer."
@@ -490,7 +492,7 @@
     "relatedMessage": "Related message",
     "analyzedAt": "Analyzed at",
     "analysis": {
-      "start": "Analyze and route",
+      "start": "Analyze all",
       "scope": "Analyzes everything pending in Agent tasks: tasks and incubations for the selected agent and context (including other pages) and every pending question. Search and dates don't limit the analysis.",
       "loading": "Checking previous analysis…",
       "unavailable": "The task analysis could not be read or started. Decisions remain available.",
@@ -555,7 +557,90 @@
     },
     "blockedTitle": "Unavailable actions",
     "blockedAction": "{{action}} unavailable:",
-    "archiveReason": "Why archive (e.g. delivered in #N, done by another task, obsolete)"
+    "archiveReason": "Why archive (e.g. delivered in #N, done by another task, obsolete)",
+    "analyze": "Analyze",
+    "analyzeItem": "Analyze task #{{number}}",
+    "summary": {
+      "label": "Agent tasks summary",
+      "stuck": "Stuck",
+      "approvals": "Approvals",
+      "answers": "Questions",
+      "running": "In progress",
+      "waiting": "Waiting"
+    },
+    "stuck": {
+      "uncertain_run": "Uncertain run",
+      "failure_unresolved": "Failure with no follow-up",
+      "retry_limit": "Retry limit",
+      "quota_reset_unknown": "Quota with no known reset",
+      "quota_not_resumed": "Quota did not resume",
+      "queue_stuck": "Queue stuck",
+      "incubation_overdue": "Incubation overdue",
+      "approval_pending": "Awaiting approval",
+      "blocking_question": "Unanswered question"
+    },
+    "brief": {
+      "title": "Analyze",
+      "close": "Close analysis",
+      "error": "Could not build the analysis of this task.",
+      "about": "What it is about",
+      "why": "Why it is stuck",
+      "happened": "What already happened",
+      "elsewhere": "Already done elsewhere?",
+      "todo": "What you can do",
+      "requestedBy": "Requested by {{name}}",
+      "executor": "executor {{name}}",
+      "since": "since {{date}}",
+      "notStuck": "Not stuck: it moves by itself or was already handled.",
+      "heldBy": "Holding the queue:",
+      "attempts": "{{count}} of {{limit}} attempts used.",
+      "check": "Check",
+      "reply": "Reply",
+      "mentionedBy": "Later messages that mention this task (a hint, not proof):",
+      "consolidated": "Consolidated into summary",
+      "elsewhereLater": "Searching other agents and projects, with evidence, comes in the next phase. Meanwhile, see the messages that mention this task above.",
+      "noOptions": "No action available here; see below what is blocked.",
+      "recommended": "Recommended:",
+      "unavailable": "Unavailable actions and why",
+      "verdict": {
+        "completed": "Origin completed",
+        "partial": "Origin partial",
+        "blocked": "Origin blocked"
+      },
+      "dispatch": {
+        "none": "queued or not run",
+        "completed": "completed",
+        "failed": "failed",
+        "running": "running",
+        "dispatched": "running",
+        "waiting_quota": "waiting for quota"
+      },
+      "reasons": {
+        "uncertain_run": "The last run did not confirm whether it ended. It holds the agent's slot: {{held}} task(s) of this agent wait behind it.",
+        "failure_unresolved": "The run failed and no check is open. Without a decision, nobody continues this work.",
+        "retry_limit": "The run failed and the retry limit was reached. Only a new authorization allows another try.",
+        "quota_reset_unknown": "The agent hit its quota and the provider did not say when it resets. Nothing resumes by itself.",
+        "quota_not_resumed": "The quota reset time passed and the task was not resumed (protected task, changed context or no run evidence).",
+        "queue_stuck": "The task has been queued for over 30 minutes and did not start.",
+        "incubation_overdue": "The owner was asked to decide this incubation over 3 days ago and did not.",
+        "approval_pending": "Nothing runs until you approve or reject it.",
+        "blocking_question": "The agent asked a question and the task waits for the answer (Questions tab)."
+      },
+      "consequence": {
+        "reconcile": "Asks the runner again how the run ended. If it confirms, the result is recorded and the agent's slot is freed.",
+        "confirm_inactive": "You state, with evidence, that the run is no longer running. It becomes a known failure; nothing runs.",
+        "record_investigation": "Records what you checked. Does not change the state.",
+        "retry": "Puts the task back in the same agent's queue. Uses one attempt.",
+        "authorize_retry": "Raises the retry limit after you fixed the cause. Does not run by itself: the task goes back to the queue.",
+        "archive": "Takes it off the list with the reason you write. History and result are kept.",
+        "delete": "Deletes the message. Only for what has no history to keep.",
+        "approve": "Releases it: the task joins the queue (an incubation becomes a task).",
+        "reject": "Does not run. The owner is told.",
+        "postpone": "Gives the owner a new date to decide.",
+        "drop": "Discards the incubation with the reason. It stays in the archive.",
+        "request_approval": "Asks for your approval again before running."
+      }
+    }
   },
   "location": {
     "title": "Current location",

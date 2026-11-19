@@ -12,14 +12,31 @@ import { QUESTION_BULK_MAX, useBulkCancelQuestions, useOperationsViewModel, useP
 import { missionDecisionsKey } from "./useMissions";
 import { useAuthStore } from "@/store/authStore";
 
-export const WORK_VIEWS = ["decision", "approvals_queue", "processing", "waiting", "resolved", "attention", "approval", "incubation", "failed", "queued", "running", "completed", "archived"] as const;
+export const WORK_VIEWS = ["stuck", "decision", "approvals_queue", "processing", "waiting", "resolved", "attention", "approval", "incubation", "failed", "queued", "running", "completed", "archived"] as const;
 export type WorkView = typeof WORK_VIEWS[number];
 /** Server-side group of the agent-work list a tab reads. */
-export type WorkGroup = "tasks" | "incubation";
+export type WorkGroup = "tasks" | "incubation" | "decisions";
 /** One tab strip beside "Analisar e encaminhar" (Marcelo, 2026-11-13). */
 export const WORK_TABS = ["tasks", "decisions", "incubation", "approvals", "answers"] as const;
 export type WorkTab = typeof WORK_TABS[number];
 type MoodleApprovalsSummary = { items: unknown[] };
+type BriefRef = { id: string; number: number; subject: string; status: string; dispatch_status: string | null };
+export type StuckReason = "uncertain_run" | "failure_unresolved" | "retry_limit" | "quota_reset_unknown" | "quota_not_resumed"
+  | "queue_stuck" | "incubation_overdue" | "approval_pending" | "blocking_question";
+/** GET /demands/{id}/brief: rule-based "Analisar" (2026-11-19). */
+export interface TaskBrief {
+  id: string; number: number;
+  about: { subject: string; summary: string; requested_by: string | null; executor: string | null; context: string | null;
+    working_path: string | null; origin_type: string; created_at: string };
+  stuck: AgentWorkItem["stuck"];
+  held_by: BriefRef | null;
+  history: { attempts: number; retry_limit: number; last_error: string | null; last_result: string | null;
+    checks: (BriefRef & { verdict: "completed" | "partial" | "blocked" | null })[]; replies: BriefRef[];
+    mentioned_by: BriefRef[]; consolidated_into: BriefRef | null };
+  options: { action: string; recommended: boolean }[];
+  blocked: Record<string, string>;
+  item: AgentWorkItem;
+}
 
 /** Old decision filters become the Decisions tab; other legacy links still land. */
 export function resolveWorkTab(params: URLSearchParams): WorkTab {
@@ -64,14 +81,17 @@ export function useAgentTasksViewModel() {
   const readableContext = (value: string | null | undefined) => value?.startsWith("instructor:") ? t("agentTasks.instructorContext") : value;
   const [params, setParams] = useSearchParams();
   const tab = resolveWorkTab(params);
-  const group: WorkGroup = tab === "incubation" ? "incubation" : "tasks";
+  // Decisões holds only stuck work, tasks and overdue incubations alike (2026-11-19).
+  const group: WorkGroup = tab === "incubation" ? "incubation" : tab === "decisions" ? "decisions" : "tasks";
   // Each list tab keeps its own filters/page in the URL.
   const paramKey = (key: string) => tab === "incubation" ? key.replace(/^work/, "incubation") : tab === "decisions" ? key.replace(/^work/, "decision") : tab === "approvals" ? key.replace(/^work/, "approvals") : key;
   const value = (key: string) => params.get(paramKey(key));
   const rawView = value("workView");
-  const viewKeys = tab === "incubation" ? ["decision", "processing", "waiting", "resolved", "archived", rawView] : ["processing", "waiting", "resolved", "archived", rawView];
+  // "Em andamento" shows what is moving; closed work stays in Messages (2026-11-19,
+  // Marcelo: "não interessa as tarefas encerradas").
+  const viewKeys = tab === "incubation" ? ["decision", "processing", "waiting", "resolved", "archived", rawView] : ["processing", "waiting", rawView];
   const views = WORK_VIEWS.filter(candidate => viewKeys.includes(candidate));
-  const view: WorkView = tab === "approvals" ? "approvals_queue" : tab === "decisions" ? "decision"
+  const view: WorkView = tab === "approvals" ? "approvals_queue" : tab === "decisions" ? "stuck"
     : WORK_VIEWS.includes(rawView as WorkView) ? rawView as WorkView : tab === "tasks" ? "processing" : "decision";
   const search = value("workSearch") ?? "", context = value("workContext") ?? "all";
   const agent = value("workAgent") ?? "all", from = value("workFrom") ?? "", to = value("workTo") ?? "";
@@ -82,6 +102,10 @@ export function useAgentTasksViewModel() {
   const day = (value: string, end: boolean) => { const date = new Date(`${value}T${end ? "23:59:59.999" : "00:00:00"}`); return value && Number.isFinite(date.getTime()) ? date.toISOString() : undefined; };
   // Aprovações badge: always the unfiltered queue, whichever tab is open.
   const approvalsQueue = useAgentWork({ group: "tasks", view: "approvals_queue", page: 1, page_size: 1 }, true);
+  // Decisões badge and the summary strip: the unfiltered stuck count, whichever tab is open.
+  const stuckQueue = useAgentWork({ group: "decisions", view: "stuck", page: 1, page_size: 1 }, true);
+  // The URL is the source of truth, so a later ?brief= link opens it too (independent review).
+  const briefId = params.get("brief");
   const listed = tab !== "answers";
   const query = useAgentWork(tab === "approvals" ? { group, view, page: requestedPage, page_size: 25 } : { group, view, search: debouncedSearch, context, agent_id: agent === "all" ? undefined : agent,
     created_from: day(from, false), created_to: day(to, true), page: requestedPage, page_size: 25 }, listed);
@@ -161,11 +185,14 @@ export function useAgentTasksViewModel() {
   const setFilter = (key: string, value: string) => setParams(prev => { const next = new URLSearchParams(prev); next.set("tab", "agent-work"); if (value && value !== "all") next.set(paramKey(key), value); else next.delete(paramKey(key)); if (key !== "workPage") next.delete(paramKey("workPage")); return next; }, { replace: true });
   const agentName = (item: Demand) => agents.data?.find(row => row.id === (item.incubation_owner_id ?? item.target_agent_id))?.name ?? item.from_agent;
   const contextName = (item: AgentWorkItem) => readableContext(item.display_context || (projects.data?.find(row => row.id === item.project_id)?.name ?? item.context_area));
-  const setTab = (nextTab: WorkTab) => { setSelectedId(null); setSelectedIds([]); setBulkResults([]); setNotice(false); setPromotedTask(null); setConfirmation(null); setParams(prev => { const next = new URLSearchParams(prev); next.set("tab", "agent-work"); next.set("workTab", nextTab); next.delete("workGroup"); next.delete("questionId"); if (nextTab === "decisions") next.delete("workView"); if (nextTab === "tasks" && next.get("workView") === "decision") next.set("workView", "processing"); return next; }); };
+  const setTab = (nextTab: WorkTab) => { setSelectedId(null); setSelectedIds([]); setBulkResults([]); setNotice(false); setPromotedTask(null); setConfirmation(null); setParams(prev => { const next = new URLSearchParams(prev); next.set("tab", "agent-work"); next.set("workTab", nextTab); next.delete("workGroup"); next.delete("questionId"); next.delete("brief"); if (nextTab === "decisions") next.delete("workView"); if (nextTab === "tasks" && next.get("workView") === "decision") next.set("workView", "processing"); return next; }); };
   const counts: Record<string, number> = query.data?.counts ?? {};
   const taskApprovals = (approvals.data ?? []).filter(request => request.target_type === "project_task");
   const queueCount = approvalsQueue.data?.counts?.approvals_queue ?? 0;
-  const decisionsCount = approvalsQueue.data?.counts?.decision ?? 0;
+  const decisionsCount = stuckQueue.data?.counts?.stuck ?? 0;
+  const brief = useQuery({ queryKey: [...demandKeys.all, "brief", briefId], enabled: Boolean(briefId), retry: false,
+    queryFn: ({ signal }) => apiClient.get<TaskBrief>(`/api/v1/demands/${briefId}/brief`, { signal }) });
+  const setBriefId = (id: string | null) => { setParams(prev => { const next = new URLSearchParams(prev); if (id) next.set("brief", id); else next.delete("brief"); return next; }, { replace: true }); };
   // Disjoint sources: the queue excludes Moodle messages, incubations and
   // question-blocked items; missions and governed task approvals aren't messages.
   const approvalsCount = queueCount + (moodlePending ?? 0) + missionPending + taskApprovals.length;
@@ -183,6 +210,12 @@ export function useAgentTasksViewModel() {
   const questionAnalysisSummary = questionAnalysis.data ? { total: questionAnalysis.data.total, archive: questionAnalysis.data.archive } : null;
   return {
     tab, setTab, group, views, promotedTask,
+    brief, briefId, setBriefId,
+    /** Summary tiles: open "Em andamento" on one of its views. */
+    openTasksView: (nextView: "processing" | "waiting") => { setSelectedId(null); setSelectedIds([]); setParams(prev => { const next = new URLSearchParams(prev);
+      next.set("tab", "agent-work"); next.set("workTab", "tasks"); next.set("workView", nextView); next.delete("workPage"); return next; }); },
+    summary: { stuck: decisionsCount, approvals: approvalsCount, answers: questions.length,
+      running: approvalsQueue.data?.counts?.processing ?? 0, waiting: approvalsQueue.data?.counts?.waiting ?? 0 },
     approvalsCount, decisionsCount, answersCount: questions.length, queueCount, taskApprovals, missionPending,
     archiving, askArchiveQuestion: (item: { id: string; number: number; question: string }) => { cancelQuestion.reset(); setArchiveReason(""); setArchiving(item); },
     archiveReason, setArchiveReason, archiveReasonValid: archiveReason.trim().length >= 3,

@@ -11,14 +11,18 @@ export function DemandContextPanel({ demand, demands, projectName, onOpen }: {
   const summary = demands.find(item => item.id === demand.consolidated_into_id);
   const failedSource = demands.find(item => item.id === demand.failure_check_source_id);
   const failureCheck = demands.find(item => item.failure_check_source_id === demand.id);
-  if (!demand.context_area && !projectName && !demand.requires_approval && !sources.length && !summary && !demand.failure_check_source_id && !failureCheck) return null;
+  // One analyser, in Pessoal -> Tarefas dos agentes (2026-11-19): Messages links to it.
+  const analyse = demand.status !== "archived";
+  const briefLink = `/personal?tab=agent-work&workTab=decisions&brief=${demand.id}`;
+  if (!analyse && !demand.context_area && !projectName && !demand.requires_approval && !sources.length && !summary && !demand.failure_check_source_id && !failureCheck) return null;
   return <div className="mt-3 space-y-2 rounded-md border bg-muted/30 p-3 text-sm">
+    {analyse && <Link className="inline-block text-primary underline" to={briefLink}>{t("workflow.analyseInAgentTasks")}</Link>}
     {(projectName || demand.context_area) && <p className="font-medium">{projectName ?? demand.context_area}</p>}
     {failedSource && <Button variant="outline" size="sm" onClick={() => onOpen(failedSource)}>{t("workflow.openFailedSource", { number: failedSource.number })}</Button>}
     {!failedSource && demand.failure_check_source_id && <Link className="text-primary underline" to={`/demands?message=${demand.failure_check_source_id}`}>{t("workflow.originalRequest")}</Link>}
     {failureCheck && <Button variant="outline" size="sm" onClick={() => onOpen(failureCheck)}>{t("workflow.openFailureCheck", { number: failureCheck.number })}</Button>}
     {demand.requires_approval && <p>{t(`workflow.${demand.approval_status ?? "pending"}`)}{" "}
-      <Link className="text-primary underline" to={`/personal?tab=agent-work&workSearch=${encodeURIComponent(`#${demand.number}`)}`}>{t("workflow.deliberate")}</Link>
+      <Link className="text-primary underline" to={`/personal?tab=agent-work&workTab=approvals&brief=${demand.id}`}>{t("workflow.deliberate")}</Link>
     </p>}
     {summary && <Button variant="outline" size="sm" onClick={() => onOpen(summary)}>{t("workflow.openSummary", { number: summary.number })}</Button>}
     {sources.length > 0 && <details><summary className="cursor-pointer">{t("workflow.sourceCount", { count: sources.length })}</summary>

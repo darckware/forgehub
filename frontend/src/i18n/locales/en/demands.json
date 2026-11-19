@@ -239,7 +239,8 @@
     "requireApproval": "Require Marcelo's approval before execution",
     "openFailedSource": "View original attempt #{{number}}",
     "openFailureCheck": "View check #{{number}}",
-    "originalRequest": "View original request"
+    "originalRequest": "View original request",
+    "analyseInAgentTasks": "Analyze in Agent tasks"
   },
   "messageLabels": {
     "legendTitle": "Label legend",

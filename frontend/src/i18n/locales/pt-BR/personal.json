@@ -304,7 +304,8 @@
       "decision": "Sua decisão",
       "processing": "Em tratamento",
       "waiting": "Aguardando",
-      "resolved": "Resolvidas"
+      "resolved": "Resolvidas",
+      "stuck": "Travadas"
     },
     "states": {
       "archived": "Arquivada",
@@ -335,7 +336,8 @@
       "restore": "Restaurar sem executar",
       "drop": "Descartar incubação",
       "record_investigation": "Registrar investigação",
-      "confirm_inactive": "Confirmar execução inativa"
+      "confirm_inactive": "Confirmar execução inativa",
+      "request_approval": "Pedir aprovação de novo"
     },
     "taskStates": {
       "planned": "Planejada",
@@ -431,15 +433,15 @@
     },
     "tabs": {
       "label": "Abas de Tarefas dos agentes",
-      "tasks": "Tarefas",
+      "tasks": "Em andamento",
       "decisionsCount": "Decisões ({{count}})",
       "incubation": "Incubações",
       "approvalsCount": "Aprovações ({{count}})",
       "answersCount": "Respostas ({{count}})"
     },
     "tabDescriptions": {
-      "tasks": "Tarefas em tratamento, aguardando, resolvidas ou arquivadas. Decisões e autorizações ficam em abas próprias.",
-      "decisions": "Falhas e pendências que precisam de uma decisão sua. Aprovações e perguntas ficam nas abas próprias.",
+      "tasks": "O que está executando, na fila ou aguardando com data para seguir sozinho. Tarefas encerradas ficam em Mensagens.",
+      "decisions": "Só o que está travado e depende de você, com o motivo. Use Analisar para ver o contexto e o que cada ação faz. Aprovações e perguntas ficam nas abas próprias.",
       "incubation": "Decida quais ideias devem virar tarefas, aguardar uma nova data ou ser descartadas.",
       "approvals": "Só o que espera a sua autorização: tarefas que pedem aprovação, aprovações Moodle, decisões de missão e conclusões de tarefas de projeto. Falhas de execução ficam em Decisões.",
       "answers": "Perguntas dos agentes que bloqueiam uma tarefa até você responder."
@@ -490,7 +492,7 @@
     "relatedMessage": "Mensagem relacionada",
     "analyzedAt": "Analisada em",
     "analysis": {
-      "start": "Analisar e encaminhar",
+      "start": "Analisar todas",
       "scope": "Analisa todas as pendências das Tarefas dos agentes: tarefas e incubações do agente e contexto selecionados (incluindo outras páginas) e todas as perguntas pendentes. A busca e as datas não limitam a análise.",
       "loading": "Consultando análise anterior…",
       "unavailable": "Não foi possível consultar ou iniciar a análise das tarefas. As decisões continuam disponíveis.",
@@ -555,7 +557,90 @@
     },
     "blockedTitle": "Ações indisponíveis",
     "blockedAction": "{{action}} indisponível:",
-    "archiveReason": "Motivo do arquivamento (ex.: entregue em #N, feito por outra tarefa, obsoleta)"
+    "archiveReason": "Motivo do arquivamento (ex.: entregue em #N, feito por outra tarefa, obsoleta)",
+    "analyze": "Analisar",
+    "analyzeItem": "Analisar tarefa #{{number}}",
+    "summary": {
+      "label": "Resumo das tarefas dos agentes",
+      "stuck": "Travadas",
+      "approvals": "Aprovações",
+      "answers": "Perguntas",
+      "running": "Em andamento",
+      "waiting": "Aguardando"
+    },
+    "stuck": {
+      "uncertain_run": "Execução incerta",
+      "failure_unresolved": "Falha sem continuidade",
+      "retry_limit": "Limite de tentativas",
+      "quota_reset_unknown": "Cota sem reset conhecido",
+      "quota_not_resumed": "Cota não retomou",
+      "queue_stuck": "Fila travada",
+      "incubation_overdue": "Incubação vencida",
+      "approval_pending": "Aguardando aprovação",
+      "blocking_question": "Pergunta sem resposta"
+    },
+    "brief": {
+      "title": "Analisar",
+      "close": "Fechar análise",
+      "error": "Não foi possível montar a análise desta tarefa.",
+      "about": "Do que se trata",
+      "why": "Por que está travada",
+      "happened": "O que já aconteceu",
+      "elsewhere": "Já foi feito em outro lugar?",
+      "todo": "O que você pode fazer",
+      "requestedBy": "Pedido por {{name}}",
+      "executor": "executor {{name}}",
+      "since": "desde {{date}}",
+      "notStuck": "Não está travada: segue sozinha ou já foi tratada.",
+      "heldBy": "Quem segura a fila:",
+      "attempts": "{{count}} de {{limit}} tentativas usadas.",
+      "check": "Checagem",
+      "reply": "Retorno",
+      "mentionedBy": "Mensagens posteriores que citam esta tarefa (indício, não prova):",
+      "consolidated": "Consolidada no resumo",
+      "elsewhereLater": "A busca em outros agentes e projetos, com evidência, chega na próxima fase. Por enquanto, veja as mensagens que citam esta tarefa acima.",
+      "noOptions": "Nenhuma ação disponível aqui; veja abaixo o que está bloqueado.",
+      "recommended": "Recomendado:",
+      "unavailable": "Ações indisponíveis e por quê",
+      "verdict": {
+        "completed": "Origem concluída",
+        "partial": "Origem parcial",
+        "blocked": "Origem bloqueada"
+      },
+      "dispatch": {
+        "none": "na fila ou não executada",
+        "completed": "concluída",
+        "failed": "falhou",
+        "running": "executando",
+        "dispatched": "executando",
+        "waiting_quota": "aguardando cota"
+      },
+      "reasons": {
+        "uncertain_run": "A última execução não confirmou se terminou. Ela ocupa a vaga do agente: {{held}} tarefa(s) desse agente esperam atrás dela.",
+        "failure_unresolved": "A execução falhou e não há checagem aberta. Sem uma decisão, ninguém continua este trabalho.",
+        "retry_limit": "A execução falhou e o limite de tentativas foi atingido. Só uma nova autorização permite tentar de novo.",
+        "quota_reset_unknown": "O agente bateu no limite de cota e o provedor não informou quando volta. Nada retoma sozinho.",
+        "quota_not_resumed": "O horário de reset da cota passou e a tarefa não foi retomada (tarefa protegida, contexto alterado ou sem evidência da execução).",
+        "queue_stuck": "A tarefa está na fila há mais de 30 minutos e não começou.",
+        "incubation_overdue": "O dono foi chamado a decidir esta incubação há mais de 3 dias e não decidiu.",
+        "approval_pending": "Nada roda até você aprovar ou recusar.",
+        "blocking_question": "O agente fez uma pergunta e a tarefa espera a resposta (aba Respostas)."
+      },
+      "consequence": {
+        "reconcile": "Pergunta de novo ao executor como terminou a execução. Se ele confirmar, o resultado é registrado e a vaga do agente é liberada.",
+        "confirm_inactive": "Você declara, com evidência, que a execução não está mais rodando. Ela vira falha conhecida; nada é executado.",
+        "record_investigation": "Registra o que você verificou. Não muda o estado.",
+        "retry": "Coloca a tarefa de volta na fila do mesmo agente. Usa uma tentativa.",
+        "authorize_retry": "Aumenta o limite de tentativas depois que você corrigiu a causa. Não executa sozinha: a tarefa volta para a fila.",
+        "archive": "Tira da lista com o motivo que você escrever. O histórico e o resultado ficam preservados.",
+        "delete": "Apaga a mensagem. Só vale para o que não tem história a preservar.",
+        "approve": "Libera para execução: a tarefa entra na fila (incubação vira tarefa).",
+        "reject": "Não executa. O dono é informado.",
+        "postpone": "Dá uma nova data para o dono decidir.",
+        "drop": "Descarta a incubação com o motivo. Fica no arquivo.",
+        "request_approval": "Pede de novo a sua aprovação antes de executar."
+      }
+    }
   },
   "location": {
     "title": "Localização atual",

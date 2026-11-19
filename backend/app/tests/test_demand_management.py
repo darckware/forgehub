@@ -701,3 +701,35 @@ async def test_brief_explains_what_it_is_why_stuck_and_what_to_do(client, consol
     assert origin_verdict("x\nORIGEM: CONCLUIDA") == "completed"
     assert origin_verdict("origem: bloqueada") == "blocked"
     assert origin_verdict("sem linha") is None
+
+
+async def test_queue_behind_a_live_run_is_waiting_not_stuck(client, consolidation_db, test_suite_agent):
+    """Independent review #1: a run may take up to 45 min; the tasks queued behind
+    it are waiting, not stuck. Behind an uncertain run they are stuck (other test)."""
+    from app.db.models.demand import AgentDemand
+    db, failed, _ = consolidation_db
+    failed.dispatch_status = "running"
+    failed.dispatch_error = None
+    label = f"busy-{uuid.uuid4().hex}"
+    queued = AgentDemand(subject=f"{label} queued", body="b", origin_type="task", from_agent="test-suite",
+        from_agent_id=test_suite_agent, target_agent_id=test_suite_agent,
+        scheduled_at=datetime.now(timezone.utc) - timedelta(hours=1))
+    db.add(queued)
+    await db.commit()
+    page = (await client.get("/api/v1/demands/agent-work", params={"search": label, "view": "stuck", "group": "decisions"})).json()
+    assert page["total"] == 0
+    brief = (await client.get(f"/api/v1/demands/{queued.id}/brief")).json()
+    assert brief["stuck"] is None
+
+
+async def test_brief_mentions_match_the_whole_number(client, consolidation_db, test_suite_agent):
+    from app.db.models.demand import AgentDemand
+    db, failed, _ = consolidation_db
+    await db.commit()
+    common = dict(origin_type="task", from_agent="test-suite", from_agent_id=test_suite_agent, target_agent_id=test_suite_agent)
+    longer = AgentDemand(subject="outra", body=f"Ver #{failed.number}9 depois", **common)
+    exact = AgentDemand(subject="continua", body=f"Continua #{failed.number}.", **common)
+    db.add_all([longer, exact])
+    await db.commit()
+    brief = (await client.get(f"/api/v1/demands/{failed.id}/brief")).json()
+    assert [m["number"] for m in brief["history"]["mentioned_by"]] == [exact.number]

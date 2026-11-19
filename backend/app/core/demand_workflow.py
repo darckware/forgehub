@@ -283,7 +283,8 @@ async def decide_demand(db, demand, payload, *, actor):
         demand.approved_content_hash = None
     demand.decision_reason = payload.reason
     record_transition(db, demand, payload.action, actor=actor, extra={
-        **previous, "reason": payload.reason, "evidence_ref": payload.evidence_ref,
+        **previous, "reason": payload.reason,
+        **({"source": "operator_decision"} if payload.action in ("archive", "drop") else {}), "evidence_ref": payload.evidence_ref,
         "content_hash": demand.approved_content_hash,
         "matures_at": str(payload.matures_at) if payload.matures_at else None})
     await db.commit()

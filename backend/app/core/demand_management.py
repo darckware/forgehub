@@ -84,6 +84,17 @@ def _not_moodle(demand=AgentDemand):
     return ~exists(select(MoodleApproval.id).where(MoodleApproval.message_id == demand.id))
 
 
+def agent_running_sql(demand=AgentDemand):
+    """The task's agent is busy with a run that is still alive (dispatched,
+    running or reserved). Waiting behind it is normal, not stuck: a run may take
+    up to DISPATCH_TIMEOUT_MINUTES. An uncertain run is not alive -- that queue
+    *is* stuck, and the brief names the run holding it (independent review)."""
+    other = aliased(AgentDemand)
+    return exists(select(other.id).where(other.target_agent_id == demand.target_agent_id, other.id != demand.id,
+        or_(other.dispatch_status.in_(("dispatched", "running")),
+            and_(other.dispatch_status.is_(None), other.agent_run_id.isnot(None)))))
+
+
 def stuck_wait_sql(demand=AgentDemand):
     """A wait that stopped being one: nothing will move it without a person.
 
@@ -99,7 +110,8 @@ def stuck_wait_sql(demand=AgentDemand):
         demand.quota_reset_at <= now - QUOTA_STUCK_AFTER))
     queue = and_(demand.origin_type == "task", demand.dispatch_status.is_(None), demand.agent_run_id.is_(None),
         demand.scheduled_at.isnot(None), demand.scheduled_at <= now - QUEUE_STUCK_AFTER,
-        or_(demand.requires_approval.is_(False), demand.approval_status == "approved"))
+        or_(demand.requires_approval.is_(False), demand.approval_status == "approved"),
+        ~agent_running_sql(demand))
     incubation = and_(demand.origin_type == "incubation", demand.incubation_state == "decision_pending",
         demand.matures_at <= now - INCUBATION_STUCK_AFTER)
     return and_(demand.status != "archived", demand.consolidated_into_id.is_(None), _not_moodle(demand),
@@ -220,7 +232,9 @@ async def stuck_reason(db, demand, *, blocked_question=False, direct_moodle=Fals
             return out("quota_not_resumed", demand.quota_reset_at, blocker=quota_resume_blocker(demand, now))
         return None
     if (demand.origin_type == "task" and demand.dispatch_status is None and not demand.agent_run_id
-            and demand.scheduled_at and demand.scheduled_at <= now - QUEUE_STUCK_AFTER):
+            and demand.scheduled_at and demand.scheduled_at <= now - QUEUE_STUCK_AFTER
+            and (not demand.requires_approval or demand.approval_status == "approved")
+            and not await db.scalar(select(agent_running_sql(demand)))):
         return out("queue_stuck", demand.scheduled_at, detail=wait_summary)
     if (demand.origin_type == "incubation" and demand.incubation_state == "decision_pending"
             and demand.matures_at and demand.matures_at <= now - INCUBATION_STUCK_AFTER):

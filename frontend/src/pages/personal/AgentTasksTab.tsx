@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { MoodleApprovalPanel } from "./MoodleApprovalPanel";
 import { MessageLabels } from "../demands/MessageLabels";
 import { MissionDecisionsCard } from "./MissionDecisionsCard";
+import { TaskBriefPanel } from "./TaskBriefPanel";
 import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, Loader2, Sparkles } from "lucide-react";
 import { QUESTION_FILTERS, WORK_TABS, useAgentTasksViewModel, workState, type QuestionFilter, type WorkTab } from "@/hooks/useAgentTasksViewModel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -131,7 +132,24 @@ export function AgentTasksTab() {
   const statusFilterTab = vm.tab === "tasks" || vm.tab === "incubation";
   const approvalsEmpty = vm.tab === "approvals" && !vm.query.isLoading && !vm.query.isError && vm.approvalsCount === 0;
 
+  // What needs attention at a glance (2026-11-19); each tile opens its tab.
+  const tiles = [
+    { key: "stuck", value: vm.summary.stuck, tab: "decisions" as WorkTab, alert: vm.summary.stuck > 0 },
+    { key: "approvals", value: vm.summary.approvals, tab: "approvals" as WorkTab, alert: vm.summary.approvals > 0 },
+    { key: "answers", value: vm.summary.answers, tab: "answers" as WorkTab, alert: vm.summary.answers > 0 },
+    { key: "running", value: vm.summary.running, tab: "tasks" as WorkTab, alert: false },
+    { key: "waiting", value: vm.summary.waiting, tab: "tasks" as WorkTab, alert: false },
+  ];
+  const summaryStrip = <div role="group" aria-label={t("agentTasks.summary.label")} className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+    {tiles.map(tile => <button key={tile.key} type="button" onClick={() => tile.key === "running" || tile.key === "waiting" ? vm.openTasksView(tile.key === "running" ? "processing" : "waiting") : vm.setTab(tile.tab)}
+      className={`rounded-md border p-3 text-left transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-2 ${tile.alert ? "border-amber-400 bg-amber-50 dark:bg-amber-950/30" : ""}`}>
+      <span className="block text-xs text-muted-foreground">{t(`agentTasks.summary.${tile.key}`)}</span>
+      <span className="block text-2xl font-semibold tabular-nums">{tile.value}</span>
+    </button>)}
+  </div>;
+
   return <div className="space-y-4 pt-4">
+    {summaryStrip}
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">{analysisButton}{tabStrip}</div>
       <p className="text-xs text-muted-foreground">{t(vm.tab === "answers" ? "agentTasks.analysis.scopeAnswers" : "agentTasks.analysis.scope")}</p>
@@ -181,6 +199,7 @@ export function AgentTasksTab() {
       <span className="text-sm">{t("agentTasks.selectedCount", { count: vm.selectedIds.length })}</span>
       <Button variant="outline" size="sm" onClick={() => vm.askBulk(vm.view === "archived" ? "restore" : "archive")}>{t(vm.view === "archived" ? "agentTasks.bulkRestore" : "agentTasks.bulkArchive")}</Button>
     </div>}
+    {vm.briefId && vm.tab !== "answers" && <TaskBriefPanel brief={vm.brief} onClose={() => vm.setBriefId(null)} onAction={vm.ask} />}
     {vm.bulkResults.length > 0 && <ul role="status" className="space-y-1 text-sm">{vm.bulkResults.map(result => <li key={result.id}>
       {result.number ? `#${result.number} · ${result.subject}` : result.subject ?? result.id}: {t(`agentTasks.bulkStatus.${result.status}`)}{result.detail ? ` — ${result.detail}` : ""}
     </li>)}</ul>}
@@ -203,12 +222,17 @@ export function AgentTasksTab() {
                 <p><span className="font-medium">{t("agentTasks.recommendation")}: </span>{item.analysis.recommendation}</p>
               </div>}<button type="button" className="mt-1 block cursor-pointer text-xs text-primary underline hover:text-primary/80 focus-visible:outline" onClick={() => vm.setSelectedId(item.id)}>{t("agentTasks.viewDetails")}</button></TableCell>
               <TableCell>{vm.agentName(item)}</TableCell><TableCell>{vm.contextName(item) ?? t("agentTasks.unclassified")}</TableCell>
-              <TableCell className={item.dispatch_status === "waiting_quota" ? "min-w-52" : undefined}>{item.dispatch_status === "waiting_quota" ? <MessageLabels demand={item} /> : <Badge variant={["uncertain", "failed", "overdue"].includes(vm.state(item)) ? "warning" : "outline"}>{t(`agentTasks.states.${vm.state(item)}`)}</Badge>}</TableCell>
+              <TableCell className={item.dispatch_status === "waiting_quota" || item.stuck ? "min-w-52" : undefined}>{item.stuck ? <div className="space-y-1">
+                <Badge variant="warning">{t(`agentTasks.stuck.${item.stuck.reason}`)}</Badge>
+                {item.stuck.since && <p className="text-xs text-muted-foreground">{t("agentTasks.brief.since", { date: date(item.stuck.since) })}</p>}
+              </div> : item.dispatch_status === "waiting_quota" ? <MessageLabels demand={item} /> : <Badge variant={["uncertain", "failed", "overdue"].includes(vm.state(item)) ? "warning" : "outline"}>{t(`agentTasks.states.${vm.state(item)}`)}</Badge>}</TableCell>
               <TableCell className="whitespace-nowrap">{date(vm.group === "incubation" ? item.matures_at : vm.state(item) === "waiting" ? item.scheduled_at : null)}</TableCell>
-              <TableCell><Button size="sm" variant="outline" disabled={!vm.allowed(item, item.status === "archived" ? "restore" : "archive")}
+              <TableCell><div className="flex flex-wrap gap-2">{item.status !== "archived" && <Button size="sm" variant={item.stuck ? "default" : "outline"}
+                aria-label={t("agentTasks.analyzeItem", { number: item.number })} onClick={() => vm.setBriefId(item.id)}><Sparkles className="mr-1 h-3.5 w-3.5" />{t("agentTasks.analyze")}</Button>}
+                <Button size="sm" variant="outline" disabled={!vm.allowed(item, item.status === "archived" ? "restore" : "archive")}
                 aria-label={t(item.status === "archived" ? "agentTasks.restoreItem" : "agentTasks.archiveItem", { number: item.number })}
                 title={item.blocked_actions?.archive ? t(`agentTasks.blocked.${item.blocked_actions.archive}`) : undefined}
-                onClick={() => vm.ask(item, item.status === "archived" ? "restore" : "archive")}>{t(item.status === "archived" ? "agentTasks.actions.restore" : "agentTasks.actions.archive")}</Button>
+                onClick={() => vm.ask(item, item.status === "archived" ? "restore" : "archive")}>{t(item.status === "archived" ? "agentTasks.actions.restore" : "agentTasks.actions.archive")}</Button></div>
                 {/* The reason is on screen, not only in a hover title a touch
                     screen never shows (2026-11-19). */}
                 {item.status !== "archived" && item.blocked_actions?.archive && <p className="mt-1 max-w-48 text-xs text-muted-foreground">{t(`agentTasks.blocked.${item.blocked_actions.archive}`)}</p>}</TableCell>

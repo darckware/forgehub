@@ -196,6 +196,8 @@ export interface AgentWorkItem extends Demand {
   recovery_state?: string;
   allowed_actions: string[];
   blocked_actions: Record<string, string>;
+  /** Why it is stuck and since when; null when it moves by itself (2026-11-19). */
+  stuck?: { reason: string; since: string | null; held?: number; detail?: string | null; error?: string | null; blocker?: string | null } | null;
 }
 
 export interface AgentWorkPage {

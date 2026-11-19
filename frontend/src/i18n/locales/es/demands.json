@@ -239,7 +239,8 @@
     "requireApproval": "Exigir aprobación de Marcelo antes de ejecutar",
     "openFailedSource": "Ver intento original #{{number}}",
     "openFailureCheck": "Ver comprobación #{{number}}",
-    "originalRequest": "Ver solicitud original"
+    "originalRequest": "Ver solicitud original",
+    "analyseInAgentTasks": "Analizar en Tareas de los agentes"
   },
   "messageLabels": {
     "legendTitle": "Leyenda de etiquetas",

@@ -172,29 +172,58 @@ história a preservar.
 sem alteração há 60 dias (`DEMAND_RETENTION_DAYS`). Entrada, Saída, Execução e Incubação nunca são
 tocadas pela retenção.
 
-## 11. Pessoal → Tarefas dos agentes (como está hoje)
+## 11. Pessoal → Tarefas dos agentes (Fase 1, 2026-11-19)
 
 Lê `GET /api/v1/demands/agent-work` (`core/demand_management.py`). Para cada item o backend
-calcula `allowed_actions` e `blocked_actions` (com o motivo), então a tela nunca decide sozinha o
-que é permitido.
+calcula `allowed_actions`, `blocked_actions` (com o motivo) e `stuck` (por que está travado e desde
+quando), então a tela nunca decide sozinha o que é permitido.
+
+**Resumo no topo**: Travadas, Aprovações, Perguntas, Em andamento, Aguardando. Cada quadro abre a
+aba correspondente.
 
 | Aba | Conteúdo |
 |---|---|
-| Tarefas | Tarefas por estado do operador: em processamento, aguardando, resolvidas, arquivadas. |
-| Decisões | O que só o operador move: falhas sem checagem aberta, resultados incertos, incubações vencidas. |
+| Em andamento | O que executa, está na fila ou aguarda com data. Sem Resolvidas/Arquivadas: tarefa encerrada fica em Mensagens. |
+| Decisões | **Só o que está travado** (visão `stuck`, grupo `decisions`), com o motivo na linha. |
 | Incubações | Ideias por estado. |
 | Aprovações | Tarefas aguardando autorização, Moodle, missões e aprovações de tarefa de projeto. |
 | Respostas | Perguntas dos agentes pendentes (bloqueantes primeiro). |
 
-Botão **"Analisar e encaminhar"** (topo da tela, `core/message_triage.py`):
+Motivos de travamento (`stuck.reason`, `stuck_wait_sql` + `stuck_reason`):
 
+| Código | Quando |
+|---|---|
+| `uncertain_run` | Execução incerta; `held` = tarefas do mesmo agente paradas atrás dela. |
+| `failure_unresolved` | Falha sem checagem aberta. |
+| `retry_limit` | Falha com o limite de tentativas atingido. |
+| `quota_reset_unknown` | Cota sem horário de reset. |
+| `quota_not_resumed` | Reset passou há mais de 30 min e a tarefa não retomou (`blocker` diz por quê). |
+| `queue_stuck` | Tarefa devida há mais de 30 min que não começou, sem execução viva do mesmo agente à frente (`detail` traz a causa; atrás de execução incerta, o Analisar diz qual segura a fila). |
+| `incubation_overdue` | Decisão do dono vencida há mais de 3 dias. |
+| `approval_pending` / `blocking_question` | Marcados no item, mas listados nas abas Aprovações e Respostas. |
+
+**Analisar** (botão em cada linha; `GET /api/v1/demands/{id}/brief`, `core/demand_brief.py`): só regras
+fixas, sem modelo, calculado na hora a cada abertura.
+1. Do que se trata (pedido, quem pediu, executor, diretório).
+2. Por que está travada (motivo, desde quando, quem segura a fila).
+3. O que já aconteceu (tentativas, último erro, checagens com o veredito `ORIGEM:`, retornos,
+   mensagens posteriores que citam a tarefa, resumo de consolidação).
+4. Já foi feito em outro lugar? Ainda não: chega na Fase 3.
+5. O que fazer: as ações permitidas, cada uma com a consequência escrita, a recomendada primeiro
+   (★), e as indisponíveis com o motivo.
+
+O link `?brief=<id>` abre a análise direto; é o que a tela Mensagens usa no atalho **"Analisar em
+Tarefas dos agentes"**.
+
+**Analisar todas** (antigo "Analisar e encaminhar", `core/message_triage.py`) continua no topo:
 1. **Regras fixas** (`deterministic_analysis`): cota, executor ocupado, retorno informativo,
    entrega verificada, checagem que superou a falha, Moodle concluído, autorização, pergunta.
 2. **Recomendação do modelo** (`analyze_messages`), só consultiva em produção
    (`MESSAGE_TRIAGE_ENABLED=false`, `MESSAGE_ANALYSIS_ON_DEMAND_ENABLED=true`).
 3. Quando as regras fixas **provam** resolução, a mensagem é arquivada com o motivo gravado.
 
-O motivo de um botão desabilitado aparece escrito abaixo dele (linha e detalhe).
+O motivo de um botão desabilitado aparece escrito abaixo dele (linha e detalhe). Arquivar sempre
+pede o motivo (MSG-053).
 
 ## 12. Lacunas encontradas (produção, 30 dias até 2026-11-19)
 
@@ -211,7 +240,7 @@ O motivo de um botão desabilitado aparece escrito abaixo dele (linha e detalhe)
 - **Decisões espalhadas**: propostas de manutenção (Acesso remoto), e-mails de clientes
   (`/client-emails`) e alertas de rotinas ficam em outras telas.
 
-## 13. Direção decidida (2026-11-19, Marcelo) — a implementar
+## 13. Direção decidida (2026-11-19, Marcelo)
 
 Princípio: **o controle das tarefas dos agentes precisa ser coeso**. Mensagens mostra o tráfego;
 Pessoal → Tarefas dos agentes é o único lugar de decisão, e mostra **só o que está travado**.
@@ -266,11 +295,15 @@ Encaminhamentos, agora com o que acontece:
 
 ### 13.4 Fases
 
-| Fase | Entrega |
-|---|---|
-| 1 | Tela focada nas travadas; os sete motivos em Decisões; arquivamento sempre com motivo e auditoria; botão Analisar (seções 1, 2, 3, 5); atalho em Mensagens. |
-| 2 | Vínculo de continuidade no banco; leitura da linha `ORIGEM:`; campo "continua #N" no MCP; fio inteiro na tela. |
-| 3 | Seção 4: busca em todos os agentes do projeto/área, sempre com evidência; resistência a falha do modelo. |
+| Fase | Entrega | Situação |
+|---|---|---|
+| 1 | Tela focada nas travadas; motivos em Decisões; arquivamento sempre com motivo e auditoria; botão Analisar (seções 1, 2, 3, 5); atalho em Mensagens. | Implementada no branch `fix/messages-rule-feedback` (seção 11), não publicada. Publicar o MCP antes do backend. |
+| 2 | Vínculo de continuidade no banco; a linha `ORIGEM:` passa a decidir (hoje só é exibida); campo "continua #N" no MCP; fio inteiro na tela; botões Criar continuação, Feito por #N e Encerrar como entregue. | A fazer. |
+| 3 | Seção 4: busca em todos os agentes do projeto/área, sempre com evidência; resistência a falha do modelo; análise guardada até a tarefa mudar. | A fazer. |
+
+Ficou fora da Fase 1, de propósito: Aprovações continua como aba própria (não virou filtro de
+Decisões); a seção 5 usa as ações que já existiam, e as novas (continuação, "feito por") dependem do
+vínculo da Fase 2.
 
 As fases 1 e 2 mudam o fluxo dos agentes e passam por revisão independente antes da publicação.
 
@@ -290,6 +323,8 @@ As fases 1 e 2 mudam o fluxo dos agentes e passam por revisão independente ante
 | Relatório final | `backend/app/core/completion_report.py` |
 | Retorno ao canal | `backend/app/core/feedback.py` |
 | Tela Mensagens | `frontend/src/pages/demands/index.tsx`, `frontend/src/hooks/useDemands.ts` |
-| Tela Tarefas dos agentes | `frontend/src/pages/personal/AgentTasksTab.tsx`, `frontend/src/hooks/useAgentTasksViewModel.ts` |
+| Tela Tarefas dos agentes | `frontend/src/pages/personal/AgentTasksTab.tsx`, `TaskBriefPanel.tsx`, `frontend/src/hooks/useAgentTasksViewModel.ts` |
+| Analisar (por tarefa) | `backend/app/core/demand_brief.py`, `GET /api/v1/demands/{id}/brief` |
+| Arquivar com motivo | `backend/app/core/demand_workflow.py:archive_with_reason` |
 | Mensagens de recusa | `frontend/src/lib/demandRuleError.ts`, `i18n/locales/*/demands.json` (`ruleErrors`) |
 | MCP dos agentes | `host-bridge/forgehub_messages_mcp.py`, `backend/app/mcp/factory_server.py` |

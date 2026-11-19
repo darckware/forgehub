@@ -120,12 +120,12 @@ describe("operator deliberation", () => {
   it("defaults to task handling", () => {
     open();
     expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ view: "processing" }), true);
-    expect(screen.getByRole("button", { name: "Analisar e encaminhar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Analisar todas" })).toBeInTheDocument();
   });
   it("analyzes all pending work beyond page/search/date filters", async () => {
     mocks.post.mockResolvedValue({ id: "job-1", status: "queued", total: 90, processed: 0, applied: 0 });
     open("/personal?tab=agent-work&workAgent=agent-7&workContext=area:Backup&workPage=3&workSearch=backup&workFrom=2026-11-01");
-    const button = screen.getByRole("button", { name: "Analisar e encaminhar" });
+    const button = screen.getByRole("button", { name: "Analisar todas" });
     await waitFor(() => expect(button).toBeEnabled()); fireEvent.click(button);
     await waitFor(() => expect(mocks.post).toHaveBeenCalledWith("/api/v1/demands/agent-work/analyze", { agent_id: "agent-7", context: "area:Backup" }));
     expect(button).toBeDisabled();
@@ -133,12 +133,12 @@ describe("operator deliberation", () => {
   it("recovers running progress and prevents duplicate starts", async () => {
     vi.mocked(apiClient.get).mockImplementation(async url => url.includes("/analysis") ? { id: "job-1", status: "running", total: 90, processed: 26, applied: 8 } : []);
     open(); expect(await screen.findByText(/26 de 90/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Analisar e encaminhar" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Analisar todas" })).toBeDisabled();
   });
   it("shows provider failure while keeping approvals available", async () => {
     vi.mocked(apiClient.get).mockImplementation(async url => url.includes("/analysis") ? { id: "job-1", status: "failed", total: 90, processed: 26, applied: 8, error: "Provider unavailable" } : []);
     open(); expect(await screen.findByText("Provider unavailable")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Analisar e encaminhar" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Analisar todas" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: /Revisar backup/ }));
     expect(screen.getByRole("button", { name: "Aprovar e liberar" })).toBeInTheDocument();
   });
@@ -152,7 +152,7 @@ describe("operator deliberation", () => {
     open(); expect(await screen.findByText(/26 de 90/)).toBeInTheDocument();
     expect(await screen.findByText(/Análise concluída em .+ · 90 de 90/, {}, { timeout: 4000 })).toBeInTheDocument();
     expect(polls).toBe(2);
-    expect(screen.getByRole("button", { name: "Analisar e encaminhar" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Analisar todas" })).toBeEnabled();
   });
   it("refreshes work after analysis completes and reports an empty scope honestly", async () => {
     const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries");
@@ -163,7 +163,7 @@ describe("operator deliberation", () => {
   it("shows an unavailable analysis service without suppressing operator decisions", async () => {
     vi.mocked(apiClient.get).mockImplementation(async url => { if (url.includes("/analysis")) throw new Error("503"); return []; });
     open(); expect(await screen.findByText(/Não foi possível consultar ou iniciar a análise das tarefas/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Analisar e encaminhar" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Analisar todas" })).toBeDisabled();
     expect(screen.getByRole("button", { name: /Revisar backup/ })).toBeInTheDocument();
   });
   it("says the task analysis is off and shows the last run only as dated history (2026-11-15)", async () => {
@@ -176,7 +176,7 @@ describe("operator deliberation", () => {
     expect(await screen.findByText(/análise automática das tarefas está desligada/)).toBeInTheDocument();
     expect(screen.getByText(/Última análise das tarefas, em .+: 17 de 17 verificadas · 6 encaminhadas/)).toBeInTheDocument();
     expect(screen.queryByText(/^Análise concluída/)).not.toBeInTheDocument();
-    const button = screen.getByRole("button", { name: "Analisar e encaminhar" });
+    const button = screen.getByRole("button", { name: "Analisar todas" });
     await waitFor(() => expect(button).toBeEnabled());
     fireEvent.click(button);
     // Only the questions are analysed: no request that could only answer 503.
@@ -191,7 +191,7 @@ describe("operator deliberation", () => {
     open();
     expect(await screen.findByText(/Nada pendente para analisar neste escopo/)).toBeInTheDocument();
     expect(screen.getByText(/Última análise das tarefas, em .+: 123 de 126/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Analisar e encaminhar" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Analisar todas" })).toBeDisabled();
   });
   it("analyses only the part that has something pending", async () => {
     vi.mocked(apiClient.get).mockImplementation(async url => {
@@ -200,7 +200,7 @@ describe("operator deliberation", () => {
       return [];
     });
     open();
-    const button = screen.getByRole("button", { name: "Analisar e encaminhar" });
+    const button = screen.getByRole("button", { name: "Analisar todas" });
     await waitFor(() => expect(button).toBeEnabled()); fireEvent.click(button);
     await waitFor(() => expect(mocks.questionAnalysis).toHaveBeenLastCalledWith(true));
     expect(mocks.post).not.toHaveBeenCalledWith("/api/v1/demands/agent-work/analyze", expect.anything());
@@ -208,7 +208,7 @@ describe("operator deliberation", () => {
   it("retry clears a failed start instead of leaving the error on screen", async () => {
     mocks.post.mockRejectedValueOnce(new Error("503"));
     open();
-    const button = screen.getByRole("button", { name: "Analisar e encaminhar" });
+    const button = screen.getByRole("button", { name: "Analisar todas" });
     await waitFor(() => expect(button).toBeEnabled()); fireEvent.click(button);
     expect(await screen.findByText(/Não foi possível consultar ou iniciar/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
@@ -238,20 +238,23 @@ describe("operator deliberation", () => {
   });
   it("separates tasks, decisions, incubations, approvals and answers into peer tabs", async () => {
     vi.spyOn(apiClient, "get").mockImplementation(async (url: string) => url === "/api/v1/personal/moodle-approvals" ? { items: [{}, {}], activity: [] } : []);
-    mocks.demands.mockReturnValue({ data: { items: [item()], total: 1, page: 1, page_size: 25, counts: { decision: 4, approvals_queue: 3 }, contexts: [] }, isLoading: false, isError: false });
+    mocks.demands.mockReturnValue({ data: { items: [item()], total: 1, page: 1, page_size: 25, counts: { stuck: 4, approvals_queue: 3 }, contexts: [] }, isLoading: false, isError: false });
     mocks.approvals.mockReturnValue({ data: [{ id: "req-1", target_type: "project_task", target_id: "task-1", requested_by_name: "Athos", created_at: "2026-11-13T00:00:00Z" },
       { id: "req-2", target_type: "project_plan", target_id: "plan-1", requested_by_name: "Athos", created_at: "2026-11-13T00:00:00Z" }] });
     mocks.questions.mockReturnValue({ data: [questionRow("question-1", "Which format?")], isLoading: false, isError: false });
     open();
     expect(screen.queryByRole("tablist", { name: "Grupos de trabalho" })).not.toBeInTheDocument();
     const strip = screen.getByRole("tablist", { name: "Abas de Tarefas dos agentes" });
-    expect(strip.parentElement).toContainElement(screen.getByRole("button", { name: "Analisar e encaminhar" }));
+    expect(strip.parentElement).toContainElement(screen.getByRole("button", { name: "Analisar todas" }));
     // Aprovações = queue 3 + Moodle 2 + project_task approvals 1 (missions: not admin).
-    await waitFor(() => expect(within(strip).getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Tarefas", "Decisões (4)", "Incubações", "Aprovações (6)", "Respostas (1)"]));
-    expect(within(strip).getByRole("tab", { name: "Tarefas" })).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(within(strip).getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Em andamento", "Decisões (4)", "Incubações", "Aprovações (6)", "Respostas (1)"]));
+    expect(within(strip).getByRole("tab", { name: "Em andamento" })).toHaveAttribute("aria-selected", "true");
     const taskView = screen.getByRole("combobox", { name: "Situação" }) as HTMLSelectElement;
     expect(taskView.value).toBe("processing");
     expect(within(taskView).queryByRole("option", { name: /Sua decisão/ })).not.toBeInTheDocument();
+    // Closed work is not this screen's concern (2026-11-19): no Resolvidas/Arquivadas views.
+    expect(within(taskView).queryByRole("option", { name: /Resolvidas|Arquivadas/ })).not.toBeInTheDocument();
+    expect(mocks.demands).toHaveBeenCalledWith({ group: "decisions", view: "stuck", page: 1, page_size: 1 }, true);
     expect(mocks.demands).toHaveBeenCalledWith(expect.objectContaining({ group: "tasks", view: "processing" }), true);
     expect(screen.queryByText("Which format?")).not.toBeInTheDocument();
     expect(mocks.demands).toHaveBeenCalledWith({ group: "tasks", view: "approvals_queue", page: 1, page_size: 1 }, true);
@@ -259,7 +262,7 @@ describe("operator deliberation", () => {
     fireEvent.click(within(strip).getByRole("tab", { name: "Decisões (4)" }));
     expect(within(strip).getByRole("tab", { name: "Decisões (4)" })).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByRole("combobox", { name: "Situação" })).not.toBeInTheDocument();
-    expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ group: "tasks", view: "decision" }), true);
+    expect(mocks.demands).toHaveBeenLastCalledWith(expect.objectContaining({ group: "decisions", view: "stuck" }), true);
 
     fireEvent.click(within(strip).getByRole("tab", { name: "Aprovações (6)" }));
     expect(mocks.demands).toHaveBeenLastCalledWith({ group: "tasks", view: "approvals_queue", page: 1, page_size: 25 }, true);
@@ -276,7 +279,7 @@ describe("operator deliberation", () => {
   });
 
   it.each([
-    ["/personal?tab=agent-work", "Tarefas"],
+    ["/personal?tab=agent-work", "Em andamento"],
     ["/personal?tab=agent-work&workGroup=moodle", "Aprovações"],
     ["/personal?tab=agent-work&workGroup=incubation", "Incubações"],
     ["/personal?tab=agent-work&workView=incubation", "Incubações"],
@@ -334,6 +337,32 @@ describe("operator deliberation", () => {
     open();
     expect(screen.getByRole("button", { name: "Arquivar tarefa #42" })).toBeDisabled();
     expect(screen.getAllByText(/O resultado da última execução é incerto/).length).toBeGreaterThan(0);
+  });
+
+  it("shows why a task is stuck and explains it with Analisar (2026-11-19)", async () => {
+    const stuckItem = item({ dispatch_status: "failed", dispatch_error: "Dispatch outcome is uncertain", agent_run_id: "run-1", requires_approval: false,
+      allowed_actions: ["reconcile", "confirm_inactive"], blocked_actions: { archive: "reconciliation_required" },
+      stuck: { reason: "uncertain_run", since: "2026-11-19T10:00:00Z", held: 2 } } as Partial<Demand>);
+    mocks.demands.mockReturnValue({ data: { items: [stuckItem], total: 1, page: 1, page_size: 25, counts: { stuck: 1 }, contexts: [] } });
+    vi.spyOn(apiClient, "get").mockImplementation(async (url: string) => url === "/api/v1/demands/work-1/brief" ? {
+      id: "work-1", number: 42,
+      about: { subject: "Revisar backup", summary: "Verificar a evidência", requested_by: "Athos", executor: "Porthus", context: "Backup", working_path: "/root/project/x", origin_type: "task", created_at: "2026-11-18T10:00:00Z" },
+      stuck: { reason: "uncertain_run", since: "2026-11-19T10:00:00Z", held: 2 }, held_by: null,
+      history: { attempts: 1, retry_limit: 3, last_error: null, last_result: null, replies: [], mentioned_by: [], consolidated_into: null,
+        checks: [{ id: "c-1", number: 50, subject: "Checagem", status: "new", dispatch_status: "completed", verdict: "partial" }] },
+      options: [{ action: "reconcile", recommended: true }, { action: "confirm_inactive", recommended: false }],
+      blocked: { archive: "reconciliation_required" }, item: stuckItem,
+    } : []);
+    open("/personal?tab=agent-work&workTab=decisions");
+    expect(screen.getAllByText("Execução incerta").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Analisar tarefa #42" }));
+    const panel = await screen.findByRole("region", { name: "Analisar" });
+    await within(panel).findByText(/2 tarefa\(s\) desse agente esperam atrás dela/);
+    expect(within(panel).getByText("Verificar a evidência")).toBeInTheDocument();
+    expect(within(panel).getByText("Origem parcial")).toBeInTheDocument();
+    expect(within(panel).getByText(/Pergunta de novo ao executor/)).toBeInTheDocument();
+    fireEvent.click(within(panel).getByRole("button", { name: /★ Reconciliar execução/ }));
+    expect(within(screen.getByRole("dialog")).getByText("#42 · Revisar backup")).toBeInTheDocument();
   });
 
   it("offers archive on the task row before opening its details", async () => {
@@ -482,7 +511,7 @@ describe("Respostas: one analysis for everything, selection and bulk archive (20
     expect(screen.getByText(/classifica cada pergunta pendente/)).toBeInTheDocument();
     expect(screen.queryByText("Sugerida para arquivar")).not.toBeInTheDocument();
     mocks.post.mockResolvedValue({ id: "run-1", status: "completed", processed: 17, total: 17, applied: 6 });
-    const analyze = screen.getByRole("button", { name: "Analisar e encaminhar" });
+    const analyze = screen.getByRole("button", { name: "Analisar todas" });
     await waitFor(() => expect(analyze).toBeEnabled()); fireEvent.click(analyze);
     await waitFor(() => expect(mocks.post).toHaveBeenCalledWith("/api/v1/demands/agent-work/analyze", {}));
     expect(mocks.questionAnalysis).toHaveBeenLastCalledWith(true);
@@ -496,7 +525,7 @@ describe("Respostas: one analysis for everything, selection and bulk archive (20
 
   it("selects the suggested ones and archives them with one reason after confirming", async () => {
     open("/personal?tab=agent-work&workTab=answers");
-    const analyze = screen.getByRole("button", { name: "Analisar e encaminhar" });
+    const analyze = screen.getByRole("button", { name: "Analisar todas" });
     await waitFor(() => expect(analyze).toBeEnabled()); fireEvent.click(analyze);
     fireEvent.click(await screen.findByRole("button", { name: "Selecionar sugeridas para arquivar (2)" }));
     expect(screen.getByRole("checkbox", { name: "Selecionar pergunta #51" })).toBeChecked();
@@ -522,7 +551,7 @@ describe("Respostas: one analysis for everything, selection and bulk archive (20
 
   it("never keeps a question hidden by the filter in the selection", async () => {
     open("/personal?tab=agent-work&workTab=answers");
-    const analyze = screen.getByRole("button", { name: "Analisar e encaminhar" });
+    const analyze = screen.getByRole("button", { name: "Analisar todas" });
     await waitFor(() => expect(analyze).toBeEnabled()); fireEvent.click(analyze);
     fireEvent.click(await screen.findByRole("checkbox", { name: "Selecionar todas" }));
     expect(screen.getByRole("button", { name: "Arquivar selecionadas (3)" })).toBeInTheDocument();

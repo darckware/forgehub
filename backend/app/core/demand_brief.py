@@ -69,7 +69,9 @@ async def demand_brief(db, demand):
     mentions = (await db.scalars(select(AgentDemand).where(
         AgentDemand.id != demand.id, AgentDemand.created_at > demand.created_at,
         AgentDemand.failure_check_source_id.is_distinct_from(demand.id),
-        or_(AgentDemand.subject.ilike(f"%#{demand.number}%"), AgentDemand.body.ilike(f"%#{demand.number}%")))
+        # "#123" but not "#1234" (independent review).
+        or_(AgentDemand.subject.op("~")(rf"#{demand.number}([^0-9]|$)"),
+            AgentDemand.body.op("~")(rf"#{demand.number}([^0-9]|$)")))
         .order_by(AgentDemand.created_at.desc()).limit(10))).all()
     summary = await db.get(AgentDemand, demand.consolidated_into_id) if demand.consolidated_into_id else None
 
@@ -111,6 +113,9 @@ async def demand_brief(db, demand):
         "options": options,
         "blocked": item["blocked_actions"],
         "analysis": item.get("analysis"),
+        # The agent-work item itself, so the screen can act on it even when it
+        # is not on the list page (opened from Messages).
+        "item": item,
     }
 
 
