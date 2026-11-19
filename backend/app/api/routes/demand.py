@@ -1328,6 +1328,14 @@ async def demand_history(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db
         "created_at": event.created_at, "payload": event.payload} for event in events]
 
 
+@router.get("/{demand_id}/brief")
+async def demand_brief_route(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db), admin=Depends(get_current_admin)):
+    """Pessoal -> Tarefas dos agentes -> "Analisar" (2026-11-19): rule-based brief
+    of one task -- what it is, why it is stuck, what happened, what to do."""
+    from app.core.demand_brief import demand_brief
+    return await demand_brief(db, await _get_demand_or_404(db, demand_id))
+
+
 @router.get("/{demand_id}/sources", response_model=list[DemandOut])
 async def demand_sources(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     await _get_demand_or_404(db, demand_id)

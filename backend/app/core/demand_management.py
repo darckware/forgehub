@@ -1,4 +1,6 @@
 """Bounded operator queries and shared presentation of execution constraints."""
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import and_, case, exists, func, or_, select
 from sqlalchemy.orm import aliased
 
@@ -10,8 +12,15 @@ from app.core.demand_workflow import effective_dispatch_attempts, requires_recon
 from app.db.models.message_triage import MessageTriageResult
 from app.core.message_triage_revision import context_revision_sql
 
-WORK_VIEWS = ("decision", "approvals_queue", "processing", "waiting", "resolved", "attention", "approval", "incubation", "failed", "queued", "running", "completed", "archived")
-WORK_GROUPS = ("all", "tasks", "incubation")
+# Decisions holds only stuck work (2026-11-19, Marcelo: "A preocupação são com as
+# tarefas travadas por algum motivo"). Past these limits a wait is not a wait any more.
+QUEUE_STUCK_AFTER = timedelta(minutes=30)
+QUOTA_STUCK_AFTER = timedelta(minutes=30)
+INCUBATION_STUCK_AFTER = timedelta(days=3)
+
+WORK_VIEWS = ("stuck", "decision", "approvals_queue", "processing", "waiting", "resolved", "attention", "approval", "incubation", "failed", "queued", "running", "completed", "archived")
+# "decisions": tasks and incubations together, Moodle messages left to their own flow.
+WORK_GROUPS = ("all", "tasks", "incubation", "decisions")
 
 
 def failure_category(demand):
@@ -71,6 +80,32 @@ def human_failure_sql(demand=AgentDemand):
         ~active_failure_check_sql(demand))
 
 
+def _not_moodle(demand=AgentDemand):
+    return ~exists(select(MoodleApproval.id).where(MoodleApproval.message_id == demand.id))
+
+
+def stuck_wait_sql(demand=AgentDemand):
+    """A wait that stopped being one: nothing will move it without a person.
+
+    - quota: reset unknown, or past the reset by QUOTA_STUCK_AFTER and still
+      waiting (protected work, context changed or no run evidence);
+    - queue: a due Task not started QUEUE_STUCK_AFTER after its time (busy
+      agent, dependency, capacity, unavailable executor);
+    - incubation: its owner was asked to decide INCUBATION_STUCK_AFTER ago.
+    Moodle messages keep their own flow and are left out.
+    """
+    now = func.now()
+    quota = and_(demand.dispatch_status == "waiting_quota", or_(demand.quota_reset_at.is_(None),
+        demand.quota_reset_at <= now - QUOTA_STUCK_AFTER))
+    queue = and_(demand.origin_type == "task", demand.dispatch_status.is_(None), demand.agent_run_id.is_(None),
+        demand.scheduled_at.isnot(None), demand.scheduled_at <= now - QUEUE_STUCK_AFTER,
+        or_(demand.requires_approval.is_(False), demand.approval_status == "approved"))
+    incubation = and_(demand.origin_type == "incubation", demand.incubation_state == "decision_pending",
+        demand.matures_at <= now - INCUBATION_STUCK_AFTER)
+    return and_(demand.status != "archived", demand.consolidated_into_id.is_(None), _not_moodle(demand),
+                or_(quota, queue, incubation))
+
+
 def blocking_question_sql(demand=AgentDemand):
     return exists(select(AgentQuestion.id).where(AgentQuestion.origin_demand_id == demand.id,
         AgentQuestion.status == "pending", AgentQuestion.blocking.is_(True)))
@@ -86,6 +121,7 @@ def operator_state_sql():
         return exists(select(MessageTriageResult.message_id).where(current,MessageTriageResult.operator_state==state))
     return case(
         (AgentDemand.status=="archived","resolved"),
+        (stuck_wait_sql(),"decision"),
         (AgentDemand.dispatch_status=="waiting_quota","waiting"),
         (or_(question,and_(AgentDemand.requires_approval.is_(True),or_(
             AgentDemand.approval_status.is_(None),AgentDemand.approval_status=="pending"))),"decision"),
@@ -100,7 +136,19 @@ def operator_state_sql():
         (AgentDemand.origin_type=="incubation","waiting"),else_="processing")
 
 
-def view_filter(view, state, *, operator=None, demand=AgentDemand, question=None):
+def view_filter(view, state, *, operator=None, demand=AgentDemand, question=None, stuck=None):
+    if view == "stuck":
+        # Pessoal -> Tarefas dos agentes -> Decisoes (2026-11-19): only stuck work.
+        # Tasks as in "decision" (approvals and blocking questions have their own
+        # tabs); an incubation only once its owner left the decision overdue.
+        operator = operator_state_sql() if operator is None else operator
+        question = blocking_question_sql(demand) if question is None else question
+        stuck = stuck_wait_sql(demand) if stuck is None else stuck
+        pending_approval = and_(demand.requires_approval.is_(True),
+            or_(demand.approval_status.is_(None), demand.approval_status == "pending"))
+        return and_(demand.status != "archived", operator == "decision", or_(
+            and_(demand.origin_type == "task", ~question, ~pending_approval),
+            and_(demand.origin_type == "incubation", stuck)))
     if view == "approvals_queue":
         # Pessoal -> Tarefas dos agentes -> Aprovacoes holds only work waiting for
         # Marcelo's authorization. Pending task authorizations and blocking-question
@@ -133,7 +181,54 @@ def view_filter(view, state, *, operator=None, demand=AgentDemand, question=None
     return state == view
 
 
-async def work_item(db, demand, state):
+STUCK_REASONS = ("uncertain_run", "failure_unresolved", "retry_limit", "quota_reset_unknown",
+                 "quota_not_resumed", "queue_stuck", "incubation_overdue", "approval_pending", "blocking_question")
+
+
+async def stuck_reason(db, demand, *, blocked_question=False, direct_moodle=False, wait_summary=None, now=None):
+    """Why this work is stuck and since when, in the operator's terms; None when it moves by itself.
+
+    Same facts as operator_state_sql's "decision", one reason per item so the
+    card can say it (2026-11-19). `held` counts the queued Tasks an uncertain run
+    keeps from starting; `detail` carries the classifier's cause for a stuck queue.
+    """
+    if demand.status == "archived" or demand.consolidated_into_id or direct_moodle:
+        return None
+    now = now or datetime.now(timezone.utc)
+    def out(reason, since, **extra):
+        return {"reason": reason, "since": since.isoformat() if since else None, **extra}
+    if uncertain(demand):
+        held = await db.scalar(select(func.count(AgentDemand.id)).where(
+            AgentDemand.target_agent_id == demand.target_agent_id, AgentDemand.id != demand.id,
+            AgentDemand.status != "archived", AgentDemand.dispatch_status.is_(None),
+            AgentDemand.origin_type == "task", AgentDemand.scheduled_at.isnot(None)))
+        return out("uncertain_run", demand.updated_at, held=int(held or 0))
+    if blocked_question:
+        return out("blocking_question", demand.updated_at)
+    if demand.requires_approval and demand.approval_status in (None, "pending") and demand.dispatch_status is None:
+        return out("approval_pending", demand.updated_at)
+    if demand.dispatch_status == "failed" and demand.origin_type != "incubation":
+        if await db.scalar(select(active_failure_check_sql(demand))):
+            return None
+        reason = "retry_limit" if effective_dispatch_attempts(demand) >= (demand.retry_limit or 3) else "failure_unresolved"
+        return out(reason, demand.updated_at, error=(demand.dispatch_error or "")[:500] or None)
+    if demand.dispatch_status == "waiting_quota":
+        if demand.quota_reset_at is None:
+            return out("quota_reset_unknown", demand.task_execution_at or demand.updated_at)
+        if demand.quota_reset_at <= now - QUOTA_STUCK_AFTER:
+            from app.core.quota_wait import quota_resume_blocker
+            return out("quota_not_resumed", demand.quota_reset_at, blocker=quota_resume_blocker(demand, now))
+        return None
+    if (demand.origin_type == "task" and demand.dispatch_status is None and not demand.agent_run_id
+            and demand.scheduled_at and demand.scheduled_at <= now - QUEUE_STUCK_AFTER):
+        return out("queue_stuck", demand.scheduled_at, detail=wait_summary)
+    if (demand.origin_type == "incubation" and demand.incubation_state == "decision_pending"
+            and demand.matures_at and demand.matures_at <= now - INCUBATION_STUCK_AFTER):
+        return out("incubation_overdue", demand.matures_at)
+    return None
+
+
+async def work_item(db, demand, state, wait_summary=None):
     active = state == "running"
     linked_history = bool(await db.scalar(select(AgentDemand.id).where(AgentDemand.consolidated_into_id == demand.id).limit(1)))
     blocked_question = bool(await db.scalar(select(AgentQuestion.id).where(AgentQuestion.origin_demand_id == demand.id,
@@ -214,7 +309,9 @@ async def work_item(db, demand, state):
                 or analysis.context_fingerprint != context_fingerprint):
             analysis = None
     operator=await db.scalar(select(operator_state_sql()).select_from(AgentDemand).where(AgentDemand.id==demand.id))
-    return {**DemandOut.model_validate(demand).model_dump(mode="json"), "work_state": state,
+    stuck = await stuck_reason(db, demand, blocked_question=blocked_question, direct_moodle=direct_moodle,
+                               wait_summary=wait_summary)
+    return {**DemandOut.model_validate(demand).model_dump(mode="json"), "work_state": state, "stuck": stuck,
         "operator_state":operator,"display_context":display_context(demand),
         "analysis":{k:getattr(analysis,k) for k in ("category","summary","reason","recommendation",
             "proposed_action","related_message_id","evidence_refs","analyzed_at","applied_action")} if analysis else None,
@@ -231,7 +328,8 @@ async def list_agent_work(db, *, view="attention", search="", agent_id=None, con
     filters = []
     if group != "all":
         filters.append(~exists(select(MoodleApproval.id).where(MoodleApproval.message_id == AgentDemand.id)))
-        filters.append(AgentDemand.origin_type == "incubation" if group == "incubation" else AgentDemand.origin_type == "task")
+        if group != "decisions":
+            filters.append(AgentDemand.origin_type == "incubation" if group == "incubation" else AgentDemand.origin_type == "task")
     if search.strip():
         term = search.strip().removeprefix("#")
         # Match literal wildcard characters; an operator's search is not SQL syntax.
@@ -263,13 +361,13 @@ async def list_agent_work(db, *, view="attention", search="", agent_id=None, con
     classified = (select(AgentDemand.id, AgentDemand.status, AgentDemand.origin_type,
         AgentDemand.requires_approval, AgentDemand.approval_status,
         state.label("work_state"), operator_state_sql().label("operator_state"),
-        blocking_question_sql().label("blocked_question"))
+        blocking_question_sql().label("blocked_question"), stuck_wait_sql().label("stuck_wait"))
         .where(*filters).cte("classified_agent_work").prefix_with("MATERIALIZED", dialect="postgresql"))
     columns = classified.c
 
     def classified_filter(name):
         return view_filter(name, columns.work_state, operator=columns.operator_state, demand=columns,
-                           question=columns.blocked_question)
+                           question=columns.blocked_question, stuck=columns.stuck_wait)
 
     count_row = (await db.execute(select(*(func.count().filter(classified_filter(name)).label(name)
         for name in WORK_VIEWS)).select_from(classified))).mappings().one()
@@ -280,6 +378,9 @@ async def list_agent_work(db, *, view="attention", search="", agent_id=None, con
         .join(classified, AgentDemand.id == columns.id).where(classified_filter(view))
         .order_by(AgentDemand.created_at.desc(), AgentDemand.id).offset((page - 1) * page_size).limit(page_size))).all()
     contexts = (await db.execute(select(AgentDemand.project_id, AgentDemand.context_area).where(*filters).distinct())).all()
-    return {"items": [await work_item(db, demand, work_state) for demand, work_state in rows],
+    from app.core.message_classification import classify_messages
+    labels = await classify_messages(db, [demand for demand, _ in rows]) if rows else {}
+    return {"items": [await work_item(db, demand, work_state, (labels.get(demand.id) or {}).get("classification_summary"))
+                      for demand, work_state in rows],
         "total": total, "counts": counts, "page": page, "page_size": page_size,
         "contexts": [{"project_id": str(project) if project else None, "area": area} for project, area in contexts]}

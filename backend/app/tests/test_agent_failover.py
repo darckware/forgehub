@@ -357,11 +357,14 @@ async def test_quota_unknown_reset_is_nonterminal_and_preserves_evidence(world, 
         metadata = (await classify_messages(db, [fresh]))[row.id]
         assert metadata["execution_wait_reason"] == "quota"
         assert metadata["operator_decision"] is None
-        assert await db.scalar(select(operator_state_sql()).where(AgentDemand.id == row.id)) == "waiting"
+        # Nothing resumes an unknown reset by itself: it is stuck work for the
+        # operator's Decisions (2026-11-19), with the reason on the item.
+        assert await db.scalar(select(operator_state_sql()).where(AgentDemand.id == row.id)) == "decision"
         suggestion = await deterministic_analysis(db, fresh)
         assert suggestion.status == "waiting" and suggestion.proposed_action == "none"
         item = await work_item(db, fresh, "waiting")
         assert item["blocked_actions"]["authorize_retry"] == "quota_reset_unknown"
+        assert item["stuck"]["reason"] == "quota_reset_unknown"
         sibling = await world.message(world.limited, working_path="/tmp")
         sibling_metadata = (await classify_messages(db, [sibling]))[sibling.id]
         assert sibling_metadata["execution_wait_reason"] == "quota"

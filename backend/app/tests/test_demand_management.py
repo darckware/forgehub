@@ -627,3 +627,77 @@ async def test_retention_archive_is_recorded(consolidation_db):
     finally:
         await db.execute(delete(AuditEvent).where(AuditEvent.entity_id == failed.id))
         await db.commit()
+
+
+async def test_decisions_hold_only_stuck_work_with_its_reason(client, consolidation_db, test_suite_agent):
+    """2026-11-19: Pessoal -> Tarefas dos agentes -> Decisoes lists what is stuck and
+    says why: an uncertain run (and how many tasks it holds), a queue past 30 min,
+    a quota with no known reset, an incubation decision overdue by 3 days. Work
+    that will still move by itself stays out."""
+    from app.db.models.demand import AgentDemand
+    db, failed, incubated = consolidation_db
+    label = f"stuck-{uuid.uuid4().hex}"
+    now = datetime.now(timezone.utc)
+    failed.subject = f"{label} uncertain"
+    incubated.subject = f"{label} incubation"
+    incubated.incubation_state = "decision_pending"
+    incubated.matures_at = now - timedelta(days=4)
+    common = dict(from_agent="test-suite", from_agent_id=test_suite_agent, target_agent_id=test_suite_agent,
+                  origin_type="task", body="b")
+    queued = AgentDemand(subject=f"{label} queued", scheduled_at=now - timedelta(hours=2), **common)
+    fresh = AgentDemand(subject=f"{label} fresh", scheduled_at=now - timedelta(minutes=5), **common)
+    quota = AgentDemand(subject=f"{label} quota", dispatch_status="waiting_quota", quota_reset_at=None, **common)
+    quota_due = AgentDemand(subject=f"{label} quota-due", dispatch_status="waiting_quota",
+                            quota_reset_at=now + timedelta(hours=1), **common)
+    db.add_all([queued, fresh, quota, quota_due])
+    await db.commit()
+
+    page = (await client.get("/api/v1/demands/agent-work", params={
+        "search": label, "view": "stuck", "group": "decisions", "page_size": 50})).json()
+    reasons = {item["subject"].removeprefix(label + " "): item["stuck"] for item in page["items"]}
+    assert set(reasons) == {"uncertain", "incubation", "queued", "quota"}, reasons
+    assert reasons["uncertain"]["reason"] == "uncertain_run"
+    assert reasons["uncertain"]["held"] >= 2  # queued and fresh wait behind it
+    assert reasons["queued"]["reason"] == "queue_stuck"
+    assert reasons["quota"]["reason"] == "quota_reset_unknown"
+    assert reasons["incubation"]["reason"] == "incubation_overdue"
+    assert page["counts"]["stuck"] == 4
+
+    waiting = (await client.get("/api/v1/demands/agent-work", params={
+        "search": label, "view": "waiting", "group": "tasks"})).json()
+    assert [item["subject"] for item in waiting["items"]] == [f"{label} quota-due"]
+    assert waiting["items"][0]["stuck"] is None
+
+
+async def test_brief_explains_what_it_is_why_stuck_and_what_to_do(client, consolidation_db, test_suite_agent):
+    """The "Analisar" brief is rule-based: it answers without any model."""
+    from app.core.demand_brief import origin_verdict
+    from app.db.models.demand import AgentDemand
+    db, failed, _ = consolidation_db
+    now = datetime.now(timezone.utc)
+    common = dict(from_agent="test-suite", from_agent_id=test_suite_agent, target_agent_id=test_suite_agent,
+                  origin_type="task")
+    check = AgentDemand(subject="Checagem", body="diag", failure_check_source_id=failed.id,
+                        dispatch_status="completed", dispatch_result="...\nORIGEM: PARCIAL\nFaltou X", **common)
+    queued = AgentDemand(subject="Na fila", body="b", scheduled_at=now - timedelta(hours=1), **common)
+    db.add_all([check, queued])
+    await db.commit()
+    later = AgentDemand(subject="Continua", body=f"Continuação de #{failed.number}", **common)
+    db.add(later)
+    await db.commit()
+
+    brief = (await client.get(f"/api/v1/demands/{failed.id}/brief")).json()
+    assert brief["about"]["summary"] == "Original evidence"
+    assert brief["stuck"]["reason"] == "uncertain_run"
+    assert brief["options"][0] == {"action": "reconcile", "recommended": True}
+    assert brief["blocked"]["archive"] == "reconciliation_required"
+    assert brief["history"]["checks"][0]["verdict"] == "partial"
+    assert [m["number"] for m in brief["history"]["mentioned_by"]] == [later.number]
+
+    held = (await client.get(f"/api/v1/demands/{queued.id}/brief")).json()
+    assert held["stuck"]["reason"] == "queue_stuck"
+    assert held["held_by"]["number"] == failed.number
+
+    assert origin_verdict("x\nORIGEM: CONCLUIDA") == "completed"
+    assert origin_verdict("origem: bloqueada") == "blocked"
+    assert origin_verdict("sem linha") is None
