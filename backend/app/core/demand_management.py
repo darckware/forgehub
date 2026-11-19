@@ -42,6 +42,7 @@ def work_state_sql():
     return case(
         (AgentDemand.status == "archived", "archived"),
         (AgentDemand.dispatch_status == "waiting_quota", "waiting"),
+        (and_(AgentDemand.dispatch_status == "completed", AgentDemand.dispatch_outcome == "waiting_reply"), "waiting"),
         (and_(AgentDemand.dispatch_status == "failed", or_(
             and_(AgentDemand.agent_run_id.isnot(None), or_(AgentDemand.dispatch_error.is_(None), AgentDemand.dispatch_error == "")),
             AgentDemand.dispatch_error.ilike("%uncertain%"))), "uncertain"),
@@ -135,6 +136,7 @@ def operator_state_sql():
         (AgentDemand.status=="archived","resolved"),
         (stuck_wait_sql(),"decision"),
         (AgentDemand.dispatch_status=="waiting_quota","waiting"),
+        (and_(AgentDemand.dispatch_status=="completed",AgentDemand.dispatch_outcome=="waiting_reply"),"waiting"),
         (or_(question,and_(AgentDemand.requires_approval.is_(True),or_(
             AgentDemand.approval_status.is_(None),AgentDemand.approval_status=="pending"))),"decision"),
         (or_(AgentDemand.dispatch_status.in_(("dispatched","running")),and_(

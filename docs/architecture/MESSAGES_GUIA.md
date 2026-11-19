@@ -223,7 +223,7 @@ Tarefas dos agentes"**.
 3. Quando as regras fixas **provam** resolução, a mensagem é arquivada com o motivo gravado.
 
 O motivo de um botão desabilitado aparece escrito abaixo dele (linha e detalhe). Arquivar sempre
-pede o motivo (MSG-053).
+pede o motivo (MSG-060).
 
 ## 12. Lacunas encontradas (produção, 30 dias até 2026-11-19)
 
@@ -232,7 +232,7 @@ pede o motivo (MSG-053).
   concluir. Nenhum código lê a linha `ORIGEM:`.
 - **Arquivamento sem registro**: 199 de 271 falhas arquivadas não têm evento dizendo quem arquivou
   e por quê. Arquivar pelo agente (MCP `archive_agent_message`) e a retenção não gravavam auditoria
-  (corrigido na Fase 1: MSG-053).
+  (corrigido na Fase 1: MSG-060).
 - **Analisador**: a parte com modelo falhou em 15/11 e 17/11 (provedor); a busca de "já foi feito"
   só olha o mesmo diretório/projeto entre as 300 mensagens mais recentes.
 - **Travamentos que não chegam a Decisões**: fila parada atrás de execução incerta, cota sem

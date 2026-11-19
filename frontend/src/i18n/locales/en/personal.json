@@ -555,6 +555,12 @@
       },
       "limit": "Select at most {{max}} questions at a time."
     },
+    "outcomes": {
+      "awaiting_authorization": "Authorization requested by the agent",
+      "authorized": "Authorized; the agent receives this authorization on the next run",
+      "authorization_refused": "Authorization refused",
+      "waiting_reply": "Waiting for a reply"
+    },
     "blockedTitle": "Unavailable actions",
     "blockedAction": "{{action}} unavailable:",
     "archiveReason": "Why archive (e.g. delivered in #N, done by another task, obsolete)",

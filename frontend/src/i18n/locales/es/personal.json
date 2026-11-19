@@ -555,6 +555,12 @@
       },
       "limit": "Selecciona como máximo {{max}} preguntas a la vez."
     },
+    "outcomes": {
+      "awaiting_authorization": "Autorización solicitada por el agente",
+      "authorized": "Autorizado; el agente recibe esta autorización en la próxima ejecución",
+      "authorization_refused": "Autorización rechazada",
+      "waiting_reply": "Esperando respuesta"
+    },
     "blockedTitle": "Acciones no disponibles",
     "blockedAction": "{{action}} no disponible:",
     "archiveReason": "Motivo del archivo (p. ej.: entregado en #N, hecho por otra tarea, obsoleta)",

@@ -47,8 +47,9 @@ from app.core.deps import get_current_admin, get_current_username
 from app.core.demand_workflow import WorkflowBlocked, assert_execution_allowed, effective_dispatch_attempts, ensure_workflow_allowed, invalidate_changed_approval, requires_reconciliation, record_transition
 from app.core.demand_dispatch_guard import ensure_task_dispatch_admissible, reserve_dispatch
 from app.core.completion_report import (
+    blocked_outcome,
     completion_failure_reason,
-    parse_completion_status,
+    parse_completion_report,
     with_completion_contract,
 )
 from app.core.demand_thread import build_thread_prompt
@@ -2376,6 +2377,58 @@ def _extract_evidence_ref(text: str) -> str | None:
     return None
 
 
+async def _can_request_authorization(db: AsyncSession, demand: AgentDemand) -> bool:
+    """Whether a run that asked for Marcelo's authorization can wait for it in
+    Aprovação instead of failing. Only a plain Messages Task whose own approval
+    re-runs it: a mission/task execution, a failure check (its source has its
+    own decision), an agent action, the WhatsApp group capture and a Moodle
+    message each have their own flow, so they keep failing as before."""
+    from app.core.agent_action_requests import is_agent_action
+    from app.db.models.moodle_approval import MoodleApproval
+
+    if (demand.origin_type != "task" or demand.task_execution_id is not None
+            or demand.failure_check_source_id is not None or demand.channel == GROUP_CHANNEL
+            or is_agent_action(demand) or demand.from_agent_id is None or demand.target_agent_id is None
+            or not (demand.working_path or "").startswith("/")):
+        return False
+    return await db.scalar(select(MoodleApproval.id).where(MoodleApproval.message_id == demand.id)) is None
+
+
+async def _request_authorization(db: AsyncSession, demand: AgentDemand, reply_body: str, needed: str) -> None:
+    """The attempt ended asking for Marcelo's authorization: the message goes
+    back to waiting for his approval (Pessoal -> Tarefas dos agentes ->
+    Aprovação) with the attempt preserved in its history. Approving it queues
+    the same message again, now telling the agent what was authorized
+    (core/demand_thread.py); rejecting it hands it back to the sender.
+    Nothing runs until he decides."""
+    from app.core.demand_workflow import record_transition
+
+    demand.dispatch_deadline_at = None
+    demand.task_execution_at = datetime.now(timezone.utc)
+    agent = await db.get(Agent, demand.target_agent_id) if demand.target_agent_id else None
+    demand.dispatch_status = None
+    demand.dispatch_result = _format_execution_header(demand, agent.name if agent else "agent").replace(
+        "Status: None\n", "Status: aguardando autorização\n", 1) + reply_body
+    record_transition(db, demand, "attempt_finished", extra={"evidence_ref": _extract_evidence_ref(reply_body),
+        "result": demand.dispatch_result, "outcome": "awaiting_authorization", "needed": needed})
+    demand.agent_run_id = None
+    demand.dispatch_error = None
+    demand.scheduled_at = None
+    demand.dispatch_outcome = "awaiting_authorization"
+    demand.outcome_note = needed
+    demand.requires_approval = True
+    demand.approval_status = "pending"
+    demand.approved_content_hash = None
+    demand.feedback_sent_at = None
+    db.add(Notification(
+        source="system", severity="warning",
+        title=f"Autorização pedida: {demand.subject}"[:255],
+        message=f"#{demand.number}: {needed}"[:2000],
+        event_key=f"demand-authorization:{demand.id}:{demand.dispatch_attempts}",
+        occurred_at=datetime.now(timezone.utc),
+    ))
+
+
 async def _finalize_dispatch(
     db: AsyncSession, demand_id: uuid.UUID, run: dict[str, Any], *, expected_run_id: str | None = None,
     reconciling: bool = False,
@@ -2407,6 +2460,8 @@ async def _finalize_dispatch(
         return None
     if locked.dispatch_status in ("completed", "waiting_quota") or (locked.dispatch_status == "failed" and not requires_reconciliation(locked)):
         return None
+    if getattr(locked, "dispatch_outcome", None) == "awaiting_authorization" and locked.agent_run_id is None:
+        return None  # the attempt already ended asking for authorization
 
     run_status = run.get("status")
     await _revoke_dispatch_credential(db, locked, run_status or "failed")
@@ -2422,8 +2477,19 @@ async def _finalize_dispatch(
     # Terminal: completed / failed / timed_out / cancelled / stale. A clean
     # exit is completed work only when the agent ended with STATUS: DONE --
     # see core/completion_report.py.
-    if run_status == "completed":
-        failure_reason = completion_failure_reason(parse_completion_status(reply_body))
+    # 2026-11-16 (Marcelo, ECO-054 5a/5b): `STATUS: BLOCKED | AUTORIZAÇÃO: ...`
+    # and `STATUS: BLOCKED | AGUARDANDO RESPOSTA: ...` are not failures.
+    outcome = None
+    if run_status == "completed" and not historical and getattr(locked, "task_execution_id", None) is None:
+        outcome = blocked_outcome(*parse_completion_report(reply_body))
+    if outcome and outcome[0] == "awaiting_authorization" and await _can_request_authorization(db, locked):
+        await _request_authorization(db, locked, reply_body, outcome[1])
+        return None
+    waiting_reply = outcome is not None and outcome[0] == "waiting_reply"
+    if run_status == "completed" and waiting_reply:
+        failure_reason = None
+    elif run_status == "completed":
+        failure_reason = completion_failure_reason(parse_completion_report(reply_body)[0])
         if failure_reason is None and not historical:
             from app.core.briefing_evidence import briefing_failure_reason
 
@@ -2432,6 +2498,8 @@ async def _finalize_dispatch(
         failure_reason = f"The agent run ended as {run_status!r}."
     locked.dispatch_status = "failed" if failure_reason else "completed"
     locked.dispatch_error = failure_reason
+    locked.dispatch_outcome = "waiting_reply" if waiting_reply else None
+    locked.outcome_note = outcome[1] if waiting_reply else None
     if failure_reason:
         # M0.8 (cycle spec §3.3): a usage-limit message marks the executor
         # unavailable until its reset; no match writes nothing.
