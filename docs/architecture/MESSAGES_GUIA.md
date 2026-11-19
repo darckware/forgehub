@@ -202,7 +202,8 @@ O motivo de um botão desabilitado aparece escrito abaixo dele (linha e detalhe)
   tarefas não tiveram continuação, 48 tiveram continuação que também falhou; nenhuma chegou a
   concluir. Nenhum código lê a linha `ORIGEM:`.
 - **Arquivamento sem registro**: 199 de 271 falhas arquivadas não têm evento dizendo quem arquivou
-  e por quê. Arquivar pelo agente (MCP `archive_agent_message`) e a retenção não gravam auditoria.
+  e por quê. Arquivar pelo agente (MCP `archive_agent_message`) e a retenção não gravavam auditoria
+  (corrigido na Fase 1: MSG-053).
 - **Analisador**: a parte com modelo falhou em 15/11 e 17/11 (provedor); a busca de "já foi feito"
   só olha o mesmo diretório/projeto entre as 300 mensagens mais recentes.
 - **Travamentos que não chegam a Decisões**: fila parada atrás de execução incerta, cota sem

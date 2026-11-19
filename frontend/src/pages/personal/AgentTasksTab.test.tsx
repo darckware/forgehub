@@ -341,8 +341,12 @@ describe("operator deliberation", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Selecionar mensagem #42" }));
     fireEvent.click(screen.getByRole("button", { name: "Arquivar tarefa #42" }));
     expect(mocks.post).not.toHaveBeenCalled();
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Arquivar" }));
-    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith("/api/v1/demands/work-1/decision", expect.objectContaining({ action: "archive" })));
+    const dialog = within(screen.getByRole("dialog"));
+    // No silent archive (2026-11-19): the reason is required.
+    expect(dialog.getByRole("button", { name: "Arquivar" })).toBeDisabled();
+    fireEvent.change(dialog.getByRole("textbox"), { target: { value: "Feito em #50" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Arquivar" }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith("/api/v1/demands/work-1/decision", expect.objectContaining({ action: "archive", reason: "Feito em #50" })));
     await waitFor(() => expect(screen.getByRole("checkbox", { name: "Selecionar mensagem #42" })).not.toBeChecked());
   });
 
@@ -447,9 +451,12 @@ describe("operator deliberation", () => {
     expect(screen.getByLabelText("Criadas a partir de")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: "Selecionar página" }));
     fireEvent.click(screen.getByRole("button", { name: "Arquivar selecionadas" }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Arquivar selecionadas" }));
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByRole("button", { name: "Arquivar selecionadas" })).toBeDisabled();
+    fireEvent.change(dialog.getByRole("textbox"), { target: { value: "Obsoletas" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Arquivar selecionadas" }));
     await screen.findByText(/Execution active/);
-    expect(mocks.post).toHaveBeenCalledWith("/api/v1/demands/agent-work/bulk", expect.objectContaining({ action: "archive", items: [{ id: "work-1", updated_at: "2026-10-20T00:00:00Z" }] }));
+    expect(mocks.post).toHaveBeenCalledWith("/api/v1/demands/agent-work/bulk", expect.objectContaining({ action: "archive", reason: "Obsoletas", items: [{ id: "work-1", updated_at: "2026-10-20T00:00:00Z" }] }));
   });
 });
 

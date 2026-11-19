@@ -554,7 +554,8 @@
       "limit": "Selecciona como máximo {{max}} preguntas a la vez."
     },
     "blockedTitle": "Acciones no disponibles",
-    "blockedAction": "{{action}} no disponible:"
+    "blockedAction": "{{action}} no disponible:",
+    "archiveReason": "Motivo del archivo (p. ej.: entregado en #N, hecho por otra tarea, obsoleta)"
   },
   "location": {
     "title": "Ubicación actual",

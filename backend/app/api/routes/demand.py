@@ -43,7 +43,7 @@ from app.core import conversions
 from app.core.instructor_group import GROUP_CHANNEL, is_sti_approval, run_toolsets
 from app.core.agent_runs import AgentRunDispatchError, dispatch_agent_run, poll_agent_run
 from app.core.config import settings
-from app.core.deps import get_current_admin
+from app.core.deps import get_current_admin, get_current_username
 from app.core.demand_workflow import WorkflowBlocked, assert_execution_allowed, effective_dispatch_attempts, ensure_workflow_allowed, invalidate_changed_approval, requires_reconciliation, record_transition
 from app.core.demand_dispatch_guard import ensure_task_dispatch_admissible, reserve_dispatch
 from app.core.completion_report import (
@@ -857,7 +857,8 @@ async def drop_incubation(
 
     demand.incubation_state = "dropped"
     demand.drop_reason = reason.strip()
-    demand.status = "archived"
+    from app.core.demand_workflow import archive_with_reason
+    archive_with_reason(db, demand, actor=f"agent:{agent}", source="agent_drop_incubation", reason=reason)
     await db.commit()
     await db.refresh(demand)
     return demand
@@ -1005,7 +1006,8 @@ async def get_demand(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -
 
 @router.patch("/{demand_id}", response_model=DemandOut)
 async def update_demand(
-    demand_id: uuid.UUID, payload: DemandUpdateIn, db: AsyncSession = Depends(get_db)
+    demand_id: uuid.UUID, payload: DemandUpdateIn, db: AsyncSession = Depends(get_db),
+    username: str = Depends(get_current_username),
 ) -> AgentDemand:
     demand = await _get_demand_or_404(db, demand_id, lock=True)
     from app.db.models.moodle_approval import MoodleApproval
@@ -1017,20 +1019,24 @@ async def update_demand(
     # Archiving a spent Moodle approval is the one edit allowed, as in
     # decide_demand (2026-11-13); anything else goes through its own flow.
     spent_moodle_archive = (moodle_state in ("finished", "rejected")
-                            and payload.model_fields_set == {"status"} and payload.status == "archived")
+                            and payload.model_fields_set <= {"status", "archive_reason"} and payload.status == "archived")
     if moodle_state is not None and not spent_moodle_archive:
         raise refuse("MOODLE_FLOW_REQUIRED", "Moodle messages cannot be edited outside their approval flow")
     was_archived = demand.status == "archived"
-    if demand.consolidated_into_id and (payload.status not in (None, "archived") or payload.model_fields_set - {"status", "group_id"}):
+    # Filing into an Arquivados subfolder archives too, so both obey the same rules.
+    archiving = not was_archived and (payload.status == "archived"
+                                      or ("status" not in payload.model_fields_set and payload.group_id is not None))
+    if demand.consolidated_into_id and (payload.status not in (None, "archived") or payload.model_fields_set - {"status", "group_id", "archive_reason"}):
         raise refuse("OPEN_SUMMARY", "Open the current consolidated summary")
     if (payload.status == "archived" or payload.group_id is not None) and (demand.dispatch_status in ("dispatched", "running") or (demand.agent_run_id and demand.dispatch_status is None)):
         raise refuse("EXECUTION_ACTIVE", "An active execution cannot be archived")
     # Same rule as Pessoal -> Tarefas dos agentes' archive decision
     # (demand_workflow.decide_demand): an unknown outcome is settled first, so
     # archiving it here can't hide a run that may still have had effects.
-    if payload.status == "archived" and not was_archived and requires_reconciliation(demand):
+    if archiving and requires_reconciliation(demand):
         raise refuse("RECONCILIATION_REQUIRED", "The outcome of the last run is unknown; reconcile it before archiving")
     data = payload.model_dump(exclude_unset=True)
+    data.pop("archive_reason", None)
     if "group_id" in data:
         if data["group_id"] is not None:
             await _get_group_or_404(db, data["group_id"])
@@ -1103,6 +1109,12 @@ async def update_demand(
         # even if the caller only sent group_id (the Inbox drag-and-drop
         # case -- see InboxGroupTree's drop handler).
         demand.status = "archived"
+    if archiving:
+        # Recorded like every other archive (2026-11-19): who and why. The
+        # Messages screen may send its own reason; otherwise the screen is named.
+        from app.core.demand_workflow import archive_with_reason
+        archive_with_reason(db, demand, actor=username, source="messages_screen",
+            reason=payload.archive_reason or "Arquivada manualmente na tela Mensagens.")
 
     # Reconciled against the *final* merged state, not just this request's
     # fields: promoting Incubation -> Task (the reading pane's "Promover a
@@ -1221,12 +1233,17 @@ async def update_demand_as_agent(
 async def archive_demand_as_agent(
     demand_id: uuid.UUID,
     agent: str,
+    reason: str | None = None,
     x_bridge_token: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
 ) -> AgentDemand:
     """Bridge-token archive (2026-08-15), same ownership boundary as
-    update_demand_as_agent -- the other half of the MCP's CRUD gap."""
+    update_demand_as_agent -- the other half of the MCP's CRUD gap.
+
+    Needs a reason since 2026-11-19: agents archived failed work with no trace of
+    why, so a forgotten task looked exactly like a delivered one. 422
+    ARCHIVE_REASON_REQUIRED says so to an MCP that doesn't send one yet."""
     _require_bridge_token(x_bridge_token)
     await assert_acts_as(request, db, agent)
     demand = await _get_demand_or_404(db, demand_id, lock=True)
@@ -1236,7 +1253,14 @@ async def archive_demand_as_agent(
 
     if demand.dispatch_status in ("dispatched", "running") or (demand.agent_run_id and demand.dispatch_status is None):
         raise HTTPException(409, "An active execution cannot be archived")
-    demand.status = "archived"
+    if not (reason or "").strip() or len(reason.strip()) < 3:
+        raise HTTPException(422, {"code": "ARCHIVE_REASON_REQUIRED",
+            "message": "Say why this message is being archived (reason): delivered, done by #N, obsolete, ..."})
+    from app.core.demand_workflow import archive_with_reason, requires_reconciliation
+    if requires_reconciliation(demand):
+        raise HTTPException(409, {"code": "RECONCILIATION_REQUIRED",
+            "message": "The last run's outcome is uncertain; the operator reconciles it first.", "number": demand.number})
+    archive_with_reason(db, demand, actor=f"agent:{agent}", source="agent_mcp", reason=reason)
     await db.commit()
     await db.refresh(demand)
     return demand
@@ -1963,8 +1987,10 @@ async def run_demand_retention_sweep(db: AsyncSession) -> int:
             )
         )
     ).scalars().all()
+    from app.core.demand_workflow import archive_with_reason
     for demand in stale:
-        demand.status = "archived"
+        archive_with_reason(db, demand, actor="system:retention", source="retention",
+            reason=f"Concluída há mais de {DEMAND_RETENTION_DAYS} dias sem alteração (retenção).")
     if stale:
         await db.commit()
         logger.info("Demand retention: archived %d message(s) past %d days", len(stale), DEMAND_RETENTION_DAYS)

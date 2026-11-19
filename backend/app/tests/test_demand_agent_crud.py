@@ -125,7 +125,7 @@ async def test_sender_archives_its_own_message_via_bridge_token_alone(client_bri
     demand_id = await _send(pair)
     response = await client_bridge_only.post(
         f"/api/v1/demands/{demand_id}/agent-archive",
-        params={"agent": pair["sender_slug"]},
+        params={"agent": pair["sender_slug"], "reason": "entregue em #1"},
         headers=_bridge_headers(),
     )
     assert response.status_code == 200, response.text
@@ -140,3 +140,31 @@ async def test_stranger_cannot_archive_someone_elses_message(client_bridge_only:
         headers=_bridge_headers(),
     )
     assert response.status_code == 403
+
+
+async def test_agent_archive_needs_a_reason(client_bridge_only: AsyncClient, pair):
+    """2026-11-19: an agent says why it archives; the reason goes to the history."""
+    demand_id = await _send(pair)
+    response = await client_bridge_only.post(
+        f"/api/v1/demands/{demand_id}/agent-archive",
+        params={"agent": pair["sender_slug"]},
+        headers=_bridge_headers(),
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "ARCHIVE_REASON_REQUIRED"
+    from sqlalchemy import select
+    from app.db.base import AsyncSessionLocal
+    from app.db.models.governance import AuditEvent
+    import uuid as _uuid
+    ok = await client_bridge_only.post(
+        f"/api/v1/demands/{demand_id}/agent-archive",
+        params={"agent": pair["sender_slug"], "reason": "Obsoleta: substituída por outra"},
+        headers=_bridge_headers(),
+    )
+    assert ok.status_code == 200, ok.text
+    async with AsyncSessionLocal() as db:
+        event = await db.scalar(select(AuditEvent).where(AuditEvent.entity_id == _uuid.UUID(str(demand_id)),
+                                                         AuditEvent.event_type == "demand_archive"))
+    assert event.payload["source"] == "agent_mcp"
+    assert event.payload["reason"] == "Obsoleta: substituída por outra"
+    assert event.actor == f"agent:{pair['sender_slug']}"

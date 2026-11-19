@@ -50,9 +50,11 @@ async def consolidate_demands(db, payload, *, actor):
     )
     db.add(summary)
     await db.flush()
+    from app.core.demand_workflow import archive_with_reason
     for source in sources:
         source.consolidated_into_id = summary.id
-        source.status = "archived"
+        archive_with_reason(db, source, actor=actor, source="consolidation",
+            reason=f"Consolidada no resumo #{summary.number}.", extra={"summary_id": str(summary.id)})
         source.project_id = payload.project_id
         source.context_area = payload.context_area
     db.add(AuditEvent(entity_type="agent_demand", entity_id=summary.id, event_type="demand_consolidated",

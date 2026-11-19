@@ -554,7 +554,8 @@
       "limit": "Selecione no máximo {{max}} perguntas por vez."
     },
     "blockedTitle": "Ações indisponíveis",
-    "blockedAction": "{{action}} indisponível:"
+    "blockedAction": "{{action}} indisponível:",
+    "archiveReason": "Motivo do arquivamento (ex.: entregue em #N, feito por outra tarefa, obsoleta)"
   },
   "location": {
     "title": "Localização atual",

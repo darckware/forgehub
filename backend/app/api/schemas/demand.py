@@ -42,7 +42,9 @@ class DemandDecisionIn(BaseModel):
 
     @model_validator(mode="after")
     def validate_reason(self):
-        if self.action in ("reject", "postpone", "drop", "authorize_retry", "record_investigation", "confirm_inactive") and not (self.reason or "").strip():
+        # Archive too (2026-11-19): every archive says why, so a delivered task is
+        # never indistinguishable from a forgotten one.
+        if self.action in ("reject", "postpone", "drop", "archive", "authorize_retry", "record_investigation", "confirm_inactive") and not (self.reason or "").strip():
             raise ValueError("A reason is required")
         if self.action in ("authorize_retry", "record_investigation", "confirm_inactive") and not (self.evidence_ref or "").strip():
             raise ValueError("A reference to the correction evidence is required")
@@ -185,6 +187,8 @@ class DemandUpdateIn(BaseModel):
     calls the reading pane already made before groups existed."""
 
     status: str | None = None
+    # Why it is being archived (2026-11-19); recorded in the audit history, never a column.
+    archive_reason: str | None = Field(default=None, max_length=4000)
     # Only meaningful once archived -- see AgentDemand.group_id's docstring.
     # Sending group_id (non-null) without an explicit status forces
     # status="archived" at the route layer.

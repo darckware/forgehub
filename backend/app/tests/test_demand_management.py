@@ -110,9 +110,9 @@ async def test_uncertain_work_cannot_be_archived_by_single_or_bulk_decision(clie
     db, failed, _ = consolidation_db
     await db.commit()
     await db.refresh(failed)
-    response = await client.post(f"/api/v1/demands/{failed.id}/decision", json={"action": "archive"})
+    response = await client.post(f"/api/v1/demands/{failed.id}/decision", json={"action": "archive", "reason": "teste"})
     assert response.status_code == 409
-    response = await client.post("/api/v1/demands/agent-work/bulk", json={"action": "archive", "items": [
+    response = await client.post("/api/v1/demands/agent-work/bulk", json={"action": "archive", "reason": "teste", "items": [
         {"id": str(failed.id), "updated_at": failed.updated_at.isoformat()}]})
     assert response.json()["results"][0]["status"] == "blocked"
 
@@ -148,7 +148,7 @@ async def test_bulk_reports_success_active_and_stale_items_individually(client, 
     await db.refresh(failed)
     await db.refresh(incubated)
     response = await client.post("/api/v1/demands/agent-work/bulk", json={
-        "action": "archive", "items": [
+        "action": "archive", "reason": "teste", "items": [
             {"id": str(failed.id), "updated_at": failed.updated_at.isoformat()},
             {"id": str(incubated.id), "updated_at": incubated.updated_at.isoformat()},
             {"id": str(uuid.uuid4()), "updated_at": failed.updated_at.isoformat()},
@@ -227,7 +227,7 @@ async def test_filing_into_archive_folder_cannot_hide_active_execution(consolida
     group_id = group.id
     try:
         with pytest.raises(HTTPException) as error:
-            await update_demand(failed.id, DemandUpdateIn(group_id=group_id), db=db)
+            await update_demand(failed.id, DemandUpdateIn(group_id=group_id), db=db, username="tester")
         assert error.value.status_code == 409
     finally:
         await db.rollback()
@@ -299,7 +299,7 @@ async def test_archive_check_is_serialized_with_dispatch_reservation(consolidati
         async with AsyncSessionLocal() as other:
             row = await other.get(type(failed), demand_id)
             return await reserve_dispatch(other, row, test_suite_agent, None)
-    archive = asyncio.create_task(routes.update_demand(demand_id, DemandUpdateIn(status="archived"), db=db))
+    archive = asyncio.create_task(routes.update_demand(demand_id, DemandUpdateIn(status="archived"), db=db, username="tester"))
     await asyncio.wait_for(fetched.wait(), 5)
     reservation = asyncio.create_task(reserve())
     try:
@@ -567,4 +567,63 @@ async def test_archive_follows_the_same_rule_on_messages_and_agent_work(client, 
         assert archived.status_code == 200, archived.text
     finally:
         await db.execute(delete(MoodleApproval).where(MoodleApproval.message_id == incubated.id))
+        await db.commit()
+
+
+async def _archive_events(db, demand_id):
+    return (await db.scalars(select(AuditEvent).where(AuditEvent.entity_id == demand_id,
+        AuditEvent.event_type == "demand_archive").execution_options(populate_existing=True))).all()
+
+
+async def test_every_archive_says_who_and_why(client, consolidation_db):
+    """2026-11-19: a delivered task must never look like a forgotten one. The
+    operator's archive needs a reason; Messages' archive records the user and a
+    reason; filing into a folder obeys the same uncertainty rule."""
+    db, failed, incubated = consolidation_db
+    await db.commit()
+    await db.refresh(incubated)
+    missing = await client.post(f"/api/v1/demands/{incubated.id}/decision", json={"action": "archive"})
+    assert missing.status_code == 422, missing.text
+    bulk = await client.post("/api/v1/demands/agent-work/bulk", json={"action": "archive", "items": [
+        {"id": str(incubated.id), "updated_at": incubated.updated_at.isoformat()}]})
+    assert bulk.status_code == 422, bulk.text
+
+    group = DemandGroup(name=f"g-{uuid.uuid4().hex[:8]}")
+    db.add(group)
+    await db.commit()
+    try:
+        filed = await client.patch(f"/api/v1/demands/{failed.id}", json={"group_id": str(group.id)})
+        assert filed.status_code == 409, filed.text
+        assert filed.json()["detail"]["code"] == "RECONCILIATION_REQUIRED"
+
+        archived = await client.patch(f"/api/v1/demands/{incubated.id}",
+                                      json={"status": "archived", "archive_reason": "Feito em #123"})
+        assert archived.status_code == 200, archived.text
+        events = await _archive_events(db, incubated.id)
+        assert [(e.payload["source"], e.payload["reason"]) for e in events] == [("messages_screen", "Feito em #123")]
+        assert events[0].actor not in ("", "system")
+    finally:
+        await db.execute(delete(AuditEvent).where(AuditEvent.entity_id == incubated.id))
+        await db.execute(delete(DemandGroup).where(DemandGroup.id == group.id))
+        await db.commit()
+
+
+async def test_retention_archive_is_recorded(consolidation_db):
+    from app.api.routes.demand import run_demand_retention_sweep
+    db, failed, _ = consolidation_db
+    failed.dispatch_status = "completed"
+    failed.dispatch_error = None
+    failed.agent_run_id = None
+    await db.commit()
+    from sqlalchemy import update
+    from app.db.models.demand import AgentDemand
+    await db.execute(update(AgentDemand).where(AgentDemand.id == failed.id)
+                     .values(updated_at=datetime.now(timezone.utc) - timedelta(days=61)))
+    await db.commit()
+    try:
+        assert await run_demand_retention_sweep(db) >= 1
+        events = await _archive_events(db, failed.id)
+        assert events and events[-1].payload["source"] == "retention" and events[-1].actor == "system:retention"
+    finally:
+        await db.execute(delete(AuditEvent).where(AuditEvent.entity_id == failed.id))
         await db.commit()

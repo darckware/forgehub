@@ -496,19 +496,27 @@ async def update_agent_message(
 
 
 @mcp.tool()
-async def archive_agent_message(number: int, agent: str | None = None) -> str:
+async def archive_agent_message(number: int, reason: str, agent: str | None = None) -> str:
     """Archive a message you sent, by its number (#N) -- files it under
     Arquivadas without deleting it. Only the sender can archive it; a
     message someone else sent you is not yours to file away.
 
+    Always say why (required since 2026-11-19): it is recorded in the
+    message's history so a delivered task never looks like a forgotten one.
+    Good reasons name the outcome: "Entregue: commit abc123", "Feito em #42150",
+    "Obsoleta: substituída por #42200". Never archive a failed task you did not
+    finish just to clear the list -- say what remains and who continues it.
+
     Args:
         number: the message's #number.
+        reason: why it is being archived (at least 3 characters).
         agent: your own profile_slug; defaults to this runtime's own.
     """
     try:
         slug = _resolve_agent(agent)
         demand_id = await _own_message_id(slug, number)
-        result = await _call("POST", f"/api/v1/demands/{demand_id}/agent-archive", params={"agent": slug})
+        result = await _call("POST", f"/api/v1/demands/{demand_id}/agent-archive",
+                             params={"agent": slug, "reason": reason})
     except ForgeHubError as exc:
         return str(exc)
     return f"Archived #{number}.\n\n{_format_message(result, body='preview')}"

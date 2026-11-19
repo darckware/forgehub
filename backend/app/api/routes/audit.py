@@ -330,7 +330,9 @@ async def _sync_check_incident(db: AsyncSession, check: AuditCheck, run: AuditCh
     if run.status == "ok":
         if active:
             demand.body += f"\n\n{_RECOVERY_MARKER} Check passed.\nRun: {run.id}\nEvidence:\n{run.output or 'Exit 0, no output.'}"
-            demand.status = "archived"
+            from app.core.demand_workflow import archive_with_reason
+            archive_with_reason(db, demand, actor="auditor", source="auditor_check_recovered",
+                reason=f"A checagem do Auditor voltou a passar (execução {run.id}).", extra={"audit_run_id": str(run.id)})
             # If the worker has not claimed this Task, remove it from the due
             # queue. A running agent is left alone; its own result is retained.
             if demand.dispatch_status is None:

@@ -31,7 +31,8 @@ export function AgentTasksTab() {
   const evidenceRequired = action === "authorize_retry" || action === "record_investigation" || action === "confirm_inactive";
   const quotaRetry = action === "authorize_retry" && vm.confirmation?.item.dispatch_status === "waiting_quota";
   const runConfirmationRequired = action === "confirm_inactive" || quotaRetry;
-  const reasonRequired = action === "reject" || action === "postpone" || action === "drop" || evidenceRequired;
+  // Archive says why too (2026-11-19): recorded in the history, never a silent archive.
+  const reasonRequired = action === "reject" || action === "postpone" || action === "drop" || action === "archive" || evidenceRequired;
   const date = (value: string | null) => value ? new Intl.DateTimeFormat(i18n.language, { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "—";
   const actionLabel = (name: string) => name === "authorize_retry" && (vm.confirmation?.item ?? selected)?.dispatch_status === "waiting_quota" ? t("agentTasks.quotaResume") : name === "approve" && (vm.confirmation?.item ?? selected)?.origin_type === "incubation"
     ? t("agentTasks.promote") : t(`agentTasks.actions.${name}`);
@@ -301,8 +302,11 @@ export function AgentTasksTab() {
       {action === "postpone" && <label className="mt-3 block space-y-1 text-sm">{t("agentTasks.newDeadline")}<Input type="datetime-local" value={vm.postponeAt} onChange={e => vm.setPostponeAt(e.target.value)} /></label>}
     </ConfirmDialog>
     <ConfirmDialog open={Boolean(vm.bulkConfirmation)} title={t(vm.bulkConfirmation?.action === "restore" ? "agentTasks.bulkRestore" : "agentTasks.bulkArchive")}
-      confirmLabel={t(vm.bulkConfirmation?.action === "restore" ? "agentTasks.bulkRestore" : "agentTasks.bulkArchive")} variant="default" loading={vm.bulk.isPending} error={vm.bulkError} onConfirm={vm.confirmBulk} onCancel={vm.cancelBulk}>
+      confirmLabel={t(vm.bulkConfirmation?.action === "restore" ? "agentTasks.bulkRestore" : "agentTasks.bulkArchive")} variant="default" loading={vm.bulk.isPending} error={vm.bulkError} onConfirm={vm.confirmBulk} onCancel={vm.cancelBulk}
+      confirmDisabled={vm.bulkConfirmation?.action === "archive" && vm.reason.trim().length < 3}>
       <p className="text-sm">{t("agentTasks.bulkHint")}</p><ul className="mt-2 max-h-64 overflow-auto text-sm">{vm.bulkConfirmation?.items.map(item => <li key={item.id}>#{item.number} · {item.subject}</li>)}</ul>
+      {vm.bulkConfirmation?.action === "archive" && <label className="mt-3 block space-y-1 text-sm">{t("agentTasks.archiveReason")}
+        <Textarea className="resize-none max-md:text-base" maxLength={4000} value={vm.reason} onChange={e => vm.setReason(e.target.value)} /></label>}
     </ConfirmDialog>
     <ConfirmDialog open={Boolean(governed)} title={t("agentTasks.governedTitle")} variant="default"
       confirmLabel={t(governed?.decision === "approved" ? "agentTasks.approveCompletion" : "agentTasks.requestRevision")}

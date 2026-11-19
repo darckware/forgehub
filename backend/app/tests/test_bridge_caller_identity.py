@@ -123,7 +123,7 @@ async def test_edit_and_archive_only_as_oneself(client, agents):
                               json={"agent": agents["alice"], "subject": "outro"},
                               headers=_headers(agents["tokens"]["bob"]))
     assert edit.status_code == 403, edit.text
-    archive = await client.post(f"/api/v1/demands/{demand_id}/agent-archive", params={"agent": agents["alice"]},
+    archive = await client.post(f"/api/v1/demands/{demand_id}/agent-archive", params={"agent": agents["alice"], "reason": "obsoleta"},
                                 headers=_headers(agents["tokens"]["alice"]))
     assert archive.status_code == 200, archive.text
 

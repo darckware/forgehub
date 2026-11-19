@@ -125,9 +125,12 @@ POLÍTICA, GAP e HISTÓRICA. Fontes citadas por função; confira a linha atual 
 | MSG-056 | IMPLEMENTADA | Os rótulos da tela Mensagens seguem uma ordem de precedência (execução ativa, execução incerta, entrega verificada, arquivada, espera por cota, autorização pendente, pergunta, ...). Uma execução já **concluída** nunca é rotulada como "aguardando autorização", mesmo que a aprovação tenha expirado ou mudado depois (ex.: aprovação Moodle vencida após o run). | `backend/app/core/message_classification.py` (`classify_messages`); `backend/app/tests/test_message_classification.py` |
 | MSG-051 | IMPLEMENTADA | Os três contadores de chegada (menu lateral, cabeçalho e raiz da Entrada) usam a mesma função, para nunca divergirem. | `computeInboxTotalCount` |
 | MSG-052 | GAP | O frontend valida `dispatch_status` com uma lista fechada (Zod). Um valor novo do backend derruba a caixa de entrada inteira de uma aba aberta antes do deploy (ex.: `waiting_quota` em 14/11/2026, até recarregar a página). Recarregar resolve, porque o `index.html` vai sem cache; o comportamento desejado (tolerar valor desconhecido ou avisar que há versão nova) ainda não foi decidido. | `frontend/src/hooks/useDemands.ts` (`dispatch_status: z.enum(...)`) |
+| MSG-053 | IMPLEMENTADA | Todo arquivamento registra quem e por quê (`demand_archive` com `source` e `reason`), por qualquer caminho: tela Mensagens (`archive_reason`, senão "Arquivada manualmente na tela Mensagens."), decisão em Tarefas dos agentes (motivo obrigatório, inclusive em lote), agente pelo MCP (`reason` obrigatório; 422 `ARCHIVE_REASON_REQUIRED`), Auditor, analisador, consolidação, missões e retenção. Arquivar numa subpasta obedece à mesma regra de execução incerta. | `backend/app/core/demand_workflow.py` (`archive_with_reason`); `backend/app/tests/test_demand_management.py`, `test_demand_agent_crud.py` |
 
 ## Instruções para agentes
 
+- Ao arquivar, diga sempre o motivo (entregue com evidência, feito em #N, obsoleta). Não arquive
+  falha que você não terminou só para limpar a lista (MSG-053).
 - Antes de reenviar ou arquivar, olhe separadamente status, dispatch, acknowledgment,
   tentativas e o run remoto. Estado incerto se resolve pelo `run_id`, nunca por suposição.
 - Não use `pending` para dispatch e não deixe trabalho em execução indefinida: a falha tem
@@ -142,6 +145,7 @@ POLÍTICA, GAP e HISTÓRICA. Fontes citadas por função; confira a linha atual 
 
 ## Referências
 
+- [Guia completo de Messages](../architecture/MESSAGES_GUIA.md)
 - [Arquitetura de Messages](../architecture/MESSAGES.md)
 - [Recuperação de dispatch](../MESSAGES_DISPATCH_RECOVERY.md)
 - [Triagem de Messages](../runbooks/messages-triage.md)

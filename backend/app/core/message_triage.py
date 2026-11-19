@@ -381,6 +381,9 @@ async def _apply(db,run_id,token,message_id,stamp,context_hash,versions,suggesti
                         actor="messages:triage",payload={"content_hash":approval_fingerprint(demand),
                             "summary":proven.summary,"evidence_ref":proven.evidence_refs[0] if proven.evidence_refs else None,
                             "policy":POLICY_VERSION}))
+                from app.core.demand_workflow import record_transition
+                record_transition(db,demand,"archive",actor="messages:triage",
+                    extra={"reason":demand.decision_reason,"source":f"analysis_{applied}"})
             elif state=="resolved":
                 state="waiting"
                 action="none"

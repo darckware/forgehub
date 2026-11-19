@@ -151,7 +151,7 @@ export function useAgentTasksViewModel() {
     },
   });
   const bulk = useMutation({
-    mutationFn: ({ action, items: selectedItems }: { action: "archive" | "restore"; items: AgentWorkItem[] }) => apiClient.post<{ results: BulkResult[] }>("/api/v1/demands/agent-work/bulk", { action, items: selectedItems.map(item => ({ id: item.id, updated_at: item.updated_at })) }),
+    mutationFn: ({ action, items: selectedItems }: { action: "archive" | "restore"; items: AgentWorkItem[] }) => apiClient.post<{ results: BulkResult[] }>("/api/v1/demands/agent-work/bulk", { action, reason: action === "archive" ? reason.trim() : null, items: selectedItems.map(item => ({ id: item.id, updated_at: item.updated_at })) }),
     onSuccess: async (result, variables) => {
       const byId = new Map(variables.items.map(item => [item.id, item]));
       setBulkResults(result.results.map(row => ({ ...row, number: byId.get(row.id)?.number, subject: byId.get(row.id)?.subject })));
@@ -253,7 +253,7 @@ export function useAgentTasksViewModel() {
     selectedIds, toggle: (id: string) => setSelectedIds(ids => ids.includes(id) ? ids.filter(value => value !== id) : [...ids, id]),
     togglePage: () => setSelectedIds(selectedIds.length === items.length ? [] : items.map(item => item.id)),
     bulk, bulkConfirmation, bulkResults, bulkError: failureText(bulk.error),
-    askBulk: (action: "archive" | "restore") => { setBulkConfirmation({ action, items: items.filter(item => selectedIds.includes(item.id)) }); bulk.reset(); },
+    askBulk: (action: "archive" | "restore") => { setReason(""); setBulkConfirmation({ action, items: items.filter(item => selectedIds.includes(item.id)) }); bulk.reset(); },
     cancelBulk: () => { if (!bulk.isPending) setBulkConfirmation(null); }, confirmBulk: () => { if (bulkConfirmation) bulk.mutate(bulkConfirmation); },
   };
 }

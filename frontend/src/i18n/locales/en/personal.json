@@ -554,7 +554,8 @@
       "limit": "Select at most {{max}} questions at a time."
     },
     "blockedTitle": "Unavailable actions",
-    "blockedAction": "{{action}} unavailable:"
+    "blockedAction": "{{action}} unavailable:",
+    "archiveReason": "Why archive (e.g. delivered in #N, done by another task, obsolete)"
   },
   "location": {
     "title": "Current location",

@@ -398,7 +398,9 @@ async def _return_task_for_correction(
         AgentDemand.task_execution_id.is_(None), AgentDemand.dispatch_status.is_(None),
         AgentDemand.agent_run_id.is_(None), AgentDemand.status != "archived",
     ))).scalars():
-        queued.status = "archived"
+        from app.core.demand_workflow import archive_with_reason
+        archive_with_reason(db, queued, actor=f"{principal.principal_type}:{principal.principal_id}", source="mission_task_return",
+            reason="Revisão retirada: a tarefa voltou para correção antes de a revisão começar.")
     await db.flush()
     in_flight = await task_run_in_flight(db, task.id)
     if in_flight is not None:

@@ -126,7 +126,7 @@ async def test_spent_moodle_message_can_be_archived(client, proposal, state, out
 async def test_live_moodle_message_is_not_archived(client, proposal, state):
     await _set_state(proposal["message_id"], state)
     response = await client.post(f"/api/v1/demands/{proposal['message_id']}/decision",
-                                 headers=_as(proposal["username"]), json={"action": "archive"})
+                                 headers=_as(proposal["username"]), json={"action": "archive", "reason": "teste"})
     assert response.status_code == 409, response.text
     async with AsyncSessionLocal() as db:
         assert (await db.get(AgentDemand, proposal["message_id"])).status != "archived"

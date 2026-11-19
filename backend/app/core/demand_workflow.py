@@ -96,6 +96,21 @@ def record_transition(db, demand, action, *, actor="system", extra=None):
         }))
 
 
+def archive_with_reason(db, demand, *, actor, reason, source, extra=None):
+    """The one way a message is archived (2026-11-19, Marcelo: the agents' task
+    control must be cohesive). Every path -- operator, agent, Auditor, analyser,
+    retention, consolidation, missions -- leaves who archived it, from where and
+    why. Before this, 199 of 271 failed tasks archived in 30 days had no trace of
+    either, so nobody could tell a delivered task from a forgotten one."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValueError("An archive needs a reason")
+    demand.status = "archived"
+    demand.decision_reason = reason[:4000]
+    record_transition(db, demand, "archive", actor=actor,
+        extra={"reason": demand.decision_reason, "source": source, **(extra or {})})
+
+
 async def ensure_workflow_allowed(db, demand):
     assert_execution_allowed(demand)
     await _ensure_context_authorizations(db, demand)

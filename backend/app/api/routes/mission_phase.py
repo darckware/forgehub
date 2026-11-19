@@ -586,7 +586,9 @@ async def _withdraw_homologation(db, phase: MissionProjectLink) -> dict[str, Any
                                 "The current homologation run is in flight or of unknown outcome",
                                 demand_id=str(demand.id), dispatch_status=demand.dispatch_status)
         if demand.dispatch_status is None and demand.status != "archived":
-            demand.status = "archived"
+            from app.core.demand_workflow import archive_with_reason
+            archive_with_reason(db, demand, actor="mission", source="mission_phase_homologation",
+                reason="Homologação substituída antes de começar.")
             demand.scheduled_at = None
             withdrawn = True
     return {"previous_homologator_agent_id": str(phase.homologator_agent_id) if phase.homologator_agent_id else None,
