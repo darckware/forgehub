@@ -5,6 +5,8 @@ Last updated: 2026-10-29
 This is the engineering reference for the AgentDemand dispatch pipeline. The ecosystem process
 contract is `/root/.hermes/foundation/30_docs/FORGEHUB_MESSAGE.md`; the sole general MCP usage
 guide is `/root/.hermes/shared-skills/forgehub/SKILL.md`. Do not duplicate its parameters or catalog.
+Operator guide (pt-BR, whole lifecycle, Pessoal → Tarefas dos agentes and the 2026-11-19 direction):
+`docs/architecture/MESSAGES_GUIA.md`.
 
 ## State and flow
 
