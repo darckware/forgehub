@@ -17,6 +17,13 @@ def build_thread_prompt(demand: AgentDemand, command_text: str | None) -> str:
     """The prompt sent to the target agent's CLI: this message's own body,
     plus Marcelo's command_text when he's the one initiating/forwarding."""
     parts = [demand.body]
+    if getattr(demand, "dispatch_outcome", None) == "authorized" and demand.outcome_note:
+        # 2026-11-16 (ECO-054 5a): the previous attempt stopped asking for this
+        # authorization and Marcelo approved the message in Aprovação.
+        note = f"\nAutorização: na tentativa anterior você pediu \"{demand.outcome_note}\" e o Marcelo aprovou."
+        if demand.decision_reason:
+            note += f" Observação dele: {demand.decision_reason}"
+        parts.append(note)
     if command_text:
         parts.append(f"\nInstruction: {command_text}")
     return "\n".join(parts)

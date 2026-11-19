@@ -114,6 +114,10 @@ export const demandSchema = z.object({
   approval_status: z.enum(["pending", "approved", "rejected"]).nullable().default(null),
   decision_reminded_at: z.string().nullable().default(null),
   decision_reason: z.string().nullable().default(null),
+  // ECO-054 5a/5b (2026-11-16): an attempt that asked for Marcelo's
+  // authorization, or that only waits for a person's reply -- not a failure.
+  dispatch_outcome: z.enum(["awaiting_authorization", "authorized", "authorization_refused", "waiting_reply"]).nullable().default(null),
+  outcome_note: z.string().nullable().default(null),
   retry_limit: z.number().default(3),
   development_request_id: z.string().nullable().default(null),
   command_text: z.string().nullable(),

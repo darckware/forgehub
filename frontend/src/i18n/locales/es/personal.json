@@ -552,6 +552,12 @@
         "blocking_origin_completed": "Bloquea el trabajo del agente; la tarea de origen terminó, pero la respuesta aún reanuda el trabajo."
       },
       "limit": "Selecciona como máximo {{max}} preguntas a la vez."
+    },
+    "outcomes": {
+      "awaiting_authorization": "Autorización solicitada por el agente",
+      "authorized": "Autorizado; el agente recibe esta autorización en la próxima ejecución",
+      "authorization_refused": "Autorización rechazada",
+      "waiting_reply": "Esperando respuesta"
     }
   },
   "location": {

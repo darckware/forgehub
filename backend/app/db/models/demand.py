@@ -29,6 +29,14 @@ DEMAND_STATUSES = ("new", "read", "converted", "archived")
 # dead enum value as a stand-in for a state that never occurred.
 DEMAND_DISPATCH_STATUSES = ("dispatched", "running", "completed", "failed", "waiting_quota")
 
+# How a finished attempt ended when it is neither done nor a failure
+# (2026-11-16, Marcelo, ECO-054 5a/5b). Read from the agent's last line:
+# `STATUS: BLOCKED | AUTORIZAÇÃO: ...` puts the message in Aprovação
+# (awaiting_authorization -> authorized | authorization_refused), and
+# `STATUS: BLOCKED | AGUARDANDO RESPOSTA: ...` finishes it as waiting_reply.
+# See core/completion_report.py.
+DEMAND_DISPATCH_OUTCOMES = ("awaiting_authorization", "authorized", "authorization_refused", "waiting_reply")
+
 # "Tipo" da mensagem -- mandatory, exactly two values (2026-07-28, Marcelo:
 # "no type só sistem dois tipo task ou backlog e o campo é obrigatório...
 # não temos resposta automática. somente processamento"). This retired the
@@ -340,6 +348,10 @@ class AgentDemand(Base, TimestampMixin):
     approved_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     decision_reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # DEMAND_DISPATCH_OUTCOMES; outcome_note is what the agent said it needs
+    # (the text after AUTORIZAÇÃO: / AGUARDANDO RESPOSTA:).
+    dispatch_outcome: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    outcome_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=3, server_default="3")
     # "Execução" -- when the work this message stands for actually finished
     # running. Two writers, both server-side (never the compose form, which
@@ -481,6 +493,10 @@ class AgentDemand(Base, TimestampMixin):
         CheckConstraint(
             f"dispatch_status IS NULL OR dispatch_status IN {DEMAND_DISPATCH_STATUSES}",
             name="ck_agent_demands_dispatch_status",
+        ),
+        CheckConstraint(
+            f"dispatch_outcome IS NULL OR dispatch_outcome IN {DEMAND_DISPATCH_OUTCOMES}",
+            name="ck_agent_demands_dispatch_outcome",
         ),
         CheckConstraint(
             f"origin_type IN {DEMAND_ORIGIN_TYPES}",

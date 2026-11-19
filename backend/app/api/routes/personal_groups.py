@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -129,6 +129,12 @@ async def capture_instructor_request(payload: InstructorRequestIn, actor: str = 
                                    unit if isinstance(unit, str) else None, history)
     if conversation is not None:
         conversation.turns = add_turn(conversation.turns, 'Participante' if kind == STI else 'Instrutor', payload.text)
+        # The person answered: an earlier turn of this conversation that ended
+        # "aguardando resposta" is no longer waiting (ECO-054 5b, 2026-11-16).
+        await db.execute(update(AgentDemand).where(
+            AgentDemand.channel == GROUP_CHANNEL, AgentDemand.id != demand.id,
+            AgentDemand.context_area.like(f'instructor:{conversation.id}:%'),
+            AgentDemand.dispatch_outcome == 'waiting_reply').values(dispatch_outcome=None))
     await db.commit()
     wake_scheduled_dispatch()
     return {'number': demand.number}

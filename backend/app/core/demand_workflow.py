@@ -228,6 +228,9 @@ async def decide_demand(db, demand, payload, *, actor):
         demand.requires_approval = True
         demand.approval_status = "approved"
         demand.approved_content_hash = approval_fingerprint(demand)
+        if demand.dispatch_outcome == "awaiting_authorization":
+            # The re-run is told what was authorized (core/demand_thread.py).
+            demand.dispatch_outcome = "authorized"
         from app.core.agent_action_requests import is_agent_action
         if is_agent_action(demand):
             demand.scheduled_at = None  # the backend runs it below, never an agent run
@@ -240,6 +243,8 @@ async def decide_demand(db, demand, payload, *, actor):
         demand.approval_status = "rejected"
         demand.approved_content_hash = None
         demand.scheduled_at = None
+        if demand.dispatch_outcome == "awaiting_authorization":
+            demand.dispatch_outcome = "authorization_refused"
         # The owner receives the revision request through its normal inbox.
         demand.agent_processed_at = None
     elif payload.action == "postpone":

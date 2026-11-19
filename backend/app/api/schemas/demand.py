@@ -317,6 +317,10 @@ class DemandOut(BaseModel):
     approval_status: str | None = None
     decision_reminded_at: datetime | None = None
     decision_reason: str | None = None
+    # ECO-054 5a/5b (2026-11-16): awaiting_authorization | authorized |
+    # authorization_refused | waiting_reply; outcome_note = what is needed.
+    dispatch_outcome: str | None = None
+    outcome_note: str | None = None
     retry_limit: int = 3
     development_request_id: uuid.UUID | None
     command_text: str | None
