@@ -4,13 +4,15 @@ import { useTranslation } from "react-i18next";
 import { Loader2, Sparkles, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { TaskBrief, WorkAction } from "@/hooks/useAgentTasksViewModel";
+import type { Elsewhere, TaskBrief, WorkAction } from "@/hooks/useAgentTasksViewModel";
 import type { AgentWorkItem } from "@/hooks/useDemands";
 
 type Props = {
   brief: { data?: TaskBrief; isLoading: boolean; isError: boolean; refetch: () => unknown };
   onClose: () => void;
   onAction: (item: AgentWorkItem, action: WorkAction) => void;
+  /** Section 4 (phase 3): run on its own click; the answer is kept on the server. */
+  elsewhere: { run: (id: string) => void; isPending: boolean; isError: boolean; off: boolean };
 };
 
 /**
@@ -18,7 +20,7 @@ type Props = {
  * why it is stuck, what already happened and what each option does. Rule-based on the server,
  * so it answers even when the model provider is down.
  */
-export function TaskBriefPanel({ brief, onClose, onAction }: Props) {
+export function TaskBriefPanel({ brief, onClose, onAction, elsewhere }: Props) {
   const { t, i18n } = useTranslation("personal");
   const panel = useRef<HTMLElement>(null);
   const data = brief.data;
@@ -67,6 +69,13 @@ export function TaskBriefPanel({ brief, onClose, onAction }: Props) {
           {data.history.replies.length > 0 && <ul className="space-y-1">{data.history.replies.map(row => <li key={row.id}>{t("agentTasks.brief.reply")} {ref(row)}</li>)}</ul>}
           {data.history.mentioned_by.length > 0 && <div><p>{t("agentTasks.brief.mentionedBy")}</p>
             <ul className="space-y-1">{data.history.mentioned_by.map(row => <li key={row.id}>{ref(row)} <span className="text-muted-foreground">({t(`agentTasks.brief.dispatch.${row.dispatch_status ?? "none"}`, { defaultValue: row.dispatch_status ?? "" })})</span></li>)}</ul></div>}
+          {data.thread.length > 1 && <div><p className="font-medium">{t("agentTasks.brief.thread")}</p>
+            <ol className="mt-1 space-y-1 border-l pl-3">{data.thread.map(node => <li key={node.id} className={node.current ? "font-medium" : undefined}>
+              <span className="text-muted-foreground">{t(`agentTasks.brief.roles.${node.role}`)}: </span>{ref(node)}
+              {node.current && <span className="text-muted-foreground"> ({t("agentTasks.brief.threadCurrent")})</span>}
+              {node.verdict && <Badge className="ml-2" variant={node.verdict === "completed" ? "outline" : "warning"}>{t(`agentTasks.brief.verdict.${node.verdict}`)}</Badge>}
+              <span className="text-muted-foreground"> · {node.status === "archived" ? (node.decision_reason || t("agentTasks.brief.dispatch.none")) : t(`agentTasks.brief.dispatch.${node.dispatch_status ?? "none"}`, { defaultValue: node.dispatch_status ?? "" })}</span>
+            </li>)}</ol></div>}
           {data.history.consolidated_into && <p>{t("agentTasks.brief.consolidated")} {ref(data.history.consolidated_into)}</p>}
           {data.history.last_result && <details><summary className="cursor-pointer">{t("agentTasks.result")}</summary>
             <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">{data.history.last_result}</p></details>}
@@ -74,7 +83,7 @@ export function TaskBriefPanel({ brief, onClose, onAction }: Props) {
 
         <div className="space-y-1 text-sm">
           <h4 className="font-medium">4. {t("agentTasks.brief.elsewhere")}</h4>
-          <p className="text-muted-foreground">{t("agentTasks.brief.elsewhereLater")}</p>
+          <ElsewhereSection result={data.elsewhere} onRun={() => elsewhere.run(data.id)} state={elsewhere} date={date} refLink={ref} />
         </div>
 
         <div className="space-y-2 text-sm">
@@ -94,4 +103,29 @@ export function TaskBriefPanel({ brief, onClose, onAction }: Props) {
         </div>
       </>}
   </section>;
+}
+
+function ElsewhereSection({ result, onRun, state, date, refLink }: { result: Elsewhere | null; onRun: () => void;
+  state: Props["elsewhere"]; date: (value: string) => string; refLink: (row: { id: string; number: number; subject: string }) => JSX.Element }) {
+  const { t } = useTranslation("personal");
+  const variant = result?.status === "done_elsewhere" ? "default" : result?.status === "partly_elsewhere" || result?.status === "unavailable" ? "warning" : "outline";
+  return <div className="space-y-2">
+    {!result && <p className="text-muted-foreground">{t("agentTasks.brief.elsewhereIntro")}</p>}
+    {result && <>
+      <p><Badge variant={variant}>{t(`agentTasks.brief.elsewhereStatus.${result.status}`)}</Badge>
+        <span className="ml-2 text-xs text-muted-foreground">{t("agentTasks.brief.elsewhereChecked", { date: date(result.checked_at), name: result.requested_by })}</span></p>
+      {result.stale && <p role="status" className="text-muted-foreground">{t("agentTasks.brief.elsewhereStale")}</p>}
+      <p className="whitespace-pre-wrap break-words">{result.summary}</p>
+      {result.matches.length > 0 && <ul className="space-y-2">{result.matches.map(match => <li key={match.id}>
+        {refLink(match)} <span className="text-muted-foreground">— {match.explains}</span>
+        <blockquote className="mt-1 break-words border-l-2 pl-2 text-xs text-muted-foreground">“{match.quote}”</blockquote></li>)}</ul>}
+      {result.candidates.length > 0 && <details><summary className="cursor-pointer text-muted-foreground">{t("agentTasks.brief.elsewhereCandidates")} ({result.candidates.length})</summary>
+        <ul className="mt-1 space-y-1">{result.candidates.map(row => <li key={row.id}>{refLink(row)}{row.agent && <span className="text-muted-foreground"> · {row.agent}</span>}</li>)}</ul></details>}
+    </>}
+    {state.off ? <p role="alert" className="text-muted-foreground">{t("agentTasks.brief.elsewhereOff")}</p>
+      : state.isError && <p role="alert" className="text-destructive">{t("agentTasks.brief.elsewhereError")}</p>}
+    <Button size="sm" variant="outline" className="max-md:h-auto max-md:min-h-9 max-md:whitespace-normal" disabled={state.isPending || state.off} onClick={onRun}>
+      {state.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+      {state.isPending ? t("agentTasks.brief.elsewhereRunning") : t(result ? "agentTasks.brief.elsewhereRerun" : "agentTasks.brief.elsewhereRun")}</Button>
+  </div>;
 }

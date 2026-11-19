@@ -5,7 +5,7 @@ Rule-based only: what the task is about, why it is stuck, what already happened
 around it, and what the operator can do, each option with its consequence and
 one recommended. It reads facts, never asks a model, so it answers even when the
 model provider is down (the 2026-11-15/17 analyses failed that way). Whether the
-work was already done by another agent (section 4) is the model's part, later.
+work was already done by another agent (section 4) is the model's part: core/demand_elsewhere.py, run on its own click and stored here.
 
 Codes, not sentences: the screen translates them.
 """
@@ -13,19 +13,24 @@ import re
 
 from sqlalchemy import and_, or_, select
 
+from app.core.demand_continuity import thread_of
+from app.core.demand_elsewhere import stored_elsewhere
 from app.core.demand_management import stuck_reason, work_item, work_state_sql
 from app.core.demand_workflow import requires_reconciliation
 from app.db.models.agent import Agent
 from app.db.models.demand import AgentDemand
 
-ORIGIN_VERDICT = re.compile(r"^\s*ORIGEM\s*:\s*(CONCLU[IÍ]DA|PARCIAL|BLOQUEADA)\b", re.IGNORECASE | re.MULTILINE)
+# A line of its own with exactly one verdict: the instruction template
+# "ORIGEM: CONCLUIDA | PARCIAL | BLOQUEADA" echoed back must not match
+# (independent review). The last such line wins.
+ORIGIN_VERDICT = re.compile(r"^[\s*_`>-]*ORIGEM\s*:\s*(CONCLU[IÍ]DA|PARCIAL|BLOQUEADA)[\s*_`.]*$", re.IGNORECASE | re.MULTILINE)
 
 # Recommended next step per stuck reason, in order of preference: the first one
 # the item actually allows is recommended.
 RECOMMENDATION = {
     "uncertain_run": ("reconcile", "confirm_inactive"),
-    "failure_unresolved": ("retry", "archive"),
-    "retry_limit": ("authorize_retry", "archive"),
+    "failure_unresolved": ("retry", "continue", "archive"),
+    "retry_limit": ("continue", "authorize_retry", "archive"),
     "quota_reset_unknown": ("authorize_retry", "archive"),
     "quota_not_resumed": ("authorize_retry", "archive"),
     "incubation_overdue": ("approve", "postpone", "drop"),
@@ -36,11 +41,11 @@ RECOMMENDATION = {
 
 
 def origin_verdict(text):
-    match = ORIGIN_VERDICT.search(text or "")
-    if not match:
+    found = ORIGIN_VERDICT.findall(text or "")
+    if not found:
         return None
     return {"CONCLUIDA": "completed", "CONCLUÍDA": "completed", "PARCIAL": "partial",
-            "BLOQUEADA": "blocked"}[match.group(1).upper()]
+            "BLOQUEADA": "blocked"}[found[-1].upper()]
 
 
 def _short(text, limit=600):
@@ -86,7 +91,16 @@ async def demand_brief(db, demand):
         held_by = _ref(holder) if holder is not None and requires_reconciliation(holder) else None
 
     allowed = item["allowed_actions"]
-    recommended = next((a for a in RECOMMENDATION.get(stuck["reason"], ()) if a in allowed), None) if stuck else None
+    preference = RECOMMENDATION.get(stuck["reason"], ()) if stuck else ()
+    verdicts = [origin_verdict(c.dispatch_result) for c in checks]
+    if stuck and stuck["reason"] == "failure_unresolved" and verdicts and verdicts[-1] in ("partial", "blocked"):
+        # The check said the original is partial/blocked: repeating it all is
+        # wrong, doing only what is missing is the way forward (phase 2).
+        preference = ("continue", "archive")
+    elsewhere = await stored_elsewhere(db, demand)
+    if elsewhere and not elsewhere["stale"] and elsewhere["status"] == "done_elsewhere" and "done_by" in allowed:
+        preference = ("done_by",) + tuple(preference)
+    recommended = next((a for a in preference if a in allowed), None)
     options = [{"action": a, "recommended": a == recommended} for a in allowed if a not in ("restore",)]
     options.sort(key=lambda o: not o["recommended"])
 
@@ -110,6 +124,10 @@ async def demand_brief(db, demand):
             "mentioned_by": [_ref(m) for m in mentions],
             "consolidated_into": _ref(summary) if summary else None,
         },
+        # Phase 2: the whole thread, by its database links.
+        "thread": await thread_of(db, demand),
+        # Phase 3: section 4, kept until the message changes.
+        "elsewhere": elsewhere,
         "options": options,
         "blocked": item["blocked_actions"],
         "analysis": item.get("analysis"),

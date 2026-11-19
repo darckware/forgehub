@@ -80,3 +80,21 @@ def test_approval_requested_is_never_reported_as_done(monkeypatch):
         assert 'pedido #7' in str(exc)
     else:
         raise AssertionError('an approval request must not read as success')
+
+
+def test_send_carries_the_continuation_link(monkeypatch):
+    """Phase 2 (2026-11-19): `continues=N` reaches the backend as continues_number."""
+    m = load()
+    sent = {}
+
+    async def fake_call(method, path, **kwargs):
+        sent.update(kwargs.get('json') or {})
+        return {'number': 2, 'id': 'x'}
+    monkeypatch.setattr(m, '_call', fake_call)
+    monkeypatch.setattr(m, '_resolve_agent', lambda name: name or 'athos')
+    tool = getattr(m.send_agent_message, 'fn', m.send_agent_message)
+    asyncio.run(tool(subject='s', body='b', continues=41))
+    assert sent['continues_number'] == 41
+    sent.clear()
+    asyncio.run(tool(subject='s', body='b'))
+    assert 'continues_number' not in sent

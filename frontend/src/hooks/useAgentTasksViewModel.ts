@@ -35,7 +35,20 @@ export interface TaskBrief {
     mentioned_by: BriefRef[]; consolidated_into: BriefRef | null };
   options: { action: string; recommended: boolean }[];
   blocked: Record<string, string>;
+  /** Phase 2: every task linked to this one, oldest first. */
+  thread: ThreadNode[];
+  /** Phase 3: section 4, kept until the task changes. */
+  elsewhere: Elsewhere | null;
   item: AgentWorkItem;
+}
+export type ThreadRole = "original" | "check" | "continuation" | "reply" | "done_by" | "covered";
+export interface ThreadNode { id: string; number: number; subject: string; role: ThreadRole; status: string; dispatch_status: string | null;
+  current: boolean; verdict: "completed" | "partial" | "blocked" | null; created_at: string | null; decision_reason: string | null }
+export interface Elsewhere {
+  status: "done_elsewhere" | "partly_elsewhere" | "not_found" | "unavailable"; summary: string; stale: boolean;
+  matches: { id: string; number: number; subject: string; quote: string; explains: string }[];
+  candidates: { id: string; number: number; subject: string; agent: string | null; finished_at: string | null }[];
+  checked_at: string; requested_by: string;
 }
 
 /** Old decision filters become the Decisions tab; other legacy links still land. */
@@ -52,7 +65,7 @@ export function resolveWorkTab(params: URLSearchParams): WorkTab {
 }
 /** Same key and request as MoodleApprovalPanel, so both read one cached response. */
 export const MOODLE_APPROVALS_KEY = ["personal", "moodle-approvals"] as const;
-export type WorkAction = "approve" | "reject" | "postpone" | "drop" | "archive" | "restore" | "delete" | "reconcile" | "retry" | "authorize_retry" | "record_investigation" | "confirm_inactive";
+export type WorkAction = "approve" | "reject" | "postpone" | "drop" | "archive" | "restore" | "delete" | "reconcile" | "retry" | "authorize_retry" | "record_investigation" | "confirm_inactive" | "continue" | "done_by" | "close_delivered";
 type HistoryEvent = { id: string; action: string; actor: string; created_at: string; payload: Record<string, unknown> | null };
 /** Respostas filter over the question analysis (Marcelo, 2026-11-14). */
 export const QUESTION_FILTERS = ["all", "archive", "answer"] as const;
@@ -144,7 +157,7 @@ export function useAgentTasksViewModel() {
   const [bulkConfirmation, setBulkConfirmation] = useState<{ action: "archive" | "restore"; items: AgentWorkItem[] } | null>(null);
   const [bulkResults, setBulkResults] = useState<BulkResult[]>([]);
   const [reason, setReason] = useState(""), [evidence, setEvidence] = useState(""), [postponeAt, setPostponeAt] = useState("");
-  const [runConfirmation, setRunConfirmation] = useState("");
+  const [runConfirmation, setRunConfirmation] = useState(""), [relatedNumber, setRelatedNumber] = useState("");
   const [notice, setNotice] = useState(false);
   const [promotedTask, setPromotedTask] = useState<{ id: string; number: number } | null>(null);
   const client = useQueryClient(), items = query.data?.items ?? [], page = query.data?.page ?? requestedPage;
@@ -165,12 +178,13 @@ export function useAgentTasksViewModel() {
       if (action === "retry") return apiClient.post(`${url}:reprocess`, {});
       if (action === "reconcile") return apiClient.post(`${url}/reconcile`, {});
       return apiClient.post(`${url}/decision`, { action, reason: reason.trim() || null, evidence_ref: evidence.trim() || null,
-        expected_updated_at: item.updated_at, confirmation: action === "confirm_inactive" || (action === "authorize_retry" && item.dispatch_status === "waiting_quota") ? runConfirmation.trim() : null, matures_at: action === "postpone" ? new Date(postponeAt).toISOString() : null });
+        expected_updated_at: item.updated_at, related_number: action === "done_by" ? Number(relatedNumber.replace(/^#/, "")) : null, confirmation: action === "confirm_inactive" || (action === "authorize_retry" && item.dispatch_status === "waiting_quota") ? runConfirmation.trim() : null, matures_at: action === "postpone" ? new Date(postponeAt).toISOString() : null });
     }, onSuccess: async (_, { item, action }) => {
       setConfirmation(null); setNotice(true);
       setSelectedIds(ids => ids.filter(id => id !== item.id));
       setSelectedId(current => current === item.id ? null : current);
       if (action === "approve" && item.origin_type === "incubation") setPromotedTask({ id: item.id, number: item.number });
+      if (item.id === briefId && ["continue", "done_by", "close_delivered"].includes(action)) setBriefId(null);
       await invalidate();
     },
   });
@@ -192,6 +206,12 @@ export function useAgentTasksViewModel() {
   const decisionsCount = stuckQueue.data?.counts?.stuck ?? 0;
   const brief = useQuery({ queryKey: [...demandKeys.all, "brief", briefId], enabled: Boolean(briefId), retry: false,
     queryFn: ({ signal }) => apiClient.get<TaskBrief>(`/api/v1/demands/${briefId}/brief`, { signal }) });
+  const elsewhere = useMutation({
+    mutationFn: (id: string) => apiClient.post<Elsewhere>(`/api/v1/demands/${id}/brief/elsewhere`, {}),
+    onSuccess: () => client.invalidateQueries({ queryKey: [...demandKeys.all, "brief", briefId] }),
+  });
+  const resetElsewhere = elsewhere.reset;
+  useEffect(() => { resetElsewhere(); }, [briefId, resetElsewhere]);
   const setBriefId = (id: string | null) => { setParams(prev => { const next = new URLSearchParams(prev); if (id) next.set("brief", id); else next.delete("brief"); return next; }, { replace: true }); };
   // Disjoint sources: the queue excludes Moodle messages, incubations and
   // question-blocked items; missions and governed task approvals aren't messages.
@@ -210,7 +230,9 @@ export function useAgentTasksViewModel() {
   const questionAnalysisSummary = questionAnalysis.data ? { total: questionAnalysis.data.total, archive: questionAnalysis.data.archive } : null;
   return {
     tab, setTab, group, views, promotedTask,
-    brief, briefId, setBriefId,
+    brief, briefId, setBriefId, elsewhere,
+    /** 503: on-demand analysis switched off (MESSAGE_ANALYSIS_ON_DEMAND_ENABLED). */
+    elsewhereOff: elsewhere.error instanceof ApiError && elsewhere.error.status === 503,
     /** Summary tiles: open "Em andamento" on one of its views. */
     openTasksView: (nextView: "processing" | "waiting") => { setSelectedId(null); setSelectedIds([]); setParams(prev => { const next = new URLSearchParams(prev);
       next.set("tab", "agent-work"); next.set("workTab", "tasks"); next.set("workView", nextView); next.delete("workPage"); return next; }); },
@@ -277,10 +299,10 @@ export function useAgentTasksViewModel() {
     dependencies: (dependencies.data ?? []).map(dep => tasks.data?.find(task => task.id === dep.depends_on_task_id)).filter(Boolean),
     dependenciesError: dependencies.isError || tasks.isError || (dependencies.data ?? []).some(dep => !tasks.data?.some(task => task.id === dep.depends_on_task_id)),
     approvals, decideApproval, taskName: (id: string) => tasks.data?.find(task => task.id === id)?.title ?? id,
-    confirmation, reason, setReason, evidence, setEvidence, runConfirmation, setRunConfirmation,
+    confirmation, reason, setReason, evidence, setEvidence, runConfirmation, setRunConfirmation, relatedNumber, setRelatedNumber,
     /** What confirm_inactive must be typed back: the run id, or #number when no run was recorded. */
     runIdentifier: (item: AgentWorkItem) => item.agent_run_id ?? `#${item.number}`, postponeAt, setPostponeAt, mutation, mutationError: failureText(mutation.error),
-    ask: (item: AgentWorkItem, action: WorkAction) => { setConfirmation({ item, action }); setReason(""); setEvidence(""); setPostponeAt(""); setRunConfirmation(""); mutation.reset(); setNotice(false); },
+    ask: (item: AgentWorkItem, action: WorkAction) => { setConfirmation({ item, action }); setReason(""); setEvidence(""); setPostponeAt(""); setRunConfirmation(""); setRelatedNumber(""); mutation.reset(); setNotice(false); },
     cancel: () => { if (!mutation.isPending) setConfirmation(null); }, confirm: () => { if (confirmation) mutation.mutate(confirmation); },
     allowed: (item: AgentWorkItem, action: string) => (item.allowed_actions ?? []).includes(action),
     selectedIds, toggle: (id: string) => setSelectedIds(ids => ids.includes(id) ? ids.filter(value => value !== id) : [...ids, id]),

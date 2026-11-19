@@ -65,3 +65,21 @@ class MessageAnalysisItem(Base, TimestampMixin):
     # Keep progress/history even if an operator removes the source later.
     message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+
+
+class MessageElsewhereCheck(Base, TimestampMixin):
+    """Section 4 of "Analisar" (2026-11-19): was this work already done by
+    another task of the same project/area? Kept until the message changes
+    (``source_fingerprint``); every match quotes the other task's own text."""
+    __tablename__ = "message_elsewhere_checks"
+    __table_args__ = (CheckConstraint("status IN ('done_elsewhere','partly_elsewhere','not_found','unavailable')",
+                                      name="ck_message_elsewhere_status"),)
+    message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True),
+        ForeignKey("company.agent_demands.id", ondelete="CASCADE"), primary_key=True)
+    source_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    matches: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    candidates: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    requested_by: Mapped[str] = mapped_column(String(150), nullable=False)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

@@ -351,7 +351,7 @@ describe("operator deliberation", () => {
       history: { attempts: 1, retry_limit: 3, last_error: null, last_result: null, replies: [], mentioned_by: [], consolidated_into: null,
         checks: [{ id: "c-1", number: 50, subject: "Checagem", status: "new", dispatch_status: "completed", verdict: "partial" }] },
       options: [{ action: "reconcile", recommended: true }, { action: "confirm_inactive", recommended: false }],
-      blocked: { archive: "reconciliation_required" }, item: stuckItem,
+      blocked: { archive: "reconciliation_required" }, thread: [], elsewhere: null, item: stuckItem,
     } : []);
     open("/personal?tab=agent-work&workTab=decisions");
     expect(screen.getAllByText("Execução incerta").length).toBeGreaterThan(0);
@@ -363,6 +363,60 @@ describe("operator deliberation", () => {
     expect(within(panel).getByText(/Pergunta de novo ao executor/)).toBeInTheDocument();
     fireEvent.click(within(panel).getByRole("button", { name: /★ Reconciliar execução/ }));
     expect(within(screen.getByRole("dialog")).getByText("#42 · Revisar backup")).toBeInTheDocument();
+  });
+
+  it("shows the thread, continues only what is missing and searches other agents (phases 2 and 3)", async () => {
+    const failedItem = item({ dispatch_status: "failed", dispatch_error: "The agent run ended as 'failed'.", requires_approval: false,
+      allowed_actions: ["continue", "done_by", "close_delivered", "archive"], blocked_actions: {},
+      stuck: { reason: "failure_unresolved", since: "2026-11-19T10:00:00Z" } } as Partial<Demand>);
+    mocks.demands.mockReturnValue({ data: { items: [failedItem], total: 1, page: 1, page_size: 25, counts: { stuck: 1 }, contexts: [] } });
+    const base = {
+      id: "work-1", number: 42,
+      about: { subject: "Revisar backup", summary: "Verificar", requested_by: "Athos", executor: "Porthus", context: null, working_path: null, origin_type: "task", created_at: "2026-11-18T10:00:00Z" },
+      stuck: { reason: "failure_unresolved", since: "2026-11-19T10:00:00Z" }, held_by: null,
+      history: { attempts: 1, retry_limit: 3, last_error: null, last_result: null, replies: [], mentioned_by: [], consolidated_into: null, checks: [] },
+      options: [{ action: "continue", recommended: true }, { action: "done_by", recommended: false }, { action: "close_delivered", recommended: false }],
+      blocked: {}, item: failedItem,
+      thread: [
+        { id: "work-1", number: 42, subject: "Revisar backup", role: "original", status: "new", dispatch_status: "failed", current: true, verdict: null, created_at: null, decision_reason: null },
+        { id: "c-1", number: 50, subject: "Checagem de #42", role: "check", status: "new", dispatch_status: "completed", current: false, verdict: "partial", created_at: null, decision_reason: null },
+      ],
+      elsewhere: null,
+    };
+    vi.spyOn(apiClient, "get").mockImplementation(async (url: string) => url === "/api/v1/demands/work-1/brief" ? base : []);
+    const search = vi.spyOn(apiClient, "post").mockImplementation(async (url: string) => url.endsWith("/brief/elsewhere") ? {
+      status: "done_elsewhere", summary: "Feito na #60", stale: false, checked_at: "2026-11-19T12:00:00Z", requested_by: "marcelo",
+      matches: [{ id: "o-1", number: 60, subject: "Backup", quote: "Backup verificado e restaurado com sucesso", explains: "fez" }], candidates: [] } : {});
+    open("/personal?tab=agent-work&workTab=decisions");
+    fireEvent.click(screen.getByRole("button", { name: "Analisar tarefa #42" }));
+    const panel = await screen.findByRole("region", { name: "Analisar" });
+    expect(await within(panel).findByText("O fio")).toBeInTheDocument();
+    expect(within(panel).getByText("Origem parcial")).toBeInTheDocument();
+    expect(within(panel).getByText(/Procura nas tarefas concluídas/)).toBeInTheDocument();
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Procurar em outros agentes" }));
+    await waitFor(() => expect(search).toHaveBeenCalledWith("/api/v1/demands/work-1/brief/elsewhere", {}));
+
+    fireEvent.click(within(panel).getByRole("button", { name: /★ Criar continuação/ }));
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByRole("button", { name: "Criar continuação" })).toBeDisabled();
+    fireEvent.change(dialog.getByRole("textbox"), { target: { value: "Falta restaurar o banco" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Criar continuação" }));
+    await waitFor(() => expect(search).toHaveBeenCalledWith("/api/v1/demands/work-1/decision", expect.objectContaining({ action: "continue", reason: "Falta restaurar o banco" })));
+  });
+
+  it("asks which task did the work before closing as done by it", async () => {
+    const failedItem = item({ dispatch_status: "failed", requires_approval: false, allowed_actions: ["done_by"], blocked_actions: {} } as Partial<Demand>);
+    mocks.demands.mockReturnValue({ data: { items: [failedItem], total: 1, page: 1, page_size: 25, counts: {}, contexts: [] } });
+    open("/personal?tab=agent-work&workTab=decisions");
+    fireEvent.click(screen.getByRole("button", { name: /Revisar backup/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Feito por outra tarefa" }));
+    const dialog = within(screen.getByRole("dialog"));
+    const confirm = dialog.getByRole("button", { name: "Feito por outra tarefa" });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(dialog.getByPlaceholderText("#"), { target: { value: "#60" } });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith("/api/v1/demands/work-1/decision", expect.objectContaining({ action: "done_by", related_number: 60 })));
   });
 
   it("offers archive on the task row before opening its details", async () => {

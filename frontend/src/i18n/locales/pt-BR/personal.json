@@ -337,7 +337,10 @@
       "drop": "Descartar incubação",
       "record_investigation": "Registrar investigação",
       "confirm_inactive": "Confirmar execução inativa",
-      "request_approval": "Pedir aprovação de novo"
+      "request_approval": "Pedir aprovação de novo",
+      "continue": "Criar continuação",
+      "done_by": "Feito por outra tarefa",
+      "close_delivered": "Encerrar como entregue"
     },
     "taskStates": {
       "planned": "Planejada",
@@ -397,7 +400,10 @@
       "execution_context_missing": "Defina remetente, executor e diretório em Messages antes de aprovar.",
       "not_incubation": "Esta ação exige uma incubação.",
       "no_uncertain_outcome": "Não há resultado incerto a investigar.",
-      "moodle_flow_required": "Mensagem do Moodle: decida em Aprovações Moodle; arquivar só depois que o fluxo terminar."
+      "moodle_flow_required": "Mensagem do Moodle: decida em Aprovações Moodle; arquivar só depois que o fluxo terminar.",
+      "not_task": "Só vale para uma tarefa (incubação: aprove ou descarte).",
+      "mission_flow": "Tarefa de missão: encerra pela revisão e aceite da missão.",
+      "private_flow": "Fluxo restrito (grupo, STI ou canal privado): decida no fluxo próprio."
     },
     "events": {
       "demand_quota_wait": "Aguardando reset da cota",
@@ -420,7 +426,9 @@
       "demand_consolidated": "Histórico consolidado",
       "demand_request_approval": "Aprovação solicitada",
       "demand_record_investigation": "Investigação registrada",
-      "demand_confirm_inactive": "Execução confirmada como inativa"
+      "demand_confirm_inactive": "Execução confirmada como inativa",
+      "demand_continuation_opened": "Continuação aberta",
+      "demand_origin_verdict": "Checagem decidiu a origem"
     },
     "investigationHint": "Registra o que foi verificado. A reconciliação continua pendente até você confirmar que a execução não está ativa.",
     "confirmInactiveHint": "Confirme apenas se verificou que esta execução não está rodando. A falha passa a ser conhecida, nada é executado, e uma nova tentativa ainda exige autorização.",
@@ -604,7 +612,6 @@
       "reply": "Retorno",
       "mentionedBy": "Mensagens posteriores que citam esta tarefa (indício, não prova):",
       "consolidated": "Consolidada no resumo",
-      "elsewhereLater": "A busca em outros agentes e projetos, com evidência, chega na próxima fase. Por enquanto, veja as mensagens que citam esta tarefa acima.",
       "noOptions": "Nenhuma ação disponível aqui; veja abaixo o que está bloqueado.",
       "recommended": "Recomendado:",
       "unavailable": "Ações indisponíveis e por quê",
@@ -644,9 +651,42 @@
         "reject": "Não executa. O dono é informado.",
         "postpone": "Dá uma nova data para o dono decidir.",
         "drop": "Descarta a incubação com o motivo. Fica no arquivo.",
-        "request_approval": "Pede de novo a sua aprovação antes de executar."
+        "request_approval": "Pede de novo a sua aprovação antes de executar.",
+        "continue": "Abre uma nova tarefa só com o que falta, ligada a esta no fio. Esta sai da lista como continuada.",
+        "done_by": "Liga esta tarefa à que fez o trabalho e a tira da lista. A outra precisa ter terminado.",
+        "close_delivered": "Encerra como entregue, com a evidência citada. Nunca é executada de novo."
+      },
+      "thread": "O fio",
+      "threadCurrent": "esta",
+      "roles": {
+        "original": "Original",
+        "check": "Checagem",
+        "continuation": "Continuação",
+        "reply": "Retorno",
+        "done_by": "Feita por",
+        "covered": "Encerrada por esta"
+      },
+      "elsewhereRun": "Procurar em outros agentes",
+      "elsewhereRerun": "Procurar de novo",
+      "elsewhereRunning": "Procurando…",
+      "elsewhereIntro": "Procura nas tarefas concluídas do mesmo projeto, área ou diretório, de qualquer agente. Cada achado cita o trecho do resultado da outra tarefa.",
+      "elsewhereStale": "A tarefa mudou desde a última busca; procure de novo.",
+      "elsewhereError": "Não foi possível procurar agora.",
+      "elsewhereOff": "A análise sob demanda está desligada.",
+      "elsewhereCandidates": "Tarefas relacionadas consideradas:",
+      "elsewhereChecked": "Verificado em {{date}} por {{name}}",
+      "elsewhereStatus": {
+        "done_elsewhere": "Feito em outra tarefa",
+        "partly_elsewhere": "Parte feita em outra tarefa",
+        "not_found": "Não encontrado em outro lugar",
+        "unavailable": "Assistente indisponível"
       }
-    }
+    },
+    "missing": "O que falta fazer (vai para a nova tarefa)",
+    "relatedNumber": "Número da tarefa que fez o trabalho",
+    "continueHint": "Cria uma nova tarefa para o mesmo agente, só com o que falta, ligada a esta. Esta sai da lista como continuada.",
+    "doneByHint": "A outra tarefa precisa ter terminado. Esta sai da lista ligada a ela.",
+    "deliveredHint": "Cite a evidência (commit, arquivo, mensagem). A tarefa conta como entregue e nunca é executada de novo."
   },
   "location": {
     "title": "Localização atual",

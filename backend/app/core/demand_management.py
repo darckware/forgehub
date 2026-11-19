@@ -316,6 +316,18 @@ async def work_item(db, demand, state, wait_summary=None):
             blocked[action] = reason
         else:
             actions.append(action)
+    # Phase 2 (2026-11-19): the three explicit outcomes of a thread.
+    from app.core.demand_continuity import CONTINUITY_ACTIONS, continuity_blocker
+    continuity = await continuity_blocker(db, demand, direct_moodle=direct_moodle)
+    for action in CONTINUITY_ACTIONS:
+        reason = continuity
+        if reason is None and action == "continue" and (not demand.from_agent_id or not demand.target_agent_id
+                                                        or not (demand.working_path or "").startswith("/")):
+            reason = "execution_context_missing"
+        if reason:
+            blocked[action] = reason
+        else:
+            actions.append(action)
     category = failure_category(demand)
     from app.core.message_triage_context import context_stamp, display_context, source_stamp
     analysis=await db.get(MessageTriageResult,demand.id)

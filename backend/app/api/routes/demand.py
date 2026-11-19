@@ -363,6 +363,7 @@ async def create_demand_and_notify(
     *,
     commit: bool = True,
     notify: bool = True,
+    continuation_closer_id: uuid.UUID | None = None,
 ) -> AgentDemand:
     """Every new inbox item also surfaces in the system Notifications bell
     (source="system", not "cron") -- so arriving mail doesn't go unnoticed
@@ -462,6 +463,10 @@ async def create_demand_and_notify(
     )
     db.add(demand)
     await db.flush()  # assigns demand.id (Python-side default) before the notification references it
+    if payload.continues_number is not None:
+        from app.core.demand_continuity import link_continuation
+        await link_continuation(db, demand, payload.continues_number, sender_id=from_agent_id,
+                                closer_id=continuation_closer_id)
 
     # `notify=False` is for machine-generated traffic that would flood the
     # bell -- agent routines create dozens of tasks a day; their failures
@@ -509,8 +514,9 @@ async def submit_demand(
     a demand with a plain curl (no user JWT available to a cron/agent)."""
     if not settings.CHAT_BRIDGE_TOKEN or x_bridge_token != settings.CHAT_BRIDGE_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid bridge token")
-    await assert_acts_as(request, db, payload.from_agent, payload.from_agent_id)
-    return await create_demand_and_notify(db, payload)
+    caller = await assert_acts_as(request, db, payload.from_agent, payload.from_agent_id)
+    # Only an agent proven by its own credential may close what it continues.
+    return await create_demand_and_notify(db, payload, continuation_closer_id=caller.id if caller else None)
 
 
 @router.get("/pending", response_model=list[DemandOut])
@@ -1312,10 +1318,20 @@ async def delete_demand(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 
 @router.post("/{demand_id}/decision", response_model=DemandOut)
 async def decide_message(demand_id: uuid.UUID, payload: DemandDecisionIn, db: AsyncSession = Depends(get_db), admin=Depends(get_current_admin)):
+    from app.core.demand_continuity import CONTINUITY_ACTIONS, apply_continuity
     from app.core.demand_workflow import decide_demand
     demand = (await db.execute(select(AgentDemand).where(AgentDemand.id == demand_id).with_for_update())).scalar_one_or_none()
     if demand is None:
         raise HTTPException(404, "Message not found")
+    if payload.action in CONTINUITY_ACTIONS:
+        # Phase 2 (2026-11-19): continuation / done by #N / delivered.
+        created = await apply_continuity(db, demand, payload, actor=admin.username)
+        await db.commit()
+        if created is not None and created.scheduled_at is not None:
+            from app.core.dispatch_signal import wake_scheduled_dispatch
+            wake_scheduled_dispatch()
+        await db.refresh(demand)
+        return demand
     return await decide_demand(db, demand, payload, actor=admin.username)
 
 
@@ -1335,6 +1351,19 @@ async def demand_brief_route(demand_id: uuid.UUID, db: AsyncSession = Depends(ge
     of one task -- what it is, why it is stuck, what happened, what to do."""
     from app.core.demand_brief import demand_brief
     return await demand_brief(db, await _get_demand_or_404(db, demand_id))
+
+
+@router.post("/{demand_id}/brief/elsewhere")
+async def demand_brief_elsewhere(demand_id: uuid.UUID, db: AsyncSession = Depends(get_db), admin=Depends(get_current_admin)):
+    """"Analisar" section 4 (phase 3, 2026-11-19): was this already done by another
+    task of the same project/area? Advice only, kept until the task changes."""
+    from app.core.demand_elsewhere import check_elsewhere
+    from app.core.message_triage import analysis_enabled
+    if not analysis_enabled():
+        raise HTTPException(503, "Contextual analysis is not enabled")
+    result = await check_elsewhere(db, await _get_demand_or_404(db, demand_id), actor=admin.username)
+    await db.commit()
+    return result
 
 
 @router.get("/{demand_id}/sources", response_model=list[DemandOut])
@@ -2577,6 +2606,10 @@ async def _finalize_dispatch(
         await db.flush()
         from app.core.demand_failure_check import ensure_failure_check
         await ensure_failure_check(db, locked.id)
+    if locked.dispatch_status == "completed" and locked.failure_check_source_id is not None and not historical:
+        # Phase 2 (2026-11-19): the check's "ORIGEM:" line decides the original.
+        from app.core.demand_continuity import apply_origin_verdict
+        await apply_origin_verdict(db, locked, actor=f"check:#{locked.number}")
 
     if historical:
         # Reconcile execution evidence without reviving archived mail.

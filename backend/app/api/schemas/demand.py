@@ -31,8 +31,10 @@ class DemandConsolidateIn(BaseModel):
 
 class DemandDecisionIn(BaseModel):
     action: Literal["approve", "reject", "postpone", "archive", "restore", "drop", "request_approval", "authorize_retry",
-                    "record_investigation", "confirm_inactive"]
+                    "record_investigation", "confirm_inactive", "continue", "done_by", "close_delivered"]
     reason: str | None = Field(default=None, max_length=4000)
+    # done_by only: the number of the task that did this work (2026-11-19, phase 2).
+    related_number: int | None = Field(default=None, ge=1)
     # confirm_inactive only: the run id typed back, so the confirmation names
     # the exact run the operator checked (a stale screen can't confirm another).
     confirmation: str | None = Field(default=None, max_length=100)
@@ -46,7 +48,13 @@ class DemandDecisionIn(BaseModel):
         # never indistinguishable from a forgotten one.
         if self.action in ("reject", "postpone", "drop", "archive", "authorize_retry", "record_investigation", "confirm_inactive") and not (self.reason or "").strip():
             raise ValueError("A reason is required")
-        if self.action in ("authorize_retry", "record_investigation", "confirm_inactive") and not (self.evidence_ref or "").strip():
+        # Phase 2 (2026-11-19): a continuation states what is missing; "done by"
+        # names the task; "delivered" cites its evidence.
+        if self.action in ("continue", "close_delivered") and not (self.reason or "").strip():
+            raise ValueError("A reason is required")
+        if self.action == "done_by" and self.related_number is None:
+            raise ValueError("The number of the task that did the work is required")
+        if self.action in ("authorize_retry", "record_investigation", "confirm_inactive", "close_delivered") and not (self.evidence_ref or "").strip():
             raise ValueError("A reference to the correction evidence is required")
         if self.action == "postpone" and (self.matures_at is None or self.matures_at.tzinfo is None):
             raise ValueError("A future date with timezone is required")
@@ -147,6 +155,9 @@ class DemandSubmitIn(BaseModel):
     # must be given together, or neither.
     origin_type: str | None = None
     origin_number: int | None = None
+    # The message number this one continues (2026-11-19, MESSAGES_GUIA.md §13.2):
+    # recorded as a link, so the original's thread shows its continuation.
+    continues_number: int | None = Field(default=None, ge=1)
     # "Retorno" -- whether this message expects a response back from the
     # recipient. Defaults to False (no response expected).
     requires_response: bool = False
@@ -317,6 +328,8 @@ class DemandOut(BaseModel):
     project_id: uuid.UUID | None
     context_area: str | None = None
     consolidated_into_id: uuid.UUID | None = None
+    continues_id: uuid.UUID | None = None
+    done_by_id: uuid.UUID | None = None
     requires_approval: bool = False
     approval_status: str | None = None
     decision_reminded_at: datetime | None = None

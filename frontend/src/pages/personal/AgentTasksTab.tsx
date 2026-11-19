@@ -29,11 +29,13 @@ export function AgentTasksTab() {
   const shown = vm.items;
   const selected = vm.selected;
   const action = vm.confirmation?.action;
-  const evidenceRequired = action === "authorize_retry" || action === "record_investigation" || action === "confirm_inactive";
+  const evidenceRequired = action === "authorize_retry" || action === "record_investigation" || action === "confirm_inactive" || action === "close_delivered";
   const quotaRetry = action === "authorize_retry" && vm.confirmation?.item.dispatch_status === "waiting_quota";
   const runConfirmationRequired = action === "confirm_inactive" || quotaRetry;
   // Archive says why too (2026-11-19): recorded in the history, never a silent archive.
   const reasonRequired = action === "reject" || action === "postpone" || action === "drop" || action === "archive" || evidenceRequired;
+  // Phase 2 (2026-11-19): a continuation says what is missing; "done by" names the task.
+  const relatedValid = /^#?\d+$/.test(vm.relatedNumber.trim());
   const date = (value: string | null) => value ? new Intl.DateTimeFormat(i18n.language, { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "—";
   const actionLabel = (name: string) => name === "authorize_retry" && (vm.confirmation?.item ?? selected)?.dispatch_status === "waiting_quota" ? t("agentTasks.quotaResume") : name === "approve" && (vm.confirmation?.item ?? selected)?.origin_type === "incubation"
     ? t("agentTasks.promote") : t(`agentTasks.actions.${name}`);
@@ -199,7 +201,8 @@ export function AgentTasksTab() {
       <span className="text-sm">{t("agentTasks.selectedCount", { count: vm.selectedIds.length })}</span>
       <Button variant="outline" size="sm" onClick={() => vm.askBulk(vm.view === "archived" ? "restore" : "archive")}>{t(vm.view === "archived" ? "agentTasks.bulkRestore" : "agentTasks.bulkArchive")}</Button>
     </div>}
-    {vm.briefId && vm.tab !== "answers" && <TaskBriefPanel brief={vm.brief} onClose={() => vm.setBriefId(null)} onAction={vm.ask} />}
+    {vm.briefId && vm.tab !== "answers" && <TaskBriefPanel brief={vm.brief} onClose={() => vm.setBriefId(null)} onAction={vm.ask}
+      elsewhere={{ run: id => vm.elsewhere.mutate(id), isPending: vm.elsewhere.isPending, isError: vm.elsewhere.isError, off: vm.elsewhereOff }} />}
     {vm.bulkResults.length > 0 && <ul role="status" className="space-y-1 text-sm">{vm.bulkResults.map(result => <li key={result.id}>
       {result.number ? `#${result.number} · ${result.subject}` : result.subject ?? result.id}: {t(`agentTasks.bulkStatus.${result.status}`)}{result.detail ? ` — ${result.detail}` : ""}
     </li>)}</ul>}
@@ -264,7 +267,7 @@ export function AgentTasksTab() {
       {selected.dispatch_outcome && <p className="whitespace-pre-wrap break-words rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-sm">
         <span className="font-medium">{t(`agentTasks.outcomes.${selected.dispatch_outcome}`)}</span>{selected.outcome_note ? `: ${selected.outcome_note}` : ""}</p>}
       <div className="flex flex-wrap gap-2">
-        {(["approve", "reject", "postpone", "drop", "restore", "reconcile", "record_investigation", "confirm_inactive", "retry", "authorize_retry", "archive", "delete"] as const).filter(action => vm.allowed(selected, action)).map(action => <Button key={action} size="sm" variant={action === "delete" ? "destructive" : action === "approve" ? "default" : "outline"} onClick={() => vm.ask(selected, action)}>{actionLabel(action)}</Button>)}
+        {(["approve", "reject", "postpone", "drop", "restore", "reconcile", "record_investigation", "confirm_inactive", "retry", "authorize_retry", "continue", "done_by", "close_delivered", "archive", "delete"] as const).filter(action => vm.allowed(selected, action)).map(action => <Button key={action} size="sm" variant={action === "delete" ? "destructive" : action === "approve" ? "default" : "outline"} onClick={() => vm.ask(selected, action)}>{actionLabel(action)}</Button>)}
         <Link className="self-center text-sm text-primary underline" to={`/demands?message=${selected.id}`}>{t("agentTasks.openMessages")}</Link>
       </div>
       {selected.blocked_actions?.approve && selected.dispatch_status === null && <p className="text-sm text-muted-foreground">{t(`agentTasks.blocked.${selected.blocked_actions.approve}`)}</p>}
@@ -314,12 +317,19 @@ export function AgentTasksTab() {
       description={vm.confirmation ? `#${vm.confirmation.item.number} · ${vm.confirmation.item.subject}` : undefined}
       confirmLabel={action ? actionLabel(action) : undefined} variant={action === "delete" ? "destructive" : "default"}
       loading={vm.mutation.isPending} error={vm.mutationError} onConfirm={vm.confirm} onCancel={vm.cancel}
-      confirmDisabled={(reasonRequired && !vm.reason.trim()) || (evidenceRequired && !vm.evidence.trim()) || (runConfirmationRequired && vm.confirmation !== null && vm.runConfirmation.trim() !== vm.runIdentifier(vm.confirmation.item)) || (action === "postpone" && (!vm.postponeAt || new Date(vm.postponeAt).getTime() <= Date.now()))}>
+      confirmDisabled={(reasonRequired && !vm.reason.trim()) || (evidenceRequired && !vm.evidence.trim()) || (runConfirmationRequired && vm.confirmation !== null && vm.runConfirmation.trim() !== vm.runIdentifier(vm.confirmation.item)) || (action === "postpone" && (!vm.postponeAt || new Date(vm.postponeAt).getTime() <= Date.now()))
+        || (action === "continue" && !vm.reason.trim()) || (action === "done_by" && !relatedValid)}>
       {action === "approve" && <p className="text-sm">{t("agentTasks.approveHint")}</p>}
       {action === "archive" && <p className="text-sm">{t("agentTasks.archiveHint")}</p>}
       {action === "restore" && <p className="text-sm">{t("agentTasks.restoreHint")}</p>}
       {action === "authorize_retry" && <p className="text-sm">{t(quotaRetry ? "agentTasks.quotaResumeHint" : "agentTasks.authorizeRetryHint")}</p>}
       {action === "record_investigation" && <p className="text-sm">{t("agentTasks.investigationHint")}</p>}
+      {action === "continue" && <><p className="text-sm">{t("agentTasks.continueHint")}</p>
+        <label className="block space-y-1 text-sm">{t("agentTasks.missing")}<Textarea className="resize-none max-md:text-base" maxLength={4000} value={vm.reason} onChange={e => vm.setReason(e.target.value)} /></label></>}
+      {action === "done_by" && <><p className="text-sm">{t("agentTasks.doneByHint")}</p>
+        <label className="block space-y-1 text-sm">{t("agentTasks.relatedNumber")}<Input inputMode="numeric" autoComplete="off" placeholder="#" value={vm.relatedNumber} onChange={e => vm.setRelatedNumber(e.target.value)} className="max-md:text-base" /></label>
+        <label className="block space-y-1 text-sm">{t("agentTasks.reason")}<Textarea className="resize-none max-md:text-base" maxLength={4000} value={vm.reason} onChange={e => vm.setReason(e.target.value)} /></label></>}
+      {action === "close_delivered" && <p className="text-sm">{t("agentTasks.deliveredHint")}</p>}
       {runConfirmationRequired && vm.confirmation && <>{action === "confirm_inactive" && <p className="text-sm">{t("agentTasks.confirmInactiveHint")}</p>}
         <label className="block space-y-1 text-sm">{t("agentTasks.typeRun")} <code className="break-all font-mono text-xs">{vm.runIdentifier(vm.confirmation.item)}</code>
           <Input autoComplete="off" value={vm.runConfirmation} onChange={e => vm.setRunConfirmation(e.target.value)} className="font-mono max-md:text-base" /></label></>}

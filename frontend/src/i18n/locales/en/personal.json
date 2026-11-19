@@ -337,7 +337,10 @@
       "drop": "Discard incubation",
       "record_investigation": "Record investigation",
       "confirm_inactive": "Confirm run is inactive",
-      "request_approval": "Ask for approval again"
+      "request_approval": "Ask for approval again",
+      "continue": "Create continuation",
+      "done_by": "Done by another task",
+      "close_delivered": "Close as delivered"
     },
     "taskStates": {
       "planned": "Planned",
@@ -397,7 +400,10 @@
       "execution_context_missing": "Set sender, executor and working directory in Messages before approval.",
       "not_incubation": "This action requires incubation.",
       "no_uncertain_outcome": "There is no uncertain outcome to investigate.",
-      "moodle_flow_required": "Moodle message: decide it in Moodle approvals; archiving only once that flow is over."
+      "moodle_flow_required": "Moodle message: decide it in Moodle approvals; archiving only once that flow is over.",
+      "not_task": "Only for a task (incubation: approve or drop it).",
+      "mission_flow": "Mission task: it closes through the mission's review and acceptance.",
+      "private_flow": "Restricted flow (group, STI or private channel): decide it in its own flow."
     },
     "events": {
       "demand_quota_wait": "Awaiting quota reset",
@@ -420,7 +426,9 @@
       "demand_consolidated": "History consolidated",
       "demand_request_approval": "Approval requested",
       "demand_record_investigation": "Investigation recorded",
-      "demand_confirm_inactive": "Run confirmed inactive"
+      "demand_confirm_inactive": "Run confirmed inactive",
+      "demand_continuation_opened": "Continuation opened",
+      "demand_origin_verdict": "Check decided the original"
     },
     "investigationHint": "Records what was checked. Reconciliation stays pending until you confirm the run is not active.",
     "confirmInactiveHint": "Confirm only after checking this run is not running. The failure becomes known, nothing runs, and another attempt still needs authorization.",
@@ -604,7 +612,6 @@
       "reply": "Reply",
       "mentionedBy": "Later messages that mention this task (a hint, not proof):",
       "consolidated": "Consolidated into summary",
-      "elsewhereLater": "Searching other agents and projects, with evidence, comes in the next phase. Meanwhile, see the messages that mention this task above.",
       "noOptions": "No action available here; see below what is blocked.",
       "recommended": "Recommended:",
       "unavailable": "Unavailable actions and why",
@@ -644,9 +651,42 @@
         "reject": "Does not run. The owner is told.",
         "postpone": "Gives the owner a new date to decide.",
         "drop": "Discards the incubation with the reason. It stays in the archive.",
-        "request_approval": "Asks for your approval again before running."
+        "request_approval": "Asks for your approval again before running.",
+        "continue": "Opens a new task with only what is missing, linked in the thread. This one leaves the list as continued.",
+        "done_by": "Links this task to the one that did the work and removes it from the list. The other must have finished.",
+        "close_delivered": "Closes as delivered, with the cited evidence. It never runs again."
+      },
+      "thread": "The thread",
+      "threadCurrent": "this one",
+      "roles": {
+        "original": "Original",
+        "check": "Check",
+        "continuation": "Continuation",
+        "reply": "Reply",
+        "done_by": "Done by",
+        "covered": "Closed by this one"
+      },
+      "elsewhereRun": "Search other agents",
+      "elsewhereRerun": "Search again",
+      "elsewhereRunning": "Searching…",
+      "elsewhereIntro": "Searches finished tasks of the same project, area or directory, from any agent. Each finding quotes the other task's result.",
+      "elsewhereStale": "The task changed since the last search; search again.",
+      "elsewhereError": "Could not search now.",
+      "elsewhereOff": "On-demand analysis is switched off.",
+      "elsewhereCandidates": "Related tasks considered:",
+      "elsewhereChecked": "Checked on {{date}} by {{name}}",
+      "elsewhereStatus": {
+        "done_elsewhere": "Done by another task",
+        "partly_elsewhere": "Partly done by another task",
+        "not_found": "Not found elsewhere",
+        "unavailable": "Assistant unavailable"
       }
-    }
+    },
+    "missing": "What is still missing (goes into the new task)",
+    "relatedNumber": "Number of the task that did the work",
+    "continueHint": "Creates a new task for the same agent with only what is missing, linked to this one. This one leaves the list as continued.",
+    "doneByHint": "The other task must have finished. This one leaves the list linked to it.",
+    "deliveredHint": "Cite the evidence (commit, file, message). The task counts as delivered and never runs again."
   },
   "location": {
     "title": "Current location",

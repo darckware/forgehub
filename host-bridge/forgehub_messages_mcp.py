@@ -234,6 +234,7 @@ async def send_agent_message(
     channel_ref: str | None = None,
     working_path: str | None = None,
     requires_approval: bool = False,
+    continues: int | None = None,
 ) -> str:
     """Send a message through ForgeHub's Agent Message channel (the canonical
     agent-to-agent communication mechanism of the Hermes ecosystem).
@@ -283,6 +284,11 @@ async def send_agent_message(
         development_request_id: DevelopmentRequest UUID for a pre-project
             Software Factory conception. The link remains valid after a
             Project and Task are created.
+        continues: number of the message this one continues (e.g. after a
+            failure or a check that said ORIGEM: PARCIAL). Recorded as a link,
+            so the original's thread shows this continuation; when you are
+            that original's sender or executor and it failed, it is closed as
+            "Continuada por #N". Send only what is still missing.
 
     Prefer this over a tracked task for a direct handoff or request that
     doesn't need ownership and a lifecycle.
@@ -314,6 +320,8 @@ async def send_agent_message(
             payload["origin_number"] = origin_task_number
         if development_request_id is not None:
             payload["development_request_id"] = development_request_id
+        if continues is not None:
+            payload["continues_number"] = continues
 
         demand = await _call("POST", "/api/v1/demands/submit", json=payload)
     except ForgeHubError as exc:

@@ -343,6 +343,15 @@ class AgentDemand(Base, TimestampMixin):
     consolidated_into_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("company.agent_demands.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    # The thread (2026-11-19, MESSAGES_GUIA.md §13.2): a continuation records the
+    # task it continues, and a task closed as "done by #N" records that task --
+    # links in the database, never a "#N" in the text.
+    continues_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agent_demands.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    done_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company.agent_demands.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     requires_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
     approval_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     approved_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -485,6 +494,8 @@ class AgentDemand(Base, TimestampMixin):
                   "AND status != 'archived'")),
         Index("uq_agent_demands_failure_check_source", "failure_check_source_id", unique=True),
         CheckConstraint("failure_check_source_id IS NULL OR failure_check_source_id <> id", name="ck_demands_check_not_self"),
+        CheckConstraint("continues_id IS NULL OR continues_id <> id", name="ck_agent_demands_continues_id_not_self"),
+        CheckConstraint("done_by_id IS NULL OR done_by_id <> id", name="ck_agent_demands_done_by_id_not_self"),
         CheckConstraint(f"status IN {DEMAND_STATUSES}", name="ck_agent_demands_status"),
         CheckConstraint(
             f"converted_entity_type IS NULL OR converted_entity_type IN {DEMAND_CONVERT_TARGETS}",

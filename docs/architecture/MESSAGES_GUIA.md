@@ -172,7 +172,7 @@ história a preservar.
 sem alteração há 60 dias (`DEMAND_RETENTION_DAYS`). Entrada, Saída, Execução e Incubação nunca são
 tocadas pela retenção.
 
-## 11. Pessoal → Tarefas dos agentes (Fase 1, 2026-11-19)
+## 11. Pessoal → Tarefas dos agentes (Fases 1 a 3, 2026-11-19)
 
 Lê `GET /api/v1/demands/agent-work` (`core/demand_management.py`). Para cada item o backend
 calcula `allowed_actions`, `blocked_actions` (com o motivo) e `stuck` (por que está travado e desde
@@ -207,10 +207,50 @@ fixas, sem modelo, calculado na hora a cada abertura.
 1. Do que se trata (pedido, quem pediu, executor, diretório).
 2. Por que está travada (motivo, desde quando, quem segura a fila).
 3. O que já aconteceu (tentativas, último erro, checagens com o veredito `ORIGEM:`, retornos,
-   mensagens posteriores que citam a tarefa, resumo de consolidação).
-4. Já foi feito em outro lugar? Ainda não: chega na Fase 3.
+   mensagens posteriores que citam a tarefa, resumo de consolidação) e **o fio** (Fase 2): todas
+   as tarefas ligadas a esta pelo banco (original, checagens, continuações, retornos, "feita por"),
+   da mais antiga à mais nova, cada uma com o estado ou o motivo do arquivamento.
+4. Já foi feito em outro lugar? (Fase 3, `core/demand_elsewhere.py`, `POST /demands/{id}/brief/elsewhere`.)
+   Roda no clique "Procurar em outros agentes" e fica guardada até a tarefa mudar (depois disso a
+   tela avisa que está desatualizada). Candidatas, por regra: tarefas **concluídas** de qualquer
+   agente com o mesmo projeto, área ou diretório (o diretório padrão não conta), ou que citam
+   `#N`, de 7 dias antes em diante, fora do próprio fio. Trabalho restrito ou privado (grupos de
+   instrutores e STI, aprovações STI, canais da Maia e da Lara) nunca é candidato, e uma tarefa
+   privada não é analisada. O modelo responde `done_elsewhere`, `partly_elsewhere` ou `not_found`,
+   e **cada achado tem de citar, literalmente, um trecho do resultado da outra tarefa** (o pedido
+   não é prova): citação que não está lá é descartada, e "feito em
+   outro lugar" sem citação válida vira "não encontrado". Sem candidatas, responde sem o modelo.
+   Modelo fora do ar, tempo esgotado ou resposta inválida: `unavailable` ("assistente
+   indisponível"), com as candidatas listadas. Só aconselha: nunca arquiva nem liga nada. Quando
+   acha, "Feito por outra tarefa" passa a ser a ação recomendada.
 5. O que fazer: as ações permitidas, cada uma com a consequência escrita, a recomendada primeiro
    (★), e as indisponíveis com o motivo.
+
+**Os três desfechos de um fio** (Fase 2, `core/demand_continuity.py`, pela mesma
+`POST /demands/{id}/decision`). Valem para uma tarefa (`origin_type=task`) sem execução ativa ou
+incerta, fora do Moodle, de missão e de fluxo restrito (grupo, STI, canal privado, pedido de ação de
+agente: `private_flow`); cada um arquiva com quem e por quê (`demand_archive`,
+`source` próprio):
+
+| Ação | Botão | Efeito |
+|---|---|---|
+| `continue` | Criar continuação | Pede "o que falta". Cria uma tarefa para o mesmo executor com só isso, o pedido original e o último resultado, `continues_id` apontando para a original (vai para a fila; se a original exigia aprovação, a continuação também exige). A original arquiva como "Continuada por #N: …" (`source=continuation`). |
+| `done_by` | Feito por outra tarefa | Pede o número. A outra precisa ter execução concluída. Grava `done_by_id` e arquiva como "Feito por #N" (`source=done_by`). |
+| `close_delivered` | Encerrar como entregue | Pede evidência e motivo. Grava `message_work_resolved` com o hash do conteúdo, então a tarefa conta como entregue e nenhum caminho a executa de novo; arquiva como "Entregue: …" (`source=delivered`). |
+
+**A linha `ORIGEM:` decide** (`apply_origin_verdict`, chamado no fim de uma checagem concluída em
+`_finalize_dispatch`). Vale só uma linha própria com um único veredito (o modelo da instrução,
+"ORIGEM: CONCLUIDA | PARCIAL | BLOQUEADA", repetido não conta; a última linha válida decide).
+`CONCLUÍDA` arquiva a original ("Checagem #N: ORIGEM CONCLUÍDA", `source=failure_check`) e grava a
+checagem como evidência de entrega (`message_work_resolved`, nunca roda de novo); `PARCIAL`/`BLOQUEADA` deixam a original em Decisões com o motivo gravado, e
+o Analisar passa a recomendar Criar continuação. Só age sobre uma original ainda em falha
+conhecida (não arquivada, consolidada, incerta ou já retomada).
+
+**Continuação pelo agente**: `send_agent_message(..., continues=N)` grava `continues_id`. Qualquer
+agente pode ligar. Encerrar a original ("Continuada por #M") exige o agente provado pela própria
+credencial `agt_` (o token da bridge é compartilhado, então o remetente do corpo não prova nada),
+que seja remetente ou executor dela, e uma falha conhecida que os mesmos bloqueios dos botões
+permitem fechar.
 
 O link `?brief=<id>` abre a análise direto; é o que a tela Mensagens usa no atalho **"Analisar em
 Tarefas dos agentes"**.
@@ -298,8 +338,8 @@ Encaminhamentos, agora com o que acontece:
 | Fase | Entrega | Situação |
 |---|---|---|
 | 1 | Tela focada nas travadas; motivos em Decisões; arquivamento sempre com motivo e auditoria; botão Analisar (seções 1, 2, 3, 5); atalho em Mensagens. | Publicada em 2026-11-19 (release `phase1-d92afb5`, junto com 3004322f). |
-| 2 | Vínculo de continuidade no banco; a linha `ORIGEM:` passa a decidir (hoje só é exibida); campo "continua #N" no MCP; fio inteiro na tela; botões Criar continuação, Feito por #N e Encerrar como entregue. | A fazer. |
-| 3 | Seção 4: busca em todos os agentes do projeto/área, sempre com evidência; resistência a falha do modelo; análise guardada até a tarefa mudar. | A fazer. |
+| 2 | Vínculo de continuidade no banco; a linha `ORIGEM:` passa a decidir (hoje só é exibida); campo "continua #N" no MCP; fio inteiro na tela; botões Criar continuação, Feito por #N e Encerrar como entregue. | Implementada (branch `feat/messages-phase2-3`, migração `d5f7a9b1c3e5`); aguarda revisão e aprovação para publicar. |
+| 3 | Seção 4: busca em todos os agentes do projeto/área, sempre com evidência; resistência a falha do modelo; análise guardada até a tarefa mudar. | Implementada na mesma branch; aguarda revisão e aprovação para publicar. |
 
 Ficou fora da Fase 1, de propósito: Aprovações continua como aba própria (não virou filtro de
 Decisões); a seção 5 usa as ações que já existiam, e as novas (continuação, "feito por") dependem do
@@ -325,6 +365,8 @@ As fases 1 e 2 mudam o fluxo dos agentes e passam por revisão independente ante
 | Tela Mensagens | `frontend/src/pages/demands/index.tsx`, `frontend/src/hooks/useDemands.ts` |
 | Tela Tarefas dos agentes | `frontend/src/pages/personal/AgentTasksTab.tsx`, `TaskBriefPanel.tsx`, `frontend/src/hooks/useAgentTasksViewModel.ts` |
 | Analisar (por tarefa) | `backend/app/core/demand_brief.py`, `GET /api/v1/demands/{id}/brief` |
+| Fio e desfechos (Fase 2) | `backend/app/core/demand_continuity.py`; colunas `continues_id`, `done_by_id` |
+| Feito em outro lugar (Fase 3) | `backend/app/core/demand_elsewhere.py`, tabela `message_elsewhere_checks`, `POST /api/v1/demands/{id}/brief/elsewhere` |
 | Arquivar com motivo | `backend/app/core/demand_workflow.py:archive_with_reason` |
 | Mensagens de recusa | `frontend/src/lib/demandRuleError.ts`, `i18n/locales/*/demands.json` (`ruleErrors`) |
 | MCP dos agentes | `host-bridge/forgehub_messages_mcp.py`, `backend/app/mcp/factory_server.py` |
