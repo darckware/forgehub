@@ -338,8 +338,8 @@ Encaminhamentos, agora com o que acontece:
 | Fase | Entrega | Situação |
 |---|---|---|
 | 1 | Tela focada nas travadas; motivos em Decisões; arquivamento sempre com motivo e auditoria; botão Analisar (seções 1, 2, 3, 5); atalho em Mensagens. | Publicada em 2026-11-19 (release `phase1-d92afb5`, junto com 3004322f). |
-| 2 | Vínculo de continuidade no banco; a linha `ORIGEM:` passa a decidir (hoje só é exibida); campo "continua #N" no MCP; fio inteiro na tela; botões Criar continuação, Feito por #N e Encerrar como entregue. | Implementada (branch `feat/messages-phase2-3`, migração `d5f7a9b1c3e5`); aguarda revisão e aprovação para publicar. |
-| 3 | Seção 4: busca em todos os agentes do projeto/área, sempre com evidência; resistência a falha do modelo; análise guardada até a tarefa mudar. | Implementada na mesma branch; aguarda revisão e aprovação para publicar. |
+| 2 | Vínculo de continuidade no banco; a linha `ORIGEM:` passa a decidir (hoje só é exibida); campo "continua #N" no MCP; fio inteiro na tela; botões Criar continuação, Feito por #N e Encerrar como entregue. | Publicada em 2026-11-19 (release `phase23-c59e699`, migração `d5f7a9b1c3e5`). |
+| 3 | Seção 4: busca em todos os agentes do projeto/área, sempre com evidência; resistência a falha do modelo; análise guardada até a tarefa mudar. | Publicada em 2026-11-19 (release `phase23-c59e699`). |
 
 Ficou fora da Fase 1, de propósito: Aprovações continua como aba própria (não virou filtro de
 Decisões); a seção 5 usa as ações que já existiam, e as novas (continuação, "feito por") dependem do
