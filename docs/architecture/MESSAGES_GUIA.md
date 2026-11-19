@@ -297,7 +297,7 @@ Encaminhamentos, agora com o que acontece:
 
 | Fase | Entrega | Situação |
 |---|---|---|
-| 1 | Tela focada nas travadas; motivos em Decisões; arquivamento sempre com motivo e auditoria; botão Analisar (seções 1, 2, 3, 5); atalho em Mensagens. | Implementada no branch `fix/messages-rule-feedback` (seção 11), não publicada. Publicar o MCP antes do backend. |
+| 1 | Tela focada nas travadas; motivos em Decisões; arquivamento sempre com motivo e auditoria; botão Analisar (seções 1, 2, 3, 5); atalho em Mensagens. | Publicada em 2026-11-19 (release `phase1-d92afb5`, junto com 3004322f). |
 | 2 | Vínculo de continuidade no banco; a linha `ORIGEM:` passa a decidir (hoje só é exibida); campo "continua #N" no MCP; fio inteiro na tela; botões Criar continuação, Feito por #N e Encerrar como entregue. | A fazer. |
 | 3 | Seção 4: busca em todos os agentes do projeto/área, sempre com evidência; resistência a falha do modelo; análise guardada até a tarefa mudar. | A fazer. |
 
