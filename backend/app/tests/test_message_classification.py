@@ -118,6 +118,20 @@ async def test_active_busy_and_uncertain_are_distinct(classification_db):
     assert result[uncertain.id]['execution_wait_reason'] is None
 
 
+async def test_uncertain_run_holds_its_agent_like_the_dispatcher(classification_db):
+    """The queue skips an agent held by an uncertain run; the label says so and
+    names the run, instead of "Aguarda análise" (#42418 behind #42407)."""
+    db, agent = classification_db
+    uncertain = await work(db, agent, dispatch_status='failed', agent_run_id=str(uuid.uuid4()),
+                           dispatch_error='Dispatch outcome is uncertain; reconcile the known run before retrying.')
+    queued = await work(db, agent, scheduled_at=datetime.now(timezone.utc) - timedelta(days=1))
+    result = await classify(db, uncertain, queued)
+    assert result[queued.id]['execution_wait_reason'] == 'busy'
+    assert 'executor_busy' in result[queued.id]['message_labels']
+    assert f'#{uncertain.number}' in result[queued.id]['classification_summary']
+    assert result[uncertain.id]['message_labels'] == ['uncertain_execution']
+
+
 async def test_exact_delivery_suppresses_quota_but_changed_scope_does_not(classification_db):
     db, agent = classification_db
     row = await work(db, agent)

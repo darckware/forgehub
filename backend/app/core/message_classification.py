@@ -65,9 +65,22 @@ async def classify_messages(db, demands):
     availability = {row.agent_id: row for row in (await db.scalars(select(AgentAvailability).where(
         AgentAvailability.agent_id.in_(target_ids), AgentAvailability.unavailable_until > now)
         .execution_options(populate_existing=True))).all()}
-    busy = set((await db.scalars(select(AgentDemand.target_agent_id).where(
+    # Same occupancy as the dispatcher (demand._in_flight_dispatch_filter): an
+    # uncertain run keeps its agent's slot. Leaving it out made a task queued
+    # behind one read "Aguarda análise" for a day (#42418 behind #42407,
+    # 2026-11-19) while the queue skipped it on every pass.
+    uncertain_run = and_(AgentDemand.dispatch_status == 'failed', AgentDemand.agent_run_id.isnot(None), or_(
+        AgentDemand.dispatch_error.is_(None), AgentDemand.dispatch_error == '',
+        AgentDemand.dispatch_error.ilike('%uncertain%')))
+    busy, held_by_uncertain = set(), {}
+    for agent_id, number, uncertain in (await db.execute(select(
+            AgentDemand.target_agent_id, AgentDemand.number, uncertain_run).where(
         AgentDemand.target_agent_id.in_(target_ids), or_(AgentDemand.dispatch_status.in_(('dispatched', 'running')),
-            and_(AgentDemand.dispatch_status.is_(None), AgentDemand.agent_run_id.isnot(None)))))).all())
+            and_(AgentDemand.dispatch_status.is_(None), AgentDemand.agent_run_id.isnot(None)), uncertain_run))
+        .order_by(AgentDemand.number))).all():
+        busy.add(agent_id)
+        if uncertain:
+            held_by_uncertain.setdefault(agent_id, number)
     deliveries = {}
     for event in (await db.scalars(select(AuditEvent).where(AuditEvent.entity_id.in_(ids),
         AuditEvent.entity_type == 'agent_demand',
@@ -192,6 +205,10 @@ async def classify_messages(db, demands):
             elif hold:
                 info = _metadata(['awaiting_executor', 'executor_unavailable'],
                     'O executor tem uma indisponibilidade registrada.', wait='unavailable', until=hold.unavailable_until)
+            elif row.target_agent_id in busy and row.target_agent_id in held_by_uncertain:
+                info = _metadata(['awaiting_executor', 'executor_busy'],
+                    f'O executor está preso à execução incerta #{held_by_uncertain[row.target_agent_id]}; '
+                    'reconcilie-a em Tarefas dos agentes para liberar a fila.', wait='busy')
             elif row.target_agent_id in busy:
                 info = _metadata(['awaiting_executor', 'executor_busy'], 'O executor já acompanha outra execução.', wait='busy')
             elif analysis and analysis.category in {'duplicate', 'obsolete'}:
