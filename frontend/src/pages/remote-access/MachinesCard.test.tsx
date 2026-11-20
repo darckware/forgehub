@@ -279,7 +279,7 @@ describe("MachinesCard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Ações em GAT-ADM-PC01" }));
     menu = screen.getByRole("menu", { name: "Ações em GAT-ADM-PC01" });
-    expect(within(menu).queryByRole("menuitem", { name: "Rotacionar senha" })).not.toBeInTheDocument(); // no key on record
+    expect(within(menu).getByRole("menuitem", { name: "Rotacionar senha" })).toBeInTheDocument(); // Vault-backed key is rotatable
     expect(within(menu).queryByRole("menuitem", { name: "Detectar sistemas operacionais" })).not.toBeInTheDocument();
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Configurar acesso da máquina" }));
     expect(run).toHaveBeenLastCalledWith("prepare", expect.objectContaining({ id: "m1" }));

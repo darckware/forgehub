@@ -28,6 +28,7 @@ export interface Server {
   login_password_in_vault?: boolean;
   /** Candidate credentials await application and explicit key validation. */
   preparation_pending?: boolean;
+  pending_ssh_port?: number | null;
   /** Exact darckware identity was verified with the active machine key. */
   access_verified_at?: string | null;
   /** RustDesk ID and whether its permanent password is on file (recorded by

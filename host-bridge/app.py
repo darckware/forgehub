@@ -3719,6 +3719,10 @@ async def _vault_identity_args(key_ref: str) -> list[str]:
 
 
 async def _check_one_server(entry: ServerCheckEntry) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]*", entry.ip_address) or not re.fullmatch(
+        r"[A-Za-z0-9_][A-Za-z0-9._-]*", entry.remote_user
+    ):
+        return "not_installed"
     try:
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(entry.ip_address, entry.ssh_port), timeout=3.0
@@ -3741,15 +3745,16 @@ async def _check_one_server(entry: ServerCheckEntry) -> str:
         if not re.fullmatch(r"[0-9a-f-]{36}", entry.ssh_key_ref):
             return "not_installed"
         try:
-            if entry.strict:
-                ssh_args += await _vault_identity_args(entry.ssh_key_ref)
-            else:
-                ssh_args += ["-o", f"IdentityAgent={await _agent_socket_for(entry.ssh_key_ref)}"]
+            ssh_args += await _vault_identity_args(entry.ssh_key_ref)
         except Exception:
             # The vault or its agent failed: nothing proves the key works.
             return "not_installed"
     elif entry.ssh_key_path:
-        ssh_args += ["-i", entry.ssh_key_path]
+        try:
+            key_path = _resolve_key_path(entry.ssh_key_path)
+        except HTTPException:
+            return "not_installed"
+        ssh_args += ["-i", key_path]
         if entry.strict:
             ssh_args += ["-F", "/dev/null", "-o", "IdentitiesOnly=yes"]
     if entry.ssh_port != 22:
@@ -3759,7 +3764,7 @@ async def _check_one_server(entry: ServerCheckEntry) -> str:
     # as "key refused" just because `true` isn't a command there
     # (2026-10-16). And only ssh's own 255 means "couldn't log in": any other
     # exit code means the key was accepted and the remote shell ran.
-    ssh_args += [f"{entry.remote_user}@{entry.ip_address}", "exit"]
+    ssh_args += ["--", f"{entry.remote_user}@{entry.ip_address}", "exit"]
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -3802,7 +3807,7 @@ class InstallKeyRequest(BaseModel):
     public_key: str
     # Password of the LOGIN account: admin_user when set, remote_user otherwise.
     password: str
-    ssh_port: int = 22
+    ssh_port: int = Field(default=22, ge=1, le=65535)
     # When set (and different from remote_user), log in as this account
     # instead and CREATE remote_user on the server if it doesn't exist yet —
     # covers inventory users (aegis) not provisioned on the box. Must be
@@ -3925,7 +3930,9 @@ async def install_server_key(
     req: InstallKeyRequest, x_bridge_token: str | None = Header(default=None)
 ) -> dict:
     _check_token(x_bridge_token)
-    if not re.fullmatch(r"[\w.:-]+", req.ip_address) or not re.fullmatch(r"[\w.-]+", req.remote_user):
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]*", req.ip_address) or not re.fullmatch(
+        r"[A-Za-z0-9_][A-Za-z0-9._-]*", req.remote_user
+    ):
         raise HTTPException(status_code=400, detail="Invalid ip_address or remote_user")
     if not req.password:
         raise HTTPException(status_code=400, detail="Password is required")
@@ -3941,7 +3948,7 @@ async def install_server_key(
         # correct ownership/permissions and append the public key. Both
         # usernames are regex-validated above/below; the pubkey is
         # host-generated base64 — safe to embed in the script.
-        if not re.fullmatch(r"[\w.-]+", req.admin_user):
+        if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9._-]*", req.admin_user):
             raise HTTPException(status_code=400, detail="Invalid admin_user")
         script = f"""set -e
 U='{req.remote_user}'
@@ -3976,7 +3983,7 @@ echo "__KEY_INSTALLED__"
             # ~/.ssh/config hardens 172.15.* with `PasswordAuthentication no`
             # + `BatchMode yes` (key-only policy) -- override both here so the
             # one-time password bootstrap can run without editing that file.
-            "-o", "PreferredAuthentications=password",
+            "-o", "PreferredAuthentications=password,keyboard-interactive",
             "-o", "PubkeyAuthentication=no",
             "-o", "PasswordAuthentication=yes",
             "-o", "BatchMode=no",
@@ -4015,7 +4022,7 @@ echo __KEY_INSTALLED__
             "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ConnectTimeout=15",
             "-o", "NumberOfPasswordPrompts=1",
-            "-o", "PreferredAuthentications=password",
+            "-o", "PreferredAuthentications=password,keyboard-interactive",
             "-o", "PubkeyAuthentication=no",
             "-o", "PasswordAuthentication=yes",
             "-o", "BatchMode=no",
@@ -5378,9 +5385,21 @@ async def open_terminal_agent(req: TerminalAgentRequest, x_bridge_token: str | N
     if not re.fullmatch(r"[0-9a-f-]{36}", req.key_ref):
         raise HTTPException(status_code=400, detail="Invalid key_ref")
     try:
-        return {"socket": await _agent_cache.socket_for(req.key_ref)}
+        sock = await _agent_cache.socket_for(req.key_ref)
+        pub_path = os.path.join(os.path.dirname(sock), "identity.pub")
+        return {"socket": sock, "pub_path": pub_path if os.path.isfile(pub_path) else None}
     except ValueError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/v1/servers/agent:evict")
+async def evict_terminal_agent(req: TerminalAgentRequest, x_bridge_token: str | None = Header(default=None)) -> dict:
+    """Immediately stop and remove a cached in-memory ssh-agent (called when
+    a machine's key is rotated, cleared, or deleted)."""
+    _check_token(x_bridge_token)
+    if not re.fullmatch(r"[0-9a-f-]{36}", req.key_ref):
+        raise HTTPException(status_code=400, detail="Invalid key_ref")
+    return {"evicted": await _agent_cache.evict(req.key_ref)}
 # See forgevault_proxy.py (Remote Access secrets in ForgeVault, infra/Production only).
 app.include_router(make_forgevault_router(_check_token))
 # See evidence_probe.py (M0.6a: read-only file/git evidence for the completion guard).

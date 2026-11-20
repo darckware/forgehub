@@ -49,6 +49,8 @@ async def _transfer(payload, direction, principal, db):
     await require_direct(db, agent.id, servers)
     if server.os_family == 'windows':
         raise HTTPException(501, 'File transfer requires POSIX sh and GNU coreutils; Windows is not supported')
+    if server.id in await host.busy_server_ids(db):
+        raise HTTPException(409, {'code': 'MACHINE_BUSY', 'message': 'Another operation is already running on this machine'})
     readiness = await host._agent_readiness(db)
     if not readiness.get(server.id, (False, ''))[0]:
         raise HTTPException(409, {'code': 'LOGIN_NOT_READY', 'message': 'ForgeHub has no working machine login'})

@@ -418,7 +418,7 @@ class RequireAuthMiddleware(BaseHTTPMiddleware):
             or path.startswith("/api/v1/deploy/")
             or path.startswith("/api/v1/backups")
             or path.startswith("/api/v1/audit/")
-            or path == "/api/v1/servers"
+            or (request.method == "GET" and path == "/api/v1/servers")
             or path == "/api/v1/database/query"
         )
         if is_system_bridge_path:

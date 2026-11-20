@@ -262,7 +262,25 @@ export function useRecoverPreparation() {
   });
 }
 
-export interface HostPreparationValidation { ok: boolean; detail?: string }
+export interface HostPreparationValidation {
+  ok: boolean;
+  detail?: string | null;
+  failure_reason?: string | null;
+  diagnostic_excerpt?: string | null;
+  probed_port?: number | null;
+}
+
+/** Discard a stuck pending preparation without touching active credentials. */
+export function useCancelPreparation() {
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (serverId) => apiClient.delete(`/api/v1/servers/${serverId}/preparation/pending`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["servers"] });
+      void qc.invalidateQueries({ queryKey: ["servers", "readiness"] });
+    },
+  });
+}
 
 export interface HostPreparationDiagnostic {
   os_family: "windows" | "linux";
@@ -319,7 +337,11 @@ export function useRotateMachines() {
   const qc = useQueryClient();
   return useMutation<{ execution_id: string }, Error, { server_ids: string[]; kind: RotationKind }>({
     mutationFn: (body) => apiClient.post("/api/v1/servers/rotations", body),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["host-executions"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["host-executions"] });
+      void qc.invalidateQueries({ queryKey: ["servers"] });
+      void qc.invalidateQueries({ queryKey: ["servers", "readiness"] });
+    },
   });
 }
 

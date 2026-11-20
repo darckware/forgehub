@@ -222,7 +222,7 @@ export function MachinesCard({ quickActions }: { quickActions?: QuickActions } =
     ...((machine.os_family === "linux" || machine.os_family === "windows")
       ? [{ key: "prepare", label: t("quick.prepare"), icon: <Wrench className="h-3.5 w-3.5" />, onSelect: () => quickActions?.run("prepare", machine) }]
       : []),
-    ...(ready && machine.ssh_key_path
+    ...(ready && Boolean(machine.ssh_key_path || machine.ssh_key_in_vault) && !machine.preparation_pending
       ? ROTATIONS.map((action) => ({
           key: action, label: t(`quick.${action}`), icon: <RotateCw className="h-3.5 w-3.5" />, onSelect: () => quickActions?.run(action, machine),
         }))

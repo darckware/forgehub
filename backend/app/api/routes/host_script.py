@@ -322,9 +322,23 @@ async def list_schedules(db: AsyncSession = Depends(get_db), _admin: User = Depe
     return [await _schedule_out(db, r) for r in rows]
 
 
+def _reject_plaintext_schedule_secrets(script: HostScript, parameter_values: dict | None) -> None:
+    secret_params = {
+        p["name"] for p in (script.parameters or [])
+        if p.get("secret") and not p.get("vault_secret")
+    }
+    provided_secrets = [name for name in secret_params if (parameter_values or {}).get(name)]
+    if provided_secrets:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Scheduled runs cannot store plaintext secret parameters ({', '.join(sorted(provided_secrets))})",
+        )
+
+
 @schedules_router.post("", response_model=ScheduleOut, status_code=status.HTTP_201_CREATED)
 async def create_schedule(payload: ScheduleCreate, db: AsyncSession = Depends(get_db), admin: User = Depends(get_current_admin)):
     script = await _get_script(db, payload.script_id)
+    _reject_plaintext_schedule_secrets(script, payload.parameter_values)
     await prepare_script_run(script, payload.parameter_values)  # parameters valid now, not at 3 a.m.
     servers, _ = await resolve_targets(db, payload.server_ids, payload.group_ids)
     if not servers:
@@ -370,7 +384,9 @@ async def update_schedule(
     for key, value in fields.items():
         setattr(schedule, key, value)
     if "parameter_values" in fields:
-        await prepare_script_run(await _get_script(db, schedule.script_id), schedule.parameter_values)
+        script = await _get_script(db, schedule.script_id)
+        _reject_plaintext_schedule_secrets(script, schedule.parameter_values)
+        await prepare_script_run(script, schedule.parameter_values)
     if "server_ids" in fields or "group_ids" in fields:
         servers, _ = await resolve_targets(db, schedule.server_ids, schedule.group_ids)
         if not servers:

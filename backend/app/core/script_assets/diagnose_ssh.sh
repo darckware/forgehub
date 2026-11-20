@@ -2,6 +2,7 @@
 # ForgeHub: executar localmente com sudo sh diagnose_ssh.sh
 # Somente leitura: nao altera servicos, contas, firewall ou arquivos.
 # Nao usa set -e: cada consulta indisponivel deve permitir concluir o relatorio.
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 echo 'FORGEHUB_SSH_DIAGNOSTIC_V1 Linux'
 echo '--- Ambiente ---'
 hostname 2>/dev/null || echo 'NAO_VERIFICADO: hostname.'
@@ -43,6 +44,12 @@ if id darckware >/dev/null 2>&1; then
     if command -v passwd >/dev/null 2>&1; then
         passwd -S darckware 2>/dev/null || echo 'NAO_VERIFICADO: estado da senha (L=travada, P=definida, NP=sem senha).'
     else echo 'NAO_VERIFICADO: passwd indisponivel para consultar bloqueio da conta.'; fi
+    if command -v chage >/dev/null 2>&1; then
+        chage -l darckware 2>/dev/null || echo 'NAO_VERIFICADO: expiracao da conta (chage).'
+    fi
+    if command -v faillock >/dev/null 2>&1; then
+        faillock --user darckware 2>/dev/null | head -n 5 || true
+    fi
     if command -v getent >/dev/null 2>&1 && command -v cut >/dev/null 2>&1; then
         account=$(getent passwd darckware 2>/dev/null)
         home_dir=$(printf '%s\n' "$account" | cut -d: -f6)
@@ -58,13 +65,36 @@ if id darckware >/dev/null 2>&1; then
     else echo 'NAO_VERIFICADO: diretorio e shell da conta (getent/cut ausentes).'; fi
 else echo 'AUSENTE ou NAO_VERIFICADO: conta darckware (consulta id falhou).'; fi
 
-echo '--- Configuracao padrao SSH (diretivas selecionadas) ---'
-if [ -r /etc/ssh/sshd_config ] && command -v awk >/dev/null 2>&1; then
+echo '--- Configuracao efetiva SSH (diretivas selecionadas) ---'
+if [ "$uid" = 0 ] && [ -n "$sshd_bin" ] && command -v awk >/dev/null 2>&1; then
+    "$sshd_bin" -T -C user=darckware,host=localhost,addr=127.0.0.1 2>/dev/null |
+        awk 'tolower($1) ~ /^(port|pubkeyauthentication|passwordauthentication|strictmodes|usepam|allowusers|allowgroups|denyusers|denygroups|authorizedkeysfile)$/' ||
+        echo 'NAO_VERIFICADO: sshd -T.'
+elif [ -r /etc/ssh/sshd_config ] && command -v awk >/dev/null 2>&1; then
     awk 'tolower($1)=="port" && $2 ~ /^[0-9]+$/ {print "Port", $2}
-         tolower($1) ~ /^(pubkeyauthentication|passwordauthentication|strictmodes)$/ && $2 ~ /^(yes|no)$/ {print $1, $2}
+         tolower($1) ~ /^(pubkeyauthentication|passwordauthentication|strictmodes|usepam)$/ && $2 ~ /^(yes|no)$/ {print $1, $2}
+         tolower($1) ~ /^(allowusers|allowgroups|denyusers|denygroups|authorizedkeysfile)$/ {print $0}
          tolower($1)=="include" {print "Include presente: configuracao adicional nao avaliada"}
          tolower($1)=="match" {print "Match presente: regras condicionais nao avaliadas"}' /etc/ssh/sshd_config 2>/dev/null || echo 'NAO_VERIFICADO: configuracao.'
 else echo 'NAO_VERIFICADO: arquivo padrao ausente/sem leitura ou awk ausente.'; fi
+
+echo '--- Restricoes PAM / acesso SSH ---'
+if [ -r /etc/pam.d/sshd ]; then
+    grep -E 'pam_access' /etc/pam.d/sshd 2>/dev/null || echo 'Sem pam_access em /etc/pam.d/sshd.'
+fi
+for acc in /etc/security/access-sshd.conf /etc/security/access.conf; do
+    if [ -r "$acc" ]; then
+        lines=$(grep -vE '^[[:space:]]*(#|$)' "$acc" 2>/dev/null)
+        if [ -n "$lines" ]; then
+            echo "Regras ativas em $acc:"
+            printf '%s\n' "$lines" | head -n 20
+        fi
+    fi
+done
+if command -v ucr >/dev/null 2>&1; then
+    echo "UCS auth/sshd/restrict: $(ucr get auth/sshd/restrict 2>/dev/null || echo NAO_VERIFICADO)"
+    echo "UCS auth/sshd/user/darckware: $(ucr get auth/sshd/user/darckware 2>/dev/null || echo nao_definido)"
+fi
 
 echo '--- Firewall (consulta parcial; regras externas e tailnet nao avaliadas) ---'
 if command -v ufw >/dev/null 2>&1; then ufw status 2>/dev/null || echo 'NAO_VERIFICADO: ufw.'

@@ -1,6 +1,12 @@
 import { useMemo, useState } from "react";
 import { apiErrorText } from "@/lib/apiErrorText";
-import { usePrepareHost, useValidatePreparation, useRecoverPreparation, type HostPreparation } from "@/hooks/useHostInventory";
+import {
+  useCancelPreparation,
+  usePrepareHost,
+  useRecoverPreparation,
+  useValidatePreparation,
+  type HostPreparation,
+} from "@/hooks/useHostInventory";
 import { serverFormSchema, useServers, type Server } from "@/hooks/useServers";
 
 /** Configure machine access: select any supported enabled machine,
@@ -17,9 +23,15 @@ export interface PreparationViewModel {
   pending: boolean;
   retryingSsh: boolean;
   openRetrySsh: () => void;
+  closeRetrySsh: () => void;
+  cancelling: boolean;
+  cancelPending: () => void;
   validated: boolean;
   validating: boolean;
   validationDetail: string | null;
+  validationFailureReason: string | null;
+  validationDiagnostic: string | null;
+  validationProbedPort: number | null;
   validationFailed: boolean;
   validate: () => void;
   recover: () => void;
@@ -60,13 +72,14 @@ export function usePreparationViewModel(
   const { data: servers } = useServers();
   const validation = useValidatePreparation();
   const recovery = useRecoverPreparation();
+  const cancel = useCancelPreparation();
   const prepare = usePrepareHost();
   const [serverId, setServerIdState] = useState(initialServerId);
   const [mode, setMode] = useState<"ssh" | "copy">("ssh");
   const [accountChoice, setAccountChoice] = useState<"registered" | "other">("registered");
   const [otherUser, setOtherUser] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
-  const [action, setAction] = useState<"prepare" | "validate" | "recover">("prepare");
+  const [action, setAction] = useState<"prepare" | "validate" | "recover" | "cancel">("prepare");
   const [storedPasswordChoice, setStoredPasswordChoice] = useState(false);
   const [sshPortChoice, setSshPort] = useState<string | null>(null);
   const [disableAdminChoice, setDisableAdminChoice] = useState<boolean | null>(null);
@@ -91,10 +104,14 @@ export function usePreparationViewModel(
   const pending = Boolean(selected?.preparation_pending || result?.script);
   const validated = validation.data?.ok === true;
   const validationDetail = validation.data?.ok === false ? validation.data.detail ?? null : null;
-  const sshPort = sshPortChoice ?? String(selected?.ssh_port ?? 22);
+  const validationFailureReason = validation.data?.ok === false ? validation.data.failure_reason ?? null : null;
+  const validationDiagnostic = validation.data?.ok === false ? validation.data.diagnostic_excerpt ?? null : null;
+  const validationProbedPort = validation.data?.ok === false ? validation.data.probed_port ?? null : null;
+  const sshPort = sshPortChoice ?? String(selected?.pending_ssh_port ?? selected?.ssh_port ?? 22);
   const validPort = serverFormSchema.shape.ssh_port.safeParse(Number(sshPort)).success;
+  const hasAddress = selected?.ip_address === undefined ? true : Boolean(selected.ip_address?.trim());
 
-  const status = prepare.isPending || recovery.isPending ? "submitting" : prepare.isError || recovery.isError ? "error" : result?.script ? "copy_ready" : "idle";
+  const status = prepare.isPending || recovery.isPending || cancel.isPending ? "submitting" : prepare.isError || recovery.isError || cancel.isError ? "error" : result?.script ? "copy_ready" : "idle";
   return {
     status,
     pending,
@@ -102,24 +119,53 @@ export function usePreparationViewModel(
     openRetrySsh: () => {
       setMode("ssh");
       setRetryingSsh(true);
+      prepare.reset();
+      recovery.reset();
       validation.reset();
+      cancel.reset();
+    },
+    closeRetrySsh: () => {
+      setRetryingSsh(false);
+      prepare.reset();
+      validation.reset();
+    },
+    cancelling: cancel.isPending,
+    cancelPending: () => {
+      if (selected && !cancel.isPending && !validation.isPending && !recovery.isPending) {
+        setAction("cancel");
+        validation.reset();
+        prepare.reset();
+        recovery.reset();
+        setRetryingSsh(false);
+        cancel.mutate(selected.id, {
+          onSuccess: () => {
+            setSshPort(null);
+            setAdminPassword("");
+          },
+        });
+      }
     },
     validated,
     validationDetail,
+    validationFailureReason,
+    validationDiagnostic,
+    validationProbedPort,
     validationFailed: validation.data?.ok === false,
     validating: validation.isPending,
     validate: () => {
-      if (selected && !validation.isPending && !recovery.isPending) {
+      if (selected && !validation.isPending && !recovery.isPending && !cancel.isPending) {
         setRetryingSsh(false);
         setAction("validate");
+        cancel.reset();
         validation.mutate(selected.id);
       }
     },
     recover: () => {
-      if (selected && !recovery.isPending && !validation.isPending) {
+      if (selected && !recovery.isPending && !validation.isPending && !cancel.isPending) {
         setRetryingSsh(false);
         setAction("recover");
         validation.reset();
+        cancel.reset();
         recovery.mutate(selected.id);
       }
     },
@@ -136,6 +182,7 @@ export function usePreparationViewModel(
       prepare.reset();
       validation.reset();
       recovery.reset();
+      cancel.reset();
       setRetryingSsh(false);
       setStoredPasswordChoice(false);
       setOtherUser("");
@@ -151,6 +198,7 @@ export function usePreparationViewModel(
       prepare.reset();
       validation.reset();
       recovery.reset();
+      cancel.reset();
       setMode(m);
     },
     registeredUser,
@@ -165,11 +213,12 @@ export function usePreparationViewModel(
     setSshPort,
     disableAdmin,
     setDisableAdmin: setDisableAdminChoice,
-    canSubmit: (!pending || retryingSsh) && !validated && candidates.some((m) => m.id === selected?.id) && !validation.isPending && (mode === "copy" || (validPort && adminUser.length > 0 && (useStoredPassword || adminPassword.length > 0))),
+    canSubmit: (!pending || retryingSsh) && !validated && candidates.some((m) => m.id === selected?.id) && !validation.isPending && !cancel.isPending && (mode === "copy" || (hasAddress && validPort && adminUser.length > 0 && (useStoredPassword || adminPassword.length > 0))),
     submit: () => {
-      if (!selected || prepare.isPending || (mode === "ssh" && !validPort)) return;
+      if (!selected || prepare.isPending || (mode === "ssh" && (!hasAddress || !validPort))) return;
       setAction("prepare");
       validation.reset();
+      cancel.reset();
       prepare.mutate(
         {
           serverId: selected.id,
@@ -189,6 +238,8 @@ export function usePreparationViewModel(
       );
     },
     result,
-    error: { prepare, validate: validation, recover: recovery }[action].error ? apiErrorText({ prepare, validate: validation, recover: recovery }[action].error) : null,
+    error: { prepare, validate: validation, recover: recovery, cancel }[action].error
+      ? apiErrorText({ prepare, validate: validation, recover: recovery, cancel }[action].error)
+      : null,
   };
 }

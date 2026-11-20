@@ -228,19 +228,29 @@ function PassphraseSection({ server }: { server: Server }) {
           </Button>
         )}
       </div>
-      {updateServer.isError && <p className="text-[11px] text-destructive">{updateServer.error.message}</p>}
+      {updateServer.isError && <p className="text-[11px] text-destructive">{apiErrorText(updateServer.error)}</p>}
       <ConfirmDialog
         open={confirmRemove}
         title={t("form.passphrase.removeTitle")}
         description={t("form.passphrase.removeDescription", { name: server.name })}
         confirmLabel={t("form.passphrase.removeAction")}
         loading={updateServer.isPending}
+        error={updateServer.isError ? apiErrorText(updateServer.error) : null}
         onConfirm={() => {
-          save("");
-          setValue("");
+          updateServer.mutate(
+            { id: server.id, data: { key_passphrase: "" } },
+            {
+              onSuccess: () => {
+                setValue("");
+                setConfirmRemove(false);
+              },
+            },
+          );
+        }}
+        onCancel={() => {
+          updateServer.reset();
           setConfirmRemove(false);
         }}
-        onCancel={() => setConfirmRemove(false)}
       />
     </div>
   );

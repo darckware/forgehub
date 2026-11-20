@@ -79,6 +79,7 @@ class ServerOut(BaseModel):
     # The private key is kept in ForgeVault (only its id is on the row).
     ssh_key_in_vault: bool = False
     preparation_pending: bool = False
+    pending_ssh_port: int | None = None
     access_verified_at: datetime | None = None
     # ForgeHub-side access switch: false parks the server (no probe, no
     # terminal) without touching any key -- see Server.access_enabled.
@@ -220,6 +221,7 @@ class ServerCheckResult(BaseModel):
         "key_missing",
         "no_key",
         "disabled",
+        "unknown",
     ]
     detail: str
 
@@ -422,6 +424,9 @@ class HostPreparationRequest(BaseModel):
 class HostPreparationValidation(BaseModel):
     ok: bool
     detail: str | None = None
+    failure_reason: str | None = None
+    diagnostic_excerpt: str | None = None
+    probed_port: int | None = None
 
 
 class HostPreparationOut(BaseModel):

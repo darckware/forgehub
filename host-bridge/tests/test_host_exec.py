@@ -272,3 +272,64 @@ def test_forget_host_key_route_validates(monkeypatch):
     assert client.post("/v1/servers/forget-host-key", json={"host": "ws01"}).status_code == 401
     assert client.post("/v1/servers/forget-host-key", json={"host": "-oX=y"}, headers={"X-Bridge-Token": TOKEN}).status_code == 400
     assert client.post("/v1/servers/forget-host-key", json={"host": "ws01"}, headers={"X-Bridge-Token": TOKEN}).json() == {"removed": True}
+
+
+def test_classify_failure_recognizes_session_closed_and_too_many_auth():
+    assert host_exec.classify_failure(255, "Connection closed by 172.15.1.3 port 22\r\n", False) == "auth"
+    assert host_exec.classify_failure(255, "Received disconnect from 10.0.0.1 port 22:2: Too many authentication failures", False) == "auth"
+    assert host_exec.classify_failure(255, "ssh: connect to host 10.0.0.1 port 22: Connection refused", False) == "connection"
+
+
+def test_password_sh_uses_base64_argument_without_stdin():
+    target = host_exec.ExecTarget(host="172.15.1.3", user="administrator", password="secret")
+    argv, stdin = host_exec.build_command(target, "sh", "echo ok")
+    assert stdin is None
+    assert "-T" in argv
+    assert "PasswordAuthentication=yes" in argv
+    assert "--" in argv
+    assert "base64 -d | sh" in argv[-1]
+
+
+def test_ephemeral_agent_writes_pub_and_enforces_identities_only(tmp_path):
+    import asyncio
+    import os
+    import subprocess
+
+    keyfile = tmp_path / "k"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(keyfile)], check=True)
+    private_key = keyfile.read_text()
+
+    async def scenario():
+        async with host_exec.ephemeral_agent(private_key) as sock:
+            argv = host_exec.ssh_base(host_exec.ExecTarget(host="172.15.1.3", user="darckware", agent_sock=sock))
+            return sock, argv
+
+    sock, argv = asyncio.run(scenario())
+    assert "-F" in argv and "/dev/null" in argv
+    assert "IdentitiesOnly=yes" in argv
+    assert any(a.endswith("identity.pub") for a in argv)
+    assert not os.path.exists(sock)
+
+
+def test_agent_cache_evict_stops_agent_immediately(tmp_path):
+    import asyncio
+    import os
+    import subprocess
+
+    keyfile = tmp_path / "k"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(keyfile)], check=True)
+
+    async def reveal(_ref):
+        return keyfile.read_text()
+
+    async def scenario():
+        cache = host_exec.AgentCache(reveal, ttl=1800.0)
+        sock = await cache.socket_for("ref-evict")
+        assert os.path.exists(sock)
+        evicted = await cache.evict("ref-evict")
+        evicted_again = await cache.evict("ref-evict")
+        return sock, evicted, evicted_again
+
+    sock, evicted, evicted_again = asyncio.run(scenario())
+    assert evicted is True and evicted_again is False
+    assert not os.path.exists(sock)

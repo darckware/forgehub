@@ -64,12 +64,39 @@ class ExecTarget:
     agent_sock: str | None = None
 
 
+def _agent_pub_path(sock: str) -> str:
+    return os.path.join(os.path.dirname(sock), "identity.pub")
+
+
+async def _write_agent_pub(sock: str) -> str | None:
+    """Export the single public key loaded in `sock` into its 0700 directory so
+    ssh can run with `-F /dev/null -i <pub> -o IdentitiesOnly=yes` (never
+    falling back to /root/.ssh/* identities)."""
+    proc = await asyncio.create_subprocess_exec(
+        "ssh-add", "-L",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+        env={**os.environ, "SSH_AUTH_SOCK": sock},
+    )
+    out, _ = await proc.communicate()
+    lines = [line.strip() for line in out.decode(errors="replace").splitlines() if line.strip()]
+    if proc.returncode != 0 or not lines:
+        return None
+    pub_path = _agent_pub_path(sock)
+    with open(pub_path, "w", encoding="utf-8") as fh:
+        fh.write(lines[0] + "\n")
+    os.chmod(pub_path, 0o600)
+    return pub_path
+
+
 def ssh_base(target: ExecTarget) -> list[str]:
     if target.password:
         args = [
             "sshpass", "-e", "ssh",
+            "-T",
             "-o", "BatchMode=no",
             "-o", "PubkeyAuthentication=no",
+            "-o", "PasswordAuthentication=yes",
             "-o", "PreferredAuthentications=password,keyboard-interactive",
             "-o", "NumberOfPasswordPrompts=1",
             "-o", "ConnectTimeout=10",
@@ -79,7 +106,7 @@ def ssh_base(target: ExecTarget) -> list[str]:
         ]
         if target.port != 22:
             args += ["-p", str(target.port)]
-        return [*args, f"{target.user}@{target.host}"]
+        return [*args, "--", f"{target.user}@{target.host}"]
     args = [
         "ssh",
         "-o", "BatchMode=yes",
@@ -91,12 +118,16 @@ def ssh_base(target: ExecTarget) -> list[str]:
         "-o", "ServerAliveCountMax=4",
     ]
     if target.agent_sock:
-        args += ["-o", f"IdentityAgent={target.agent_sock}"]
+        pub_path = _agent_pub_path(target.agent_sock)
+        if os.path.isfile(pub_path):
+            args += ["-F", "/dev/null", "-o", f"IdentityAgent={target.agent_sock}", "-i", pub_path, "-o", "IdentitiesOnly=yes"]
+        else:
+            args += ["-o", f"IdentityAgent={target.agent_sock}"]
     elif target.key:
         args += ["-i", target.key, "-o", "IdentitiesOnly=yes"]
     if target.port != 22:
         args += ["-p", str(target.port)]
-    return [*args, f"{target.user}@{target.host}"]
+    return [*args, "--", f"{target.user}@{target.host}"]
 
 
 @contextlib.asynccontextmanager
@@ -123,6 +154,7 @@ async def ephemeral_agent(private_key: str):
         _, err = await add.communicate((private_key.rstrip("\n") + "\n").encode())
         if add.returncode != 0:
             raise ValueError("Could not load the machine's key from ForgeVault")
+        await _write_agent_pub(sock)
         yield sock
     finally:
         with contextlib.suppress(ProcessLookupError):
@@ -143,16 +175,26 @@ class AgentCache:
         self._ttl = ttl
         self._agents: dict[str, tuple[asyncio.subprocess.Process, str, str, float]] = {}
         self._lock = asyncio.Lock()
+        self._key_locks: dict[str, asyncio.Lock] = {}
         self._reaper: asyncio.Task | None = None
 
+    def _lock_for(self, key_ref: str) -> asyncio.Lock:
+        lock = self._key_locks.get(key_ref)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._key_locks[key_ref] = lock
+        return lock
+
     async def socket_for(self, key_ref: str) -> str:
-        async with self._lock:
-            entry = self._agents.get(key_ref)
-            if entry and entry[0].returncode is None and os.path.exists(entry[1]):
-                self._agents[key_ref] = (entry[0], entry[1], entry[2], time.monotonic())
-                return entry[1]
-            if entry:
-                self._stop(key_ref)
+        async with self._lock_for(key_ref):
+            async with self._lock:
+                entry = self._agents.get(key_ref)
+                if entry and entry[0].returncode is None and os.path.exists(entry[1]):
+                    self._agents[key_ref] = (entry[0], entry[1], entry[2], time.monotonic())
+                    return entry[1]
+                stale = self._agents.pop(key_ref, None)
+            if stale:
+                await self._terminate(*stale[:3])
             private_key = await self._reveal(key_ref)
             tmp = tempfile.mkdtemp(prefix="fh-agent-", dir="/dev/shm" if os.path.isdir("/dev/shm") else None)
             os.chmod(tmp, 0o700)
@@ -160,38 +202,52 @@ class AgentCache:
             agent = await asyncio.create_subprocess_exec(
                 "ssh-agent", "-D", "-a", sock, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
             )
-            for _ in range(50):
-                if os.path.exists(sock):
-                    break
-                await asyncio.sleep(0.05)
-            add = await asyncio.create_subprocess_exec(
-                "ssh-add", "-q", "-", stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-                env={**os.environ, "SSH_AUTH_SOCK": sock},
-            )
-            await add.communicate((private_key.rstrip("\n") + "\n").encode())
-            if add.returncode != 0:
-                with contextlib.suppress(ProcessLookupError):
-                    agent.kill()
-                shutil.rmtree(tmp, ignore_errors=True)
-                raise ValueError("Could not load the machine's key from ForgeVault")
-            self._agents[key_ref] = (agent, sock, tmp, time.monotonic())
-            if self._reaper is None or self._reaper.done():
-                self._reaper = asyncio.create_task(self._reap())
+            try:
+                for _ in range(50):
+                    if os.path.exists(sock):
+                        break
+                    await asyncio.sleep(0.05)
+                add = await asyncio.create_subprocess_exec(
+                    "ssh-add", "-q", "-", stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                    env={**os.environ, "SSH_AUTH_SOCK": sock},
+                )
+                await add.communicate((private_key.rstrip("\n") + "\n").encode())
+                if add.returncode != 0:
+                    raise ValueError("Could not load the machine's key from ForgeVault")
+                await _write_agent_pub(sock)
+            except BaseException:
+                await self._terminate(agent, sock, tmp)
+                raise
+            async with self._lock:
+                self._agents[key_ref] = (agent, sock, tmp, time.monotonic())
+                if self._reaper is None or self._reaper.done():
+                    self._reaper = asyncio.create_task(self._reap())
             return sock
 
-    def _stop(self, key_ref: str) -> None:
-        agent, _sock, tmp, _ = self._agents.pop(key_ref)
+    async def _terminate(self, agent: asyncio.subprocess.Process, _sock: str, tmp: str) -> None:
         with contextlib.suppress(ProcessLookupError):
             agent.kill()
+        with contextlib.suppress(Exception):
+            await agent.wait()
         shutil.rmtree(tmp, ignore_errors=True)
+
+    async def evict(self, key_ref: str) -> bool:
+        async with self._lock_for(key_ref):
+            async with self._lock:
+                entry = self._agents.pop(key_ref, None)
+            if not entry:
+                return False
+            await self._terminate(*entry[:3])
+            return True
 
     async def reap_idle(self) -> int:
         async with self._lock:
-            idle = [ref for ref, (_, _, _, used) in self._agents.items() if time.monotonic() - used > self._ttl]
-            for ref in idle:
-                self._stop(ref)
-            return len(idle)
+            idle_refs = [ref for ref, (_, _, _, used) in self._agents.items() if time.monotonic() - used > self._ttl]
+            entries = [self._agents.pop(ref) for ref in idle_refs]
+        for entry in entries:
+            await self._terminate(*entry[:3])
+        return len(entries)
 
     async def _reap(self) -> None:
         while self._agents:
@@ -239,6 +295,11 @@ def build_command(target: ExecTarget, shell: Shell, script: str) -> tuple[list[s
     script longer than MAX_POWERSHELL_CHARS doesn't fit cmd.exe's command line;
     run_script uploads those in chunks instead (powershell_upload_commands)."""
     if shell == "sh":
+        if target.password:
+            # Never pipe a script on stdin under sshpass: sshpass owns the pty
+            # and stdin races the password prompt (surfaces as bogus auth errors).
+            b64 = base64.b64encode(script.encode()).decode("ascii")
+            return [*ssh_base(target), f"printf '%s' '{b64}' | base64 -d | sh"], None
         return [*ssh_base(target), "sh -s"], script.encode()
     if len(script) > MAX_POWERSHELL_CHARS:
         raise ValueError(f"PowerShell script is limited to {MAX_POWERSHELL_CHARS} characters in one command")
@@ -281,17 +342,28 @@ async def _read_capped(stream: asyncio.StreamReader, cap: int) -> tuple[bytes, b
     return bytes(kept), truncated
 
 
+_CONN_CLOSED_RE = re.compile(r"connection closed by .+ port \d+")
+
+
 def classify_failure(exit_code: int | None, stderr: str, timed_out: bool) -> str | None:
     """None on success; otherwise why it failed, in terms the screen can show:
-    "timeout", "auth" (key refused), "connection" (unreachable / ssh error,
-    i.e. the script never ran) or "command" (it ran and exited non-zero)."""
+    "timeout", "auth" (key/PAM/policy refused), "connection" (unreachable / ssh
+    transport error, i.e. the script never ran) or "command" (it ran and exited
+    non-zero)."""
     if timed_out:
         return "timeout"
     if exit_code == 0:
         return None
     if exit_code == 255:
         low = stderr.lower()
-        if "permission denied" in low or "host key verification failed" in low:
+        if (
+            "permission denied" in low
+            or "host key verification failed" in low
+            or "too many authentication failures" in low
+            or "no more authentication methods" in low
+            or "authentication failed" in low
+            or _CONN_CLOSED_RE.search(low)
+        ):
             return "auth"
         return "connection"
     return "command"
@@ -348,13 +420,26 @@ async def run_script(
 ) -> dict:
     started = time.monotonic()
     env = _env_for(target)
+    uploaded_path: str | None = None
     if shell == "powershell" and len(script) > MAX_POWERSHELL_CHARS and build is None:
-        commands, _ = powershell_upload_commands(script)
+        commands, uploaded_path = powershell_upload_commands(script)
         base = ssh_base(target)
         for upload in commands[:-1]:
-            code, _out, err, _cut, timed_out = await _exec_once([*base, upload], None, 60, env)
+            budget = timeout - (time.monotonic() - started)
+            if budget <= 1.0:
+                return {
+                    "exit_code": None, "stdout": "",
+                    "stderr": "Could not upload the script to the machine (timeout budget exhausted).",
+                    "truncated": False, "timed_out": True,
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                    "failure": "timeout",
+                }
+            code, _out, err, _cut, timed_out = await _exec_once([*base, upload], None, min(60.0, budget), env)
             if timed_out or code != 0:
                 stderr = decode_clixml(err.decode(errors="replace"))
+                with contextlib.suppress(Exception):
+                    cleanup = _powershell_remote(f'Remove-Item -Force "{uploaded_path}" -ErrorAction SilentlyContinue')
+                    await _exec_once([*base, cleanup], None, 10.0, env)
                 return {
                     "exit_code": None if timed_out else code, "stdout": "",
                     "stderr": "Could not upload the script to the machine.\n" + stderr,
@@ -367,6 +452,10 @@ async def run_script(
         argv, stdin = (build or build_command)(target, shell, script)
     remaining = max(5.0, timeout - (time.monotonic() - started))
     exit_code, out, err, truncated, timed_out = await _exec_once(argv, stdin, remaining, env)
+    if timed_out and uploaded_path:
+        with contextlib.suppress(Exception):
+            cleanup = _powershell_remote(f'Remove-Item -Force "{uploaded_path}" -ErrorAction SilentlyContinue')
+            await _exec_once([*ssh_base(target), cleanup], None, 10.0, env)
     stderr = err.decode(errors="replace")
     if shell == "powershell":
         stderr = decode_clixml(stderr)
@@ -431,6 +520,7 @@ class ForgetHostKeyRequest(BaseModel):
 
 
 KNOWN_HOSTS = os.path.expanduser("~/.ssh/known_hosts")
+_KNOWN_HOSTS_LOCK = asyncio.Lock()
 
 
 async def forget_host_key(host: str, port: int, known_hosts: str = KNOWN_HOSTS) -> bool:
@@ -438,11 +528,12 @@ async def forget_host_key(host: str, port: int, known_hosts: str = KNOWN_HOSTS) 
     known_hosts, so the next connection records the machine's new key
     (trust on first use again). Returns whether an entry existed."""
     name = host if port == 22 else f"[{host}]:{port}"
-    proc = await asyncio.create_subprocess_exec(
-        "ssh-keygen", "-R", name, "-f", known_hosts,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-    )
-    out, err = await proc.communicate()
+    async with _KNOWN_HOSTS_LOCK:
+        proc = await asyncio.create_subprocess_exec(
+            "ssh-keygen", "-R", name, "-f", known_hosts,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        out, err = await proc.communicate()
     text = (out + err).decode(errors="replace")
     if proc.returncode != 0 and "not found" not in text:
         raise RuntimeError(text.strip()[:300] or "ssh-keygen failed")

@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Check, Copy, KeyRound, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { apiErrorText } from "@/lib/apiErrorText";
 import { SidePanel } from "@/components/ui/side-panel";
 import { useRevealLoginPassword } from "@/hooks/useHostInventory";
 import type { Server } from "@/hooks/useServers";
@@ -68,7 +69,7 @@ export function RevealPasswordDialog({
       ) : (
         <p className="text-muted-foreground">{t("password.confirm")}</p>
       )}
-      {reveal.isError && <p role="alert" className="text-xs text-destructive">{reveal.error.message}</p>}
+      {reveal.isError && <p role="alert" className="text-xs text-destructive">{apiErrorText(reveal.error)}</p>}
     </SidePanel>
   );
 }

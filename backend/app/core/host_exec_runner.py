@@ -94,7 +94,7 @@ async def call_bridge_exec_as(
             detail = resp.json().get("detail")
         except ValueError:
             detail = None
-        return {"failure": "connection", "stderr": f"Host bridge refused the run: {detail or resp.status_code}"}
+        return {"failure": "bridge", "stderr": f"Host bridge refused the run: {detail or resp.status_code}"}
     return resp.json()
 
 
@@ -128,7 +128,7 @@ async def _run_one(
             if execution is None or execution.status == "cancelled":
                 break
         await asyncio.sleep(RETRY_INTERVAL_SECONDS)
-        outcome = await call_bridge_exec(server, shell, script, timeout)
+        outcome = await executor(server) if executor else await call_bridge_exec(server, shell, script, timeout)
 
     async with AsyncSessionLocal() as db:
         result = await db.get(HostExecutionResult, result_id)

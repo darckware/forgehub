@@ -21,7 +21,9 @@ Endpoints:
   POST   /api/v1/servers/{id}/public-key:fill – record the vault key's public half (rule 3)
 """
 import asyncio
+import base64
 import csv
+import hmac
 import io
 import ipaddress
 import logging
@@ -34,7 +36,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import paramiko
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
@@ -270,8 +272,70 @@ async def _set_server_groups(
         db.add(HostGroupMember(group_id=group_id, server_id=server_id))
 
 
+_HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$")
+_USER_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$")
+_ADMIN_USER_RE = re.compile(r"^(?:[A-Za-z0-9._-]+\\)?[A-Za-z0-9_][A-Za-z0-9_.@-]{0,63}$")
+
+
+def _validate_host_user(ip_address: str | None = None, remote_user: str | None = None) -> None:
+    if ip_address is not None and not _HOST_RE.match(ip_address):
+        raise HTTPException(status_code=422, detail="Invalid IP address or hostname")
+    if remote_user is not None and not _USER_RE.match(remote_user):
+        raise HTTPException(status_code=422, detail="Invalid remote user login")
+
+
+_TAILNET_NET = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _is_tailnet_host(server: Server) -> bool:
+    if server.tailnet_node_id:
+        return True
+    try:
+        return ipaddress.ip_address(server.ip_address or "") in _TAILNET_NET
+    except ValueError:
+        return False
+
+
+def _sanitize_diagnostic(text: str | None) -> str | None:
+    if not text:
+        return None
+    from app.core.secret_masking import mask_secrets
+    cleaned = mask_secrets(text, ()) or ""
+    cleaned = " ".join(cleaned.replace("\r", "\n").splitlines()).strip()
+    if not cleaned:
+        return None
+    return cleaned[:240]
+
+
+def _invalidate_probe_cache(server_id: uuid.UUID) -> None:
+    _ssh_probe_cache.pop(server_id, None)
+
+
+async def _evict_bridge_agent(key_ref: str | None) -> None:
+    if not key_ref:
+        return
+    try:
+        await _bridge_post("/v1/servers/agent:evict", {"key_ref": key_ref}, timeout=5.0)
+    except Exception:
+        pass
+
+
+async def _require_servers_view_or_bridge(request: Request, db: AsyncSession = Depends(get_db)):
+    bridge_token = request.headers.get("x-bridge-token")
+    if bridge_token and settings.CHAT_BRIDGE_TOKEN and hmac.compare_digest(bridge_token, settings.CHAT_BRIDGE_TOKEN):
+        return None
+    from app.core.deps import get_current_user, require_perm
+    auth = request.headers.get("authorization") or ""
+    token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+    user = await get_current_user(token=token, db=db)
+    return await require_perm("servers", "view")(current_user=user, db=db)
+
+
 @router.get("", response_model=list[ServerOut])
-async def list_servers(db: AsyncSession = Depends(get_db)):
+async def list_servers(
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(_require_servers_view_or_bridge),
+):
     servers = list((await db.execute(select(Server).order_by(Server.name))).scalars().all())
     groups = await _group_ids_by_server(db, [s.id for s in servers])
     duplicates = duplicate_keys_by_server(servers)
@@ -286,11 +350,20 @@ async def list_servers(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", response_model=ServerOut, status_code=status.HTTP_201_CREATED)
-async def create_server(payload: ServerCreate, db: AsyncSession = Depends(get_db)):
+async def create_server(
+    payload: ServerCreate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+):
+    ip_clean = payload.ip_address.strip()
+    user_clean = payload.remote_user.strip()
+    _validate_host_user(ip_clean, user_clean)
     existing = await db.execute(select(Server).where(Server.name == payload.name))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail=f"Server '{payload.name}' already exists")
     fields = payload.model_dump()
+    fields["ip_address"] = ip_clean
+    fields["remote_user"] = user_clean
     # Write-only on the schema, encrypted column on the model -- the names
     # deliberately differ so a plain **fields splat can never persist it raw.
     passphrase = fields.pop("key_passphrase", None)
@@ -1003,7 +1076,12 @@ async def get_server(
 
 
 @router.put("/{server_id}", response_model=ServerOut)
-async def update_server(server_id: uuid.UUID, payload: ServerUpdate, db: AsyncSession = Depends(get_db)):
+async def update_server(
+    server_id: uuid.UUID,
+    payload: ServerUpdate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+):
     server = await _locked_machine(db, server_id)
     fields = payload.model_dump(exclude_unset=True)
     if "name" in fields:
@@ -1018,6 +1096,7 @@ async def update_server(server_id: uuid.UUID, payload: ServerUpdate, db: AsyncSe
             if fields[required_field] is None or not fields[required_field].strip():
                 raise HTTPException(status_code=422, detail=f"{required_field} cannot be empty")
             fields[required_field] = fields[required_field].strip()
+    _validate_host_user(fields.get("ip_address"), fields.get("remote_user"))
     if server.remote_user != "darckware" and fields.get("remote_user") == "darckware":
         raise HTTPException(status_code=422, detail="Use Configurar acesso to validate darckware credentials")
     conflicting = {"ip_address", "remote_user", "ssh_port", "os_family", "key_passphrase"}
@@ -1047,21 +1126,46 @@ async def update_server(server_id: uuid.UUID, payload: ServerUpdate, db: AsyncSe
         else:
             detail = "This tailnet device is already linked to another machine"
         raise HTTPException(status_code=409, detail=detail) from None
+    _invalidate_probe_cache(server.id)
     await db.refresh(server)
     return await _out(db, server)
 
 
 @router.delete("/{server_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_server(server_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    server = await db.get(Server, server_id)
-    if not server:
-        raise HTTPException(status_code=404, detail="Server not found")
+async def delete_server(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    server = await _locked_machine(db, server_id)
+    if server_id in await busy_server_ids(db):
+        raise HTTPException(status_code=409, detail="A machine operation is still running")
+    old_refs = [r for r in (server.ssh_key_ref, server.pending_ssh_key_ref) if r]
+    db.add(AuditEvent(
+        entity_type="server",
+        entity_id=server.id,
+        event_type="server_deleted",
+        actor=admin.username,
+        payload={
+            "name": server.name,
+            "ip_address": server.ip_address,
+            "orphaned_key_refs": old_refs,
+            "orphaned_login_refs": [r for r in (server.login_password_ref, server.pending_login_password_ref) if r],
+        },
+    ))
     await db.delete(server)
     await db.commit()
+    _invalidate_probe_cache(server_id)
+    for ref in old_refs:
+        await _evict_bridge_agent(ref)
 
 
 @router.post("/{server_id}/check", response_model=ServerCheckResult)
-async def check_server_status(server_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def check_server_status(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_perm("servers", "view")),
+):
     """Runs a live SSH reachability probe against the server (not persisted --
     called on demand from the Servers page to answer "which servers are up,
     which have a working key, which have none configured").
@@ -1086,6 +1190,8 @@ async def check_server_status(server_id: uuid.UUID, db: AsyncSession = Depends(g
     bridge_result = await _check_via_bridge(server)
     if bridge_result is not None:
         check_status, detail = bridge_result
+    elif server.ssh_key_ref:
+        check_status, detail = "unknown", "Host bridge unavailable; cannot probe ForgeVault key"
     else:
         passphrase = (
             decrypt_secret(server.key_passphrase_encrypted)
@@ -1104,7 +1210,11 @@ async def check_server_status(server_id: uuid.UUID, db: AsyncSession = Depends(g
 
 
 @router.post("/{server_id}/access:toggle", response_model=ServerOut)
-async def toggle_server_access(server_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def toggle_server_access(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+):
     """Flips access_enabled. A dedicated route rather than a PUT because the
     row-level icon has no form state to send: a PUT of the whole record from a
     list row would have to invent values for every other field.
@@ -1113,11 +1223,10 @@ async def toggle_server_access(server_id: uuid.UUID, db: AsyncSession = Depends(
     own note. The point of the switch is to park a machine without dismantling
     the way back in.
     """
-    server = await db.get(Server, server_id)
-    if not server:
-        raise HTTPException(status_code=404, detail="Server not found")
+    server = await _locked_machine(db, server_id)
     server.access_enabled = not server.access_enabled
     await db.commit()
+    _invalidate_probe_cache(server.id)
     await db.refresh(server)
     return await _out(db, server)
 
@@ -1143,8 +1252,6 @@ async def install_server_key(
     remote_user = (payload.remote_user or server.remote_user).strip()
     if remote_user != "darckware" or server.remote_user != "darckware":
         raise HTTPException(status_code=422, detail="Use Configurar acesso to prepare the darckware account")
-    if server.preparation_pending:
-        raise HTTPException(status_code=409, detail="Validate the pending preparation first")
     admin_user = payload.admin_user.strip() if payload.admin_user else None
     new_ref, public_key = await _new_machine_key(db, server)
 
@@ -1177,6 +1284,7 @@ async def install_server_key(
         )
 
     old_path = server.ssh_key_path
+    old_ref = server.ssh_key_ref
     server.access_verified_at = None
     server.ssh_key_ref, server.ssh_key_path = new_ref, None
     server.private_key_encrypted = None
@@ -1189,6 +1297,9 @@ async def install_server_key(
     db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="ssh_key_path_released", actor=_admin.username,
                       payload={"old_key_path": old_path, "verified_with": "forgevault"}))
     await db.commit()
+    _invalidate_probe_cache(server.id)
+    if old_ref and old_ref != new_ref:
+        await _evict_bridge_agent(old_ref)
     return ServerInstallKeyResult(
         ok=True,
         steps=data.get("steps", []),
@@ -1348,13 +1459,16 @@ async def detect_missing_os(
         Server.remote_user.is_not(None), Server.remote_user != "", Server.ip_address.is_not(None),
     ).order_by(Server.name))).scalars())
 
+    sem = asyncio.Semaphore(8)
+
     async def one(server: Server) -> dict:
         if not (server.ssh_key_ref or server.ssh_key_path):
             return {"name": server.name, "os_family": None, "detail": "No ForgeHub key for this machine"}
-        resp = await _bridge_post("/v1/servers/detect-os", {
-            "host": server.ip_address, "user": server.remote_user, "port": server.ssh_port or 22,
-            "key_ref": server.ssh_key_ref, "key_path": None if server.ssh_key_ref else server.ssh_key_path,
-        }, timeout=120.0)
+        async with sem:
+            resp = await _bridge_post("/v1/servers/detect-os", {
+                "host": server.ip_address, "user": server.remote_user, "port": server.ssh_port or 22,
+                "key_ref": server.ssh_key_ref, "key_path": None if server.ssh_key_ref else server.ssh_key_path,
+            }, timeout=120.0)
         if resp.status_code != 200:
             return {"name": server.name, "os_family": None, "detail": _bridge_detail(resp)}
         return {"name": server.name, **resp.json()}
@@ -1375,10 +1489,15 @@ _PUB_RE = re.compile(r"^(ssh-(?:ed25519|rsa)) ([A-Za-z0-9+/=]+)(?: [\w.@:-]+)?$"
 def _add_key_script(os_family: str, public_key: str) -> str:
     if os_family == "windows":
         return (
-            "$f = \"$env:ProgramData\\ssh\\administrators_authorized_keys\"\n"
+            "$ErrorActionPreference = 'Stop'\n"
+            "$dir = \"$env:ProgramData\\ssh\"; New-Item -ItemType Directory -Force -Path $dir | Out-Null\n"
+            "$f = \"$dir\\administrators_authorized_keys\"\n"
             f"$k = '{public_key}'\n"
-            "if (-not (Select-String -Path $f -SimpleMatch $k -Quiet)) { Add-Content -Path $f -Value $k }\n"
-            "icacls $f /inheritance:r /grant '*S-1-5-32-544:F' /grant 'SYSTEM:F' | Out-Null\n'ok'"
+            "$utf8NoBom = New-Object System.Text.UTF8Encoding($false)\n"
+            "$existing = if (Test-Path $f) { [IO.File]::ReadAllLines($f) } else { @() }\n"
+            "if ($existing -notcontains $k) { [IO.File]::WriteAllLines($f, (@($existing | Where-Object { $_ -ne '' }) + @($k)), $utf8NoBom) }\n"
+            "icacls $f /inheritance:r /grant '*S-1-5-32-544:F' /grant '*S-1-5-18:F' | Out-Null\n"
+            "if ($LASTEXITCODE -ne 0) { throw \"icacls falhou ($LASTEXITCODE)\" }\n'ok'"
         )
     return f"mkdir -p ~/.ssh && chmod 700 ~/.ssh && (grep -qxF '{public_key}' ~/.ssh/authorized_keys 2>/dev/null || echo '{public_key}' >> ~/.ssh/authorized_keys) && chmod 600 ~/.ssh/authorized_keys && echo ok"
 
@@ -1386,19 +1505,31 @@ def _add_key_script(os_family: str, public_key: str) -> str:
 def _remove_key_script(os_family: str, key_body: str) -> str:
     if os_family == "windows":
         return (
+            "$ErrorActionPreference = 'Stop'\n"
             "$f = \"$env:ProgramData\\ssh\\administrators_authorized_keys\"\n"
             f"$old = '{key_body}'\n"
-            "$keep = Get-Content $f | Where-Object { $_ -notlike \"*$old*\" }\n"
-            "Set-Content -Path $f -Value $keep\n"
-            "icacls $f /inheritance:r /grant '*S-1-5-32-544:F' /grant 'SYSTEM:F' | Out-Null\n'ok'"
+            "$lines = [IO.File]::ReadAllLines($f)\n"
+            "$keep = @($lines | Where-Object { $_ -and $_ -notlike \"*$old*\" })\n"
+            "if ($keep.Count -eq 0) { throw 'Recusado: remover a chave antiga deixaria administrators_authorized_keys vazio' }\n"
+            "$utf8NoBom = New-Object System.Text.UTF8Encoding($false)\n"
+            "[IO.File]::WriteAllLines($f, $keep, $utf8NoBom)\n"
+            "icacls $f /inheritance:r /grant '*S-1-5-32-544:F' /grant '*S-1-5-18:F' | Out-Null\n"
+            "if ($LASTEXITCODE -ne 0) { throw \"icacls falhou ($LASTEXITCODE)\" }\n'ok'"
         )
-    return f"grep -vF '{key_body}' ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.new; mv ~/.ssh/authorized_keys.new ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && echo ok"
+    return (
+        f"grep -vF '{key_body}' ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.new; rc=$?; "
+        "if [ \"$rc\" -le 1 ] && [ -s ~/.ssh/authorized_keys.new ]; then "
+        "mv ~/.ssh/authorized_keys.new ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && echo ok; "
+        "else rm -f ~/.ssh/authorized_keys.new; echo 'Recusado: authorized_keys ficaria vazio ou grep falhou' >&2; exit 1; fi"
+    )
 
 
 def _set_password_script(os_family: str, login: str, password: str) -> str:
+    if not _USER_RE.match(login or ""):
+        raise ValueError("Invalid login for password rotation")
     if os_family == "windows":
-        return f"$pw = ConvertTo-SecureString '{password}' -AsPlainText -Force; Set-LocalUser -Name '{login}' -Password $pw; 'ok'"
-    return f"echo '{login}:{password}' | sudo -n chpasswd && echo ok"
+        return f"$ErrorActionPreference = 'Stop'; $pw = ConvertTo-SecureString '{password}' -AsPlainText -Force; Set-LocalUser -Name '{login}' -Password $pw; 'ok'"
+    return f"if [ \"$(id -u)\" -eq 0 ]; then printf '%s:%s\\n' '{login}' '{password}' | chpasswd; else printf '%s:%s\\n' '{login}' '{password}' | sudo -n chpasswd; fi && echo ok"
 
 
 def _shell(os_family: str | None) -> str:
@@ -1578,16 +1709,25 @@ async def _rotate_key(db: AsyncSession, server: Server) -> dict:
         log.append("== 4/4 Remover a chave antiga da máquina: " + ("ok" if not removed.get("failure") else "FALHOU (a nova já vale)"))
     else:
         log.append("== 4/4 Remover a chave antiga: não havia chave antiga registrada")
+    old_ref = server.ssh_key_ref
     server.ssh_key_path, server.public_key, server.ssh_key_ref = None, new_pub, new_ref
     server.private_key_encrypted = None
+    server.access_verified_at = datetime.now(timezone.utc)
     log.append("   chave privada mantida somente na ForgeVault")
-    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="ssh_key_rotated", actor="forgehub", payload={"key_path": None}))
+    db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="ssh_key_rotated", actor="forgehub", payload={"key_path": None, "previous_secret_ref": old_ref, "secret_ref": new_ref}))
     await db.commit()
+    _invalidate_probe_cache(server.id)
+    if old_ref and old_ref != new_ref:
+        await _evict_bridge_agent(old_ref)
     return {"exit_code": 0, "failure": None, "stdout": "\n".join(log), "stderr": "", "duration_ms": check.get("duration_ms")}
 
 
 @router.post("/{server_id}/terminal-command", response_model=TerminalCommandOut)
-async def terminal_command(server_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def terminal_command(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+):
     """The `ssh` command the Workspace terminal runs for this machine. With the
     key in ForgeVault, it points at the bridge's in-memory agent for that key
     (`-o IdentityAgent=...`) -- no key file. Otherwise the legacy form (key
@@ -1599,16 +1739,29 @@ async def terminal_command(server_id: uuid.UUID, db: AsyncSession = Depends(get_
         raise HTTPException(status_code=403, detail=f"Access to {server.name} is disabled in ForgeHub")
     if not server.ip_address:
         raise HTTPException(status_code=409, detail="The machine has no address yet")
+    _validate_host_user(server.ip_address, server.remote_user)
     port = ["-p", str(server.ssh_port)] if server.ssh_port and server.ssh_port != 22 else []
     target = f"{server.remote_user}@{server.ip_address}"
     if server.ssh_key_ref:
         resp = await _bridge_post("/v1/servers/agent:open", {"key_ref": server.ssh_key_ref})
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"Could not load the key from ForgeVault: {_bridge_detail(resp)}")
-        parts = ["ssh", "-o", f"IdentityAgent={resp.json()['socket']}", *port, target]
-        return TerminalCommandOut(command=" ".join(parts), vault_key=True)
+        body = resp.json()
+        sock = str(body["socket"])
+        pub_path = body.get("pub_path")
+        if pub_path:
+            parts = [
+                "ssh", "-F", "/dev/null",
+                "-o", f"IdentityAgent={sock}",
+                "-i", str(pub_path),
+                "-o", "IdentitiesOnly=yes",
+                *port, target,
+            ]
+        else:
+            parts = ["ssh", "-o", f"IdentityAgent={sock}", *port, target]
+        return TerminalCommandOut(command=shlex.join(parts), vault_key=True)
     parts = ["ssh", "-o", "PasswordAuthentication=yes", "-o", "BatchMode=no", *port, target]
-    return TerminalCommandOut(command=" ".join(parts), vault_key=False)
+    return TerminalCommandOut(command=shlex.join(parts), vault_key=False)
 
 
 STATION_LOGIN = "darckware"
@@ -1632,8 +1785,14 @@ async def get_host_diagnostic(server_id: uuid.UUID, db: AsyncSession = Depends(g
 
 def _lock_admin_script(os_family: str, admin_user: str) -> str:
     if os_family == "windows":
-        return f"Disable-LocalUser -Name '{admin_user}'; (Get-LocalUser -Name '{admin_user}').Enabled"
-    return f"sudo -n usermod -L {admin_user} && sudo -n passwd -S {admin_user}"
+        local_name = admin_user.split("\\")[-1]
+        return f"Disable-LocalUser -Name '{local_name}' -ErrorAction Stop; (Get-LocalUser -Name '{local_name}' -ErrorAction Stop).Enabled"
+    quoted = shlex.quote(admin_user)
+    return (
+        f"sudo -n usermod -L -- {quoted} && "
+        f"(sudo -n chage -E 0 -- {quoted} 2>/dev/null || true) && "
+        f"sudo -n passwd -S -- {quoted}"
+    )
 
 
 def _is_machine_login(identity: str, os_family: str) -> bool:
@@ -1687,17 +1846,30 @@ async def _validate_preparation(db: AsyncSession, server_id: uuid.UUID, actor: s
         result = {"failure": "connection", "exit_code": 1, "stdout": ""}
     failure = result.get("failure")
     identity = result.get("stdout") or ""
+    stderr_text = result.get("stderr") or ""
+    diagnostic_excerpt = _sanitize_diagnostic(stderr_text)
     identity_matches = _is_machine_login(identity, os_family)
     ok = not failure and result.get("exit_code") == 0 and identity_matches
     if ok:
         failure_reason = None
         detail = None
+    elif failure == "bridge":
+        failure_reason = "bridge"
+        detail = "O host-bridge/ForgeVault não conseguiu iniciar a validação SSH. Verifique a disponibilidade do bridge e do cofre."
     elif failure == "auth":
-        failure_reason = "key_rejected"
-        detail = "O SSH recusou a chave pendente. Reaplique as instruções pendentes nesta máquina e tente validar novamente."
+        if "connection closed by" in stderr_text.lower():
+            failure_reason = "session_closed"
+            detail = (
+                "O SSH alcançou a máquina, mas o servidor encerrou a sessão durante a autenticação "
+                "(comum com pam_access, Univention/UCS, AllowGroups ou conta bloqueada). "
+                "Reaplique as instruções ou rode o diagnóstico local."
+            )
+        else:
+            failure_reason = "key_rejected"
+            detail = "O SSH recusou a chave pendente. Reaplique as instruções pendentes nesta máquina e tente validar novamente."
     elif failure == "connection":
         failure_reason = "connection"
-        detail = "O ForgeHub não conseguiu concluir a conexão SSH com esta máquina na porta configurada. Confira o sshd e a rota Tailscale."
+        detail = f"O ForgeHub não conseguiu concluir a conexão SSH com esta máquina na porta {port}. Confira o sshd e a rota Tailscale."
     elif failure == "timeout" or result.get("timed_out"):
         failure_reason = "timeout"
         detail = "A conexão SSH expirou antes de concluir a validação."
@@ -1718,7 +1890,9 @@ async def _validate_preparation(db: AsyncSession, server_id: uuid.UUID, actor: s
     db.add(AuditEvent(entity_type="server", entity_id=server.id,
                      event_type="preparation_verified" if ok else "preparation_verification_failed",
                      actor=actor, payload={"candidate_key_ref": ref, "ok": ok,
-                                           "failure_reason": failure_reason}))
+                                           "failure_reason": failure_reason, "probed_port": port,
+                                           "diagnostic_excerpt": diagnostic_excerpt}))
+    old_active_ref = server.ssh_key_ref
     if ok:
         await assert_key_unique(db, server.id, public_key=public_key, key_ref=ref)
         server.access_verified_at = datetime.now(timezone.utc)
@@ -1732,7 +1906,17 @@ async def _validate_preparation(db: AsyncSession, server_id: uuid.UUID, actor: s
         server.pending_ssh_key_ref = server.pending_public_key_encrypted = None
         server.pending_login_password_ref = server.pending_ssh_port = None
     await db.commit()
-    return HostPreparationValidation(ok=ok, detail=detail)
+    if ok:
+        _invalidate_probe_cache(server.id)
+        if old_active_ref and old_active_ref != ref:
+            await _evict_bridge_agent(old_active_ref)
+    return HostPreparationValidation(
+        ok=ok,
+        detail=detail,
+        failure_reason=failure_reason,
+        diagnostic_excerpt=diagnostic_excerpt,
+        probed_port=port,
+    )
 
 
 @router.post("/{server_id}/preparation/pending", response_model=HostPreparationOut)
@@ -1750,13 +1934,55 @@ async def recover_host_preparation(server_id: uuid.UUID, db: AsyncSession = Depe
         raise HTTPException(status_code=409, detail="Candidate validation is already running")
     public_key = decrypt_secret(server.pending_public_key_encrypted)
     password = await vault_reveal(server.pending_login_password_ref)
-    script, language = preparation_script(server.os_family, STATION_LOGIN, public_key, password)
+    port = server.pending_ssh_port or server.ssh_port or 22
+    script, language = preparation_script(
+        server.os_family, STATION_LOGIN, public_key, password,
+        ssh_port=port, tailnet_only=_is_tailnet_host(server),
+    )
     db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="preparation_script_recovered",
                      actor=admin.username, payload={"candidate_key_ref": server.pending_ssh_key_ref,
                      "candidate_login_ref": server.pending_login_password_ref, "state": "pending"}))
     await db.commit()
     return HostPreparationOut(server_id=server.id, os_family=server.os_family, language=language,
                               script=script, public_key=public_key, key_created=False, key_path="")
+
+
+@router.delete("/{server_id}/preparation/pending", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_host_preparation(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Discard a pending preparation candidate so the operator can fix host
+    IP/port/OS or restart cleanly without deleting the server row. Existing
+    active credentials are never touched."""
+    server = await _locked_machine(db, server_id)
+    if not server.preparation_pending:
+        raise HTTPException(status_code=409, detail="No preparation pending")
+    if server_id in await busy_server_ids(db):
+        raise HTTPException(status_code=409, detail="A machine operation is still running")
+    if server.preparation_validation_until and server.preparation_validation_until > datetime.now(timezone.utc):
+        raise HTTPException(status_code=409, detail="Candidate validation is already running")
+    old_key_ref = server.pending_ssh_key_ref
+    old_login_ref = server.pending_login_password_ref
+    server.pending_ssh_key_ref = None
+    server.pending_public_key_encrypted = None
+    server.pending_login_password_ref = None
+    server.pending_ssh_port = None
+    server.preparation_validation_until = None
+    db.add(AuditEvent(
+        entity_type="server",
+        entity_id=server.id,
+        event_type="preparation_cancelled",
+        actor=admin.username,
+        payload={
+            "discarded_key_ref": old_key_ref,
+            "discarded_login_ref": old_login_ref,
+        },
+    ))
+    await db.commit()
+    _invalidate_probe_cache(server.id)
+    await _evict_bridge_agent(old_key_ref)
 
 
 @router.post("/{server_id}/preparation/validate", response_model=HostPreparationValidation)
@@ -1791,7 +2017,7 @@ async def prepare_host(server_id: uuid.UUID, payload: HostPreparationRequest | N
     if server.os_family not in ("windows", "linux"):
         raise HTTPException(status_code=422, detail="Set the machine's operating system (Windows or Linux) first")
     admin_user = (payload.admin_user or server.admin_user or "").strip()
-    if admin_user and not re.fullmatch(r"[A-Za-z0-9_.@\\-]+", admin_user):
+    if admin_user and not _ADMIN_USER_RE.match(admin_user):
         raise HTTPException(status_code=422, detail="Invalid administrator login")
     admin_password = payload.admin_password
     if payload.use_stored_password:
@@ -1847,20 +2073,27 @@ async def prepare_host(server_id: uuid.UUID, payload: HostPreparationRequest | N
             "previous_key_ref": server.ssh_key_ref, "previous_login_ref": server.login_password_ref,
         }
     host, port, os_family = server.ip_address, server.pending_ssh_port, server.os_family
+    try:
+        script, language = preparation_script(
+            os_family, STATION_LOGIN, public_key, password,
+            ssh_port=port or 22, tailnet_only=_is_tailnet_host(server),
+        )
+    except PreparationError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     db.add(AuditEvent(entity_type="server", entity_id=server.id, event_type="preparation_started",
                      actor=admin.username, payload=audit_payload))
-    # Durable before script creation/delivery/execution. A failure can be
+    # Durable before script delivery/execution. A failure can be
     # recovered by validating the saved candidate without minting new secrets.
     await db.commit()
-    try:
-        script, language = preparation_script(os_family, STATION_LOGIN, public_key, password)
-    except PreparationError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if payload.mode == "copy":
         return HostPreparationOut(server_id=server.id, os_family=os_family, language=language,
                                   script=script, public_key=public_key, key_created=key_created, key_path="")
 
     remote_script = linux_ssh_bootstrap_script(script, admin_password) if os_family == "linux" and admin_user != "root" else script
+    masked_secrets = [s for s in (password, admin_password) if s]
+    if admin_password:
+        masked_secrets.append(base64.b64encode(admin_password.encode()).decode("ascii"))
 
     async def executor(_server: Server) -> dict:
         async with AsyncSessionLocal() as session:
@@ -1875,7 +2108,12 @@ async def prepare_host(server_id: uuid.UUID, payload: HostPreparationRequest | N
         async with AsyncSessionLocal() as session:
             verified = await _validate_preparation(session, server_id, admin.username, ref)
         if not verified.ok:
-            return {"exit_code": 1, "failure": "command", "stdout": verified.detail, "stderr": ""}
+            return {
+                "exit_code": 1,
+                "failure": "command",
+                "stdout": verified.detail or "",
+                "stderr": verified.diagnostic_excerpt or "",
+            }
         if payload.disable_admin:
             return await call_bridge_exec_as(host=host, user=STATION_LOGIN, port=port, key_path=None,
                 key_ref=ref, password=None, shell=language,
@@ -1884,7 +2122,7 @@ async def prepare_host(server_id: uuid.UUID, payload: HostPreparationRequest | N
 
     execution = await launch_execution(db, servers=[server], command=script, shell=language,
         timeout_seconds=900, actor=admin.username, target_summary=server.name,
-        secrets=[password, admin_password], executor=executor, script_label="Preparar máquina",
+        secrets=masked_secrets, executor=executor, script_label="Preparar máquina",
         login_given=True)
     return HostPreparationOut(server_id=server.id, os_family=os_family, language=language,
         public_key=public_key, key_created=key_created, key_path="", execution_id=execution.id)
@@ -2080,15 +2318,22 @@ async def clear_server_key(
     server = await _locked_machine(db, server_id)
     if server.preparation_pending:
         raise HTTPException(status_code=409, detail="Validate pending preparation before changing credentials")
+    old_ref = server.ssh_key_ref
     server.private_key_encrypted = None
     server.access_verified_at = None
     server.ssh_key_ref = None
     await db.commit()
+    _invalidate_probe_cache(server.id)
+    await _evict_bridge_agent(old_ref)
     return ServerKeyVaultResult(server_id=server.id, private_key_stored=False)
 
 
 @router.post("/import", response_model=ServerImportResult)
-async def import_servers(payload: ServerImportRequest, db: AsyncSession = Depends(get_db)):
+async def import_servers(
+    payload: ServerImportRequest,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+):
     """Upsert servers from CSV text (header required):
     SERVER_NAME,SERVER_IP,REMOTE_USER,DESCRIPTION
 
@@ -2119,6 +2364,9 @@ async def import_servers(payload: ServerImportRequest, db: AsyncSession = Depend
 
         if not name or not ip_address or not remote_user:
             errors.append(f"Line {i}: SERVER_NAME, SERVER_IP and REMOTE_USER are required")
+            continue
+        if not _HOST_RE.match(ip_address) or not _USER_RE.match(remote_user):
+            errors.append(f"Line {i}: invalid SERVER_IP or REMOTE_USER")
             continue
 
         if name in existing_by_name:
@@ -2220,7 +2468,11 @@ async def _get_server_or_404(db: AsyncSession, server_id: uuid.UUID) -> Server:
 
 
 @router.get("/{server_id}/services", response_model=list[ServerServiceOut])
-async def list_server_services(server_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def list_server_services(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_perm("servers", "view")),
+):
     server = await _get_server_or_404(db, server_id)
     result = await db.execute(
         select(ServerService).where(ServerService.server_id == server_id).order_by(ServerService.port)
@@ -2230,7 +2482,10 @@ async def list_server_services(server_id: uuid.UUID, db: AsyncSession = Depends(
 
 @router.post("/{server_id}/services", response_model=ServerServiceOut, status_code=status.HTTP_201_CREATED)
 async def create_server_service(
-    server_id: uuid.UUID, payload: ServerServiceCreate, db: AsyncSession = Depends(get_db)
+    server_id: uuid.UUID,
+    payload: ServerServiceCreate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
 ):
     server = await _get_server_or_404(db, server_id)
     service = ServerService(
@@ -2264,6 +2519,7 @@ async def update_server_service(
     service_id: uuid.UUID,
     payload: ServerServiceUpdate,
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
 ):
     service = await db.get(ServerService, service_id)
     if not service or service.server_id != server_id:
@@ -2290,7 +2546,10 @@ async def update_server_service(
 
 @router.delete("/{server_id}/services/{service_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_server_service(
-    server_id: uuid.UUID, service_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    server_id: uuid.UUID,
+    service_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
 ):
     service = await db.get(ServerService, service_id)
     if not service or service.server_id != server_id:
@@ -2316,7 +2575,11 @@ async def _port_is_open(ip_address: str, port: int, semaphore: asyncio.Semaphore
 
 
 @router.post("/{server_id}/services:scan", response_model=ServerPortScanResult)
-async def scan_server_ports(server_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def scan_server_ports(
+    server_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_perm("servers", "view")),
+):
     """TCP-connect scan of a short list of common service ports, plus every
     port already registered on this server (so an existing entry can be
     confirmed as still answering).

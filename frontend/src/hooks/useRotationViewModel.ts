@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { apiErrorText } from "@/lib/apiErrorText";
 import { useHostReadiness, useRotateMachines, type RotationKind } from "@/hooks/useHostInventory";
 import { useServers, type Server } from "@/hooks/useServers";
 
@@ -34,7 +35,10 @@ export function useRotationViewModel(
     [readiness.data],
   );
   const candidates = useMemo(
-    () => (servers ?? []).filter((s) => ready.has(s.id) && s.ssh_key_path).sort((a, b) => a.name.localeCompare(b.name)),
+    () =>
+      (servers ?? [])
+        .filter((s) => ready.has(s.id) && Boolean(s.ssh_key_path || s.ssh_key_in_vault) && !s.preparation_pending)
+        .sort((a, b) => a.name.localeCompare(b.name)),
     [servers, ready],
   );
   // What is counted and sent: a preselected machine that isn't Ready (or has
@@ -61,6 +65,6 @@ export function useRotationViewModel(
     back: () => setConfirming(false),
     submit: () =>
       rotate.mutate({ server_ids: [...selected], kind }, { onSuccess: (r) => onExecution(r.execution_id) }),
-    error: rotate.error?.message ?? null,
+    error: rotate.error ? apiErrorText(rotate.error) : null,
   };
 }

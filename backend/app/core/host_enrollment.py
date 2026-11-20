@@ -79,19 +79,23 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 # 1) Tailscale instalado e na rede da Darckware ({tag})
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $ts = "$env:ProgramFiles\\Tailscale\\tailscale.exe"
 if (-not (Test-Path $ts)) {{
     $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') {{ 'arm64' }} else {{ 'amd64' }}
     $msi = "$env:TEMP\\tailscale-setup.msi"
     Invoke-WebRequest -UseBasicParsing "https://pkgs.tailscale.com/stable/tailscale-setup-latest-$arch.msi" -OutFile $msi
-    Start-Process msiexec.exe -Wait -ArgumentList "/i `"$msi`" /quiet /norestart TS_UNATTENDEDMODE=always"
+    $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/i `"$msi`" /quiet /norestart TS_UNATTENDEDMODE=always"
+    if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {{ throw "msiexec falhou ao instalar Tailscale (codigo $($p.ExitCode))" }}
     Start-Sleep -Seconds 5
 }}
 $state = (& $ts status --json 2>$null | ConvertFrom-Json).BackendState
 if ($state -ne 'Running') {{
     & $ts up --authkey={auth_key} --hostname={name} --unattended
+    if ($LASTEXITCODE -ne 0) {{ throw "tailscale up falhou ($LASTEXITCODE)" }}
 }} else {{
     & $ts set --hostname={name}
+    if ($LASTEXITCODE -ne 0) {{ throw "tailscale set falhou ($LASTEXITCODE)" }}
 }}
 
 # 2) Servidor OpenSSH ligado, so pela tailnet, PowerShell como shell padrao
@@ -116,21 +120,43 @@ if (-not (Get-NetFirewallRule -Name sshd-tailnet -ErrorAction SilentlyContinue))
 # 3) Conta {LOGIN} (administradora) com senha unica desta estacao + chave do ForgeHub
 $pw = ConvertTo-SecureString '{password}' -AsPlainText -Force
 if (Get-LocalUser -Name {LOGIN} -ErrorAction SilentlyContinue) {{
-    Set-LocalUser -Name {LOGIN} -Password $pw -PasswordNeverExpires $true
+    Set-LocalUser -Name {LOGIN} -Password $pw -PasswordNeverExpires $true -AccountNeverExpires
     Enable-LocalUser -Name {LOGIN}
 }} else {{
     New-LocalUser -Name {LOGIN} -Password $pw -PasswordNeverExpires -AccountNeverExpires `
         -Description 'ForgeHub - suporte remoto Darckware' | Out-Null
 }}
-if (-not (Get-LocalGroupMember -SID S-1-5-32-544 | Where-Object {{ $_.Name -like '*\\{LOGIN}' }})) {{
-    Add-LocalGroupMember -SID S-1-5-32-544 -Member {LOGIN}
+$adminSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')
+$adminGroup = ($adminSid.Translate([System.Security.Principal.NTAccount]).Value -split '\\\\')[-1]
+$isAdmin = $false
+try {{
+    $g = [ADSI]"WinNT://./$adminGroup,group"
+    foreach ($m in @($g.Invoke('Members'))) {{
+        if ($m.GetType().InvokeMember('Name', 'GetProperty', $null, $m, $null) -ieq '{LOGIN}') {{ $isAdmin = $true; break }}
+    }}
+}} catch {{
+    $isAdmin = ((Get-LocalGroupMember -SID S-1-5-32-544 -ErrorAction SilentlyContinue | Where-Object {{ $_.Name -like '*\\{LOGIN}' }}) -ne $null)
+}}
+if (-not $isAdmin) {{
+    try {{
+        Add-LocalGroupMember -SID S-1-5-32-544 -Member {LOGIN} -ErrorAction Stop
+    }} catch {{
+        net localgroup "$adminGroup" '{LOGIN}' /add | Out-Null
+        if ($LASTEXITCODE -ne 0) {{ throw "Falha ao adicionar '{LOGIN}' ao grupo $adminGroup ($LASTEXITCODE)" }}
+    }}
 }}
 $key = '{public_key}'
-$file = "$env:ProgramData\\ssh\\administrators_authorized_keys"
-if (-not (Test-Path $file) -or -not (Select-String -Path $file -SimpleMatch $key -Quiet)) {{
-    Add-Content -Path $file -Value $key
+$sshDir = "$env:ProgramData\\ssh"
+New-Item -ItemType Directory -Force -Path $sshDir | Out-Null
+$file = "$sshDir\\administrators_authorized_keys"
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+$existing = if (Test-Path $file) {{ [IO.File]::ReadAllLines($file) }} else {{ @() }}
+if ($existing -notcontains $key) {{
+    $lines = @($existing | Where-Object {{ $_ -ne '' }}) + @($key)
+    [IO.File]::WriteAllLines($file, $lines, $utf8NoBom)
 }}
-icacls $file /inheritance:r /grant "*S-1-5-32-544:F" /grant "SYSTEM:F" | Out-Null
+icacls $file /inheritance:r /grant "*S-1-5-32-544:F" /grant "*S-1-5-18:F" | Out-Null
+if ($LASTEXITCODE -ne 0) {{ throw "icacls falhou em $file ($LASTEXITCODE)" }}
 
 Write-Host ''
 Write-Host "Tailscale: $((& $ts ip -4) -join ' ')"
@@ -145,6 +171,8 @@ def linux_script(name: str, tag: str, auth_key: str, password: str, public_key: 
 # ForgeHub - ingresso da estacao '{name}' no suporte remoto
 # Rodar UMA vez como root: sudo sh ingressar.sh  (pode repetir sem problema)
 set -e
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+if [ "$(id -u)" -ne 0 ]; then echo "Rode como root (ou com sudo)." >&2; exit 1; fi
 
 # 1) Tailscale instalado e na rede da Darckware ({tag})
 command -v tailscale >/dev/null 2>&1 || curl -fsSL https://tailscale.com/install.sh | sh
@@ -168,10 +196,22 @@ fi
 
 # 3) Conta {LOGIN} com senha unica desta estacao, sudo sem senha (comandos
 #    do ForgeHub rodam sem terminal) e chave do ForgeHub
-id {LOGIN} >/dev/null 2>&1 || useradd -m -s /bin/bash {LOGIN}
+id '{LOGIN}' >/dev/null 2>&1 || useradd -m -s /bin/bash '{LOGIN}'
+usermod -U -s /bin/bash '{LOGIN}' 2>/dev/null || true
+command -v chage >/dev/null 2>&1 && chage -E -1 -M -1 '{LOGIN}' 2>/dev/null || true
 echo '{LOGIN}:{password}' | chpasswd
-echo '{LOGIN} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/{LOGIN}
-chmod 440 /etc/sudoers.d/{LOGIN}
+mkdir -p /etc/sudoers.d
+sudo_tmp=$(mktemp /tmp/fh-sudoers.XXXXXX)
+printf '%s ALL=(ALL) NOPASSWD:ALL\\n' '{LOGIN}' > "$sudo_tmp"
+chmod 440 "$sudo_tmp"
+if command -v visudo >/dev/null 2>&1; then
+    visudo -cf "$sudo_tmp" >/dev/null
+fi
+mv -f "$sudo_tmp" '/etc/sudoers.d/{LOGIN}'
+chmod 440 '/etc/sudoers.d/{LOGIN}'
+if command -v ucr >/dev/null 2>&1 && [ "$(ucr get auth/sshd/restrict 2>/dev/null)" = "yes" ]; then
+    ucr set 'auth/sshd/user/{LOGIN}=yes'
+fi
 
 {_posix_key_block(LOGIN, public_key)}
 echo "Tailscale: $(tailscale ip -4)"

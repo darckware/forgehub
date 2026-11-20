@@ -3,7 +3,7 @@
 $ErrorActionPreference = 'Stop'
 function Test-Section([string]$Name, [scriptblock]$Check) {
     "`n--- $Name ---"
-    try { & $Check } catch { 'NAO_VERIFICADO: consulta falhou ou permissao insuficiente.' }
+    try { & $Check } catch { "NAO_VERIFICADO: consulta falhou ou permissao insuficiente ($($_.Exception.Message))." }
 }
 'FORGEHUB_SSH_DIAGNOSTIC_V1 Windows'
 Test-Section 'Ambiente' {
@@ -34,8 +34,8 @@ Test-Section 'Portas em escuta' {
 }
 Test-Section 'Firewall (regras conhecidas do OpenSSH)' {
     Get-NetFirewallProfile | Select-Object Name, Enabled, DefaultInboundAction | Format-Table -AutoSize | Out-String -Width 160
-    $rules = @(Get-NetFirewallRule | Where-Object { $_.Name -in @('OpenSSH-Server-In-TCP', 'sshd-tailnet') })
-    if ($rules.Count -eq 0) { 'AUSENTE: regras padrao do OpenSSH e sshd-tailnet.' }
+    $rules = @(Get-NetFirewallRule | Where-Object { $_.Name -in @('OpenSSH-Server-In-TCP', 'sshd-tailnet', 'sshd-forgehub') })
+    if ($rules.Count -eq 0) { 'AUSENTE: regras padrao do OpenSSH, sshd-tailnet e sshd-forgehub.' }
     foreach ($rule in $rules) {
         $rule | Select-Object Name, Enabled, Direction, Action | Format-Table -AutoSize | Out-String -Width 160
         $rule | Get-NetFirewallPortFilter | Select-Object Protocol, LocalPort | Format-Table -AutoSize | Out-String -Width 160
@@ -55,8 +55,23 @@ Test-Section 'Conta darckware' {
     if ($user.Count -eq 0) { 'AUSENTE: conta local darckware.' }
     else {
         $user | Select-Object Name, Enabled, PasswordExpires, AccountExpires | Format-Table -AutoSize | Out-String -Width 160
-        $admins = @(Get-LocalGroupMember -SID S-1-5-32-544)
-        "Membro dos administradores locais: $([bool]($admins | Where-Object { $_.SID -eq $user[0].SID }))"
+        try {
+            $adsiUser = [ADSI]"WinNT://./darckware,user"
+            "Conta bloqueada (lockout): $([bool]$adsiUser.InvokeGet('IsAccountLocked'))"
+        } catch { 'NAO_VERIFICADO: estado de lockout da conta.' }
+        $sid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')
+        $adminGroup = ($sid.Translate([System.Security.Principal.NTAccount]).Value -split '\\')[-1]
+        try {
+            $group = [ADSI]"WinNT://./$adminGroup,group"
+            $isAdmin = $false
+            foreach ($m in @($group.Invoke('Members'))) {
+                if ($m.GetType().InvokeMember('Name', 'GetProperty', $null, $m, $null) -ieq 'darckware') { $isAdmin = $true; break }
+            }
+            "Membro dos administradores locais: $isAdmin"
+        } catch {
+            $admins = @(Get-LocalGroupMember -SID S-1-5-32-544)
+            "Membro dos administradores locais: $([bool]($admins | Where-Object { $_.SID -eq $user[0].SID }))"
+        }
     }
 }
 Test-Section 'Arquivos de autorizacao (somente metadados)' {
@@ -69,7 +84,11 @@ Test-Section 'Arquivos de autorizacao (somente metadados)' {
     foreach ($path in $paths) {
         if (-not (Test-Path -LiteralPath $path)) { "AUSENTE: $path"; continue }
         $item = Get-Item -LiteralPath $path
-        "Arquivo: $path | bytes: $($item.Length)"
+        $bytes = if ($item.Length -ge 2) { [IO.File]::ReadAllBytes($path)[0..([Math]::Min(2, $item.Length - 1))] } else { @() }
+        $bom = if ($bytes.Count -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { 'UTF-8 BOM (pode falhar em OpenSSH antigo)' }
+            elseif ($bytes.Count -ge 2 -and (($bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) -or ($bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF))) { 'UTF-16 BOM (incompativel com OpenSSH)' }
+            else { 'sem BOM' }
+        "Arquivo: $path | bytes: $($item.Length) | codificacao: $bom"
         $acl = Get-Acl -LiteralPath $path
         "Proprietario: $($acl.Owner) | heranca protegida: $($acl.AreAccessRulesProtected)"
         $acl.Access | Select-Object IdentityReference, FileSystemRights, AccessControlType, IsInherited |
@@ -82,7 +101,7 @@ Test-Section 'Configuracao SSH e shell' {
     if (Test-Path -LiteralPath $config) {
         'Diretivas selecionadas do arquivo padrao (podem existir Include e Match):'
         foreach ($line in Get-Content -LiteralPath $config) {
-            if ($line -match '^\s*(Port\s+[0-9]{1,5}|PubkeyAuthentication\s+(yes|no)|PasswordAuthentication\s+(yes|no)|StrictModes\s+(yes|no))\s*(#.*)?$') { $Matches[1] }
+            if ($line -match '^\s*(Port\s+[0-9]{1,5}|PubkeyAuthentication\s+(yes|no)|PasswordAuthentication\s+(yes|no)|StrictModes\s+(yes|no)|AllowUsers\s+.+|AllowGroups\s+.+|DenyUsers\s+.+|DenyGroups\s+.+|AuthorizedKeysFile\s+.+|Match\s+Group\s+administrators)\s*(#.*)?$') { $Matches[1] }
         }
     } else { 'AUSENTE: arquivo padrao sshd_config.' }
     $shell = $null

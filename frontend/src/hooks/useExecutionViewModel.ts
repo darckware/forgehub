@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { apiErrorText } from "@/lib/apiErrorText";
 import {
   useCancelHostExecution,
   useFollowUpHostExecution,
@@ -55,7 +56,10 @@ export function useExecutionViewModel(
 
   const execution = query.data;
   const failedResults = execution?.results.filter((r) => r.status === "failed") ?? [];
-  const notFound = query.isError && /not found/i.test(query.error?.message ?? "");
+  const notFound =
+    query.isError &&
+    ((query.error as { status?: number } | null)?.status === 404 ||
+      /not found/i.test(apiErrorText(query.error)));
 
   return {
     status: query.isLoading ? "loading" : notFound ? "not_found" : query.isError ? "error" : "ready",
@@ -81,7 +85,7 @@ export function useExecutionViewModel(
       cancel.mutate(id, { onSuccess: () => setConfirmingCancel(false) });
     },
     cancelling: cancel.isPending,
-    cancelError: cancel.error?.message ?? null,
+    cancelError: cancel.error ? apiErrorText(cancel.error) : null,
     followUp: {
       open: followOpen,
       start: () => {
@@ -109,7 +113,7 @@ export function useExecutionViewModel(
         );
       },
       submitting: followUp.isPending,
-      error: followUp.error?.message ?? null,
+      error: followUp.error ? apiErrorText(followUp.error) : null,
     },
   };
 }

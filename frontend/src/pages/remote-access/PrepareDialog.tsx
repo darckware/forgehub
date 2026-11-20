@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import { Check, Copy, Loader2, ShieldCheck, Stethoscope, Wrench } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -27,20 +28,28 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
   const { t } = useTranslation("remoteAccess");
   const vm = usePreparationViewModel(onExecution, initialServerId);
   const [copied, setCopied] = useState(false);
-  const busy = vm.status === "submitting" || vm.validating;
+  const busy = vm.status === "submitting" || vm.validating || vm.cancelling;
   const [showPassword, setShowPassword] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
+  const [confirmCancelPending, setConfirmCancelPending] = useState(false);
   const [diagnosticServerId, setDiagnosticServerId] = useState<string | null>(null);
   const diagnosticOpen = diagnosticServerId === vm.serverId;
   const supportsDiagnostic = vm.candidates.some((machine) => machine.id === vm.serverId);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const validationAlertRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     setShowPassword(false);
     setCopied(false);
     setCopyFailed(false);
+    setConfirmCancelPending(false);
     setDiagnosticServerId(null);
     return () => { if (copyTimer.current) clearTimeout(copyTimer.current); };
   }, [vm.serverId]);
+  useEffect(() => {
+    if (vm.validationFailed) {
+      validationAlertRef.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+    }
+  }, [vm.validationFailed, vm.validationDetail, vm.validationDiagnostic]);
 
   return (
     <SidePanel
@@ -60,7 +69,12 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
             <Stethoscope className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             {t(diagnosticOpen ? "prepare.diagnostic.hide" : "prepare.diagnostic.open")}
           </Button>}
-          {vm.pending && !vm.validated && !vm.result?.script && (
+          {vm.selected?.preparation_pending && !vm.validated && (
+            <Button type="button" size="sm" variant="outline" onClick={() => setConfirmCancelPending(true)} disabled={busy} className="cursor-pointer text-destructive hover:text-destructive">
+              {t("prepare.cancelPending")}
+            </Button>
+          )}
+          {vm.pending && !vm.validated && !vm.result?.script && !vm.retryingSsh && (
             <Button type="button" size="sm" variant="outline" onClick={vm.recover} disabled={busy} className="cursor-pointer">
               {t("prepare.recover")}
             </Button>
@@ -68,6 +82,11 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
           {vm.pending && !vm.validated && !vm.retryingSsh && (
             <Button type="button" size="sm" variant="outline" onClick={vm.openRetrySsh} disabled={busy} className="cursor-pointer">
               {t("prepare.retrySsh")}
+            </Button>
+          )}
+          {vm.pending && !vm.validated && vm.retryingSsh && (
+            <Button type="button" size="sm" variant="outline" onClick={vm.closeRetrySsh} disabled={busy} className="cursor-pointer">
+              {t("prepare.backPending")}
             </Button>
           )}
           {vm.pending && !vm.validated && (
@@ -91,7 +110,18 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
       )}
       {vm.pending && !vm.validated && <p role="status" className="rounded-md border border-amber-500/50 p-3 text-sm">{t("prepare.pendingHelp")}</p>}
       {vm.validated && <p role="status" className="rounded-md border border-border p-3 text-sm">{t("prepare.validated")}</p>}
-      {vm.validationFailed && <p role="alert" className="text-sm text-destructive">{vm.validationDetail || t("prepare.validationFailed")}</p>}
+      {vm.validationFailed && (
+        <div ref={validationAlertRef} role="alert" className="space-y-1.5 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+          <p>{vm.validationDetail || t("prepare.validationFailed")}</p>
+          {(vm.validationDiagnostic || vm.validationProbedPort) && (
+            <p className="font-mono text-xs text-muted-foreground break-all">
+              {vm.validationProbedPort ? `SSH :${vm.validationProbedPort}` : ""}
+              {vm.validationProbedPort && vm.validationDiagnostic ? " · " : ""}
+              {vm.validationDiagnostic ?? ""}
+            </p>
+          )}
+        </div>
+      )}
       <div className="space-y-1">
         <Label htmlFor="prep-machine">{t("prepare.machine")}</Label>
         <Select id="prep-machine" disabled={busy} value={vm.serverId} onChange={(e) => vm.setServerId(e.target.value)} className="max-md:text-base">
@@ -149,7 +179,7 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
             {!vm.useStoredPassword && <div className="space-y-1">
               <Label htmlFor="prep-password">{t("prepare.adminPassword")}</Label>
               <Input id="prep-password" type={showPassword ? "text" : "password"} value={vm.adminPassword} onChange={(e) => vm.setAdminPassword(e.target.value)} autoComplete="current-password" className="max-md:text-base" disabled={busy} />
-              <Button type="button" size="sm" variant="ghost" aria-pressed={showPassword} onClick={() => setShowPassword((value) => !value)}>
+              <Button type="button" size="sm" variant="ghost" disabled={busy} aria-pressed={showPassword} onClick={() => setShowPassword((value) => !value)}>
                 {t(showPassword ? "prepare.hidePassword" : "prepare.showPassword")}
               </Button>
             </div>}
@@ -168,16 +198,15 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
         <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" /> {t("prepare.vaultNote")}
       </p>
 
-      {vm.result?.script && !vm.validated && (
+      {vm.result?.script && !vm.validated && !vm.retryingSsh && (
         <div className="space-y-2">
-          <ol className="list-decimal space-y-1 pl-5 text-sm">
-            <li>{t("prepare.step1")}</li>
-            <li>{t(vm.result.language === "powershell" ? "prepare.step2Windows" : "prepare.step2Posix")}</li>
-            <li>{t("prepare.step3")}</li>
-          </ol>
-          <div className="relative">
-            <pre className="max-h-[45vh] overflow-auto whitespace-pre rounded-md border border-border bg-muted/40 p-3 font-mono text-xs">{vm.result.script}</pre>
-            <Button type="button" size="sm" variant="outline" className="absolute right-2 top-2 cursor-pointer gap-1.5" onClick={() => {
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <ol className="list-decimal space-y-1 pl-5 text-sm">
+              <li>{t("prepare.step1")}</li>
+              <li>{t(vm.result.language === "powershell" ? "prepare.step2Windows" : "prepare.step2Posix")}</li>
+              <li>{t("prepare.step3")}</li>
+            </ol>
+            <Button type="button" size="sm" variant="outline" className="cursor-pointer gap-1.5" onClick={() => {
               setCopyFailed(false);
               void navigator.clipboard.writeText(vm.result!.script!).then(() => {
                 setCopied(true);
@@ -189,10 +218,23 @@ export function PrepareDialog({ onClose, onExecution, initialServerId }: {
               {t(copied ? "prepare.copied" : "prepare.copy")}
             </Button>
           </div>
+          <pre className="max-h-[45vh] overflow-auto whitespace-pre rounded-md border border-border bg-muted/40 p-3 font-mono text-xs">{vm.result.script}</pre>
         </div>
       )}
       {copyFailed && <p role="alert" className="text-xs text-destructive">{t("prepare.copyFailed")}</p>}
       {vm.error && <p role="alert" className="text-xs text-destructive">{vm.error}</p>}
+      <ConfirmDialog
+        open={confirmCancelPending}
+        title={t("prepare.cancelPendingTitle")}
+        description={t("prepare.cancelPendingDescription", { name: vm.selected?.name ?? "" })}
+        confirmLabel={t("prepare.cancelPendingConfirm")}
+        loading={vm.cancelling}
+        onConfirm={() => {
+          setConfirmCancelPending(false);
+          vm.cancelPending();
+        }}
+        onCancel={() => setConfirmCancelPending(false)}
+      />
     </SidePanel>
   );
 }

@@ -50,6 +50,7 @@ if ($installed -ne $commit -or -not (Test-Path (Join-Path $dir 'install.ps1'))) 
     $zip = Join-Path $env:TEMP "darckware-remote-$commit.zip"
     $tmp = Join-Path $base ('x-' + [guid]::NewGuid().ToString('N'))
     try {{
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
         Invoke-WebRequest -UseBasicParsing "https://github.com/darckware/darckware-remote/archive/$commit.zip" -OutFile $zip
         Expand-Archive -Path $zip -DestinationPath $tmp -Force
         if (Test-Path $dir) {{ Remove-Item -Recurse -Force $dir }}
@@ -65,7 +66,8 @@ Set-Location $dir
 function New-SecretDir {{
     $path = Join-Path $base ('s-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $path | Out-Null
-    icacls $path /inheritance:r /grant '*S-1-5-32-544:(OI)(CI)F' /grant 'SYSTEM:(OI)(CI)F' | Out-Null
+    icacls $path /inheritance:r /grant '*S-1-5-32-544:(OI)(CI)F' /grant '*S-1-5-18:(OI)(CI)F' | Out-Null
+    if ($LASTEXITCODE -ne 0) {{ throw "Falha ao restringir permissoes da pasta temporaria ($LASTEXITCODE)" }}
     return $path
 }}
 function Invoke-Installer([string[]]$InstallerArgs) {{
@@ -85,8 +87,11 @@ _WIN_RUSTDESK_CLI = """function Invoke-RustDesk([string[]]$RdArgs) {
     $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
     $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
     $p = [Diagnostics.Process]::Start($psi)
-    $out = $p.StandardOutput.ReadToEnd(); $null = $p.StandardError.ReadToEnd()
-    if (-not $p.WaitForExit(60000)) { $p.Kill(); throw 'O RustDesk nao respondeu' }
+    $outTask = $p.StandardOutput.ReadToEndAsync()
+    $errTask = $p.StandardError.ReadToEndAsync()
+    if (-not $p.WaitForExit(60000)) { try { $p.Kill() } catch {}; throw 'O RustDesk nao respondeu' }
+    $out = $outTask.GetAwaiter().GetResult()
+    $null = $errTask.GetAwaiter().GetResult()
     return [pscustomobject]@{ Code = $p.ExitCode; Out = $out.Trim() }
 }
 # The Darckware server (ID/Relay/Key) is applied here, from ForgeVault, never by the public installer
@@ -312,7 +317,11 @@ case "$AJUSTE" in
             echo "$R" | grep -Eq '^[0-9]{1,3}(\\.[0-9]{1,3}){3}/[0-9]{1,2}$' || { echo "Sub-rede invalida: $R" >&2; exit 2; }
         done
         # A Linux subnet router forwards packets itself: IP forwarding must be on (persisted).
-        printf 'net.ipv4.ip_forward = 1\\nnet.ipv6.conf.all.forwarding = 1\\n' | $SUDO tee /etc/sysctl.d/99-tailscale.conf >/dev/null
+        if [ -e /proc/sys/net/ipv6/conf/all/forwarding ]; then
+            printf 'net.ipv4.ip_forward = 1\\nnet.ipv6.conf.all.forwarding = 1\\n' | $SUDO tee /etc/sysctl.d/99-tailscale.conf >/dev/null
+        else
+            printf 'net.ipv4.ip_forward = 1\\n' | $SUDO tee /etc/sysctl.d/99-tailscale.conf >/dev/null
+        fi
         $SUDO sysctl -p /etc/sysctl.d/99-tailscale.conf >/dev/null
         $SUDO tailscale set --advertise-routes="$ROUTES"
         echo "Anunciando $ROUTES. Aprove a rota no painel da Tailscale (Machines > Edit route settings)."
@@ -425,7 +434,7 @@ if (-not $user) { throw "Conta local $USER_LOGIN nao existe nesta maquina (conta
 if ($MUST_CHANGE_AT_LOGON -eq 'sim' -and ($PASSWORD_NEVER_EXPIRES -eq 'sim' -or ($PASSWORD_NEVER_EXPIRES -eq 'manter' -and -not $user.PasswordExpires))) {
     throw "O Windows nao aceita 'trocar no proximo logon' com 'senha nunca expira': escolha 'nao' em 'senha nunca expira'"
 }
-if ($MUST_CHANGE_AT_LOGON -eq 'sim' -and $USER_MAY_CHANGE_PASSWORD -eq 'nao') {
+if ($MUST_CHANGE_AT_LOGON -eq 'sim' -and ($USER_MAY_CHANGE_PASSWORD -eq 'nao' -or ($USER_MAY_CHANGE_PASSWORD -eq 'manter' -and -not $user.UserMayChangePassword))) {
     throw "'Trocar no proximo logon' exige que o usuario possa trocar a senha"
 }
 $set = @{ Name = $USER_LOGIN; Password = (ConvertTo-SecureString $USER_PASSWORD -AsPlainText -Force) }
@@ -756,7 +765,7 @@ if ($failed.Count) { throw "Validacao falhou: $($failed -join ', ')" }
         "content": _SH_PRELUDE + """WANT_TS=1; WANT_RD=1
 [ "$COMPONENTES" != "somente_rustdesk" ] || WANT_TS=0
 [ "$COMPONENTES" != "somente_tailscale" ] || WANT_RD=0
-[ "$WANT_TS" = 0 ] || [ -n "$TAILSCALE_AUTHKEY" ] || { echo "Informe a chave de autenticacao da Tailscale" >&2; exit 2; }
+[ "$WANT_TS" = 0 ] || [ -n "$TAILSCALE_AUTHKEY" ] || (command -v tailscale >/dev/null 2>&1 && tailscale status --json 2>/dev/null | grep -q '"BackendState": *"Running"') || { echo "Informe a chave de autenticacao da Tailscale" >&2; exit 2; }
 if [ "$WANT_TS" = 1 ]; then
 """ + _SH_TAILSCALE_UP + """fi
 if [ "$WANT_RD" = 1 ]; then
@@ -771,7 +780,7 @@ else
 fi
 if [ "$WANT_RD" = 1 ]; then
     for PORT in 21116 21117; do
-        if timeout 5 bash -c "</dev/tcp/$RUSTDESK_ID_SERVER/$PORT" 2>/dev/null || nc -z -w 5 "$RUSTDESK_ID_SERVER" "$PORT" 2>/dev/null; then
+        if timeout 5 bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$RUSTDESK_ID_SERVER" "$PORT" 2>/dev/null || nc -z -w 5 "$RUSTDESK_ID_SERVER" "$PORT" 2>/dev/null; then
             echo "Porta $RUSTDESK_ID_SERVER:$PORT: acessivel"
         else
             echo "Porta $RUSTDESK_ID_SERVER:$PORT: SEM resposta"; FAILED="$FAILED porta-$PORT"
@@ -1488,8 +1497,19 @@ if ($supportUsers.Count -ne 1 -or -not $supportUsers[0].Enabled) {
 $supportUser = $supportUsers[0]
 
 $rdpGroup = Get-LocalGroup -SID $rdpGroupSid -ErrorAction Stop
-$groupMembers = @(Get-LocalGroupMember -Group $rdpGroup -ErrorAction Stop)
-$alreadyMember = [bool]($groupMembers | Where-Object { $_.SID -and $_.SID.Value -eq $supportUser.SID.Value })
+function Test-LocalGroupMembershipByName([string]$GroupName, [string]$UserName, [string]$UserSid) {
+    try {
+        $g = [ADSI]"WinNT://./$GroupName,group"
+        foreach ($m in @($g.Invoke('Members'))) {
+            if ($m.GetType().InvokeMember('Name', 'GetProperty', $null, $m, $null) -ieq $UserName) { return $true }
+        }
+        return $false
+    } catch {
+        $members = @(Get-LocalGroupMember -Group $rdpGroup -ErrorAction Stop)
+        return [bool]($members | Where-Object { $_.SID -and $_.SID.Value -eq $UserSid })
+    }
+}
+$alreadyMember = Test-LocalGroupMembershipByName $rdpGroup.Name $supportUser.Name $supportUser.SID.Value
 $terminalService = Get-Service -Name 'TermService' -ErrorAction SilentlyContinue
 if (-not $terminalService) { throw 'O serviço TermService não existe nesta instalação do Windows.' }
 $terminalServerPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server'
@@ -1602,8 +1622,7 @@ if ($serverConfig.fDenyTSConnections -ne 0 -or $listenerConfig.PortNumber -ne 33
 if ($finalRules.Count -ne 1 -or [string]$finalRules[0].Enabled -ine 'True' -or -not (Test-ForgeHubRdpRule $finalRules[0])) {
     throw 'A regra efetiva do firewall não confirmou TCP/3389 somente pela Tailscale.'
 }
-$finalMembers = @(Get-LocalGroupMember -Group $rdpGroup -ErrorAction Stop)
-if (-not ($finalMembers | Where-Object { $_.SID -and $_.SID.Value -eq $supportUser.SID.Value })) {
+if (-not (Test-LocalGroupMembershipByName $rdpGroup.Name $supportUser.Name $supportUser.SID.Value)) {
     throw 'O usuário informado não aparece em Remote Desktop Users.'
 }
 "RDP habilitado: TCP/3389, NLA obrigatório; usuário liberado: $($supportUser.Name); origem de rede: $tailnet."

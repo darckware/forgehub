@@ -25,8 +25,8 @@ PRIV = "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-
 
 
 @pytest.mark.parametrize("os_family, language, must_have", [
-    ("windows", "powershell", ["OpenSSH.Server~~~~0.0.1.0", "-RemoteAddress 100.64.0.0/10", "administrators_authorized_keys", "Select-String", "DefaultShell"]),
-    ("linux", "sh", ["systemctl enable --now", "grep -qxF", "100.64.0.0/10"]),
+    ("windows", "powershell", ["OpenSSH.Server~~~~0.0.1.0", "-RemoteAddress 100.64.0.0/10", "administrators_authorized_keys", "WriteAllLines", "DefaultShell", "Test-IsLocalAdmin", "*S-1-5-18:F"]),
+    ("linux", "sh", ["systemctl enable --now", "grep -qxF", "100.64.0.0/10", "ucr set"]),
     ("macos", "sh", ["systemsetup -setremotelogin on", "grep -qxF"]),
 ])
 def test_scripts_carry_key_and_are_idempotent(os_family, language, must_have):
@@ -400,11 +400,22 @@ def test_linux_ssh_bootstrap_elevates_non_root_via_sudo_or_su():
     assert wrapped.startswith("#!/bin/sh\n# ForgeHub - preparacao da estacao")
     assert not [c for c in wrapped if ord(c) < 32 and c not in "\n\r\t"]
     assert "mkdir -p /etc/sudoers.d" in inner
+    assert "ucr set 'auth/sshd/user/darckware=yes'" in inner
     assert "sudo -n sh" in wrapped
     assert "sudo -S -p ''" in wrapped
-    assert "su root -c" in wrapped
+    assert "su - root -c" in wrapped
+    assert "os.waitstatus_to_exitcode" not in wrapped
     assert "Admin$Pass1" not in wrapped
     assert "Passw0rd!123" not in wrapped
+
+
+def test_lan_host_preparation_preserves_lan_firewall_and_custom_port():
+    win, _ = preparation_script("windows", "darckware", KEY, "Passw0rd!123", ssh_port=2222, tailnet_only=False)
+    assert "Disable-NetFirewallRule -Name OpenSSH-Server-In-TCP" not in win
+    assert "-LocalPort 2222" in win
+    lin, _ = preparation_script("linux", "darckware", KEY, "Passw0rd!123", ssh_port=2222, tailnet_only=False)
+    assert "ufw allow 2222/tcp" in lin
+    assert "100.64.0.0/10" not in lin
 
 
 @pytest.mark.asyncio
@@ -464,10 +475,61 @@ async def test_ssh_mode_reuses_pending_candidate_and_elevates_linux_non_root(cli
         reveal.assert_awaited_once()
 
     assert [c[0] for c in calls] == ["administrator", "darckware"]
-    assert "sudo -S -p ''" in calls[0][2] and "su root -c" in calls[0][2]
+    assert "sudo -S -p ''" in calls[0][2] and "su - root -c" in calls[0][2]
     async with AsyncSessionLocal() as db:
         row = await db.get(Server, station.id)
         assert row.remote_user == "darckware"
         assert row.ssh_key_ref == GEN_REF
         assert not row.preparation_pending
         assert row.access_verified_at is not None
+
+
+@pytest.mark.asyncio
+async def test_cancel_pending_preparation_and_validation_session_closed_diagnostics(client, station):
+    VAULT.clear()
+    GENERATED.clear()
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Server, station.id)
+        row.os_family = "linux"
+        row.ip_address = "172.15.1.3"
+        row.tailnet_node_id = None
+        await db.commit()
+
+    with (
+        patch.object(server_routes, "_bridge_post", AsyncMock(side_effect=_bridge)),
+        patch.object(server_routes, "vault_store", AsyncMock(side_effect=_fake_store)),
+    ):
+        prep = await client.post(f"/api/v1/servers/{station.id}/preparation", json={"mode": "copy", "ssh_port": 2222})
+        assert prep.status_code == 200, prep.text
+        assert "ufw allow 2222/tcp" in prep.json()["script"]
+
+    # Validation returns structured failure_reason, diagnostic_excerpt and probed_port.
+    with patch.object(
+        server_routes,
+        "call_bridge_exec_as",
+        AsyncMock(return_value={
+            "exit_code": 255, "stdout": "", "stderr": "Connection closed by 172.15.1.3 port 2222\r\n",
+            "failure": "auth", "timed_out": False, "duration_ms": 400,
+        }),
+    ):
+        val = await client.post(f"/api/v1/servers/{station.id}/preparation/validate")
+        assert val.status_code == 200, val.text
+        body = val.json()
+        assert body["ok"] is False
+        assert body["failure_reason"] == "session_closed"
+        assert body["probed_port"] == 2222
+        assert "Connection closed by 172.15.1.3 port 2222" in (body["diagnostic_excerpt"] or "")
+
+    # Editing IP while pending is blocked with 409...
+    blocked = await client.put(f"/api/v1/servers/{station.id}", json={"ip_address": "172.15.1.4"})
+    assert blocked.status_code == 409
+
+    # ...until the admin cancels the pending preparation.
+    with patch.object(server_routes, "_bridge_post", AsyncMock(return_value=AsyncMock(status_code=200))):
+        cancelled = await client.delete(f"/api/v1/servers/{station.id}/preparation/pending")
+        assert cancelled.status_code == 204, cancelled.text
+
+    unblocked = await client.put(f"/api/v1/servers/{station.id}", json={"ip_address": "172.15.1.4"})
+    assert unblocked.status_code == 200, unblocked.text
+    assert unblocked.json()["ip_address"] == "172.15.1.4"
+    assert unblocked.json()["preparation_pending"] is False
