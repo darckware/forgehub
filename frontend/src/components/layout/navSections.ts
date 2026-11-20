@@ -34,7 +34,7 @@ import {
   Users,
   Wrench,
   ShieldEllipsis,
-  UserRound,
+  ListTodo,
 } from "lucide-react";
 
 export interface NavLinkEntry {
@@ -133,13 +133,6 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
     ],
   },
   {
-    // Marcelo's own tasks, agenda and notes (2026-10-07) -- Maia, his personal assistant, reads and
-    // writes the same data. Personal, so it is its own admin-only section, not part of any workspace.
-    type: "section",
-    labelKey: "nav.section.personal",
-    entries: [{ type: "link", to: "/personal", labelKey: "nav.personal", icon: UserRound, adminOnly: true }],
-  },
-  {
     // Client demands console (2026-10-04): Darckware stores clients, tickets,
     // demands and e-mails; these screens operate them. Its own section, not
     // Operations -- that one is infra/ops tooling.
@@ -155,6 +148,7 @@ export const NAV_SECTIONS: NavSectionEntry[] = [
     type: "section",
     labelKey: "nav.section.operations",
     entries: [
+      { type: "link", to: "/personal", labelKey: "nav.personal", icon: ListTodo, adminOnly: true },
       { type: "link", to: "/system-control", labelKey: "nav.systemControl", icon: GitBranch, module: "system_control" },
       // Live board over the same data the Messages page's overview tab
       // aggregates -- gated on the same "demands" module rather than a new

@@ -1,18 +1,31 @@
 {
-  "title": "Pessoal",
-  "description": "Suas tarefas, agenda e anotações — a Maia também lê e grava aqui.",
+  "title": "Rotina & Atendimento",
+  "description": "Tarefas, agenda, atendimento via WhatsApp, regras da Maia e resumo diário.",
   "tabs": {
     "tasks": "Tarefas",
+    "tasksAndDemands": "Tarefas & Demandas",
     "agenda": "Agenda",
     "notes": "Anotações",
     "demands": "Demandas",
     "contacts": "Contatos pessoais",
     "maia": "Maia",
+    "service": "Atendimento",
     "serviceRules": "Regras de atendimento",
     "suggestions": "Sugestões",
     "agentWork": "Tarefas dos agentes",
     "location": "Resumo diário",
     "groups": "Grupos do WhatsApp"
+  },
+  "service": {
+    "lara": {
+      "channelsTitle": "Canais externos da Lara",
+      "channelsDescription": "A Lara faz o atendimento comercial e de clientes da Darckware via WhatsApp, site e e-mail.",
+      "rulesNote": "O texto das regras de cada canal fica centralizado em Regras de atendimento.",
+      "opsTitle": "Operação de clientes",
+      "opsDescription": "Demandas e e-mails gerados pelo atendimento externo da Lara.",
+      "openClientDemands": "Abrir demandas de clientes",
+      "openClientEmails": "Abrir aprovação de e-mails"
+    }
   },
   "fields": {
     "date": "Data",

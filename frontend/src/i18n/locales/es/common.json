@@ -20,7 +20,7 @@
       "operations": "Operaciones",
       "clientOps": "Clientes",
       "administration": "Administración",
-      "personal": "Personal"
+      "personal": "Rutina y Atención"
     },
     "dashboard": "Panel",
     "workspace": "Espacio de trabajo",
@@ -76,7 +76,7 @@
     "screenRules": "Reglas de contexto de pantallas",
     "systemsHub": "Centro de sistemas",
     "versionClosure": "6. Cierre de versión",
-    "personal": "Personal"
+    "personal": "Rutina y Atención"
   },
   "sidebar": {
     "search": "Buscar",

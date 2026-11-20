@@ -20,7 +20,7 @@
       "operations": "Operations",
       "clientOps": "Clients",
       "administration": "Administration",
-      "personal": "Personal"
+      "personal": "Routine & Service"
     },
     "dashboard": "Dashboard",
     "workspace": "Workspace",
@@ -76,7 +76,7 @@
     "screenRules": "Screen Context Rules",
     "systemsHub": "Systems Hub",
     "versionClosure": "6. Version Closure",
-    "personal": "Personal"
+    "personal": "Routine & Service"
   },
   "sidebar": {
     "search": "Search",

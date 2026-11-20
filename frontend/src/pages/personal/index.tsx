@@ -22,7 +22,6 @@ import {
   ScrollText,
   Tag,
   Trash2,
-  User,
   UsersRound,
   X,
 } from "lucide-react";
@@ -73,15 +72,25 @@ function whenLabel(task: PersonalTask, locale: string): string | null {
 
 export default function PersonalPage() {
   const { t } = useTranslation("personal");
-  // ?tab= opens a tab directly (the old /suggestions route redirects to ?tab=suggestions).
+  // ?tab= opens a tab directly (the old /suggestions route redirects to ?tab=suggestions;
+  // ?tab=demands opens the unified Tasks & Demands tab on the Demands view; ?tab=maia opens Service).
   const [params, setParams] = useSearchParams();
-  const [tab, setTab] = useState(params.get("tab") || "tasks");
+  const initialParam = params.get("tab") || "tasks";
+  const normalizeTab = (value: string) =>
+    value === "demands" ? "tasks" : value === "maia" ? "service" : value;
+  const [tab, setTab] = useState(() => normalizeTab(initialParam));
+  const [tasksView, setTasksView] = useState<"tasks" | "demands">(() =>
+    initialParam === "demands" ? "demands" : "tasks",
+  );
   // Switching from another tab's link also updates ?tab=, so a reload or a shared link lands there.
   const openTab = (value: string) => {
-    setTab(value);
+    const normalized = normalizeTab(value);
+    if (value === "demands") setTasksView("demands");
+    else if (value === "tasks") setTasksView("tasks");
+    setTab(normalized);
     setParams((prev) => {
       const next = new URLSearchParams(prev);
-      next.set("tab", value);
+      next.set("tab", normalized);
       return next;
     }, { replace: true });
   };
@@ -89,29 +98,55 @@ export default function PersonalPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title={t("title")} description={t("description")} icon={<User className="h-6 w-6" />} />
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="max-w-full overflow-x-auto">
-          <TabsTrigger value="agent-work"><Bot className="mr-1.5 h-4 w-4" />{t("tabs.agentWork")}</TabsTrigger>
-          <TabsTrigger value="tasks"><ListTodo className="mr-1.5 h-4 w-4" />{t("tabs.tasks")}</TabsTrigger>
-          <TabsTrigger value="agenda"><CalendarDays className="mr-1.5 h-4 w-4" />{t("tabs.agenda")}</TabsTrigger>
-          <TabsTrigger value="notes"><NotebookPen className="mr-1.5 h-4 w-4" />{t("tabs.notes")}</TabsTrigger>
-          <TabsTrigger value="demands"><ClipboardList className="mr-1.5 h-4 w-4" />{t("tabs.demands")}</TabsTrigger>
-          <TabsTrigger value="contacts"><Contact className="mr-1.5 h-4 w-4" />{t("tabs.contacts")}</TabsTrigger>
-          <TabsTrigger value="groups"><UsersRound className="mr-1.5 h-4 w-4" />{t("tabs.groups")}</TabsTrigger>
-          <TabsTrigger value="maia"><Bot className="mr-1.5 h-4 w-4" />{t("tabs.maia")}</TabsTrigger>
-          <TabsTrigger value="service-rules"><ScrollText className="mr-1.5 h-4 w-4" />{t("tabs.serviceRules")}</TabsTrigger>
-          <TabsTrigger value="suggestions"><Lightbulb className="mr-1.5 h-4 w-4" />{t("tabs.suggestions")}</TabsTrigger>
-          <TabsTrigger value="location"><MapPin className="mr-1.5 h-4 w-4" />{t("tabs.location")}</TabsTrigger>
+      <PageHeader title={t("title")} description={t("description")} icon={<ListTodo className="h-6 w-6" />} />
+      <Tabs value={tab} onValueChange={openTab}>
+        <TabsList className="flex h-auto w-full flex-wrap items-center justify-start gap-1 max-md:flex-nowrap max-md:overflow-x-auto">
+          <TabsTrigger value="agent-work" className="gap-1.5"><Bot className="h-4 w-4 shrink-0" />{t("tabs.agentWork")}</TabsTrigger>
+          <TabsTrigger value="tasks" className="gap-1.5"><ListTodo className="h-4 w-4 shrink-0" />{t("tabs.tasksAndDemands")}</TabsTrigger>
+          <TabsTrigger value="agenda" className="gap-1.5"><CalendarDays className="h-4 w-4 shrink-0" />{t("tabs.agenda")}</TabsTrigger>
+          <TabsTrigger value="notes" className="gap-1.5"><NotebookPen className="h-4 w-4 shrink-0" />{t("tabs.notes")}</TabsTrigger>
+          <TabsTrigger value="contacts" className="gap-1.5"><Contact className="h-4 w-4 shrink-0" />{t("tabs.contacts")}</TabsTrigger>
+          <TabsTrigger value="groups" className="gap-1.5"><UsersRound className="h-4 w-4 shrink-0" />{t("tabs.groups")}</TabsTrigger>
+          <TabsTrigger value="service" className="gap-1.5"><Bot className="h-4 w-4 shrink-0" />{t("tabs.service")}</TabsTrigger>
+          <TabsTrigger value="service-rules" className="gap-1.5"><ScrollText className="h-4 w-4 shrink-0" />{t("tabs.serviceRules")}</TabsTrigger>
+          <TabsTrigger value="suggestions" className="gap-1.5"><Lightbulb className="h-4 w-4 shrink-0" />{t("tabs.suggestions")}</TabsTrigger>
+          <TabsTrigger value="location" className="gap-1.5"><MapPin className="h-4 w-4 shrink-0" />{t("tabs.location")}</TabsTrigger>
         </TabsList>
         <TabsContent value="agent-work"><AgentTasksTab /></TabsContent>
-        <TabsContent value="tasks"><TasksTab onDelete={del.ask} /></TabsContent>
+        <TabsContent value="tasks">
+          <div className="flex flex-wrap items-center gap-2 pt-4" role="tablist" aria-label={t("tabs.tasksAndDemands")}>
+            <Button
+              type="button"
+              size="sm"
+              variant={tasksView === "tasks" ? "default" : "outline"}
+              role="tab"
+              aria-selected={tasksView === "tasks"}
+              onClick={() => setTasksView("tasks")}
+              className="gap-1.5"
+            >
+              <ListTodo className="h-4 w-4 shrink-0" />
+              {t("tabs.tasks")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={tasksView === "demands" ? "default" : "outline"}
+              role="tab"
+              aria-selected={tasksView === "demands"}
+              onClick={() => setTasksView("demands")}
+              className="gap-1.5"
+            >
+              <ClipboardList className="h-4 w-4 shrink-0" />
+              {t("tabs.demands")}
+            </Button>
+          </div>
+          {tasksView === "tasks" ? <TasksTab onDelete={del.ask} /> : <DemandsTab />}
+        </TabsContent>
         <TabsContent value="agenda"><AgendaTab onDelete={del.ask} /></TabsContent>
         <TabsContent value="notes"><NotesTab onDelete={del.ask} /></TabsContent>
-        <TabsContent value="demands"><DemandsTab /></TabsContent>
         <TabsContent value="contacts"><ContactsTab /></TabsContent>
         <TabsContent value="groups"><WhatsAppGroupsTab /></TabsContent>
-        <TabsContent value="maia"><MaiaTab onOpenServiceRules={() => openTab("service-rules")} /></TabsContent>
+        <TabsContent value="service"><MaiaTab onOpenServiceRules={() => openTab("service-rules")} /></TabsContent>
         <TabsContent value="service-rules"><ServiceRulesTab /></TabsContent>
         <TabsContent value="suggestions"><SuggestionsTab /></TabsContent>
         <TabsContent value="location"><LocationTab /></TabsContent>

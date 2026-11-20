@@ -68,7 +68,7 @@ function TabsTrigger({
       title={title}
       onClick={() => ctx.setValue(value)}
       className={cn(
-        "rounded-sm px-3 py-1.5 text-sm font-medium transition-colors max-md:shrink-0 max-md:whitespace-nowrap",
+        "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
         isActive
           ? "bg-background text-foreground shadow-sm"
           : "text-muted-foreground hover:text-foreground",
