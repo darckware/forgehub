@@ -349,3 +349,20 @@ export function usePersonalDailySummaries(start: string, end: string) {
     queryFn: () => apiClient.get(`${BASE}/daily-summaries${qs({ start, end })}`),
   });
 }
+
+export function useDeletePersonalDailySummaries() {
+  const invalidate = useInvalidatePersonal();
+  return useMutation<void, Error, string[]>({
+    mutationFn: (ids) => apiClient.post(`${BASE}/daily-summaries:delete`, { ids }),
+    onSettled: invalidate,
+  });
+}
+
+export function useCleanupPersonalDailySummaries() {
+  const invalidate = useInvalidatePersonal();
+  return useMutation<{ deleted: number }, Error, number | undefined>({
+    mutationFn: (keep_days = 15) => apiClient.post(`${BASE}/daily-summaries:cleanup`, { keep_days }),
+    onSettled: invalidate,
+  });
+}
+

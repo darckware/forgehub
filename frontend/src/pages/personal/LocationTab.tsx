@@ -1,8 +1,9 @@
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronUp, Loader2, LocateFixed, MapPin, Sunrise } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, LocateFixed, MapPin, Sunrise, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { usePersonalLocationViewModel } from "@/hooks/usePersonalViewModel";
@@ -92,6 +93,24 @@ export function LocationTab() {
           <Input id="summary-to" type="date" className={`w-44 ${fieldClass}`} value={vm.end}
             onChange={(e) => vm.setEnd(e.target.value)} />
         </div>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {vm.summaryList.length > 0 && (
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <input type="checkbox" className="h-4 w-4" checked={vm.allChecked} onChange={vm.toggleAll} />
+              {vm.checked.length > 0 ? t("dailySummary.selected", { count: vm.checked.length }) : t("dailySummary.selectAll")}
+            </label>
+          )}
+          {vm.checked.length > 0 && (
+            <Button size="sm" variant="destructive" onClick={() => vm.askDelete(vm.checked)}>
+              <Trash2 className="mr-1 h-4 w-4" />
+              {t("dailySummary.deleteSelected", { count: vm.checked.length })}
+            </Button>
+          )}
+          <Button size="sm" variant="outline" onClick={() => vm.askCleanup(15)}>
+            <Trash2 className="mr-1 h-4 w-4" />
+            {t("dailySummary.cleanup15Days")}
+          </Button>
+        </div>
       </div>
 
       {vm.summaries.isLoading && <Loader2 className="h-5 w-5 animate-spin" />}
@@ -103,31 +122,72 @@ export function LocationTab() {
         {vm.summaryList.map((summary) => {
           const open = vm.expanded === summary.id;
           const place = placeName(summary.location_city, summary.location_state);
+          const dayLabel = formatDay(summary.day, i18n.language);
           return (
             <Card key={summary.id}>
               <CardContent className="space-y-2 p-4">
-                <button type="button" className="flex w-full items-start gap-3 text-left" aria-expanded={open}
-                  onClick={() => vm.toggle(summary.id)}>
-                  <Sunrise className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium capitalize">{formatDay(summary.day, i18n.language)}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {place
-                        ? t("dailySummary.locationUsed", { place })
-                        : summary.latitude !== null && summary.longitude !== null
-                          ? t("dailySummary.locationUsed", { place: `${summary.latitude.toFixed(4)}, ${summary.longitude.toFixed(4)}` })
-                          : t("dailySummary.noLocation")}
-                    </p>
-                    {!open && <p className="mt-1 line-clamp-2 break-words text-sm text-muted-foreground">{summary.content}</p>}
-                  </div>
-                  {open ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
-                </button>
-                {open && <p className="whitespace-pre-wrap break-words text-sm">{summary.content}</p>}
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 shrink-0"
+                    checked={vm.isChecked(summary.id)}
+                    onChange={() => vm.toggleChecked(summary.id)}
+                    aria-label={t("dailySummary.select", { day: dayLabel })}
+                  />
+                  <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left" aria-expanded={open}
+                    onClick={() => vm.toggle(summary.id)}>
+                    <Sunrise className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium capitalize">{dayLabel}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {place
+                          ? t("dailySummary.locationUsed", { place })
+                          : summary.latitude !== null && summary.longitude !== null
+                            ? t("dailySummary.locationUsed", { place: `${summary.latitude.toFixed(4)}, ${summary.longitude.toFixed(4)}` })
+                            : t("dailySummary.noLocation")}
+                      </p>
+                      {!open && <p className="mt-1 line-clamp-2 break-words text-sm text-muted-foreground">{summary.content}</p>}
+                    </div>
+                    {open ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
+                  </button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    aria-label={t("actions.delete")}
+                    className="shrink-0 opacity-60 hover:opacity-100"
+                    onClick={() => vm.askDelete([summary.id], dayLabel)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+                {open && <p className="whitespace-pre-wrap break-words pl-7 text-sm">{summary.content}</p>}
               </CardContent>
             </Card>
           );
         })}
       </div>
+
+      <ConfirmDialog
+        open={Boolean(vm.confirmTarget)}
+        title={
+          vm.confirmTarget?.kind === "cleanup"
+            ? t("dailySummary.cleanupTitle")
+            : t("dailySummary.deleteTitle", { count: vm.confirmTarget?.kind === "delete" ? vm.confirmTarget.ids.length : 0 })
+        }
+        description={
+          vm.confirmTarget?.kind === "cleanup"
+            ? t("dailySummary.cleanupDescription")
+            : vm.confirmTarget?.kind === "delete" && vm.confirmTarget.dayLabel
+              ? t("delete.description", { title: vm.confirmTarget.dayLabel })
+              : t("dailySummary.deleteDescription", { count: vm.confirmTarget?.kind === "delete" ? vm.confirmTarget.ids.length : 0 })
+        }
+        confirmLabel={vm.confirmTarget?.kind === "cleanup" ? t("dailySummary.cleanupConfirm") : t("delete.confirm")}
+        variant="destructive"
+        loading={vm.confirmLoading}
+        error={vm.confirmError}
+        onConfirm={() => void vm.confirmAction()}
+        onCancel={vm.cancelConfirm}
+      />
     </div>
   );
 }

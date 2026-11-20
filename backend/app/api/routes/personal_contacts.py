@@ -9,12 +9,12 @@ Rules carried over from the file-based module are in core/personal_contacts.py.
 """
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.routes.personal import _owner_only, personal_actor
@@ -32,7 +32,12 @@ from app.api.schemas.personal_contacts import (
     PausedChat,
     PhoneIn,
     SuggestionAccept,
+    SuggestionCountsOut,
     SuggestionOut,
+    SuggestionsBulkDecisionIn,
+    SuggestionsBulkResultOut,
+    SuggestionsCleanupIn,
+    SuggestionsDeleteIn,
     TextIn,
     WhatsappContextOut,
     WhatsappMessageIn,
@@ -440,6 +445,44 @@ async def whatsapp_message(payload: WhatsappMessageIn, actor: str = Depends(pers
 
 # --- capture suggestions --------------------------------------------------------------------------
 
+@router.get("/suggestions/counts", response_model=SuggestionCountsOut)
+async def get_suggestion_counts(
+    contact_phone: str | None = None,
+    group_id: uuid.UUID | None = None,
+    keep_days: int = Query(15, ge=1, le=365),
+    actor: str = Depends(personal_actor),
+    db: AsyncSession = Depends(get_db),
+) -> SuggestionCountsOut:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=keep_days)
+    stmt = (
+        select(
+            PersonalCaptureSuggestion.status,
+            func.count(PersonalCaptureSuggestion.id),
+            func.count(PersonalCaptureSuggestion.id).filter(PersonalCaptureSuggestion.created_at < cutoff),
+        )
+        .select_from(PersonalCaptureSuggestion)
+        .outerjoin(PersonalContact, PersonalContact.id == PersonalCaptureSuggestion.contact_id)
+    )
+    if contact_phone:
+        stmt = stmt.where(PersonalContact.phone == rules.normalize_phone(contact_phone))
+    if group_id:
+        stmt = stmt.where(PersonalCaptureSuggestion.group_id == group_id)
+    stmt = stmt.group_by(PersonalCaptureSuggestion.status)
+    counts = {"pending": 0, "accepted": 0, "dismissed": 0}
+    older = 0
+    for st, total, old_count in (await db.execute(stmt)).all():
+        if st in counts:
+            counts[st] = int(total or 0)
+        older += int(old_count or 0)
+    return SuggestionCountsOut(
+        pending=counts["pending"],
+        accepted=counts["accepted"],
+        dismissed=counts["dismissed"],
+        all=counts["pending"] + counts["accepted"] + counts["dismissed"],
+        older_than_15_days=older,
+    )
+
+
 @router.get("/suggestions", response_model=list[SuggestionOut])
 async def list_suggestions(
     suggestion_status: str | None = Query("pending", alias="status"),
@@ -474,6 +517,93 @@ async def _pending_suggestion(db: AsyncSession, suggestion_id: uuid.UUID) -> Per
     return suggestion
 
 
+async def _apply_accept_suggestion(
+    db: AsyncSession,
+    suggestion: PersonalCaptureSuggestion,
+    contact: PersonalContact | None,
+    group: PersonalWhatsAppGroup | None,
+    payload: SuggestionAccept,
+    actor: str,
+) -> None:
+    kind = payload.kind or suggestion.kind
+    title = (payload.title or suggestion.title).strip()
+    details = (payload.details if payload.details is not None else suggestion.details).strip()
+    if not title:
+        raise HTTPException(422, 'Título obrigatório')
+    if group:
+        origin = f"Capturado do grupo WhatsApp — {group.name}"
+        origin += f"\nSolicitante: {suggestion.source_author or suggestion.source_author_id or 'não identificado'}"
+        origin += f"\nMensagem de origem: {suggestion.source_message_ref}"
+    elif contact:
+        origin = f"Capturado do WhatsApp — {contact.name or 'contato'} ({rules.format_phone(contact.phone)})"
+    else:
+        raise HTTPException(409, 'Origem da sugestão indisponível')
+    body = f"{details}\n\n{origin}" if details else origin
+    item: PersonalDemand | PersonalTask | PersonalNote
+    if kind == "demand":
+        if payload.type_id is not None and await db.get(PersonalDemandType, payload.type_id) is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown demand type")
+        from app.api.schemas.personal import PersonalDemandOrigin
+        message = await db.get(PersonalContactMessage, suggestion.message_id) if suggestion.message_id else None
+        source = PersonalDemandOrigin(
+            kind='group' if group else 'contact',
+            group_id=group.id if group else None,
+            group_name=group.name if group else '',
+            contact_id=contact.id if contact else None,
+            contact_name=contact.name if contact else '',
+            author=(suggestion.source_author or suggestion.source_author_id or '') if group else (suggestion.source_author or (message.author if message else '') or (contact.name if contact else '')),
+            author_id=suggestion.source_author_id,
+            message_ref=suggestion.source_message_ref,
+            message_id=suggestion.message_id,
+            captured_at=suggestion.source_at or (message.at if message else None) or suggestion.created_at,
+        )
+        key = suggestion.capture_key if group and suggestion.capture_key else demand_source_key(
+            'group' if group else 'contact',
+            group.whatsapp_id if group else contact.id,
+            suggestion.source_message_ref if group else contact_demand_reference(suggestion.message_id, title, details),
+        )
+        existing = (await db.execute(select(PersonalDemand).where(PersonalDemand.origin_key == key))).scalar_one_or_none()
+        if existing is not None:
+            if payload.type_id is not None and payload.type_id != existing.type_id:
+                raise HTTPException(409, 'Esta origem já tem uma demanda com outro tipo')
+            item = existing
+        else:
+            item = PersonalDemand(
+                title=title,
+                notes=body,
+                type_id=payload.type_id,
+                created_by=actor,
+                origin=source.model_dump(mode='json'),
+                origin_key=key,
+            )
+    elif kind == "task":
+        item = PersonalTask(title=title, notes=body, list_name="Pessoal", reminders=[], created_by=actor)
+    else:
+        item = PersonalNote(title=title, content=body, tags=["whatsapp"], created_by=actor)
+    db.add(item)
+    await db.flush()
+    suggestion.kind = kind
+    suggestion.title = title
+    suggestion.details = details
+    suggestion.status = "accepted"
+    suggestion.created_item_id = item.id
+    suggestion.decided_at = datetime.now(timezone.utc)
+    capture_audit(
+        db,
+        "personal_capture_suggestion",
+        suggestion.id,
+        "accepted",
+        actor,
+        {
+            "created_item_id": str(item.id),
+            "kind": kind,
+            "group_id": str(suggestion.group_id) if suggestion.group_id else None,
+            "contact_id": str(suggestion.contact_id) if suggestion.contact_id else None,
+            "message_ref": suggestion.source_message_ref,
+        },
+    )
+
+
 @router.post("/suggestions/{suggestion_id}:accept", response_model=SuggestionOut)
 async def accept_suggestion(suggestion_id: uuid.UUID, payload: SuggestionAccept, actor: str = Depends(personal_actor),
                             db: AsyncSession = Depends(get_db)) -> SuggestionOut:
@@ -503,56 +633,7 @@ async def accept_suggestion(suggestion_id: uuid.UUID, payload: SuggestionAccept,
         return suggestion_out(suggestion, contact, group)
     if suggestion.status != 'pending':
         raise HTTPException(409, 'Esta sugestão já foi decidida')
-    kind = payload.kind or suggestion.kind
-    title = (payload.title or suggestion.title).strip()
-    details = (payload.details if payload.details is not None else suggestion.details).strip()
-    if not title:
-        raise HTTPException(422, 'Título obrigatório')
-    if group:
-        origin = f"Capturado do grupo WhatsApp — {group.name}"
-        origin += f"\nSolicitante: {suggestion.source_author or suggestion.source_author_id or 'não identificado'}"
-        origin += f"\nMensagem de origem: {suggestion.source_message_ref}"
-    elif contact:
-        origin = f"Capturado do WhatsApp — {contact.name or 'contato'} ({rules.format_phone(contact.phone)})"
-    else:
-        raise HTTPException(409, 'Origem da sugestão indisponível')
-    body = f"{details}\n\n{origin}" if details else origin
-    item: PersonalDemand | PersonalTask | PersonalNote
-    if kind == "demand":
-        if payload.type_id is not None and await db.get(PersonalDemandType, payload.type_id) is None:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown demand type")
-        from app.api.schemas.personal import PersonalDemandOrigin
-        message = await db.get(PersonalContactMessage, suggestion.message_id) if suggestion.message_id else None
-        source = PersonalDemandOrigin(kind='group' if group else 'contact',
-            group_id=group.id if group else None, group_name=group.name if group else '',
-            contact_id=contact.id if contact else None, contact_name=contact.name if contact else '',
-            author=(suggestion.source_author or suggestion.source_author_id or '') if group else (suggestion.source_author or (message.author if message else '') or (contact.name if contact else '')),
-            author_id=suggestion.source_author_id, message_ref=suggestion.source_message_ref,
-            message_id=suggestion.message_id, captured_at=suggestion.source_at or (message.at if message else None) or suggestion.created_at)
-        key = suggestion.capture_key if group and suggestion.capture_key else demand_source_key(
-            'group' if group else 'contact', group.whatsapp_id if group else contact.id,
-            suggestion.source_message_ref if group else contact_demand_reference(suggestion.message_id, title, details))
-        existing = (await db.execute(select(PersonalDemand).where(PersonalDemand.origin_key == key))).scalar_one_or_none()
-        if existing is not None:
-            if payload.type_id is not None and payload.type_id != existing.type_id:
-                raise HTTPException(409, 'Esta origem já tem uma demanda com outro tipo')
-            item = existing
-        else:
-            item = PersonalDemand(title=title, notes=body, type_id=payload.type_id, created_by=actor,
-                                  origin=source.model_dump(mode='json'), origin_key=key)
-    elif kind == "task":
-        item = PersonalTask(title=title, notes=body, list_name="Pessoal", reminders=[], created_by=actor)
-    else:
-        item = PersonalNote(title=title, content=body, tags=["whatsapp"], created_by=actor)
-    db.add(item)
-    await db.flush()
-    suggestion.kind = kind
-    suggestion.title = title
-    suggestion.details = details
-    suggestion.status = "accepted"
-    suggestion.created_item_id = item.id
-    suggestion.decided_at = datetime.now(timezone.utc)
-    capture_audit(db, "personal_capture_suggestion", suggestion.id, "accepted", actor, {"created_item_id": str(item.id), "kind": kind, "group_id": str(suggestion.group_id) if suggestion.group_id else None, "contact_id": str(suggestion.contact_id) if suggestion.contact_id else None, "message_ref": suggestion.source_message_ref})
+    await _apply_accept_suggestion(db, suggestion, contact, group, payload, actor)
     await db.commit()
     await db.refresh(suggestion)
     return suggestion_out(suggestion, contact, group)
@@ -570,6 +651,156 @@ async def dismiss_suggestion(suggestion_id: uuid.UUID, actor: str = Depends(pers
     await db.commit()
     await db.refresh(suggestion)
     return SuggestionOut.model_validate(suggestion)
+
+
+async def _select_pending_for_bulk(
+    db: AsyncSession,
+    payload: SuggestionsBulkDecisionIn,
+) -> list[PersonalCaptureSuggestion]:
+    if not payload.ids and not payload.all_pending:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Informe ids ou all_pending=true")
+    stmt = (
+        select(PersonalCaptureSuggestion)
+        .outerjoin(PersonalContact, PersonalContact.id == PersonalCaptureSuggestion.contact_id)
+        .where(PersonalCaptureSuggestion.status == "pending")
+    )
+    if payload.ids:
+        stmt = stmt.where(PersonalCaptureSuggestion.id.in_(payload.ids))
+    if payload.contact_phone:
+        stmt = stmt.where(PersonalContact.phone == rules.normalize_phone(payload.contact_phone))
+    if payload.group_id:
+        stmt = stmt.where(PersonalCaptureSuggestion.group_id == payload.group_id)
+    stmt = stmt.order_by(PersonalCaptureSuggestion.created_at.asc()).with_for_update(of=PersonalCaptureSuggestion)
+    return list((await db.execute(stmt)).scalars())
+
+
+@router.post("/suggestions:bulk-accept", response_model=SuggestionsBulkResultOut)
+async def bulk_accept_suggestions(
+    payload: SuggestionsBulkDecisionIn,
+    actor: str = Depends(personal_actor),
+    db: AsyncSession = Depends(get_db),
+) -> SuggestionsBulkResultOut:
+    """Accept multiple (or all) pending suggestions at once."""
+    rows = await _select_pending_for_bulk(db, payload)
+    accept_payload = SuggestionAccept(kind=payload.kind, type_id=payload.type_id)
+    affected = 0
+    for suggestion in rows:
+        contact = await db.get(PersonalContact, suggestion.contact_id) if suggestion.contact_id else None
+        group = await db.get(PersonalWhatsAppGroup, suggestion.group_id) if suggestion.group_id else None
+        if not contact and not group:
+            continue
+        await _apply_accept_suggestion(db, suggestion, contact, group, accept_payload, actor)
+        affected += 1
+    await db.commit()
+    return SuggestionsBulkResultOut(affected=affected)
+
+
+@router.post("/suggestions:bulk-dismiss", response_model=SuggestionsBulkResultOut)
+async def bulk_dismiss_suggestions(
+    payload: SuggestionsBulkDecisionIn,
+    actor: str = Depends(personal_actor),
+    db: AsyncSession = Depends(get_db),
+) -> SuggestionsBulkResultOut:
+    """Dismiss multiple (or all) pending suggestions at once."""
+    rows = await _select_pending_for_bulk(db, payload)
+    now = datetime.now(timezone.utc)
+    for suggestion in rows:
+        suggestion.status = "dismissed"
+        suggestion.decided_at = now
+        capture_audit(
+            db,
+            "personal_capture_suggestion",
+            suggestion.id,
+            "dismissed",
+            actor,
+            {
+                "group_id": str(suggestion.group_id) if suggestion.group_id else None,
+                "contact_id": str(suggestion.contact_id) if suggestion.contact_id else None,
+                "bulk": True,
+            },
+        )
+    await db.commit()
+    return SuggestionsBulkResultOut(affected=len(rows))
+
+
+@router.post("/suggestions:delete", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_suggestions(
+    payload: SuggestionsDeleteIn,
+    actor: str = Depends(personal_actor),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete one or more suggestions selected by Marcelo."""
+    _owner_only(actor)
+    rows = list(
+        (
+            await db.execute(
+                select(PersonalCaptureSuggestion)
+                .where(PersonalCaptureSuggestion.id.in_(payload.ids))
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    for suggestion in rows:
+        capture_audit(
+            db,
+            "personal_capture_suggestion",
+            suggestion.id,
+            "deleted",
+            actor,
+            {
+                "status": suggestion.status,
+                "kind": suggestion.kind,
+                "group_id": str(suggestion.group_id) if suggestion.group_id else None,
+                "contact_id": str(suggestion.contact_id) if suggestion.contact_id else None,
+            },
+        )
+    if rows:
+        await db.execute(delete(PersonalCaptureSuggestion).where(PersonalCaptureSuggestion.id.in_([r.id for r in rows])))
+    await db.commit()
+
+
+@router.post("/suggestions:cleanup", response_model=SuggestionsBulkResultOut)
+async def cleanup_suggestions(
+    payload: SuggestionsCleanupIn,
+    actor: str = Depends(personal_actor),
+    db: AsyncSession = Depends(get_db),
+) -> SuggestionsBulkResultOut:
+    """Keep only suggestions from the last ``keep_days`` days (default: 15 days)."""
+    _owner_only(actor)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=payload.keep_days)
+    stmt = (
+        select(PersonalCaptureSuggestion)
+        .outerjoin(PersonalContact, PersonalContact.id == PersonalCaptureSuggestion.contact_id)
+        .where(PersonalCaptureSuggestion.created_at < cutoff)
+    )
+    if payload.status and payload.status != "all":
+        stmt = stmt.where(PersonalCaptureSuggestion.status == payload.status)
+    if payload.contact_phone:
+        stmt = stmt.where(PersonalContact.phone == rules.normalize_phone(payload.contact_phone))
+    if payload.group_id:
+        stmt = stmt.where(PersonalCaptureSuggestion.group_id == payload.group_id)
+    stmt = stmt.with_for_update(of=PersonalCaptureSuggestion)
+    rows = list((await db.execute(stmt)).scalars())
+    for suggestion in rows:
+        capture_audit(
+            db,
+            "personal_capture_suggestion",
+            suggestion.id,
+            "cleaned_up",
+            actor,
+            {
+                "keep_days": payload.keep_days,
+                "status": suggestion.status,
+                "kind": suggestion.kind,
+                "group_id": str(suggestion.group_id) if suggestion.group_id else None,
+                "contact_id": str(suggestion.contact_id) if suggestion.contact_id else None,
+            },
+        )
+    if rows:
+        await db.execute(delete(PersonalCaptureSuggestion).where(PersonalCaptureSuggestion.id.in_([r.id for r in rows])))
+    await db.commit()
+    return SuggestionsBulkResultOut(affected=len(rows))
+
 
 
 # --- the Maia's service rules ---------------------------------------------------------------------

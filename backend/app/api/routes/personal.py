@@ -35,6 +35,9 @@ from app.api.schemas.personal import (
     PersonalTaskCreate,
     PersonalTaskOut,
     PersonalTaskUpdate,
+    PersonalCleanupResultOut,
+    PersonalDailySummariesCleanup,
+    PersonalDailySummariesDelete,
     PersonalDailySummaryOut,
     PersonalDailySummarySave,
     PersonalLocationOut,
@@ -532,6 +535,33 @@ async def save_daily_summary(day: date, payload: PersonalDailySummarySave, actor
     await db.commit()
     await db.refresh(summary_row)
     return summary_row
+
+
+@router.post("/daily-summaries:delete", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_daily_summaries(
+    payload: PersonalDailySummariesDelete,
+    actor: str = Depends(personal_actor),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete one or more daily summaries selected by Marcelo."""
+    _owner_only(actor)
+    await db.execute(delete(PersonalDailySummary).where(PersonalDailySummary.id.in_(payload.ids)))
+    await db.commit()
+
+
+@router.post("/daily-summaries:cleanup", response_model=PersonalCleanupResultOut)
+async def cleanup_daily_summaries(
+    payload: PersonalDailySummariesCleanup,
+    actor: str = Depends(personal_actor),
+    db: AsyncSession = Depends(get_db),
+) -> PersonalCleanupResultOut:
+    """Keep only the last ``keep_days`` days of daily summaries (default: 15 days)."""
+    _owner_only(actor)
+    cutoff = now_local().date() - timedelta(days=payload.keep_days)
+    result = await db.execute(delete(PersonalDailySummary).where(PersonalDailySummary.day < cutoff))
+    await db.commit()
+    return PersonalCleanupResultOut(deleted=result.rowcount or 0)
+
 
 
 # --- combined agenda, reminders, summary -------------------------------------------------------

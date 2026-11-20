@@ -132,6 +132,39 @@ class SuggestionAccept(BaseModel):
     type_id: uuid.UUID | None = None
 
 
+class SuggestionCountsOut(BaseModel):
+    pending: int = 0
+    accepted: int = 0
+    dismissed: int = 0
+    all: int = 0
+    older_than_15_days: int = 0
+
+
+class SuggestionsBulkDecisionIn(BaseModel):
+    ids: list[uuid.UUID] | None = Field(default=None, max_length=500)
+    all_pending: bool = False
+    contact_phone: str | None = None
+    group_id: uuid.UUID | None = None
+    kind: Literal["demand", "task", "note"] | None = None
+    type_id: uuid.UUID | None = None
+
+
+class SuggestionsBulkResultOut(BaseModel):
+    affected: int
+
+
+class SuggestionsDeleteIn(BaseModel):
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+
+
+class SuggestionsCleanupIn(BaseModel):
+    keep_days: int = Field(default=15, ge=1, le=365)
+    contact_phone: str | None = None
+    group_id: uuid.UUID | None = None
+    status: str | None = None
+
+
+
 class AssistantSettingsOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

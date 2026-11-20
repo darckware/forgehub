@@ -336,3 +336,16 @@ class PersonalDailySummaryOut(BaseModel):
     created_by: str
     created_at: datetime
     updated_at: datetime
+
+
+class PersonalDailySummariesDelete(BaseModel):
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+
+
+class PersonalDailySummariesCleanup(BaseModel):
+    keep_days: int = Field(default=15, ge=1, le=365)
+
+
+class PersonalCleanupResultOut(BaseModel):
+    deleted: int
+

@@ -129,3 +129,23 @@ async def test_summary_weather_uses_the_current_location(client, admin_headers, 
     r = await client.get(f"{BASE}/summary", headers=admin_headers, params={"day": "2031-03-10"})
     assert r.status_code == 200, r.text
     assert seen == ["Niterói"]
+
+
+async def test_delete_selected_daily_summaries_is_owner_only(client, admin_headers, agent_headers, cleanup):
+    headers, _ = agent_headers
+    r1 = await client.put(f"{BASE}/daily-summaries/2031-03-10", headers=headers, json={"content": "Resumo 1"})
+    r2 = await client.put(f"{BASE}/daily-summaries/2031-03-11", headers=headers, json={"content": "Resumo 2"})
+    assert r1.status_code == 200 and r2.status_code == 200
+    id1 = r1.json()["id"]
+
+    # Agent cannot delete summaries
+    forbidden = await client.post(f"{BASE}/daily-summaries:delete", headers=headers, json={"ids": [id1]})
+    assert forbidden.status_code == 403
+
+    # Owner can delete selected summaries
+    deleted = await client.post(f"{BASE}/daily-summaries:delete", headers=admin_headers, json={"ids": [id1]})
+    assert deleted.status_code == 204
+
+    listed = await client.get(f"{BASE}/daily-summaries", headers=admin_headers, params={"start": "2031-03-01", "end": "2031-03-31"})
+    assert [s["content"] for s in listed.json()] == ["Resumo 2"]
+

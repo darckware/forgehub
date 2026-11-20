@@ -319,3 +319,62 @@ async def test_assistant_settings_and_state(client, admin_headers, tmp_path, mon
     state = (await client.get(f"{BASE}/assistant-state", headers=admin_headers)).json()
     assert [p["phone"] for p in state["paused"]] == ["5599000000001"]
     assert [t["goal"] for t in state["open_tasks"]] == ["confirmar"]
+
+
+@pytest.mark.asyncio
+async def test_suggestions_counts_bulk_decisions_delete_and_cleanup(client, admin_headers, maia, phones):
+    phone = _phone()
+    phones.append(phone)
+    contact = (await client.put(f"{BASE}/contacts/{phone}", headers=admin_headers, json={"name": "Clara"})).json()
+    contact_id = uuid.UUID(contact["id"])
+    old_time = datetime.now(timezone.utc) - timedelta(days=20)
+    async with AsyncSessionLocal() as db:
+        s1 = PersonalCaptureSuggestion(contact_id=contact_id, kind="task", title="Ligar para Clara")
+        s2 = PersonalCaptureSuggestion(contact_id=contact_id, kind="note", title="Nota da Clara")
+        s3 = PersonalCaptureSuggestion(contact_id=contact_id, kind="demand", title="Pedido antigo", created_at=old_time)
+        s4 = PersonalCaptureSuggestion(contact_id=contact_id, kind="task", title="Outro antigo", created_at=old_time)
+        db.add_all([s1, s2, s3, s4])
+        await db.commit()
+        s1_id, s2_id, s3_id = s1.id, s2.id, s3.id
+
+    counts = (await client.get(f"{BASE}/suggestions/counts", headers=admin_headers, params={"contact_phone": phone})).json()
+    assert counts == {"pending": 4, "accepted": 0, "dismissed": 0, "all": 4, "older_than_15_days": 2}
+
+    # Bulk accept selected
+    acc = await client.post(
+        f"{BASE}/suggestions:bulk-accept",
+        headers=admin_headers,
+        json={"ids": [str(s1_id)]},
+    )
+    assert acc.status_code == 200 and acc.json()["affected"] == 1
+
+    # Bulk dismiss selected
+    dis = await client.post(
+        f"{BASE}/suggestions:bulk-dismiss",
+        headers=admin_headers,
+        json={"ids": [str(s2_id)]},
+    )
+    assert dis.status_code == 200 and dis.json()["affected"] == 1
+
+    counts2 = (await client.get(f"{BASE}/suggestions/counts", headers=admin_headers, params={"contact_phone": phone})).json()
+    assert counts2["pending"] == 2 and counts2["accepted"] == 1 and counts2["dismissed"] == 1 and counts2["all"] == 4
+
+    # Only Marcelo can delete or cleanup suggestions
+    assert (await client.post(f"{BASE}/suggestions:delete", headers=maia, json={"ids": [str(s3_id)]})).status_code == 403
+    assert (await client.post(f"{BASE}/suggestions:cleanup", headers=maia, json={"keep_days": 15, "contact_phone": phone})).status_code == 403
+
+    # Delete one suggestion explicitly
+    del_resp = await client.post(f"{BASE}/suggestions:delete", headers=admin_headers, json={"ids": [str(s3_id)]})
+    assert del_resp.status_code == 204
+
+    # Cleanup suggestions older than 15 days for this contact (removes s4)
+    clean_resp = await client.post(
+        f"{BASE}/suggestions:cleanup",
+        headers=admin_headers,
+        json={"keep_days": 15, "contact_phone": phone},
+    )
+    assert clean_resp.status_code == 200 and clean_resp.json()["affected"] == 1
+
+    counts3 = (await client.get(f"{BASE}/suggestions/counts", headers=admin_headers, params={"contact_phone": phone})).json()
+    assert counts3 == {"pending": 0, "accepted": 1, "dismissed": 1, "all": 2, "older_than_15_days": 0}
+

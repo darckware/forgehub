@@ -97,6 +97,7 @@ const keys = {
   messages: (phone: string) => ["personal", "contact-messages", phone] as const,
   suggestions: (phone: string) => ["personal", "suggestions", phone] as const,
   allSuggestions: (status: string) => ["personal", "suggestions-all", status] as const,
+  suggestionCounts: (groupId?: string, contactPhone?: string) => ["personal", "suggestion-counts", groupId ?? "", contactPhone ?? ""] as const,
   categories: ["personal", "contact-categories"] as const,
   settings: ["personal", "assistant-settings"] as const,
   state: ["personal", "assistant-state"] as const,
@@ -206,6 +207,22 @@ export function useReprocessMessage() {
   });
 }
 
+export interface SuggestionCounts {
+  pending: number;
+  accepted: number;
+  dismissed: number;
+  all: number;
+  older_than_15_days: number;
+}
+
+export function usePersonalSuggestionCounts(groupId?: string, contactPhone?: string) {
+  return useQuery<SuggestionCounts>({
+    queryKey: keys.suggestionCounts(groupId, contactPhone),
+    queryFn: () => apiClient.get(`${BASE}/suggestions/counts${qs({ group_id: groupId, contact_phone: contactPhone })}`),
+    refetchInterval: 30_000,
+  });
+}
+
 export function useAcceptSuggestion() {
   const invalidate = useInvalidatePersonal();
   return useMutation<CaptureSuggestion, Error, { id: string; kind?: SuggestionKind; title?: string; details?: string; type_id?: string | null }>({
@@ -218,6 +235,38 @@ export function useDismissSuggestion() {
   const invalidate = useInvalidatePersonal();
   return useMutation<CaptureSuggestion, Error, string>({
     mutationFn: (id) => apiClient.post(`${BASE}/suggestions/${id}:dismiss`),
+    onSettled: invalidate,
+  });
+}
+
+export function useBulkAcceptSuggestions() {
+  const invalidate = useInvalidatePersonal();
+  return useMutation<{ affected: number }, Error, { ids?: string[]; all_pending?: boolean; group_id?: string; contact_phone?: string; kind?: SuggestionKind; type_id?: string | null }>({
+    mutationFn: (body) => apiClient.post(`${BASE}/suggestions:bulk-accept`, body),
+    onSettled: invalidate,
+  });
+}
+
+export function useBulkDismissSuggestions() {
+  const invalidate = useInvalidatePersonal();
+  return useMutation<{ affected: number }, Error, { ids?: string[]; all_pending?: boolean; group_id?: string; contact_phone?: string }>({
+    mutationFn: (body) => apiClient.post(`${BASE}/suggestions:bulk-dismiss`, body),
+    onSettled: invalidate,
+  });
+}
+
+export function useDeleteSuggestions() {
+  const invalidate = useInvalidatePersonal();
+  return useMutation<void, Error, string[]>({
+    mutationFn: (ids) => apiClient.post(`${BASE}/suggestions:delete`, { ids }),
+    onSettled: invalidate,
+  });
+}
+
+export function useCleanupSuggestions() {
+  const invalidate = useInvalidatePersonal();
+  return useMutation<{ affected: number }, Error, { keep_days?: number; status?: string; group_id?: string; contact_phone?: string }>({
+    mutationFn: (body) => apiClient.post(`${BASE}/suggestions:cleanup`, { keep_days: 15, ...body }),
     onSettled: invalidate,
   });
 }

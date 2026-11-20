@@ -19,6 +19,8 @@ import {
   useCreatePersonalNote,
   useCreatePersonalTask,
   useDeletePersonalItem,
+  useDeletePersonalDailySummaries,
+  useCleanupPersonalDailySummaries,
   usePersonalAgenda,
   usePersonalDailySummaries,
   usePersonalLocation,
@@ -301,10 +303,16 @@ export function readCurrentPosition(geolocation: Geolocation | undefined = globa
 
 export type LocationStatus = "idle" | "locating" | "submitting" | "error";
 
+export type DailySummaryConfirmTarget =
+  | { kind: "delete"; ids: string[]; dayLabel?: string }
+  | { kind: "cleanup"; keepDays: number };
+
 /** Marcelo's current GPS location (one, replaced on each share) and the Maia's daily summaries. */
 export function usePersonalLocationViewModel(geolocation?: Geolocation) {
   const location = usePersonalLocation();
   const setLocation = useSetPersonalLocation();
+  const removeSummaries = useDeletePersonalDailySummaries();
+  const cleanupSummaries = useCleanupPersonalDailySummaries();
   const [status, setStatus] = useState<LocationStatus>("idle");
   const [error, setError] = useState<{ gps: GpsErrorKind } | { message: string } | null>(null);
 
@@ -312,6 +320,13 @@ export function usePersonalLocationViewModel(geolocation?: Geolocation) {
   const [end, setEnd] = useState(todayLocal);
   const summaries = usePersonalDailySummaries(start, end);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [checked, setChecked] = useState<string[]>([]);
+  const [confirmTarget, setConfirmTarget] = useState<DailySummaryConfirmTarget | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+
+  const summaryList = summaries.data ?? [];
+  const visibleIds = summaryList.map((s) => s.id);
+  const allChecked = visibleIds.length > 0 && visibleIds.every((id) => checked.includes(id));
 
   async function shareMyLocation() {
     setError(null);
@@ -334,13 +349,55 @@ export function usePersonalLocationViewModel(geolocation?: Geolocation) {
     status,
     error,
     summaries,
-    summaryList: summaries.data ?? [],
+    summaryList,
     start,
-    setStart,
+    setStart(value: string) {
+      setStart(value);
+      setChecked([]);
+    },
     end,
-    setEnd,
+    setEnd(value: string) {
+      setEnd(value);
+      setChecked([]);
+    },
     expanded,
     toggle: (id: string) => setExpanded((current) => (current === id ? null : id)),
+    checked,
+    isChecked: (id: string) => checked.includes(id),
+    toggleChecked(id: string) {
+      setChecked((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
+    },
+    allChecked,
+    toggleAll() {
+      setChecked(allChecked ? [] : visibleIds);
+    },
+    confirmTarget,
+    confirmError,
+    confirmLoading: removeSummaries.isPending || cleanupSummaries.isPending,
+    askDelete(ids: string[], dayLabel?: string) {
+      setConfirmError(null);
+      if (ids.length > 0) setConfirmTarget({ kind: "delete", ids, dayLabel });
+    },
+    askCleanup(keepDays = 15) {
+      setConfirmError(null);
+      setConfirmTarget({ kind: "cleanup", keepDays });
+    },
+    cancelConfirm: () => setConfirmTarget(null),
+    async confirmAction() {
+      if (!confirmTarget) return;
+      try {
+        if (confirmTarget.kind === "delete") {
+          await removeSummaries.mutateAsync(confirmTarget.ids);
+          setChecked((c) => c.filter((id) => !confirmTarget.ids.includes(id)));
+        } else {
+          await cleanupSummaries.mutateAsync(confirmTarget.keepDays);
+          setChecked([]);
+        }
+        setConfirmTarget(null);
+      } catch (e) {
+        setConfirmError(errorText(e));
+      }
+    },
   };
 }
 
